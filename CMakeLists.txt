@@ -38,6 +38,7 @@ if(RAIKIRI_BUILD_BENCH)
   find_package(benchmark REQUIRED CONFIG)
 endif()
 
+add_subdirectory(libs/common)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
