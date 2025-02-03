@@ -1,0 +1,18 @@
+raikiri (working name) — C++23 low-latency trading framework
+Copyright (c) 2026 the raikiri authors. Licensed under Apache-2.0.
+
+Attributions:
+
+- The shared-memory SPSC ring (libs/shm/include/raikiri/shm/spsc_ring.hpp)
+  derives its layout — padded head/tail indices with process-private cached
+  counterpart indices — from rigtorp::SPSCQueue by Erik Rigtorp
+  (https://github.com/rigtorp/SPSCQueue, MIT license). Reimplemented for
+  placement in shared memory across processes.
+
+- The broadcast ring's per-slot versioning follows the LMAX Disruptor
+  (https://lmax-exchange.github.io/disruptor/) single-writer sequencing
+  design, adapted with seqlock-style validated reads.
+
+- Architectural inspiration: nautilus_trader
+  (https://github.com/nautechsystems/nautilus_trader, LGPL-3.0 — design
+  patterns referenced, no code copied).

@@ -1,0 +1,71 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_COLOR_DIAGNOSTICS": "ON"
+      }
+    },
+    {
+      "name": "dev-asan",
+      "displayName": "Debug + ASan/UBSan",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/build/deps/debug/conan_toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "RAIKIRI_SANITIZE": "address,undefined"
+      }
+    },
+    {
+      "name": "dev-tsan",
+      "displayName": "Debug + TSan",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/build/deps/debug/conan_toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "RAIKIRI_SANITIZE": "thread"
+      }
+    },
+    {
+      "name": "rel",
+      "displayName": "RelWithDebInfo",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/build/deps/relwithdebinfo/conan_toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "bench",
+      "displayName": "Release for benchmarking (pass RAIKIRI_MARCH explicitly on x86 deploy targets)",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/build/deps/release/conan_toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RAIKIRI_WERROR": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev-asan", "configurePreset": "dev-asan" },
+    { "name": "dev-tsan", "configurePreset": "dev-tsan" },
+    { "name": "rel", "configurePreset": "rel" },
+    { "name": "bench", "configurePreset": "bench" }
+  ],
+  "testPresets": [
+    {
+      "name": "base-test",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    { "name": "dev-asan", "inherits": "base-test", "configurePreset": "dev-asan" },
+    { "name": "dev-tsan", "inherits": "base-test", "configurePreset": "dev-tsan" },
+    { "name": "rel", "inherits": "base-test", "configurePreset": "rel" }
+  ]
+}
