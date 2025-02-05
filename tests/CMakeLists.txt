@@ -8,3 +8,5 @@ function(raikiri_add_test name)
 endfunction()
 
 raikiri_add_test(fixed_point_test SRCS common/fixed_point_test.cpp LIBS raikiri::common)
+
+raikiri_add_test(fixed_string_test SRCS common/fixed_string_test.cpp LIBS raikiri::common)
