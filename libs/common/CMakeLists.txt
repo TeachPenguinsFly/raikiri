@@ -1,5 +1,6 @@
 add_library(raikiri_common STATIC
   src/fixed_point.cpp
+  src/platform.cpp
   src/ulid.cpp
 )
 add_library(raikiri::common ALIAS raikiri_common)

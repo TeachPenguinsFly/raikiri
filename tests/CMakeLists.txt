@@ -12,3 +12,5 @@ raikiri_add_test(fixed_point_test SRCS common/fixed_point_test.cpp LIBS raikiri:
 raikiri_add_test(fixed_string_test SRCS common/fixed_string_test.cpp LIBS raikiri::common)
 
 raikiri_add_test(ulid_test SRCS common/ulid_test.cpp LIBS raikiri::common)
+
+raikiri_add_test(platform_test SRCS common/platform_test.cpp LIBS raikiri::common)
