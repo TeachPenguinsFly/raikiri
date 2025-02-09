@@ -29,6 +29,7 @@ if(RAIKIRI_MARCH)
 endif()
 
 find_package(fmt REQUIRED CONFIG)
+find_package(quill REQUIRED CONFIG)
 
 if(RAIKIRI_BUILD_TESTS)
   find_package(GTest REQUIRED CONFIG)
@@ -39,6 +40,7 @@ if(RAIKIRI_BUILD_BENCH)
 endif()
 
 add_subdirectory(libs/common)
+add_subdirectory(libs/log)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
