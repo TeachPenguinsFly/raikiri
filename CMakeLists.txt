@@ -41,6 +41,7 @@ endif()
 
 add_subdirectory(libs/common)
 add_subdirectory(libs/log)
+add_subdirectory(libs/domain)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
