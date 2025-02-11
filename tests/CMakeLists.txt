@@ -16,3 +16,5 @@ raikiri_add_test(ulid_test SRCS common/ulid_test.cpp LIBS raikiri::common)
 raikiri_add_test(platform_test SRCS common/platform_test.cpp LIBS raikiri::common)
 
 raikiri_add_test(identifiers_test SRCS domain/identifiers_test.cpp LIBS raikiri::domain)
+
+raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::domain)
