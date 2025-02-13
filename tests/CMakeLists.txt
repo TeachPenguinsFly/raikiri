@@ -18,3 +18,5 @@ raikiri_add_test(platform_test SRCS common/platform_test.cpp LIBS raikiri::commo
 raikiri_add_test(identifiers_test SRCS domain/identifiers_test.cpp LIBS raikiri::domain)
 
 raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::domain)
+
+raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
