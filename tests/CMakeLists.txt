@@ -22,3 +22,5 @@ raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::d
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
 
 raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
+
+raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)
