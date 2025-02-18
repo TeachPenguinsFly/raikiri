@@ -1,4 +1,5 @@
 add_library(raikiri_shm STATIC
+  src/segment.cpp
 )
 add_library(raikiri::shm ALIAS raikiri_shm)
 
