@@ -30,6 +30,7 @@ endif()
 
 find_package(fmt REQUIRED CONFIG)
 find_package(quill REQUIRED CONFIG)
+find_package(Crc32c REQUIRED CONFIG)
 
 if(RAIKIRI_BUILD_TESTS)
   find_package(GTest REQUIRED CONFIG)
@@ -43,6 +44,7 @@ add_subdirectory(libs/common)
 add_subdirectory(libs/log)
 add_subdirectory(libs/domain)
 add_subdirectory(libs/shm)
+add_subdirectory(libs/journal)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)

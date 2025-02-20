@@ -10,6 +10,7 @@ class RaikiriConan(ConanFile):
         # Later phases add: boost (asio+beast), openssl, simdjson, abseil,
         # libcurl, yyjson, glaze.
         self.requires("fmt/12.2.0")
+        self.requires("crc32c/1.1.2")   # journal frame integrity
         self.requires("quill/12.1.0")
 
     def build_requirements(self):
