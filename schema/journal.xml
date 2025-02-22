@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Journal record schema: the single source of truth for everything that
+  crosses a durability or language boundary. C++ hot writers encode with
+  sbepp-generated codecs; the replay tool and persisterd decode the same
+  headers; a future Go tailer can consume the identical XML. Schema evolution
+  follows SBE rules: append fields, never reorder; bump version.
+
+  Values follow the in-memory model: prices/qtys are instrument-scaled int64
+  ticks/lots, rates and fees are 1e9 fixed-point, times are UnixNanos.
+-->
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+                   package="raikiri.journal"
+                   id="1"
+                   version="1"
+                   semanticVersion="0.1.0"
+                   description="raikiri journal records"
+                   byteOrder="littleEndian">
+  <types>
+    <composite name="messageHeader" description="SBE framing header">
+      <type name="blockLength" primitiveType="uint16"/>
+      <type name="templateId" primitiveType="uint16"/>
+      <type name="schemaId" primitiveType="uint16"/>
+      <type name="version" primitiveType="uint16"/>
+    </composite>
+
+    <type name="timestampNs" primitiveType="uint64" description="UnixNanos"/>
+    <type name="priceTicks" primitiveType="int64"/>
+    <type name="qtyLots" primitiveType="int64"/>
+    <type name="fixedE9" primitiveType="int64"/>
+    <type name="instrumentId" primitiveType="uint64" description="packed venue|market|symbol"/>
+    <type name="clientOrderId" primitiveType="uint64" description="packed strategy|seq"/>
+    <type name="exchangeClientOrderId" primitiveType="char" length="26" description="ULID"/>
+    <type name="venueText" primitiveType="char" length="40" description="venue-minted id, space-padded"/>
+
+    <enum name="venueIdEnum" encodingType="uint8">
+      <validValue name="Binance">1</validValue>
+      <validValue name="Bybit">2</validValue>
+      <validValue name="Okx">3</validValue>
+      <validValue name="Gate">4</validValue>
+      <validValue name="Kucoin">5</validValue>
+      <validValue name="Bingx">6</validValue>
+      <validValue name="Xt">7</validValue>
+      <validValue name="Mexc">8</validValue>
+      <validValue name="Sim">9</validValue>
+    </enum>
+
+    <enum name="sideEnum" encodingType="uint8">
+      <validValue name="Buy">0</validValue>
+      <validValue name="Sell">1</validValue>
+    </enum>
+
+    <enum name="orderEventTypeEnum" encodingType="uint8">
+      <validValue name="Initialized">0</validValue>
+      <validValue name="Denied">1</validValue>
+      <validValue name="Submitted">2</validValue>
+      <validValue name="Accepted">3</validValue>
+      <validValue name="Rejected">4</validValue>
+      <validValue name="Triggered">5</validValue>
+      <validValue name="PendingUpdate">6</validValue>
+      <validValue name="Updated">7</validValue>
+      <validValue name="ModifyRejected">8</validValue>
+      <validValue name="PendingCancel">9</validValue>
+      <validValue name="Canceled">10</validValue>
+      <validValue name="CancelRejected">11</validValue>
+      <validValue name="Expired">12</validValue>
+      <validValue name="Filled">13</validValue>
+      <validValue name="ReconGap">14</validValue>
+      <validValue name="ReconClosed">15</validValue>
+    </enum>
+
+    <enum name="orderTypeEnum" encodingType="uint8">
+      <validValue name="Limit">0</validValue>
+      <validValue name="Market">1</validValue>
+    </enum>
+
+    <enum name="tifEnum" encodingType="uint8">
+      <validValue name="Gtc">0</validValue>
+      <validValue name="Ioc">1</validValue>
+      <validValue name="Fok">2</validValue>
+    </enum>
+
+    <enum name="cmdKindEnum" encodingType="uint8">
+      <validValue name="Create">0</validValue>
+      <validValue name="Cancel">1</validValue>
+    </enum>
+
+    <enum name="connEventEnum" encodingType="uint8">
+      <validValue name="Connected">0</validValue>
+      <validValue name="Disconnected">1</validValue>
+      <validValue name="AuthFailed">2</validValue>
+      <validValue name="Resubscribed">3</validValue>
+    </enum>
+
+    <enum name="liquidityEnum" encodingType="uint8">
+      <validValue name="Unknown">0</validValue>
+      <validValue name="Maker">1</validValue>
+      <validValue name="Taker">2</validValue>
+    </enum>
+  </types>
+
+  <sbe:message name="OrderEventMsg" id="1" description="Order lifecycle event">
+    <field name="eventType" id="1" type="orderEventTypeEnum"/>
+    <field name="side" id="2" type="sideEnum"/>
+    <field name="orderType" id="3" type="orderTypeEnum"/>
+    <field name="tif" id="4" type="tifEnum"/>
+    <field name="flags" id="5" type="uint8" description="bit0 postOnly, bit1 reduceOnly"/>
+    <field name="liquidity" id="6" type="liquidityEnum"/>
+    <field name="instrument" id="7" type="instrumentId"/>
+    <field name="clientOrderIdField" id="8" type="clientOrderId"/>
+    <field name="exchangeClientOrderIdField" id="9" type="exchangeClientOrderId"/>
+    <field name="exchangeOrderIdField" id="10" type="venueText"/>
+    <field name="execIdField" id="11" type="venueText"/>
+    <field name="price" id="12" type="priceTicks"/>
+    <field name="qty" id="13" type="qtyLots"/>
+    <field name="leavesQty" id="14" type="qtyLots"/>
+    <field name="fee" id="15" type="fixedE9"/>
+    <field name="tsEvent" id="16" type="timestampNs"/>
+    <field name="tsInit" id="17" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="OrderCmdMsg" id="2" description="Order command as received/sent">
+    <field name="kind" id="1" type="cmdKindEnum"/>
+    <field name="side" id="2" type="sideEnum"/>
+    <field name="orderType" id="3" type="orderTypeEnum"/>
+    <field name="tif" id="4" type="tifEnum"/>
+    <field name="flags" id="5" type="uint8"/>
+    <field name="instrument" id="6" type="instrumentId"/>
+    <field name="clientOrderIdField" id="7" type="clientOrderId"/>
+    <field name="exchangeClientOrderIdField" id="8" type="exchangeClientOrderId"/>
+    <field name="exchangeOrderIdField" id="9" type="venueText" description="cancels: target id"/>
+    <field name="price" id="10" type="priceTicks"/>
+    <field name="qty" id="11" type="qtyLots"/>
+    <field name="tsCreated" id="12" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="BboMsg" id="3" description="Sampled/changed best bid-offer">
+    <field name="instrument" id="1" type="instrumentId"/>
+    <field name="bid" id="2" type="priceTicks"/>
+    <field name="ask" id="3" type="priceTicks"/>
+    <field name="bidQty" id="4" type="qtyLots"/>
+    <field name="askQty" id="5" type="qtyLots"/>
+    <field name="tsEvent" id="6" type="timestampNs"/>
+    <field name="tsInit" id="7" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="TradeMsg" id="4" description="Public trade tick">
+    <field name="instrument" id="1" type="instrumentId"/>
+    <field name="price" id="2" type="priceTicks"/>
+    <field name="qty" id="3" type="qtyLots"/>
+    <field name="aggressor" id="4" type="sideEnum"/>
+    <field name="tsEvent" id="5" type="timestampNs"/>
+    <field name="tsInit" id="6" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="FundingMsg" id="5" description="Funding rate observation">
+    <field name="instrument" id="1" type="instrumentId"/>
+    <field name="rate" id="2" type="fixedE9"/>
+    <field name="predictedRate" id="3" type="fixedE9"/>
+    <field name="markPrice" id="4" type="priceTicks"/>
+    <field name="nextFundingTime" id="5" type="timestampNs"/>
+    <field name="intervalS" id="6" type="uint32"/>
+    <field name="tsEvent" id="7" type="timestampNs"/>
+    <field name="tsInit" id="8" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="ConnectivityMsg" id="6" description="Connection state transition">
+    <field name="venue" id="1" type="venueIdEnum"/>
+    <field name="event" id="2" type="connEventEnum"/>
+    <field name="streamId" id="3" type="uint32" description="which WS within the gateway"/>
+    <field name="tsInit" id="4" type="timestampNs"/>
+  </sbe:message>
+
+  <sbe:message name="LatencySampleMsg" id="7" description="Histogram snapshot row">
+    <field name="venue" id="1" type="venueIdEnum"/>
+    <field name="metric" id="2" type="uint16" description="metric id, registry in observ"/>
+    <field name="p50Ns" id="3" type="uint64"/>
+    <field name="p99Ns" id="4" type="uint64"/>
+    <field name="p999Ns" id="5" type="uint64"/>
+    <field name="maxNs" id="6" type="uint64"/>
+    <field name="count" id="7" type="uint64"/>
+    <field name="tsInit" id="8" type="timestampNs"/>
+  </sbe:message>
+</sbe:messageSchema>
