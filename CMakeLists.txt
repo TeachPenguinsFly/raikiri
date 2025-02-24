@@ -32,6 +32,7 @@ find_package(fmt REQUIRED CONFIG)
 find_package(quill REQUIRED CONFIG)
 find_package(sbepp REQUIRED CONFIG)
 find_package(Crc32c REQUIRED CONFIG)
+find_package(libpqxx REQUIRED CONFIG)
 
 if(RAIKIRI_BUILD_TESTS)
   find_package(GTest REQUIRED CONFIG)
