@@ -47,6 +47,7 @@ add_subdirectory(libs/domain)
 add_subdirectory(libs/schema)
 add_subdirectory(libs/shm)
 add_subdirectory(libs/journal)
+add_subdirectory(apps/replay)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
