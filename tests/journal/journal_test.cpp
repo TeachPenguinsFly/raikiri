@@ -1,0 +1,210 @@
+#include <raikiri/journal/reader.hpp>
+#include <raikiri/journal/writer.hpp>
+#include <raikiri/schema/codec.hpp>
+
+#include <gtest/gtest.h>
+
+#include <csignal>
+#include <cstdio>
+#include <fcntl.h>
+#include <string>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+namespace raikiri::journal {
+namespace {
+
+using msgs = raikiri_journal::schema::messages;
+
+std::string fresh_dir(const char* name) {
+    const auto dir =
+        "/tmp/raikiri-journal-test-" + std::to_string(::getpid()) + "-" + name;
+    (void)std::system(("rm -rf " + dir).c_str());
+    return dir;
+}
+
+std::uint64_t append_bbo(JournalWriter& writer, std::uint64_t i) {
+    const auto seq = schema::append_msg<msgs::BboMsg>(writer, /*ts_ns=*/i, [&](auto m) {
+        m.instrument(raikiri_journal::types::instrumentId{i});
+        m.bid(raikiri_journal::types::priceTicks{static_cast<std::int64_t>(100 + i)});
+        m.ask(raikiri_journal::types::priceTicks{static_cast<std::int64_t>(101 + i)});
+        m.bidQty(raikiri_journal::types::qtyLots{10});
+        m.askQty(raikiri_journal::types::qtyLots{20});
+        m.tsEvent(raikiri_journal::types::timestampNs{i});
+        m.tsInit(raikiri_journal::types::timestampNs{i});
+    });
+    EXPECT_TRUE(seq.has_value());
+    return *seq;
+}
+
+TEST(Journal, WriteReadRoundTrip) {
+    const auto dir = fresh_dir("roundtrip");
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+
+    constexpr std::uint64_t k_count = 100;
+    for (std::uint64_t i = 1; i <= k_count; ++i) {
+        EXPECT_EQ(append_bbo(*writer, i), i); // seqs are 1-based and dense
+    }
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    for (std::uint64_t i = 1; i <= k_count; ++i) {
+        ASSERT_EQ(reader->next(frame), ReadResult::Item) << i;
+        EXPECT_EQ(frame.seq, i);
+        EXPECT_EQ(frame.schema_id, schema::message_id<msgs::BboMsg>());
+        const auto m = schema::view_msg<msgs::BboMsg>(frame.payload);
+        EXPECT_EQ(m.instrument().value(), i);
+        EXPECT_EQ(m.bid().value(), static_cast<std::int64_t>(100 + i));
+    }
+    EXPECT_EQ(reader->next(frame), ReadResult::Empty);
+}
+
+TEST(Journal, RotationIsSeamlessForTheReader) {
+    const auto dir = fresh_dir("rotation");
+    // Tiny segments force several rotations.
+    auto writer = JournalWriter::open(dir, "journal", /*segment_bytes=*/8192);
+    ASSERT_TRUE(writer.has_value());
+
+    constexpr std::uint64_t k_count = 500;
+    for (std::uint64_t i = 1; i <= k_count; ++i) {
+        append_bbo(*writer, i);
+    }
+    EXPECT_GT(writer->segment_seq(), 0U) << "expected at least one rotation";
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    for (std::uint64_t i = 1; i <= k_count; ++i) {
+        ASSERT_EQ(reader->next(frame), ReadResult::Item) << i;
+        ASSERT_EQ(frame.seq, i); // dense across segment boundaries
+    }
+    EXPECT_EQ(reader->next(frame), ReadResult::Empty);
+}
+
+TEST(Journal, TailFollowSeesLiveAppends) {
+    const auto dir = fresh_dir("tail");
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+    append_bbo(*writer, 1);
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    ASSERT_EQ(reader->next(frame), ReadResult::Item);
+    EXPECT_EQ(reader->next(frame), ReadResult::Empty);
+
+    append_bbo(*writer, 2);
+    ASSERT_EQ(reader->next(frame), ReadResult::Item); // live tail pickup
+    EXPECT_EQ(frame.seq, 2U);
+}
+
+TEST(Journal, OpenAfterResumesAtCursor) {
+    const auto dir = fresh_dir("cursor");
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+    for (std::uint64_t i = 1; i <= 10; ++i) {
+        append_bbo(*writer, i);
+    }
+
+    auto reader = JournalReader::open_after(dir, "journal", /*after_seq=*/5);
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    ASSERT_EQ(reader->next(frame), ReadResult::Item);
+    EXPECT_EQ(frame.seq, 6U);
+}
+
+TEST(Journal, RecoveryTruncatesCorruptTail) {
+    const auto dir = fresh_dir("recovery");
+    std::uint64_t last_valid = 0;
+    {
+        auto writer = JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        for (std::uint64_t i = 1; i <= 20; ++i) {
+            last_valid = append_bbo(*writer, i);
+        }
+    }
+    // Machine-crash simulation: flip a byte inside the LAST frame's payload.
+    // (committed_bytes still claims it is valid — recovery must not care.)
+    const auto path = dir + "/journal.000000.rj";
+    const int fd = ::open(path.c_str(), O_RDWR);
+    ASSERT_GE(fd, 0);
+    // committed_bytes sits at offset 40 in the file header (magic 8 + abi 4 +
+    // pad 4 + segment_seq 8 + base_record_seq 8 + created_ns 8).
+    std::uint64_t committed{};
+    ASSERT_EQ(::pread(fd, &committed, 8, 40), 8);
+    const std::uint64_t stride = (committed - k_header_bytes) / 20; // 20 equal frames
+    const auto stomp_at = static_cast<off_t>(k_header_bytes + 19 * stride + stride / 2);
+    char byte{};
+    ASSERT_EQ(::pread(fd, &byte, 1, stomp_at), 1);
+    byte = static_cast<char>(byte ^ 0x5A);
+    ASSERT_EQ(::pwrite(fd, &byte, 1, stomp_at), 1);
+    ::close(fd);
+
+    // Reopen: the CRC walk must stop at frame 19 and resume seq numbering.
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+    EXPECT_EQ(writer->next_seq(), last_valid) << "frame 20 was torn; next append reuses its seq";
+
+    const auto reseq = append_bbo(*writer, 999);
+    EXPECT_EQ(reseq, last_valid);
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    std::uint64_t seen = 0;
+    while (reader->next(frame) == ReadResult::Item) {
+        ++seen;
+        EXPECT_EQ(frame.seq, seen);
+    }
+    EXPECT_EQ(seen, 20U); // 19 originals + 1 re-appended
+}
+
+// The flagship crash test: a child process appends at full speed until
+// SIGKILL. Whatever it managed to commit must read back as a dense,
+// CRC-clean prefix — no torn frame ever visible to a reader.
+TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
+    const auto dir = fresh_dir("kill9");
+
+    const pid_t child = ::fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        auto writer = JournalWriter::open(dir, "journal", /*segment_bytes=*/1 << 20);
+        if (!writer.has_value()) {
+            ::_exit(2);
+        }
+        for (std::uint64_t i = 1;; ++i) {
+            (void)append_bbo(*writer, i);
+        }
+    }
+
+    ::usleep(100'000); // let it write for ~100ms
+    ASSERT_EQ(::kill(child, SIGKILL), 0);
+    int status = 0;
+    ASSERT_EQ(::waitpid(child, &status, 0), child);
+    ASSERT_TRUE(WIFSIGNALED(status));
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    std::uint64_t expect = 1;
+    ReadResult result{};
+    while ((result = reader->next(frame)) == ReadResult::Item) {
+        ASSERT_EQ(frame.seq, expect) << "gap or reorder in committed prefix";
+        const auto m = schema::view_msg<msgs::BboMsg>(frame.payload);
+        ASSERT_EQ(m.instrument().value(), expect); // payload intact
+        ++expect;
+    }
+    EXPECT_EQ(result, ReadResult::Empty) << "no corruption below the watermark";
+    EXPECT_GT(expect, 100U) << "child should have committed a meaningful number of frames";
+
+    // And a writer can take over the journal exactly where it died.
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+    EXPECT_EQ(writer->next_seq(), expect);
+}
+
+} // namespace
+} // namespace raikiri::journal

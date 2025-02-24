@@ -1,5 +1,6 @@
 add_library(raikiri_journal STATIC
   src/detail.cpp
+  src/reader.cpp
   src/writer.cpp
 )
 add_library(raikiri::journal ALIAS raikiri_journal)
