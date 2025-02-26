@@ -1,5 +1,6 @@
 add_library(raikiri_persist STATIC
   src/mapper.cpp
+  src/sink.cpp
 )
 add_library(raikiri::persist ALIAS raikiri_persist)
 
