@@ -50,6 +50,7 @@ add_subdirectory(libs/shm)
 add_subdirectory(libs/journal)
 add_subdirectory(libs/persist)
 add_subdirectory(apps/replay)
+add_subdirectory(apps/persisterd)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
