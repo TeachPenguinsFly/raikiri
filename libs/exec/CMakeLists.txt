@@ -1,5 +1,6 @@
 add_library(raikiri_exec STATIC
   src/caps.cpp
+  src/venue.cpp
 )
 add_library(raikiri::exec ALIAS raikiri_exec)
 
