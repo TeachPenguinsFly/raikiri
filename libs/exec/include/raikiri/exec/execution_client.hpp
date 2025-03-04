@@ -1,0 +1,113 @@
+#pragma once
+
+// Execution side of a venue adapter.
+//
+// submit()/cancel() return nothing: every outcome — venue ack over the user
+// stream, REST-response ack, fill, and the locally-synthesized Rejected
+// when the transport itself fails — arrives as an OrderEvent through the
+// GatewaySink. The Go predecessor split outcomes between a return value and
+// a status publisher, and the seams between those two paths are where
+// lifecycle bugs lived. One path, always.
+//
+// Transport is an adapter-internal choice (REST today; WS-trade or FIX where
+// the venue offers them — see VenueCaps); the contract does not change.
+//
+// Reconciliation is part of the SAME contract because crash-only recovery
+// depends on it: on every (re)attach the gateway pulls reports and the OMS
+// synthesizes whatever events were missed. An adapter without working
+// reports is not production-credible, so the methods are pure virtual, not
+// optional.
+
+#include <raikiri/domain/identifiers.hpp>
+#include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order.hpp>
+#include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/exec/error.hpp>
+
+#include <expected>
+#include <span>
+#include <vector>
+
+namespace raikiri::exec {
+
+struct OrderStatusReport {
+    ExchangeClientOrderId exchange_client_order_id{};
+    ExchangeOrderId exchange_order_id{};
+    InstrumentId instrument{};
+    Side side{Side::Buy};
+    OrderStatus status{OrderStatus::Accepted};
+    PriceTicks price{};
+    QtyLots qty{};
+    QtyLots leaves{};
+    UnixNanos ts_venue{};
+};
+
+struct FillReport {
+    ExecId exec_id{};
+    ExchangeOrderId exchange_order_id{};
+    ExchangeClientOrderId exchange_client_order_id{};
+    InstrumentId instrument{};
+    Side side{Side::Buy};
+    PriceTicks price{};
+    QtyLots qty{};
+    FixedE9 fee{};
+    std::uint8_t liquidity{0}; // 0 unknown, 1 maker, 2 taker
+    UnixNanos ts_venue{};
+};
+
+struct PositionReport {
+    InstrumentId instrument{};
+    QtyLots net_qty{};   // signed: positive long, negative short
+    PriceTicks avg_entry{};
+    UnixNanos ts_venue{};
+};
+
+class ExecutionClient {
+public:
+    ExecutionClient() = default;
+    ExecutionClient(const ExecutionClient&) = delete;
+    ExecutionClient& operator=(const ExecutionClient&) = delete;
+    virtual ~ExecutionClient() = default;
+
+    // Cold lifecycle: user-stream connect/auth, warm REST keep-alives.
+    virtual std::expected<void, VenueError> start() = 0;
+    virtual void stop() = 0; // must be idempotent (teardown calls it twice)
+    [[nodiscard]] virtual bool connected() const noexcept = 0;
+
+    // Hot path. noexcept: a throwing submit on the firing path is a bug we
+    // want as std::terminate, not as an unwound half-sent order.
+    virtual void submit(const OrderCmd& cmd) noexcept = 0;
+    virtual void cancel(const OrderCmd& cmd) noexcept = 0;
+
+    // Native price/qty modify. Callers MUST consult VenueCaps::amend_order
+    // first; the default is a no-op precisely so that an unchecked call on a
+    // non-amending venue does nothing rather than something surprising —
+    // the OMS treats "amend unsupported" as cancel+replace at a higher level.
+    virtual void amend(const OrderCmd& cmd) noexcept { (void)cmd; }
+
+    // Default: loop over cancel(). Venues with native batch endpoints
+    // override (see VenueCaps::batch_cancel).
+    virtual void cancel_batch(std::span<const OrderCmd> cmds) noexcept {
+        for (const auto& cmd : cmds) {
+            cancel(cmd);
+        }
+    }
+
+    // Cold reconciliation pulls (REST). Called on start and re-attach.
+    [[nodiscard]] virtual std::expected<std::vector<OrderStatusReport>, VenueError>
+    open_order_reports(MarketType market) = 0;
+
+    // Targeted recovery of one in-doubt order (crash between journal intent
+    // and venue verdict). Pure virtual: every venue can query by client id,
+    // and recovery is not optional equipment.
+    [[nodiscard]] virtual std::expected<OrderStatusReport, VenueError>
+    query_order(const ExchangeClientOrderId& id, MarketType market) = 0;
+
+    [[nodiscard]] virtual std::expected<std::vector<FillReport>, VenueError>
+    fill_reports(MarketType market, UnixNanos since) = 0;
+
+    [[nodiscard]] virtual std::expected<std::vector<PositionReport>, VenueError>
+    position_reports(MarketType market) = 0;
+};
+
+} // namespace raikiri::exec
