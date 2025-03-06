@@ -1,4 +1,5 @@
 add_library(raikiri_oms STATIC
+  src/order_store.cpp
 )
 add_library(raikiri::oms ALIAS raikiri_oms)
 
