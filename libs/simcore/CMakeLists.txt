@@ -1,6 +1,7 @@
 add_library(raikiri_simcore STATIC
   src/book.cpp
   src/engine.cpp
+  src/mdgen.cpp
 )
 add_library(raikiri::simcore ALIAS raikiri_simcore)
 
