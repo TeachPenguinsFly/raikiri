@@ -22,7 +22,7 @@ else
 endif
 DEPS_DIR := build/deps/$(shell echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
 
-.PHONY: deps configure build test bench fmt clean
+.PHONY: deps configure build test bench demo fmt clean
 
 deps:
 	conan install . --output-folder=$(DEPS_DIR) --build=missing \
@@ -38,6 +38,11 @@ build:
 test: build
 	ctest --preset $(PRESET)
 
+demo:
+	@test -f build/deps/release/conan_toolchain.cmake || $(MAKE) deps PRESET=bench
+	cmake --preset bench > /dev/null
+	cmake --build --preset bench --target launcher gatewayd strategyd
+	./build/bench/apps/launcher/launcher --duration 10
 
 bench:
 	$(MAKE) build PRESET=bench

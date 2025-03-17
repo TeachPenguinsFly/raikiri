@@ -60,6 +60,7 @@ add_subdirectory(apps/replay)
 add_subdirectory(apps/persisterd)
 add_subdirectory(apps/gatewayd)
 add_subdirectory(apps/strategyd)
+add_subdirectory(apps/launcher)
 
 if(RAIKIRI_BUILD_TESTS)
   add_subdirectory(tests)
