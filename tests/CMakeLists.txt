@@ -23,6 +23,8 @@ raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journa
 raikiri_add_test(mapper_test SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema)
 target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE_DIR}/sql")
 
+raikiri_add_test(secret_test SRCS config/secret_test.cpp LIBS raikiri::config)
+
 raikiri_add_test(venue_contract_test SRCS exec/venue_contract_test.cpp LIBS raikiri::exec)
 
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)

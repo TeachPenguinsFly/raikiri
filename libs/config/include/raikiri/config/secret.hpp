@@ -1,0 +1,116 @@
+#pragma once
+
+// Secret material handling.
+//
+// The rule this file exists to enforce: a config file names WHERE a secret
+// lives, never what it is. Nothing here is ever journaled, logged, sent over
+// shared memory, or written to Postgres — the only thing safe to emit about
+// a key is its fingerprint.
+//
+// Only gateway processes ever resolve secrets. The strategy kernel, the
+// persister and the tools run without credentials in their address space at
+// all, which is one of the concrete wins of splitting venues into their own
+// processes: compromising the strategy yields no keys.
+//
+// Storage hardening: pages are mlock'd so keys cannot reach swap, and the
+// buffer is explicitly zeroized on destruction (through a volatile write the
+// optimizer may not elide). Gateways additionally disable core dumps — a
+// core file containing signing keys is a breach, not a debugging aid.
+
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <string_view>
+
+namespace raikiri::config {
+
+enum class SecretError : std::uint8_t {
+    TooLarge,       // longer than k_max_bytes
+    NotFound,       // env var unset / file missing / command produced nothing
+    ReadFailed,     // I/O or permission failure
+    CommandFailed,  // exec provider: non-zero exit
+    BadReference,   // malformed "scheme:payload"
+    UnknownScheme,
+};
+
+[[nodiscard]] std::string_view to_string(SecretError err) noexcept;
+
+// A locked, zeroizing byte buffer. Non-copyable and non-movable on purpose:
+// every copy is another place a key can be forgotten, so callers hold it by
+// reference and it dies exactly where it was born.
+class Secret {
+public:
+    static constexpr std::size_t k_max_bytes = 512;
+
+    Secret() noexcept;
+    ~Secret();
+    Secret(const Secret&) = delete;
+    Secret& operator=(const Secret&) = delete;
+    Secret(Secret&&) = delete;
+    Secret& operator=(Secret&&) = delete;
+
+    [[nodiscard]] std::expected<void, SecretError> assign(std::string_view value) noexcept;
+
+    // The raw bytes, for signing. Deliberately awkward to store: the span is
+    // only valid while this Secret lives.
+    [[nodiscard]] std::string_view view() const noexcept;
+
+    [[nodiscard]] std::size_t size() const noexcept { return len_; }
+    [[nodiscard]] bool empty() const noexcept { return len_ == 0; }
+
+    // Safe to log: "sha256:1a2b3c4d" over the secret plus a fixed salt, so
+    // the digest cannot be matched against a rainbow table of candidate
+    // keys. Enough to answer "did the right key load?" and nothing more.
+    [[nodiscard]] std::string fingerprint() const;
+
+    void clear() noexcept;
+
+private:
+    alignas(4096) char buf_[k_max_bytes]{};
+    std::size_t len_{0};
+    bool locked_{false};
+};
+
+// Where a secret comes from, parsed from a config string:
+//   env:BYBIT_API_KEY                     development default
+//   file:/run/credentials/bybit.key       systemd LoadCredential, k8s secrets
+//   exec:op read op://trading/bybit/key   1Password, vault, any CLI
+// A bare string with no scheme is treated as env: for convenience.
+struct SecretRef {
+    enum class Scheme : std::uint8_t { Env, File, Exec };
+
+    Scheme scheme{Scheme::Env};
+    std::string payload;
+
+    [[nodiscard]] static std::expected<SecretRef, SecretError> parse(std::string_view spec);
+};
+
+// Resolvers. Each trims one trailing newline — every secret manager and
+// text editor adds one, and a signature computed over "key\n" fails in a way
+// that looks like a permissions problem for hours.
+class SecretProvider {
+public:
+    SecretProvider() = default;
+    SecretProvider(const SecretProvider&) = delete;
+    SecretProvider& operator=(const SecretProvider&) = delete;
+    virtual ~SecretProvider() = default;
+
+    [[nodiscard]] virtual std::expected<void, SecretError> resolve(const SecretRef& ref,
+                                                                   Secret& out) = 0;
+};
+
+// The default provider: dispatches on the reference's scheme. Exec runs the
+// command through /bin/sh with the environment intact so `op`, `vault` and
+// friends can find their own session state.
+class DefaultSecretProvider final : public SecretProvider {
+public:
+    [[nodiscard]] std::expected<void, SecretError> resolve(const SecretRef& ref,
+                                                           Secret& out) override;
+};
+
+// Refuses to dump core. Called by gateway processes at startup, before any
+// secret is resolved.
+void disable_core_dumps() noexcept;
+
+} // namespace raikiri::config
