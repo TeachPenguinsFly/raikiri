@@ -25,6 +25,9 @@ target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE
 
 raikiri_add_test(secret_test SRCS config/secret_test.cpp LIBS raikiri::config)
 
+raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::net)
+raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
+
 raikiri_add_test(venue_contract_test SRCS exec/venue_contract_test.cpp LIBS raikiri::exec)
 
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)
