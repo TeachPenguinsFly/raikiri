@@ -1,0 +1,537 @@
+#include <raikiri/net/rest_client.hpp>
+
+#include <raikiri/net/io_context.hpp>
+
+#include <boost/asio/error.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/host_name_verification.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http/field.hpp>
+#include <boost/beast/http/message.hpp>
+#include <boost/beast/http/read.hpp>
+#include <boost/beast/http/string_body.hpp>
+#include <boost/beast/http/verb.hpp>
+#include <boost/beast/http/write.hpp>
+#include <boost/beast/ssl/ssl_stream.hpp>
+
+#include <openssl/ssl.h>
+
+#include <chrono>
+#include <cstdint>
+#include <deque>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace raikiri::net {
+
+namespace {
+
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+namespace http = boost::beast::http;
+namespace ssl = boost::asio::ssl;
+using tcp = boost::asio::ip::tcp;
+
+using TlsStream = beast::ssl_stream<beast::tcp_stream>;
+
+constexpr std::string_view k_user_agent = "raikiri/0.1";
+
+// Venues reap sockets that have been silent for a minute or so without ever
+// saying that they did. Finding out on an order costs a full connect plus TLS
+// at precisely the moment latency matters, so idle sockets get replaced on
+// our schedule instead of theirs.
+constexpr std::uint64_t k_idle_reconnect_ns = 30'000'000'000ULL;
+
+// Waiters allowed per pooled connection before send() starts refusing. Deep
+// enough to ride out one slow response, shallow enough that a stalled venue
+// is reported as down instead of silently accumulating orders that will be
+// stale by the time they leave.
+constexpr std::size_t k_queue_depth_per_conn = 8;
+
+constexpr std::size_t k_no_slot = static_cast<std::size_t>(-1);
+
+[[nodiscard]] bool is_ip_literal(const std::string& host) noexcept {
+    boost::system::error_code ec;
+    static_cast<void>(asio::ip::make_address(host, ec));
+    return !ec;
+}
+
+[[nodiscard]] http::verb to_verb(HttpMethod method) noexcept {
+    switch (method) {
+    case HttpMethod::Get:
+        return http::verb::get;
+    case HttpMethod::Post:
+        return http::verb::post;
+    case HttpMethod::Put:
+        return http::verb::put;
+    case HttpMethod::Delete:
+        return http::verb::delete_;
+    }
+    return http::verb::post;
+}
+
+} // namespace
+
+namespace detail {
+
+// Lifetime works the same way as in WsClient: every completion handler holds a
+// shared_ptr to the pool so the reactor can drain queued handlers after the
+// RestClient is gone, a `dead_` flag makes those handlers no-ops so no
+// callback reaches a destroyed caller, and each connection attempt owns a
+// separate Conn kept alive by its own handlers. The last part matters more
+// here than for websockets: an in-flight request's serialized bytes live in
+// Conn::req, and a socket that failed cannot be reused anyway — an
+// ssl::stream has no way back to a usable state once its handshake or
+// transport breaks — so recovery is always a fresh Conn, never a reset one.
+class RestPool : public std::enable_shared_from_this<RestPool> {
+public:
+    RestPool(asio::io_context& ioc, RestConfig config)
+        : ioc_{ioc},
+          cfg_{std::move(config)},
+          tls_{ssl::context::tls_client},
+          resolver_{ioc},
+          // A pool of zero would accept requests it can never send; one warm
+          // connection is the floor.
+          slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
+        if (cfg_.verify_tls) {
+            boost::system::error_code ignored;
+            tls_.set_default_verify_paths(ignored);
+            tls_.set_verify_mode(ssl::verify_peer);
+            tls_.set_verify_callback(ssl::host_name_verification{cfg_.host});
+        } else {
+            tls_.set_verify_mode(ssl::verify_none);
+        }
+        host_header_ = cfg_.port == "443" ? cfg_.host : cfg_.host + ":" + cfg_.port;
+    }
+
+    void start() {
+        if (dead_ || started_) {
+            return;
+        }
+        started_ = true;
+        ensure_connections(true);
+    }
+
+    void stop() {
+        started_ = false;
+        resolver_.cancel();
+        for (std::size_t i = 0; i < slots_.size(); ++i) {
+            release_slot(i);
+        }
+        // Queued callbacks are dropped rather than failed: stop() is a
+        // teardown path, and invoking completion handlers while the owner is
+        // dismantling itself is how a shutdown turns into a crash.
+        queue_.clear();
+        dispatched_ = 0;
+    }
+
+    void shutdown() noexcept {
+        dead_ = true;
+        try {
+            stop();
+        } catch (...) {
+            // Destructor path: nothing left to report to.
+        }
+    }
+
+    [[nodiscard]] bool send(const RestRequest& request, RestCallback on_complete) {
+        if (dead_) {
+            return false;
+        }
+        Pending pending{build_request(request), std::move(on_complete), clock_.wall()};
+
+        // Dispatching straight into async_write keeps the hot path one
+        // syscall deep. It cannot re-enter the caller: an async operation
+        // never completes inline, so the callback is always a later poll().
+        if (const std::size_t idx = find_free_slot(); idx != k_no_slot) {
+            dispatch(idx, std::move(pending));
+            return true;
+        }
+        if (queue_.size() >= slots_.size() * k_queue_depth_per_conn) {
+            return false;
+        }
+        queue_.push_back(std::move(pending));
+        ensure_connections(false);
+        return true;
+    }
+
+    [[nodiscard]] std::size_t in_flight() const noexcept { return dispatched_ + queue_.size(); }
+
+    void keepalive(UnixNanos now) {
+        if (dead_) {
+            return;
+        }
+        for (std::size_t i = 0; i < slots_.size(); ++i) {
+            const auto& conn = slots_[i].conn;
+            if (!conn || !conn->ready || conn->busy) {
+                continue;
+            }
+            if (now.ns > conn->last_used.ns && now.ns - conn->last_used.ns > k_idle_reconnect_ns) {
+                release_slot(i);
+            }
+        }
+        ensure_connections(true);
+    }
+
+private:
+    struct Conn {
+        Conn(asio::io_context& ioc, ssl::context& tls) : stream{ioc.get_executor(), tls} {}
+
+        TlsStream stream;
+        beast::flat_buffer buffer;
+        http::request<http::string_body> req;
+        http::response<http::string_body> res;
+        RestCallback cb;
+        UnixNanos sent{};
+        UnixNanos last_used{};
+        bool ready{false};
+        bool busy{false};
+    };
+
+    struct Slot {
+        std::shared_ptr<Conn> conn;
+        std::uint64_t generation{0};
+    };
+
+    struct Pending {
+        http::request<http::string_body> req;
+        RestCallback cb;
+        UnixNanos queued{};
+    };
+
+    [[nodiscard]] bool current(std::size_t idx, std::uint64_t gen,
+                               const std::shared_ptr<Conn>& conn) const noexcept {
+        return !dead_ && idx < slots_.size() && slots_[idx].generation == gen &&
+               slots_[idx].conn == conn;
+    }
+
+    [[nodiscard]] std::size_t find_free_slot() const noexcept {
+        for (std::size_t i = 0; i < slots_.size(); ++i) {
+            const auto& conn = slots_[i].conn;
+            if (conn && conn->ready && !conn->busy) {
+                return i;
+            }
+        }
+        return k_no_slot;
+    }
+
+    [[nodiscard]] http::request<http::string_body> build_request(const RestRequest& request) const {
+        http::request<http::string_body> req{to_verb(request.method), request.target, 11};
+        req.set(http::field::host, host_header_);
+        req.set(http::field::user_agent, k_user_agent);
+        if (!request.content_type.empty()) {
+            req.set(http::field::content_type, request.content_type);
+        }
+        // Caller headers last so a venue-specific signature header can
+        // override anything above it.
+        for (const auto& header : request.headers) {
+            req.set(header.name, header.value);
+        }
+        req.keep_alive(true);
+        req.body() = std::string{request.body};
+        req.prepare_payload();
+        return req;
+    }
+
+    // `eager` distinguishes "keep the pool warm" (start, keepalive) from
+    // "somebody is waiting" (a queued request). Reconnecting eagerly after a
+    // failure would turn an unreachable endpoint into a connect storm that
+    // spins the gateway loop, so recovery is demand-driven.
+    void ensure_connections(bool eager) {
+        if (dead_) {
+            return;
+        }
+        for (std::size_t i = 0; i < slots_.size(); ++i) {
+            if (!slots_[i].conn && (eager || !queue_.empty())) {
+                connect_slot(i);
+            }
+        }
+    }
+
+    void connect_slot(std::size_t idx) {
+        if (dead_ || slots_[idx].conn) {
+            return;
+        }
+        const auto gen = ++generation_;
+        slots_[idx].generation = gen;
+        auto conn = std::make_shared<Conn>(ioc_, tls_);
+        slots_[idx].conn = conn;
+        resolver_.async_resolve(cfg_.host, cfg_.port,
+                                [self = shared_from_this(), idx, gen, conn](
+                                    const beast::error_code& ec,
+                                    const tcp::resolver::results_type& results) {
+                                    self->on_resolve(idx, gen, conn, ec, results);
+                                });
+    }
+
+    void on_resolve(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+                    const beast::error_code& ec, const tcp::resolver::results_type& results) {
+        if (!current(idx, gen, conn)) {
+            return;
+        }
+        if (ec) {
+            on_setup_failed(idx, ec);
+            return;
+        }
+        auto& lowest = beast::get_lowest_layer(conn->stream);
+        lowest.expires_after(std::chrono::milliseconds{cfg_.connect_timeout_ms});
+        lowest.async_connect(results, [self = shared_from_this(), idx, gen, conn](
+                                          const beast::error_code& connect_ec, const tcp::endpoint&) {
+            self->on_connect(idx, gen, conn, connect_ec);
+        });
+    }
+
+    void on_connect(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+                    const beast::error_code& ec) {
+        if (!current(idx, gen, conn)) {
+            return;
+        }
+        if (ec) {
+            on_setup_failed(idx, ec);
+            return;
+        }
+        // No SNI, no certificate selection at the venue's edge, no handshake.
+        // RFC 6066 forbids IP literals there and OpenSSL refuses to set one,
+        // so loopback test servers skip the extension entirely.
+        if (!is_ip_literal(cfg_.host) &&
+            SSL_set_tlsext_host_name(conn->stream.native_handle(), cfg_.host.c_str()) != 1) {
+            on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
+            return;
+        }
+        conn->stream.async_handshake(
+            ssl::stream_base::client,
+            [self = shared_from_this(), idx, gen, conn](const beast::error_code& tls_ec) {
+                self->on_tls(idx, gen, conn, tls_ec);
+            });
+    }
+
+    void on_tls(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+                const beast::error_code& ec) {
+        if (!current(idx, gen, conn)) {
+            return;
+        }
+        if (ec) {
+            on_setup_failed(idx, ec);
+            return;
+        }
+        beast::get_lowest_layer(conn->stream).expires_never();
+        conn->ready = true;
+        conn->last_used = clock_.wall();
+        pump();
+    }
+
+    void on_setup_failed(std::size_t idx, const beast::error_code& ec) {
+        release_slot(idx);
+        // Nothing is going to drain the queue: an endpoint that refused this
+        // connection will refuse the retry too. Every waiter completes as a
+        // transport failure so the adapter can synthesize rejects, because an
+        // order left in doubt is strictly worse than an order rejected.
+        fail_queue(describe(ec));
+    }
+
+    void dispatch(std::size_t idx, Pending&& pending) {
+        auto conn = slots_[idx].conn;
+        const auto gen = slots_[idx].generation;
+
+        conn->busy = true;
+        conn->cb = std::move(pending.cb);
+        conn->req = std::move(pending.req);
+        conn->res = {};
+        conn->buffer.clear();
+        conn->sent = clock_.wall();
+        ++dispatched_;
+
+        beast::get_lowest_layer(conn->stream).expires_after(
+            std::chrono::milliseconds{cfg_.timeout_ms});
+        http::async_write(conn->stream, conn->req,
+                          [self = shared_from_this(), idx, gen, conn](const beast::error_code& ec,
+                                                                      std::size_t) {
+                              self->on_write(idx, gen, conn, ec);
+                          });
+    }
+
+    void on_write(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+                  const beast::error_code& ec) {
+        if (!current(idx, gen, conn)) {
+            return;
+        }
+        if (ec) {
+            fail_in_flight(idx, conn, ec);
+            return;
+        }
+        http::async_read(conn->stream, conn->buffer, conn->res,
+                         [self = shared_from_this(), idx, gen, conn](const beast::error_code& read_ec,
+                                                                     std::size_t) {
+                             self->on_read(idx, gen, conn, read_ec);
+                         });
+    }
+
+    void on_read(std::size_t idx, std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+                 const beast::error_code& ec) {
+        if (!current(idx, gen, conn)) {
+            return;
+        }
+        if (ec) {
+            fail_in_flight(idx, conn, ec);
+            return;
+        }
+        RestResponse response;
+        response.status = static_cast<int>(conn->res.result_int());
+        response.body = std::move(conn->res.body());
+        response.sent = conn->sent;
+        response.received = clock_.wall();
+
+        // A 4xx or 5xx is an answer, not a failure: the venue rejected the
+        // order and the adapter must map its error code, which it cannot do
+        // if we bury the status behind a synthetic transport error.
+        const bool reusable = conn->res.keep_alive();
+        conn->busy = false;
+        conn->last_used = response.received;
+        auto callback = std::move(conn->cb);
+        conn->cb = nullptr;
+        --dispatched_;
+
+        if (reusable) {
+            beast::get_lowest_layer(conn->stream).expires_never();
+        } else {
+            release_slot(idx);
+        }
+        // Slot freed first, so a callback that immediately fires the next
+        // order lands on this warm connection instead of queueing behind it.
+        invoke(callback, std::move(response));
+        pump();
+    }
+
+    void fail_in_flight(std::size_t idx, const std::shared_ptr<Conn>& conn,
+                        const beast::error_code& ec) {
+        RestResponse response;
+        response.status = 0;
+        response.error = describe(ec);
+        response.sent = conn->sent;
+        response.received = clock_.wall();
+
+        conn->busy = false;
+        auto callback = std::move(conn->cb);
+        conn->cb = nullptr;
+        --dispatched_;
+        release_slot(idx);
+        invoke(callback, std::move(response));
+        pump();
+    }
+
+    void fail_queue(const std::string& what) {
+        // Snapshot first: a callback is allowed to send() again, and a
+        // freshly queued request must not be failed by this outage.
+        auto pending = std::move(queue_);
+        queue_.clear();
+        for (auto& item : pending) {
+            RestResponse response;
+            response.status = 0;
+            response.error = what;
+            response.sent = item.queued;
+            response.received = clock_.wall();
+            invoke(item.cb, std::move(response));
+        }
+    }
+
+    void pump() {
+        while (!queue_.empty()) {
+            const std::size_t idx = find_free_slot();
+            if (idx == k_no_slot) {
+                break;
+            }
+            auto pending = std::move(queue_.front());
+            queue_.pop_front();
+            dispatch(idx, std::move(pending));
+        }
+        ensure_connections(false);
+    }
+
+    void release_slot(std::size_t idx) noexcept {
+        auto& slot = slots_[idx];
+        if (!slot.conn) {
+            return;
+        }
+        beast::get_lowest_layer(slot.conn->stream).close();
+        slot.conn.reset();
+        slot.generation = ++generation_;
+    }
+
+    [[nodiscard]] std::string describe(const beast::error_code& ec) const {
+        // The adapter logs this verbatim next to an order id, so it names the
+        // endpoint: "connection refused" alone has cost people an hour.
+        return cfg_.host + ":" + cfg_.port + " " + ec.message();
+    }
+
+    static void invoke(const RestCallback& callback, RestResponse&& response) noexcept {
+        if (!callback) {
+            return;
+        }
+        try {
+            callback(std::move(response));
+        } catch (...) {
+            // A throwing completion handler must not unwind through Asio and
+            // take the reactor's bookkeeping with it.
+        }
+    }
+
+    asio::io_context& ioc_;
+    RestConfig cfg_;
+    ssl::context tls_;
+    tcp::resolver resolver_;
+    LiveClock clock_;
+
+    std::vector<Slot> slots_;
+    std::deque<Pending> queue_;
+    std::string host_header_;
+    std::size_t dispatched_{0};
+    std::uint64_t generation_{0};
+    bool started_{false};
+    bool dead_{false};
+};
+
+} // namespace detail
+
+struct RestClient::Impl {
+    Impl(asio::io_context& ioc, RestConfig config)
+        : pool{std::make_shared<detail::RestPool>(ioc, std::move(config))} {}
+
+    std::shared_ptr<detail::RestPool> pool;
+};
+
+RestClient::RestClient(IoContext& io, RestConfig config)
+    : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()),
+                                   std::move(config))} {}
+
+RestClient::~RestClient() {
+    impl_->pool->shutdown();
+}
+
+void RestClient::start() {
+    impl_->pool->start();
+}
+
+void RestClient::stop() {
+    impl_->pool->stop();
+}
+
+bool RestClient::send(const RestRequest& request, RestCallback on_complete) {
+    return impl_->pool->send(request, std::move(on_complete));
+}
+
+std::size_t RestClient::in_flight() const noexcept {
+    return impl_->pool->in_flight();
+}
+
+void RestClient::keepalive(UnixNanos now) {
+    impl_->pool->keepalive(now);
+}
+
+} // namespace raikiri::net

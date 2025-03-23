@@ -28,6 +28,11 @@ raikiri_add_test(secret_test SRCS config/secret_test.cpp LIBS raikiri::config)
 raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::net)
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
+raikiri_add_test(ws_client_test SRCS net/ws_client_test.cpp LIBS raikiri::net)
+raikiri_add_test(rest_client_test SRCS net/rest_client_test.cpp LIBS raikiri::net)
+target_link_libraries(ws_client_test PRIVATE Boost::headers OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(rest_client_test PRIVATE Boost::headers OpenSSL::SSL OpenSSL::Crypto)
+
 raikiri_add_test(venue_contract_test SRCS exec/venue_contract_test.cpp LIBS raikiri::exec)
 
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)

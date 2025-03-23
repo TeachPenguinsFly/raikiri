@@ -1,6 +1,9 @@
 add_library(raikiri_net STATIC
+  src/io_context.cpp
   src/json_writer.cpp
+  src/rest_client.cpp
   src/signer.cpp
+  src/ws_client.cpp
 )
 add_library(raikiri::net ALIAS raikiri_net)
 
@@ -11,4 +14,4 @@ target_include_directories(raikiri_net PUBLIC
 # header of this facade (the io_context wrapper is a pimpl for that reason).
 target_link_libraries(raikiri_net
   PUBLIC raikiri::common raikiri::config
-  PRIVATE OpenSSL::Crypto Boost::headers raikiri::warnings)
+  PRIVATE OpenSSL::SSL OpenSSL::Crypto Boost::headers raikiri::warnings)
