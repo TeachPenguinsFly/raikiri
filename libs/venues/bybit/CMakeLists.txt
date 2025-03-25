@@ -1,6 +1,7 @@
 add_library(raikiri_venue_bybit STATIC
   src/book_sync.cpp
   src/errors.cpp
+  src/map.cpp
   src/wire_detail.cpp
   src/wire_public.cpp
   src/wire_private.cpp

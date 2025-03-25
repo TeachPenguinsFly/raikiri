@@ -29,6 +29,7 @@ raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::ne
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(bybit_book_sync_test SRCS venues/bybit/book_sync_test.cpp LIBS raikiri::venue_bybit)
+raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
 raikiri_add_test(bybit_wire_test SRCS venues/bybit/wire_test.cpp LIBS raikiri::venue_bybit)
 target_compile_definitions(bybit_wire_test PRIVATE
   RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
