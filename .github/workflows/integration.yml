@@ -1,0 +1,149 @@
+name: integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Everything in build.yml runs with RAIKIRI_PG_DSN unset, which makes
+  # PersistIntegration.ReplayTwiceIsIdempotent a GTEST_SKIP — a green tick over
+  # a test that never executed. This job is the one place the persister meets a
+  # real Postgres.
+  #
+  # The invariant it guards is replay idempotence: persisting the same journal
+  # twice must change nothing. Every insert the persister emits is keyed on
+  # (journal, journal_seq) with ON CONFLICT absorption precisely so a crashed
+  # persister can restart from an old cursor and re-drain. A missing conflict
+  # target or a natural key that is not actually unique cannot be caught by the
+  # row-mapping unit tests — only by committing twice and finding the same
+  # cursor and the same tables.
+  integration:
+    name: gcc-14 / dev-asan + postgres:16
+    runs-on: ubuntu-24.04
+    # Two Conan configurations (Debug for the tests, Release for the demo) plus
+    # two builds; a cold cache is the expensive case.
+    timeout-minutes: 75
+
+    # gcc-14/libstdc++11 is chosen over clang/libc++ here only because
+    # ConanCenter publishes binaries for it, so this job does not spend a
+    # quarter of an hour rebuilding OpenSSL before it can talk to a database.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: raikiri_ci
+        ports:
+          - 5432:5432
+        # Without the health check the first connection races container start
+        # and the test fails as "connection refused" rather than as a real bug.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      RAIKIRI_PG_DSN: postgresql://postgres:postgres@localhost:5432/raikiri_ci
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build gcc-14 g++-14 postgresql-client
+
+      - name: Lower ASLR entropy for sanitizers
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Conan
+        run: pip install --disable-pip-version-check 'conan~=2.31'
+
+      # Profile in the key for the same reason as build.yml. This job populates
+      # both Debug (dev-asan) and Release (the demo's bench preset).
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan2-${{ runner.os }}-linux-gcc14-debug-release-${{ hashFiles('conanfile.py', 'profiles/linux-gcc14') }}
+          restore-keys: |
+            conan2-${{ runner.os }}-linux-gcc14-debug-release-
+
+      - name: Install dependencies
+        run: make deps PRESET=dev-asan PROFILE=profiles/linux-gcc14
+
+      - name: Trim Conan cache
+        run: conan cache clean "*" --source --build --temp || true
+
+      # The test applies this file itself (PgSink::exec_file), and the schema is
+      # written CREATE ... IF NOT EXISTS so both paths are safe. Applying it here
+      # anyway means a broken migration fails as a migration error with psql's
+      # line number, not as a C++ exception three layers into the sink.
+      - name: Apply migrations
+        run: psql "$RAIKIRI_PG_DSN" -v ON_ERROR_STOP=1 -f sql/migrations/0001_init.sql
+
+      - name: Configure
+        run: cmake --preset dev-asan
+
+      - name: Build
+        run: cmake --build --preset dev-asan
+
+      # The full suite, not just the persist tests: with a DSN present the run
+      # differs from build.yml's, and the cheapest way to know the difference is
+      # only the intended one is to run everything.
+      - name: Test
+        run: ctest --preset dev-asan --parallel 2
+
+      # The demo produces real journals from a real multi-process run, which is
+      # the input the persister actually sees in production — the unit tests
+      # hand-build theirs.
+      - name: Demo (sim venue, 10s)
+        run: make demo | tee demo.log
+
+      - name: Check demo invariants
+        run: |
+          grep -q 'fsm-refusals=0' demo.log || { echo "demo: FSM refused a transition"; exit 1; }
+          grep -qE 'fills=[1-9][0-9]*' demo.log || { echo "demo: no fills — pipeline did not round-trip"; exit 1; }
+
+      # Replay idempotence over journals nobody constructed by hand: drain the
+      # demo's strategyd journal, rewind the cursor to zero, drain it again. The
+      # rewind is the part that matters — without it the second pass reads
+      # nothing and proves nothing, whereas from zero every INSERT has to be
+      # absorbed by its ON CONFLICT clause for the row counts to match.
+      # persisterd comes from the dev-asan tree, so a double-write that corrupts
+      # a buffer on the way surfaces here too.
+      - name: Persist demo journal twice
+        run: |
+          PERSISTERD=./build/dev-asan/apps/persisterd/persisterd
+          "$PERSISTERD" --dir raikiri-data/journal/strategyd --once
+          before=$(psql "$RAIKIRI_PG_DSN" -tAc \
+            "SELECT count(*) FROM raikiri.order_events")
+          psql "$RAIKIRI_PG_DSN" -v ON_ERROR_STOP=1 -c \
+            "UPDATE raikiri.persist_cursors SET last_seq = 0 WHERE journal = 'journal'"
+          "$PERSISTERD" --dir raikiri-data/journal/strategyd --once
+          after=$(psql "$RAIKIRI_PG_DSN" -tAc \
+            "SELECT count(*) FROM raikiri.order_events")
+          echo "order_events: $before -> $after"
+          [ "$before" = "$after" ] || { echo "replay was not idempotent"; exit 1; }
+          [ "$before" -gt 0 ] || { echo "demo journal produced no order events"; exit 1; }

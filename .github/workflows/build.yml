@@ -1,0 +1,146 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Sanitizer builds are the longest jobs in the repo; a superseded run has no
+# value once a newer commit exists on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# The implicit shell is `bash -e`, which does not set pipefail; naming bash
+# explicitly gets `-eo pipefail` so a failure on the left of a pipe is fatal.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # UBSan prints a diagnostic and keeps going by default, which means a green
+  # ctest can sit on top of real undefined behaviour. halt_on_error makes the
+  # first finding the exit code.
+  UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+  ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1
+  TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }} / ${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    # Cold cache builds OpenSSL, libpqxx and the sbeppc tool from source; the
+    # clang jobs additionally rebuild everything against libc++. Warm runs are
+    # ~10 min — the ceiling only exists so a hung test does not burn an hour.
+    timeout-minutes: 90
+    strategy:
+      # One compiler's failure is not the other's; both results are wanted.
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc-14
+            profile: linux-gcc14
+            preset: dev-asan
+            deps_type: debug
+            apt: gcc-14 g++-14
+          - compiler: gcc-14
+            profile: linux-gcc14
+            preset: rel
+            deps_type: relwithdebinfo
+            apt: gcc-14 g++-14
+          # profiles/linux-clang18 pins compiler.libcxx=libc++, so the libc++
+          # headers and the compiler-rt archives (asan/tsan/ubsan) both have to
+          # be installed — the clang-18 package alone links neither.
+          - compiler: clang-18
+            profile: linux-clang18
+            preset: dev-asan
+            deps_type: debug
+            apt: clang-18 libc++-18-dev libc++abi-18-dev libclang-rt-18-dev
+          - compiler: clang-18
+            profile: linux-clang18
+            preset: rel
+            deps_type: relwithdebinfo
+            apt: clang-18 libc++-18-dev libc++abi-18-dev libclang-rt-18-dev
+          # TSan gets its own entry rather than another axis: -fsanitize=thread
+          # and -fsanitize=address are mutually exclusive in one binary, and the
+          # shm rings are the part of the codebase where a data race is the
+          # likely bug, so the combination has to be paid for separately.
+          - compiler: clang-18
+            profile: linux-clang18
+            preset: dev-tsan
+            deps_type: debug
+            apt: clang-18 libc++-18-dev libc++abi-18-dev libclang-rt-18-dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The ubuntu-24.04 image already carries several gcc/clang versions, but
+      # which ones drift with the image. Installing explicitly makes the job
+      # depend on the profile, not on this month's runner contents.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ${{ matrix.apt }}
+
+      # Ubuntu 24.04 ships 32-bit ASLR entropy; the sanitizer runtimes map their
+      # shadow at a fixed base and abort with "Shadow memory range interleaves
+      # with an existing memory mapping" before main() runs. Lowering the
+      # entropy is the standard workaround and costs nothing on a rel build.
+      - name: Lower ASLR entropy for sanitizers
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pinned to the 2.x line: a Conan 3 release would change profile and
+      # package-id semantics under us, and this repo's profiles are 2.x files.
+      - name: Install Conan
+        run: pip install --disable-pip-version-check 'conan~=2.31'
+
+      # The profile belongs in the cache key. `conanfile.py` alone is not
+      # enough: the same recipe set produces different binaries per compiler,
+      # per libcxx and per cppstd, and Conan will happily restore a cache
+      # populated by the gcc/libstdc++ job into the clang/libc++ job, where the
+      # package ids miss and everything silently rebuilds — or worse, where a
+      # header-only package's cached settings mislead a later resolution.
+      # deps_type is in the key because Debug and RelWithDebInfo are separate
+      # package ids and a partial cache means a from-source build anyway.
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan2-${{ runner.os }}-${{ matrix.profile }}-${{ matrix.deps_type }}-${{ hashFiles('conanfile.py', format('profiles/{0}', matrix.profile)) }}
+          restore-keys: |
+            conan2-${{ runner.os }}-${{ matrix.profile }}-${{ matrix.deps_type }}-
+
+      # `conan profile detect` is deliberately not run: it would write a default
+      # profile describing whatever compiler the image happens to ship, and the
+      # build would then be reproducible only by accident. profiles/ pins os,
+      # arch, compiler, libcxx and cppstd; -pr:a applies them to both the host
+      # and the build context, which matters because sbeppc is a tool_require
+      # built in the build context.
+      - name: Install dependencies
+        run: make deps PRESET=${{ matrix.preset }} PROFILE=profiles/${{ matrix.profile }}
+
+      # Sources and build trees are dead weight once the binaries exist, and the
+      # cache upload is size-bound. Best effort — this is hygiene, not a gate.
+      - name: Trim Conan cache
+        run: conan cache clean "*" --source --build --temp || true
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      # RAIKIRI_WERROR defaults ON (only the bench preset turns it off), so no
+      # extra flag is needed here — a new warning fails the job on its own.
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      # Test temp paths are pid-scoped and the net tests bind ephemeral ports,
+      # so parallel ctest is safe. Held at 2 because a TSan process' shadow
+      # memory is several times the program's, and the runner has 16 GB.
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --parallel 2
