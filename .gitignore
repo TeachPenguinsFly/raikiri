@@ -5,3 +5,7 @@ CMakeUserPresets.json
 compile_commands.json
 raikiri-data/
 *.rj
+fuzz/corpus/
+crash-*
+leak-*
+timeout-*
