@@ -60,6 +60,12 @@ public:
 
     [[nodiscard]] config::Secret& secret() noexcept { return secret_; }
 
+    // Enough to refuse building a signed request before touching the key
+    // material — callers must not have to reach into the secret to ask.
+    [[nodiscard]] bool has_credentials() const noexcept {
+        return api_key_len_ != 0 && !secret_.empty();
+    }
+
     [[nodiscard]] std::string_view api_key() const noexcept;
 
     // Signs into the caller's buffer. Empty return means the buffer was too
