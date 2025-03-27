@@ -3,6 +3,7 @@ add_library(raikiri_venue_bybit STATIC
   src/errors.cpp
   src/map.cpp
   src/rest.cpp
+  src/ws.cpp
   src/wire_detail.cpp
   src/wire_public.cpp
   src/wire_private.cpp
