@@ -1,5 +1,6 @@
 add_library(raikiri_venue_bybit STATIC
   src/book_sync.cpp
+  src/bybit_venue.cpp
   src/errors.cpp
   src/map.cpp
   src/rest.cpp
@@ -18,4 +19,4 @@ target_include_directories(raikiri_venue_bybit PUBLIC
 # so which JSON library walks the frame is a fact confined to src/.
 target_link_libraries(raikiri_venue_bybit
   PUBLIC raikiri::domain raikiri::exec raikiri::net
-  PRIVATE simdjson::simdjson raikiri::warnings)
+  PRIVATE simdjson::simdjson raikiri::config raikiri::warnings)
