@@ -13,6 +13,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -186,6 +187,35 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         break;
     }
 }
+
+// Cold-path request/response. Every caller of this is a startup or
+// reconciliation path, never the hot loop, so pumping the reactor until the
+// answer arrives is exactly right: the alternative — an asynchronous
+// catalogue load — would force every venue to invent its own half-started
+// state, and a gateway that trades before it knows its tick sizes is worse
+// than one that takes an extra second to boot.
+std::optional<net::RestResponse> await_response(VenueState& state, net::RestClient& rest,
+                                                const net::RestRequest& request,
+                                                std::uint64_t timeout_ms = 10'000) {
+    std::optional<net::RestResponse> result;
+    if (!rest.send(request, [&result](net::RestResponse&& response) {
+            result = std::move(response);
+        })) {
+        return std::nullopt;
+    }
+    const auto deadline = state.clock->mono().ns + timeout_ms * 1'000'000ULL;
+    while (!result.has_value() && state.clock->mono().ns < deadline) {
+        if (state.io.poll() == 0) {
+            // Nothing was ready; yielding beats spinning a core off the hot
+            // path, and this loop only ever runs at startup.
+            state.io.run_for(5);
+        }
+    }
+    return result;
+}
+
+// Defined below, next to the catalogue loader it shares a transport with.
+void sync_clock(VenueState& state, net::RestClient& rest);
 
 // Public market-data socket.
 class PublicHandler final : public net::WsHandler {
@@ -370,6 +400,9 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         rest_.start();
+        // Before anything is signed: an uncorrected clock produces rejections
+        // indistinguishable from wrong keys.
+        sync_clock(*state_, rest_);
         ws_.start();
         return {};
     }
@@ -388,32 +421,141 @@ public:
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
-        // Synchronous reports do not fit an asynchronous transport; the
-        // reconciliation sweep is driven by the gateway through the same
-        // callbacks the hot path uses. Returning empty here is honest —
-        // pretending otherwise would make a caller believe it reconciled.
-        return std::vector<exec::OrderStatusReport>{};
+    open_order_reports(MarketType market) override {
+        const auto request = builder_.open_orders(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0,
+                                                          to_string(request.error()))};
+        }
+        const auto envelope = fetch(*request);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        static thread_local OrderUpdateBuffer storage;
+        const auto orders = parse_open_orders(envelope->result, storage);
+        if (!orders.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0,
+                                                          to_string(orders.error()))};
+        }
+        std::vector<exec::OrderStatusReport> reports;
+        reports.reserve(orders->size());
+        for (const auto& wire : *orders) {
+            if (auto report = map_open_order(wire, state_->instruments); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
+    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+        // No dedicated single-order endpoint is needed: the open-orders pull
+        // is one request either way, and an id absent from it means the order
+        // is no longer working — which is the answer the caller wanted.
+        const auto reports = open_order_reports(market);
+        if (!reports.has_value()) {
+            return std::unexpected{reports.error()};
+        }
+        for (const auto& report : *reports) {
+            if (report.exchange_client_order_id.view() == id.view()) {
+                return report;
+            }
+        }
         return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "async reconciliation pending")};
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
-                                                                                 UnixNanos) override {
-        return std::vector<exec::FillReport>{};
+    std::expected<std::vector<exec::FillReport>, exec::VenueError>
+    fill_reports(MarketType market, UnixNanos since) override {
+        const auto request = builder_.executions(market, since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0,
+                                                          to_string(request.error()))};
+        }
+        const auto envelope = fetch(*request);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        static thread_local ExecutionBuffer storage;
+        // The execution history reuses the websocket shape under a "list"
+        // key, so it is parsed with the same code rather than a second one.
+        const auto executions = parse_executions(envelope->result, storage);
+        if (!executions.has_value()) {
+            return std::vector<exec::FillReport>{};
+        }
+        std::vector<exec::FillReport> reports;
+        reports.reserve(executions->size());
+        for (const auto& wire : *executions) {
+            const auto event = map_execution(wire, state_->instruments, state_->clock->wall());
+            if (!event.has_value()) {
+                continue;
+            }
+            exec::FillReport report{};
+            report.exec_id = event->exec_id;
+            report.exchange_order_id = event->exchange_order_id;
+            report.exchange_client_order_id = event->exchange_client_order_id;
+            report.instrument = event->instrument;
+            report.side = event->side;
+            report.price = event->price;
+            report.qty = event->qty;
+            report.fee = event->fee;
+            report.liquidity = event->liquidity;
+            report.ts_venue = event->ts_event;
+            reports.push_back(report);
+        }
+        return reports;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::vector<exec::PositionReport>{};
+    position_reports(MarketType market) override {
+        const auto request = builder_.positions(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0,
+                                                          to_string(request.error()))};
+        }
+        const auto envelope = fetch(*request);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        static thread_local PositionBuffer storage;
+        const auto positions = parse_positions(envelope->result, storage);
+        if (!positions.has_value()) {
+            return std::vector<exec::PositionReport>{};
+        }
+        std::vector<exec::PositionReport> reports;
+        reports.reserve(positions->size());
+        for (const auto& wire : *positions) {
+            if (auto report = map_position(wire, state_->instruments); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
     }
 
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
+
+    // Cold path: send, pump, decode the envelope, classify a refusal. Every
+    // caller is reconciliation, which is allowed to take a moment and is not
+    // allowed to guess.
+    [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError>
+    fetch(const net::RestRequest& request) {
+        const auto response = await_response(*state_, rest_, request);
+        if (!response.has_value() || response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+        }
+        const auto envelope = parse_envelope(response->body);
+        if (!envelope.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope")};
+        }
+        if (envelope->ret_code != k_ret_ok) {
+            return std::unexpected{exec::VenueError::make(classify(envelope->ret_code),
+                                                          envelope->ret_code, envelope->ret_msg)};
+        }
+        return *envelope;
+    }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
@@ -501,18 +643,94 @@ private:
 
 class BybitInstruments final : public exec::InstrumentSource {
 public:
-    explicit BybitInstruments(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
+    explicit BybitInstruments(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)},
+          rest_{state_->io, net::RestConfig{.host = std::string{state_->testnet ? k_rest_host_test
+                                                                                : k_rest_host_live},
+                                            .port = "443"}} {}
 
-    std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType) override {
-        // The catalogue pull is asynchronous like everything else on this
-        // transport; the gateway drives it and feeds the table. Returning
-        // empty rather than blocking keeps the contract honest.
-        return std::vector<Instrument>{};
+    // Side effect by design: this populates the adapter's own instrument
+    // table as well as returning the catalogue. The adapter cannot map a
+    // single inbound frame without it, and making the caller hand it back
+    // would invite a gateway that subscribes before the table is filled.
+    std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
+        rest_.start();
+        const auto request = builder_.instruments(market);
+        const auto response = await_response(*state_, rest_, request, 15'000);
+        if (!response.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                                          "catalogue: no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                                          response->error)};
+        }
+        const auto envelope = parse_envelope(response->body);
+        if (!envelope.has_value() || envelope->ret_code != k_ret_ok) {
+            return std::unexpected{exec::VenueError::make(
+                envelope.has_value() ? classify(envelope->ret_code) : exec::ErrorClass::Terminal,
+                envelope.has_value() ? envelope->ret_code : 0, "catalogue refused")};
+        }
+
+        static thread_local InstrumentBuffer storage;
+        const auto wire = parse_instruments(envelope->result, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{exec::VenueError::make(exec::ErrorClass::Terminal, 0,
+                                                          to_string(wire.error()))};
+        }
+
+        std::vector<Instrument> loaded;
+        loaded.reserve(wire->size());
+        state_->instruments.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            auto instrument = map_instrument(entry, market);
+            if (!instrument.has_value()) {
+                continue; // delisted, pre-launch, or missing a usable filter
+            }
+            const auto id = state_->instruments.add(*instrument);
+            if (!id.has_value()) {
+                continue; // duplicate or table full: reported by count, not by throw
+            }
+            // The table rewrote the id to the slot that indexes it, so the
+            // copy handed back carries the same id the gateway will see on
+            // every inbound frame.
+            loaded.push_back(*state_->instruments.find(*id));
+        }
+        return loaded;
     }
 
 private:
     std::shared_ptr<VenueState> state_;
+    net::RestClient rest_;
+    RequestBuilder builder_{state_->signer};
 };
+
+// Bybit refuses signatures outside recvWindow of ITS clock. A laptop drifting
+// two seconds therefore looks exactly like bad credentials, so the offset is
+// measured once at startup and applied to every signed request. Half the
+// round trip is subtracted because the server's timestamp was taken somewhere
+// in the middle of it.
+void sync_clock(VenueState& state, net::RestClient& rest) {
+    net::RestRequest request{};
+    request.method = net::HttpMethod::Get;
+    request.target = "/v5/market/time";
+
+    const auto before = state.clock->wall();
+    const auto response = await_response(state, rest, request, 5'000);
+    if (!response.has_value() || response->transport_failed()) {
+        return; // no correction is better than a wrong one
+    }
+    const auto after = state.clock->wall();
+    const auto envelope = parse_envelope(response->body);
+    if (!envelope.has_value() || envelope->ret_code != k_ret_ok || envelope->time_ms == 0) {
+        return;
+    }
+    const auto server_ns = static_cast<std::int64_t>(envelope->time_ms) * 1'000'000;
+    const auto midpoint_ns =
+        static_cast<std::int64_t>(before.ns) +
+        (static_cast<std::int64_t>(after.ns) - static_cast<std::int64_t>(before.ns)) / 2;
+    state.clock_offset_ns = server_ns - midpoint_ns;
+}
 
 exec::VenueAdapter make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink,
                               const Clock& clock) {

@@ -1,5 +1,7 @@
 #include <raikiri/net/ws_client.hpp>
 
+#include <raikiri/net/trust_store.hpp>
+
 #include <raikiri/net/io_context.hpp>
 
 #include <boost/asio/buffer.hpp>
@@ -109,11 +111,24 @@ public:
           rng_{static_cast<std::minstd_rand::result_type>(
               reinterpret_cast<std::uintptr_t>(this) | 1U)} {
         if (cfg_.verify_tls) {
-            // Failure here means the host has no trust store, which is a
-            // deployment fault we surface as a handshake failure rather than
-            // an exception out of a constructor.
-            boost::system::error_code ignored;
-            tls_.set_default_verify_paths(ignored);
+            // The trust store is resolved explicitly rather than trusting
+            // OpenSSL's compiled-in path: for a package-manager build that
+            // path belongs to the build machine and does not exist here, and
+            // the resulting handshake failure names the PEER, which reads
+            // like the venue's problem rather than ours. Failure to find one
+            // surfaces as a handshake failure, not an exception out of a
+            // constructor.
+            const auto trust = resolve_trust_store();
+            boost::system::error_code ec;
+            if (!trust.file.empty()) {
+                tls_.load_verify_file(trust.file, ec);
+            }
+            if (!trust.dir.empty()) {
+                tls_.add_verify_path(trust.dir, ec);
+            }
+            if (!trust.found) {
+                tls_.set_default_verify_paths(ec);
+            }
             tls_.set_verify_mode(ssl::verify_peer);
             tls_.set_verify_callback(ssl::host_name_verification{cfg_.host});
         } else {

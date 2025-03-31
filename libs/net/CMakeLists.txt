@@ -3,6 +3,7 @@ add_library(raikiri_net STATIC
   src/json_writer.cpp
   src/rest_client.cpp
   src/signer.cpp
+  src/trust_store.cpp
   src/ws_client.cpp
 )
 add_library(raikiri::net ALIAS raikiri_net)

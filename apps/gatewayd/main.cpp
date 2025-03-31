@@ -24,6 +24,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
@@ -48,6 +49,7 @@ public:
         : ch_{channels}, journal_{&journal} {}
 
     void on_bbo(const raikiri::Bbo& bbo) noexcept override {
+        ++counts_.bbo;
         const auto idx = bbo.instrument.symbol().raw;
         if (idx < raikiri::shm::k_bbo_cells) {
             ch_.bbo->write(idx, bbo);
@@ -55,6 +57,7 @@ public:
     }
 
     void on_trade(const raikiri::TradeTick& trade) noexcept override {
+        ++counts_.trades;
         raikiri::shm::MdEvent event{};
         event.kind = raikiri::shm::MdKind::Trade;
         event.aggressor = trade.aggressor;
@@ -68,6 +71,7 @@ public:
     }
 
     void on_funding(const raikiri::FundingUpdate& funding) noexcept override {
+        ++counts_.funding;
         const auto idx = funding.instrument.symbol().raw;
         if (idx < raikiri::shm::k_funding_cells) {
             ch_.funding->write(idx, funding);
@@ -75,6 +79,7 @@ public:
     }
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
+        ++counts_.order_events;
         ch_.exec_events->publish({event});
         (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
             *journal_, event.ts_init.ns, [&](auto m) {
@@ -100,6 +105,15 @@ public:
             });
     }
 
+    struct Counts {
+        std::uint64_t bbo{0};
+        std::uint64_t trades{0};
+        std::uint64_t funding{0};
+        std::uint64_t order_events{0};
+    };
+
+    [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
+
     void on_connectivity(const raikiri::exec::ConnEvent& event) noexcept override {
         (void)raikiri::schema::append_msg<msgs::ConnectivityMsg>(
             *journal_, event.ts.ns, [&](auto m) {
@@ -115,6 +129,7 @@ private:
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
     std::uint64_t md_seq_{0};
+    Counts counts_{};
 };
 
 } // namespace
@@ -213,12 +228,41 @@ int main(int argc, char** argv) {
             (void)adapter->data->subscribe(exec::SubKind::Bbo, id);
             (void)adapter->data->subscribe(exec::SubKind::Trades, id);
         }
-    } else if (!symbols.empty()) {
-        // Live venues have no local catalogue yet, so the requested symbols
-        // are seeded straight into the adapter's table with the venue's own
-        // filters pulled at startup. Until that pull lands, --symbol carries
-        // the tick and lot inline so a market-data run needs no credentials.
-        fmt::print("gatewayd[{}]: {} symbol(s) requested\n", venue_name, symbols.size());
+    } else {
+        // The catalogue must load before any subscription: an adapter cannot
+        // map a single inbound frame without the tick and lot sizes, and a
+        // gateway that subscribes first would silently drop everything until
+        // the table filled.
+        const auto catalogue = adapter->instruments->fetch_all(MarketType::Perp);
+        if (!catalogue.has_value()) {
+            fmt::print(stderr, "gatewayd[{}]: catalogue load failed: {} (code {})\n", venue_name,
+                       catalogue.error().message.view(), catalogue.error().venue_code);
+            return 1;
+        }
+        fmt::print("gatewayd[{}]: {} instruments loaded\n", venue_name, catalogue->size());
+
+        std::size_t subscribed = 0;
+        for (const auto& instrument : *catalogue) {
+            const auto& base = base_of(instrument);
+            const auto wanted =
+                symbols.empty() ||
+                std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
+                    return s == base.exchange_symbol.view();
+                });
+            if (!wanted) {
+                continue;
+            }
+            (void)adapter->data->subscribe(exec::SubKind::Bbo, base.id);
+            (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
+            (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
+            ++subscribed;
+        }
+        if (subscribed == 0) {
+            fmt::print(stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n",
+                       venue_name);
+            return 1;
+        }
+        fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", venue_name, subscribed);
     }
     owner->publish();
     fmt::print("gatewayd[{}]: up, segment {}\n", venue_name, seg_path);
@@ -263,6 +307,8 @@ int main(int argc, char** argv) {
     adapter->data->stop();
     adapter->execution->stop();
     journal_writer->flush();
-    fmt::print("gatewayd[{}]: down\n", venue_name);
+    const auto& counts = sink.counts();
+    fmt::print("gatewayd[{}]: down — bbo={} trades={} funding={} order-events={}\n", venue_name,
+               counts.bbo, counts.trades, counts.funding, counts.order_events);
     return 0;
 }

@@ -1,5 +1,7 @@
 #include <raikiri/net/rest_client.hpp>
 
+#include <raikiri/net/trust_store.hpp>
+
 #include <raikiri/net/io_context.hpp>
 
 #include <boost/asio/error.hpp>
@@ -101,8 +103,24 @@ public:
           // connection is the floor.
           slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
         if (cfg_.verify_tls) {
-            boost::system::error_code ignored;
-            tls_.set_default_verify_paths(ignored);
+            // The trust store is resolved explicitly rather than trusting
+            // OpenSSL's compiled-in path: for a package-manager build that
+            // path belongs to the build machine and does not exist here, and
+            // the resulting handshake failure names the PEER, which reads
+            // like the venue's problem rather than ours.
+            const auto trust = resolve_trust_store();
+            boost::system::error_code ec;
+            if (!trust.file.empty()) {
+                tls_.load_verify_file(trust.file, ec);
+            }
+            if (!trust.dir.empty()) {
+                tls_.add_verify_path(trust.dir, ec);
+            }
+            if (!trust.found) {
+                // Falling back to an empty store would look like working TLS
+                // right up until it silently was not.
+                tls_.set_default_verify_paths(ec);
+            }
             tls_.set_verify_mode(ssl::verify_peer);
             tls_.set_verify_callback(ssl::host_name_verification{cfg_.host});
         } else {
