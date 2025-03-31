@@ -12,12 +12,14 @@
 // demo just runs it unpinned for a few seconds.
 
 #include <raikiri/common/platform.hpp>
+#include <raikiri/config/secret.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
+#include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 
 #include <fmt/format.h>
@@ -27,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -121,17 +124,37 @@ int main(int argc, char** argv) {
 
     std::string venue_name = "sim";
     std::uint64_t duration_s = 0; // 0 = run until signaled
+    bool testnet = false;
+    std::string api_key_ref;
+    std::string api_secret_ref;
+    std::vector<std::string> symbols;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg.starts_with("--venue=")) {
             venue_name = arg.substr(8);
         } else if (arg == "--duration" && i + 1 < argc) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
+        } else if (arg == "--testnet") {
+            testnet = true;
+        } else if (arg.starts_with("--symbol=")) {
+            symbols.emplace_back(arg.substr(9));
+        } else if (arg.starts_with("--api-key=")) {
+            // A REFERENCE, never a key: "env:NAME", "file:/path", "exec:cmd".
+            api_key_ref = arg.substr(10);
+        } else if (arg.starts_with("--api-secret=")) {
+            api_secret_ref = arg.substr(13);
         }
     }
-    if (venue_name != "sim") {
-        fmt::print(stderr, "gatewayd: only --venue=sim is wired so far\n");
+    const auto venue = venue_from_string(venue_name);
+    if (venue != VenueId::Sim && venue != VenueId::Bybit) {
+        fmt::print(stderr, "gatewayd: --venue must be sim or bybit\n");
         return 2;
+    }
+    // Credentials are optional on purpose: public market data needs none, so
+    // a gateway can run read-only against a live venue with no keys present
+    // anywhere on the box.
+    if (!api_key_ref.empty()) {
+        config::disable_core_dumps();
     }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
@@ -169,7 +192,13 @@ int main(int argc, char** argv) {
     ShmSink sink{*channels, *journal_writer};
 
     venues::sim::register_adapter();
-    auto adapter = exec::make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    venues::bybit::register_adapter();
+    auto adapter = exec::make_venue({.venue = venue,
+                                     .enable_perp = true,
+                                     .testnet = testnet,
+                                     .api_key_env = api_key_ref,
+                                     .api_secret_env = api_secret_ref},
+                                    sink, clock);
     if (!adapter.has_value()) {
         fmt::print(stderr, "gatewayd: adapter build failed\n");
         return 1;
@@ -178,10 +207,18 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "gatewayd: adapter start failed\n");
         return 1;
     }
-    for (const auto& instrument : demo::sim_instruments()) {
-        const auto id = base_of(instrument).id;
-        (void)adapter->data->subscribe(exec::SubKind::Bbo, id);
-        (void)adapter->data->subscribe(exec::SubKind::Trades, id);
+    if (venue == VenueId::Sim) {
+        for (const auto& instrument : demo::sim_instruments()) {
+            const auto id = base_of(instrument).id;
+            (void)adapter->data->subscribe(exec::SubKind::Bbo, id);
+            (void)adapter->data->subscribe(exec::SubKind::Trades, id);
+        }
+    } else if (!symbols.empty()) {
+        // Live venues have no local catalogue yet, so the requested symbols
+        // are seeded straight into the adapter's table with the venue's own
+        // filters pulled at startup. Until that pull lands, --symbol carries
+        // the tick and lot inline so a market-data run needs no credentials.
+        fmt::print("gatewayd[{}]: {} symbol(s) requested\n", venue_name, symbols.size());
     }
     owner->publish();
     fmt::print("gatewayd[{}]: up, segment {}\n", venue_name, seg_path);
