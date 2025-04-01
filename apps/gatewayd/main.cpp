@@ -92,8 +92,7 @@ public:
                 m.liquidity(static_cast<jt::liquidityEnum>(event.liquidity));
                 m.instrument(jt::instrumentId{event.instrument.packed});
                 m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
-                m.exchangeClientOrderIdField().assign_range(
-                    event.exchange_client_order_id.view());
+                m.exchangeClientOrderIdField().assign_range(event.exchange_client_order_id.view());
                 m.exchangeOrderIdField().assign_range(event.exchange_order_id.view());
                 m.execIdField().assign_range(event.exec_id.view());
                 m.price(jt::priceTicks{event.price.raw});
@@ -182,11 +181,11 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "gatewayd: cannot create runtime dir\n");
         return 1;
     }
-    auto owner = shm::SegmentOwner::create(seg_path, shm::k_gateway_segment_bytes,
-                                           clock.mono().ns, clock.mono().ns);
+    auto owner = shm::SegmentOwner::create(
+        seg_path, shm::k_gateway_segment_bytes, clock.mono().ns, clock.mono().ns);
     if (!owner.has_value()) {
-        fmt::print(stderr, "gatewayd: segment create failed ({})\n",
-                   static_cast<int>(owner.error()));
+        fmt::print(
+            stderr, "gatewayd: segment create failed ({})\n", static_cast<int>(owner.error()));
         return 1;
     }
     auto channels = shm::create_gateway_channels(*owner);
@@ -213,7 +212,8 @@ int main(int argc, char** argv) {
                                      .testnet = testnet,
                                      .api_key_env = api_key_ref,
                                      .api_secret_env = api_secret_ref},
-                                    sink, clock);
+                                    sink,
+                                    clock);
     if (!adapter.has_value()) {
         fmt::print(stderr, "gatewayd: adapter build failed\n");
         return 1;
@@ -222,56 +222,69 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "gatewayd: adapter start failed\n");
         return 1;
     }
+    // The catalogue must load before any subscription: an adapter cannot map
+    // a single inbound frame without the tick and lot sizes, and a gateway
+    // that subscribed first would silently drop everything until the table
+    // filled.
+    std::vector<Instrument> catalogue;
     if (venue == VenueId::Sim) {
-        for (const auto& instrument : demo::sim_instruments()) {
-            const auto id = base_of(instrument).id;
-            (void)adapter->data->subscribe(exec::SubKind::Bbo, id);
-            (void)adapter->data->subscribe(exec::SubKind::Trades, id);
-        }
+        catalogue = demo::sim_instruments();
     } else {
-        // The catalogue must load before any subscription: an adapter cannot
-        // map a single inbound frame without the tick and lot sizes, and a
-        // gateway that subscribes first would silently drop everything until
-        // the table filled.
-        const auto catalogue = adapter->instruments->fetch_all(MarketType::Perp);
-        if (!catalogue.has_value()) {
-            fmt::print(stderr, "gatewayd[{}]: catalogue load failed: {} (code {})\n", venue_name,
-                       catalogue.error().message.view(), catalogue.error().venue_code);
+        auto loaded = adapter->instruments->fetch_all(MarketType::Perp);
+        if (!loaded.has_value()) {
+            fmt::print(stderr,
+                       "gatewayd[{}]: catalogue load failed: {} (code {})\n",
+                       venue_name,
+                       loaded.error().message.view(),
+                       loaded.error().venue_code);
             return 1;
         }
-        fmt::print("gatewayd[{}]: {} instruments loaded\n", venue_name, catalogue->size());
-
-        std::size_t subscribed = 0;
-        for (const auto& instrument : *catalogue) {
-            const auto& base = base_of(instrument);
-            const auto wanted =
-                symbols.empty() ||
-                std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
-                    return s == base.exchange_symbol.view();
-                });
-            if (!wanted) {
-                continue;
-            }
-            (void)adapter->data->subscribe(exec::SubKind::Bbo, base.id);
-            (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
-            (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
-            ++subscribed;
-        }
-        if (subscribed == 0) {
-            fmt::print(stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n",
-                       venue_name);
-            return 1;
-        }
-        fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", venue_name, subscribed);
+        catalogue = std::move(*loaded);
     }
+    fmt::print("gatewayd[{}]: {} instruments loaded\n", venue_name, catalogue.size());
+
+    // Publish the numbering before the segment goes Ready, so a consumer that
+    // can attach at all can resolve every id the gateway will ever send.
+    for (const auto& instrument : catalogue) {
+        if (const auto pushed = channels->catalogue->push(instrument); !pushed.has_value()) {
+            fmt::print(stderr,
+                       "gatewayd[{}]: catalogue publish refused symbol {}\n",
+                       venue_name,
+                       base_of(instrument).exchange_symbol.view());
+            return 1;
+        }
+    }
+
+    std::size_t subscribed = 0;
+    for (const auto& instrument : catalogue) {
+        const auto& base = base_of(instrument);
+        const auto wanted = symbols.empty() ||
+                            std::any_of(symbols.begin(), symbols.end(), [&](const std::string& s) {
+                                return s == base.exchange_symbol.view();
+                            });
+        if (!wanted) {
+            continue;
+        }
+        (void)adapter->data->subscribe(exec::SubKind::Bbo, base.id);
+        (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
+        if (venue != VenueId::Sim) {
+            (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
+        }
+        ++subscribed;
+    }
+    if (subscribed == 0) {
+        fmt::print(stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n", venue_name);
+        return 1;
+    }
+    fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", venue_name, subscribed);
     owner->publish();
     fmt::print("gatewayd[{}]: up, segment {}\n", venue_name, seg_path);
 
     shm::SpscConsumer creates{channels->cmd_create};
     shm::SpscConsumer cancels{channels->cmd_cancel};
 
-    const auto t_end = duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL
-                                       : MonoNanos{~0ULL};
+    const auto t_end =
+        duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
@@ -308,7 +321,11 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
-    fmt::print("gatewayd[{}]: down — bbo={} trades={} funding={} order-events={}\n", venue_name,
-               counts.bbo, counts.trades, counts.funding, counts.order_events);
+    fmt::print("gatewayd[{}]: down — bbo={} trades={} funding={} order-events={}\n",
+               venue_name,
+               counts.bbo,
+               counts.trades,
+               counts.funding,
+               counts.order_events);
     return 0;
 }

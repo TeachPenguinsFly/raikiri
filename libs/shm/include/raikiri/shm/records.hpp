@@ -6,6 +6,7 @@
 // silent corruption.
 //
 // Channel classes (fixed policy per channel, decided at design time):
+//   catalogue    CatalogueTable write-once before publish; the id agreement
 //   bbo/funding  SeqlockTable   state: overwrite-newest, stale ticks worthless
 //   md_events    BroadcastRing  stream: lossy-with-gap-detect -> resync
 //   exec_events  BroadcastRing  critical: overrun => halt venue + reconcile
@@ -16,6 +17,7 @@
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>
+#include <raikiri/shm/catalogue.hpp>
 #include <raikiri/shm/segment.hpp>
 #include <raikiri/shm/seqlock_table.hpp>
 #include <raikiri/shm/spsc_ring.hpp>
@@ -71,6 +73,11 @@ inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
 inline constexpr std::size_t k_gateway_segment_bytes = 32ULL << 20;
 
+// A SymbolId indexes both tables, so a catalogue that could hold more
+// instruments than the BBO table has cells would mint ids with nowhere to
+// quote from.
+static_assert(k_catalogue_cells == k_bbo_cells);
+
 using BboTable = SeqlockTable<Bbo, k_bbo_cells>;
 using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
@@ -80,6 +87,7 @@ using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 // Resolved channel pointers of one gateway segment. Owner and client views
 // are structurally identical; ownership semantics differ (segment.hpp).
 struct GatewayChannels {
+    CatalogueTable* catalogue{nullptr};
     BboTable* bbo{nullptr};
     FundingTable* funding{nullptr};
     MdRing* md_events{nullptr};

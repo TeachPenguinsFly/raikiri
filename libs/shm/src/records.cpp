@@ -1,25 +1,30 @@
-#include <raikiri/shm/records.hpp>
-
 #include <raikiri/common/platform.hpp>
+#include <raikiri/shm/records.hpp>
 
 namespace raikiri::shm {
 
 std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner) {
     GatewayChannels ch;
+    ch.catalogue = owner.create_channel<CatalogueTable>("catalogue");
     ch.bbo = owner.create_channel<BboTable>("bbo");
     ch.funding = owner.create_channel<FundingTable>("funding");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
-    if (ch.bbo == nullptr || ch.funding == nullptr || ch.md_events == nullptr ||
-        ch.exec_events == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr) {
+    if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.funding == nullptr ||
+        ch.md_events == nullptr || ch.exec_events == nullptr || ch.cmd_create == nullptr ||
+        ch.cmd_cancel == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
     return ch;
 }
 
 std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& client) {
+    const auto catalogue = client.open_channel<CatalogueTable>("catalogue");
+    if (!catalogue) {
+        return std::unexpected{catalogue.error()};
+    }
     const auto bbo = client.open_channel<BboTable>("bbo");
     if (!bbo) {
         return std::unexpected{bbo.error()};
@@ -44,7 +49,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!cancel) {
         return std::unexpected{cancel.error()};
     }
-    return GatewayChannels{*bbo, *funding, *md, *exec, *create, *cancel};
+    return GatewayChannels{*catalogue, *bbo, *funding, *md, *exec, *create, *cancel};
 }
 
 std::string gateway_segment_path(std::string_view venue_name) {

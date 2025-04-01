@@ -1,9 +1,10 @@
 // strategyd — the strategy kernel (demo wiring).
 //
-//   strategyd [--duration <sec>]   (default 10)
+//   strategyd [--venue=<name>] [--duration <sec>]   (default sim, 10s)
 //
-// Attaches the sim gateway segment, runs DemoMaker through the OMS, and
-// prints the latency table at exit — the `make demo` money-shot:
+// Attaches a gateway's segment, adopts the instrument numbering it published,
+// runs a strategy through the OMS and prints the latency table at exit — the
+// `make demo` money-shot:
 //   tick-to-callback   BBO publish (gatewayd) -> strategy callback
 //   submit-call        ctx.submit() wall time (risk + store + journal + ring)
 //   order-round-trip   submit -> first venue verdict event back
@@ -11,7 +12,6 @@
 // Single thread, no locks: exec ring, md ring, BBO change-gates, timers, all
 // polled in one loop — the same shape the real kernel keeps forever.
 
-#include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/observ/histogram.hpp>
@@ -25,11 +25,13 @@
 
 #include <fmt/format.h>
 
+#include <unistd.h>
+
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
 #include <string>
-#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 
@@ -44,14 +46,20 @@ void on_signal(int) {
 using msgs = raikiri_journal::schema::messages;
 using namespace raikiri;
 
+// Every Strategy callback defaults to a no-op, so observing a live venue
+// needs no separate code path.
+class Observer final : public strategy::Strategy {};
+
 class KernelContext final : public strategy::Context {
 public:
-    KernelContext(shm::GatewayChannels channels, oms::OrderStore& store, oms::RiskGate& risk,
-                  oms::IdGen& ids, journal::JournalWriter& journal, const Clock& clock,
-                  std::vector<Instrument> instruments)
+    KernelContext(shm::GatewayChannels channels,
+                  oms::OrderStore& store,
+                  oms::RiskGate& risk,
+                  oms::IdGen& ids,
+                  journal::JournalWriter& journal,
+                  const Clock& clock)
         : ch_{channels}, creates_{channels.cmd_create}, cancels_{channels.cmd_cancel},
-          store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal}, clock_{&clock},
-          instruments_{std::move(instruments)} {}
+          store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal}, clock_{&clock} {}
 
     std::expected<ClientOrderId, strategy::RejectReason>
     submit(const strategy::NewOrder& order) noexcept override {
@@ -141,8 +149,7 @@ public:
     }
 
     const Instrument* instrument(InstrumentId id) const noexcept override {
-        const auto idx = id.symbol().raw;
-        return idx < instruments_.size() ? &instruments_[idx] : nullptr;
+        return ch_.catalogue->find(id);
     }
 
     void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept override {
@@ -195,16 +202,19 @@ private:
     oms::IdGen* ids_;
     journal::JournalWriter* journal_;
     const Clock* clock_;
-    std::vector<Instrument> instruments_;
 };
 
 } // namespace
 
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
+    std::string venue_name = "sim";
     for (int i = 1; i < argc; ++i) {
-        if (std::string_view{argv[i]} == "--duration" && i + 1 < argc) {
+        const std::string_view arg{argv[i]};
+        if (arg == "--duration" && i + 1 < argc) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
+        } else if (arg.starts_with("--venue=")) {
+            venue_name = arg.substr(8);
         }
     }
     std::signal(SIGINT, on_signal);
@@ -212,8 +222,8 @@ int main(int argc, char** argv) {
 
     const LiveClock clock;
 
-    // Attach the sim gateway segment (retry: the gateway may still be coming up).
-    const auto seg_path = shm::gateway_segment_path("sim");
+    // Attach the gateway segment (retry: the gateway may still be coming up).
+    const auto seg_path = shm::gateway_segment_path(venue_name);
     std::expected<shm::SegmentClient, shm::SegError> client =
         std::unexpected{shm::SegError::MapFailed};
     for (int attempt = 0; attempt < 100; ++attempt) {
@@ -229,16 +239,15 @@ int main(int argc, char** argv) {
     }
     auto channels = shm::open_gateway_channels(*client);
     if (!channels.has_value()) {
-        fmt::print(stderr, "strategyd: channel open failed ({})\n",
-                   static_cast<int>(channels.error()));
+        fmt::print(
+            stderr, "strategyd: channel open failed ({})\n", static_cast<int>(channels.error()));
         return 1;
     }
     (void)client->register_reader(::getpid());
 
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
-    auto journal_writer =
-        journal::JournalWriter::open(data_dir + "/journal/strategyd", "journal");
+    auto journal_writer = journal::JournalWriter::open(data_dir + "/journal/strategyd", "journal");
     if (!journal_writer.has_value()) {
         fmt::print(stderr, "strategyd: journal open failed\n");
         return 1;
@@ -247,19 +256,34 @@ int main(int argc, char** argv) {
     oms::OrderStore store{4096};
     oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000)}};
     oms::IdGen ids{1, /*seed=*/0x7A10ULL};
-    KernelContext ctx{*channels,       store, risk, ids, *journal_writer, clock,
-                      demo::sim_instruments()};
+    KernelContext ctx{*channels, store, risk, ids, *journal_writer, clock};
 
+    const auto instrument_count = channels->catalogue->size();
+    if (instrument_count == 0) {
+        fmt::print(stderr, "strategyd: gateway published an empty catalogue\n");
+        return 1;
+    }
+
+    // DemoMaker quotes both sides, which is only ever appropriate against the
+    // sim venue. A live gateway is observed, not traded: the loop, the
+    // journal and the latency table are identical either way.
     strategies::DemoMaker maker;
-    fmt::print("strategyd: attached, running DemoMaker for {}s\n", duration_s);
-    maker.on_start(ctx);
+    Observer observer;
+    const bool quoting = venue_name == "sim";
+    strategy::Strategy& active = quoting ? static_cast<strategy::Strategy&>(maker) : observer;
+    fmt::print("strategyd: attached to {}, {} instruments, running {} for {}s\n",
+               venue_name,
+               instrument_count,
+               quoting ? "DemoMaker" : "observer",
+               duration_s);
+    active.on_start(ctx);
 
     shm::BroadcastReader exec_reader{channels->exec_events};
     shm::BroadcastReader md_reader{channels->md_events};
-    std::array<std::uint32_t, strategies::DemoMaker::k_instruments> bbo_seen{};
+    std::vector<std::uint32_t> bbo_seen(std::min<std::size_t>(instrument_count, shm::k_bbo_cells));
 
-    observ::Histogram tick_hist;  // BBO ts_init -> callback dispatch
-    observ::Histogram rt_hist;    // submit -> first venue verdict
+    observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
+    observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0; // FSM refusals: must stay 0
@@ -290,7 +314,7 @@ int main(int argc, char** argv) {
                 !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
                 ++bad_transitions;
             }
-            maker.on_order_event(ctx, event);
+            active.on_order_event(ctx, event);
         }
         // 2) Trades.
         shm::MdEvent md{};
@@ -302,7 +326,7 @@ int main(int argc, char** argv) {
             trade.aggressor = md.aggressor;
             trade.ts_event = md.ts_event;
             trade.ts_init = md.ts_init;
-            maker.on_trade(ctx, trade);
+            active.on_trade(ctx, trade);
         }
         // 3) BBO change-gates.
         for (std::uint32_t sym = 0; sym < bbo_seen.size(); ++sym) {
@@ -314,7 +338,7 @@ int main(int argc, char** argv) {
             if (channels->bbo->read(sym, bbo) != 0) {
                 bbo_seen[sym] = version;
                 tick_hist.record(clock.wall().ns - bbo.ts_init.ns);
-                maker.on_bbo(ctx, bbo);
+                active.on_bbo(ctx, bbo);
             }
         }
         // 4) Timers.
@@ -322,27 +346,41 @@ int main(int argc, char** argv) {
         for (auto& timer : ctx.timers) {
             if (timer.deadline_ns != 0 && now_ns >= timer.deadline_ns) {
                 timer.deadline_ns = 0;
-                maker.on_timer(ctx, timer.id);
+                active.on_timer(ctx, timer.id);
             }
         }
     }
-    maker.on_stop(ctx);
+    active.on_stop(ctx);
     journal_writer->flush();
 
     const auto tick = tick_hist.snapshot();
     const auto submit = ctx.submit_hist.snapshot();
     const auto rt = rt_hist.snapshot();
-    fmt::print("\n===== raikiri demo: sim venue, {}s, single unpinned core =====\n", duration_s);
-    fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n", "metric (ns)", "count", "p50", "p90",
-               "p99", "max");
+    fmt::print(
+        "\n===== raikiri: {} venue, {}s, single unpinned core =====\n", venue_name, duration_s);
+    fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
+               "metric (ns)",
+               "count",
+               "p50",
+               "p90",
+               "p99",
+               "max");
     const auto row = [](const char* name, const observ::HistogramSnapshot& s) {
-        fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n", name, s.count, s.p50_ns, s.p90_ns,
-                   s.p99_ns, s.max_ns);
+        fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
+                   name,
+                   s.count,
+                   s.p50_ns,
+                   s.p90_ns,
+                   s.p99_ns,
+                   s.max_ns);
     };
     row("tick-to-callback", tick);
     row("submit-call", submit);
     row("order-round-trip", rt);
-    fmt::print("fills={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}\n", fills,
-               store.open_count(), exec_overruns, bad_transitions);
+    fmt::print("fills={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}\n",
+               fills,
+               store.open_count(),
+               exec_overruns,
+               bad_transitions);
     return 0;
 }

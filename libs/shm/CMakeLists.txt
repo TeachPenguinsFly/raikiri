@@ -1,4 +1,5 @@
 add_library(raikiri_shm STATIC
+  src/catalogue.cpp
   src/records.cpp
   src/segment.cpp
 )
