@@ -65,9 +65,13 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (event->empty()) {
-            // Subscribe acknowledgements carry an id and a null result and no
-            // event type at all.
-            info.kind = EventKind::SubscribeAck;
+            // No event type: either an acknowledgement or a refusal, and the
+            // two differ only by the presence of an "error" object.
+            const auto err = detail::opt_raw(*root, "error");
+            if (!err.has_value()) {
+                return std::unexpected(err.error());
+            }
+            info.kind = err->empty() ? EventKind::SubscribeAck : EventKind::Error;
             return info;
         }
         info.kind = kind_from_event(*event);
@@ -262,6 +266,29 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
         out.bids = {storage.bids.data(), *bids};
         out.asks = {storage.asks.data(), *asks};
         return out;
+    });
+}
+
+std::expected<StreamError, WireError> parse_stream_error(std::string_view frame) {
+    return guarded([&]() -> std::expected<StreamError, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto id = detail::opt_u64(*root, "id");
+        if (!id.has_value()) {
+            return std::unexpected(id.error());
+        }
+        auto error = detail::req_object(*root, "error");
+        if (!error.has_value()) {
+            return std::unexpected(error.error());
+        }
+        const auto code = detail::opt_i64(*error, "code");
+        const auto msg = detail::opt_str(*error, "msg");
+        if (!code.has_value() || !msg.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        return StreamError{.code = *code, .msg = *msg, .id = *id};
     });
 }
 

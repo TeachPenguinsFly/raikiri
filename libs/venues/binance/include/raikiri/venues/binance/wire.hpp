@@ -43,6 +43,7 @@ enum class EventKind : std::uint8_t {
     AccountUpdate, // user stream: ACCOUNT_UPDATE
     ListenKeyExpired,
     SubscribeAck, // {"result":null,"id":1}
+    Error,        // {"error":{"code":2,"msg":"..."},"id":1}
     Unknown,
 };
 
@@ -57,6 +58,18 @@ struct EventInfo {
 // Unwraps {"stream":...,"data":{...}} to the raw text of `data`. A frame that
 // arrived on a single-stream socket has no wrapper and is returned unchanged.
 [[nodiscard]] std::expected<std::string_view, WireError> unwrap(std::string_view frame);
+
+// A refused SUBSCRIBE. Binance answers success with {"result":null,"id":N} and
+// failure with an "error" object under the same id, so the two are one field
+// apart — and a rejected subscription that reads as an acknowledgement is
+// indistinguishable from a stream the venue simply never sends.
+struct StreamError {
+    std::int64_t code{0};
+    std::string_view msg;
+    std::uint64_t id{0};
+};
+
+[[nodiscard]] std::expected<StreamError, WireError> parse_stream_error(std::string_view frame);
 
 // ------------------------------------------------------------ public ----
 

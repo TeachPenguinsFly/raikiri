@@ -226,5 +226,27 @@ TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
     }
 }
 
+TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {
+    // The two answers differ by one field. Reading a refusal as an ack turns
+    // "the venue rejected this stream" into "this stream is quiet", which is
+    // indistinguishable from a market with no activity.
+    const std::string ok = R"({"result":null,"id":1})";
+    auto event = parse_event(ok);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::SubscribeAck);
+
+    const std::string bad =
+        R"({"error":{"code":2,"msg":"Invalid request: invalid stream"},"id":7})";
+    event = parse_event(bad);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Error);
+
+    const auto err = parse_stream_error(bad);
+    ASSERT_TRUE(err.has_value());
+    EXPECT_EQ(err->code, 2);
+    EXPECT_EQ(err->id, 7U);
+    EXPECT_EQ(err->msg, "Invalid request: invalid stream");
+}
+
 } // namespace
 } // namespace raikiri::venues::binance
