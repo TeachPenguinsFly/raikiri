@@ -29,6 +29,7 @@ raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::ne
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
+raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
 target_compile_definitions(binance_wire_test PRIVATE
   RAIKIRI_BINANCE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/binance/fixtures")

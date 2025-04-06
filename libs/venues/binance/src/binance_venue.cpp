@@ -1,5 +1,7 @@
+#include <raikiri/config/secret.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/binance/errors.hpp>
@@ -28,9 +30,10 @@ struct VenueState {
     bool testnet;
 
     net::IoContext io;
+    net::Signer signer;
     exec::InstrumentTable instruments;
     Protocol protocol;
-    RequestBuilder builder;
+    RequestBuilder builder{signer};
 
     // Desired subscriptions, owned here rather than by the transport: the
     // socket re-asserts this set on every open, so a reconnect and a cold
