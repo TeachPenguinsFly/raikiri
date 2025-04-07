@@ -26,11 +26,11 @@
 namespace raikiri::config {
 
 enum class SecretError : std::uint8_t {
-    TooLarge,       // longer than k_max_bytes
-    NotFound,       // env var unset / file missing / command produced nothing
-    ReadFailed,     // I/O or permission failure
-    CommandFailed,  // exec provider: non-zero exit
-    BadReference,   // malformed "scheme:payload"
+    TooLarge,      // longer than k_max_bytes
+    NotFound,      // env var unset / file missing / command produced nothing
+    ReadFailed,    // I/O or permission failure
+    CommandFailed, // exec provider: non-zero exit
+    BadReference,  // malformed "scheme:payload"
     UnknownScheme,
 };
 
@@ -57,6 +57,7 @@ public:
     [[nodiscard]] std::string_view view() const noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return len_; }
+
     [[nodiscard]] bool empty() const noexcept { return len_ == 0; }
 
     // Safe to log: "sha256:1a2b3c4d" over the secret plus a fixed salt, so
@@ -73,18 +74,39 @@ private:
 };
 
 // Where a secret comes from, parsed from a config string:
-//   env:BYBIT_API_KEY                     development default
-//   file:/run/credentials/bybit.key       systemd LoadCredential, k8s secrets
-//   exec:op read op://trading/bybit/key   1Password, vault, any CLI
+//   env:BINANCE_API_KEY                    development default
+//   file:/run/credentials/binance.key      systemd LoadCredential, k8s secrets
+//   exec:op read op://trading/binance/key  1Password, vault, any CLI
+//   literal:sk_live_abc...                 the value itself (see below)
 // A bare string with no scheme is treated as env: for convenience.
+//
+// `literal:` exists because this is a framework other people run, and telling
+// someone evaluating it to stand up a secret manager first is how a project
+// goes unevaluated. It is a real option, not a trap door: it works everywhere
+// and needs nothing installed.
+//
+// It is also the only scheme that puts key material in a file that gets
+// committed, copied into a container image, and pasted into an issue report.
+// So it must be asked for by name — a bare value is read as an env var, never
+// as a secret — and callers are expected to say out loud that it is in use
+// (is_plaintext() exists for exactly that). Every other scheme keeps the
+// config naming a location instead of holding a value.
 struct SecretRef {
-    enum class Scheme : std::uint8_t { Env, File, Exec };
+    enum class Scheme : std::uint8_t { Env, File, Exec, Literal };
 
     Scheme scheme{Scheme::Env};
     std::string payload;
 
     [[nodiscard]] static std::expected<SecretRef, SecretError> parse(std::string_view spec);
 };
+
+// For the startup line that reports where each credential came from.
+[[nodiscard]] std::string_view to_string(SecretRef::Scheme scheme) noexcept;
+
+// True when the config file itself holds the key material.
+[[nodiscard]] constexpr bool is_plaintext(SecretRef::Scheme scheme) noexcept {
+    return scheme == SecretRef::Scheme::Literal;
+}
 
 // Resolvers. Each trims one trailing newline — every secret manager and
 // text editor adds one, and a signature computed over "key\n" fails in a way

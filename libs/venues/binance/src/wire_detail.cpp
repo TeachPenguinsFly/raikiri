@@ -52,7 +52,7 @@ WireError map_error(simdjson::error_code ec) noexcept {
     }
 }
 
-std::expected<ondemand::object, WireError> Session::open_object(std::string_view frame) {
+std::expected<void, WireError> Session::start(std::string_view frame) {
     if (frame.empty() || frame.size() > k_max_frame) {
         return std::unexpected(WireError::NotJson);
     }
@@ -80,9 +80,26 @@ std::expected<ondemand::object, WireError> Session::open_object(std::string_view
     if (const auto ec = parser_.iterate(view).get(doc_); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
+    return {};
+}
 
+std::expected<ondemand::object, WireError> Session::open_object(std::string_view frame) {
+    if (const auto opened = start(frame); !opened.has_value()) {
+        return std::unexpected(opened.error());
+    }
     ondemand::object root;
     if (const auto ec = doc_.get_object().get(root); ec != simdjson::SUCCESS) {
+        return std::unexpected(map_error(ec));
+    }
+    return root;
+}
+
+std::expected<ondemand::array, WireError> Session::open_array(std::string_view frame) {
+    if (const auto opened = start(frame); !opened.has_value()) {
+        return std::unexpected(opened.error());
+    }
+    ondemand::array root;
+    if (const auto ec = doc_.get_array().get(root); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
     return root;

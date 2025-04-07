@@ -171,6 +171,38 @@ int main(int argc, char** argv) {
     if (!api_key_ref.empty()) {
         config::disable_core_dumps();
     }
+    // Report WHERE each credential comes from, never what it is. Parsing the
+    // reference is enough for that — the value is resolved inside the adapter
+    // and never reaches this function.
+    const auto report_credential = [](std::string_view what, const std::string& spec) {
+        if (spec.empty()) {
+            return true;
+        }
+        const auto ref = config::SecretRef::parse(spec);
+        if (!ref.has_value()) {
+            fmt::print(stderr,
+                       "gatewayd: {} reference is malformed ({})\n",
+                       what,
+                       config::to_string(ref.error()));
+            return false;
+        }
+        fmt::print("gatewayd: {} from {}\n", what, config::to_string(ref->scheme));
+        if (config::is_plaintext(ref->scheme)) {
+            // Deliberately available and deliberately loud: it is the one
+            // scheme that puts key material into a file that gets committed,
+            // baked into an image, and pasted into a bug report.
+            fmt::print(stderr,
+                       "gatewayd: WARNING {} is a literal value in configuration. Fine for a "
+                       "demo; for anything holding real funds use env:, file: or exec: (e.g. "
+                       "exec:op read op://vault/item/field).\n",
+                       what);
+        }
+        return true;
+    };
+    if (!report_credential("api key", api_key_ref) ||
+        !report_credential("api secret", api_secret_ref)) {
+        return 2;
+    }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 

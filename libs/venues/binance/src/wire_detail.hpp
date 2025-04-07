@@ -36,9 +36,17 @@ class Session {
 public:
     [[nodiscard]] std::expected<ondemand::object, WireError> open_object(std::string_view frame);
 
+    // Several binance reads answer with a bare array — openOrders, userTrades,
+    // positionRisk — so the document root is not always an object.
+    [[nodiscard]] std::expected<ondemand::array, WireError> open_array(std::string_view frame);
+
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;
 
 private:
+    // Copies into scratch and hands the document to simdjson; the two public
+    // entry points differ only in what they expect at the root.
+    [[nodiscard]] std::expected<void, WireError> start(std::string_view frame);
+
     simdjson::padded_string scratch_;
     ondemand::parser parser_;
     ondemand::document doc_;

@@ -1,16 +1,16 @@
 #include <raikiri/config/secret.hpp>
 
+#include <fcntl.h>
 #include <openssl/evp.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/resource.h>
-#include <unistd.h>
 
 namespace raikiri::config {
 
@@ -41,6 +41,20 @@ std::string_view trim_eol(std::string_view s) noexcept {
 }
 
 } // namespace
+
+std::string_view to_string(SecretRef::Scheme scheme) noexcept {
+    switch (scheme) {
+    case SecretRef::Scheme::Env:
+        return "env";
+    case SecretRef::Scheme::File:
+        return "file";
+    case SecretRef::Scheme::Exec:
+        return "exec";
+    case SecretRef::Scheme::Literal:
+        return "literal";
+    }
+    return "unknown";
+}
 
 std::string_view to_string(SecretError err) noexcept {
     switch (err) {
@@ -143,11 +157,15 @@ std::expected<SecretRef, SecretError> SecretRef::parse(std::string_view spec) {
     if (scheme == "exec") {
         return SecretRef{.scheme = Scheme::Exec, .payload = std::string{payload}};
     }
+    if (scheme == "literal") {
+        // The payload is the value, colons and all: a key containing ':' is
+        // ordinary, so only the FIRST colon separates the scheme.
+        return SecretRef{.scheme = Scheme::Literal, .payload = std::string{payload}};
+    }
     return std::unexpected{SecretError::UnknownScheme};
 }
 
-std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef& ref,
-                                                                Secret& out) {
+std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef& ref, Secret& out) {
     switch (ref.scheme) {
     case SecretRef::Scheme::Env: {
         const char* value = std::getenv(ref.payload.c_str());
@@ -180,6 +198,10 @@ std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef&
         wipe(buf.data(), buf.size()); // the staging copy dies too
         return result;
     }
+    case SecretRef::Scheme::Literal:
+        // Straight through: there is nowhere to fetch it from, which is the
+        // whole point and the whole problem.
+        return out.assign(ref.payload);
     case SecretRef::Scheme::Exec: {
         // Through /bin/sh with the environment intact so `op`, `vault` and
         // friends find their own session state. The command must print the

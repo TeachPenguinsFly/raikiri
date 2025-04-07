@@ -9,6 +9,7 @@
 #include <raikiri/venues/binance/rest.hpp>
 #include <raikiri/venues/binance/ws.hpp>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,25 @@ struct VenueState {
     // is why the refusal is counted rather than inferred.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
+
+    // User-stream key. Valid 60 minutes and EXTENDED by a keepalive rather
+    // than reissued — reissuing hands back the same key but resets nothing if
+    // the old one already lapsed, so the timer matters more than the call.
+    std::string listen_key;
+    std::uint64_t listen_key_due_ns{0};
+    bool listen_key_expired{false};
+
+    // The gateway pumps one poll(), and it reaches the data client. The
+    // execution client's listen-key clock has to advance on the same tick, so
+    // it hangs its own here rather than the gateway learning about a second
+    // thing to call.
+    std::function<void(UnixNanos)> tick_hook;
+
+    [[nodiscard]] UnixNanos venue_now() const {
+        const auto local = clock->wall();
+        return UnixNanos{
+            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+    }
 
     void add_stream(std::string_view stream) {
         for (const auto& existing : desired_streams) {
@@ -224,13 +244,17 @@ public:
         return {};
     }
 
-    void poll(UnixNanos) noexcept override {
+    void poll(UnixNanos now) noexcept override {
         if (!started_) {
             return;
         }
         state_->io.poll();
         // No application-level ping: binance drives keepalive with websocket
-        // control frames, which the transport already answers.
+        // control frames, which the transport already answers. The user
+        // stream's listen key does need refreshing, and that rides here.
+        if (state_->tick_hook) {
+            state_->tick_hook(now);
+        }
     }
 
 private:
@@ -240,50 +264,400 @@ private:
     bool started_{false};
 };
 
-// Order entry is not implemented. Every path refuses with a terminal event so
-// an order can never sit open in the store waiting for a verdict that no code
-// will ever produce.
+// Handles one user-stream frame. Kept out of the client so dispatch is
+// testable without a socket.
+void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) {
+    const auto event = parse_event(frame);
+    if (!event.has_value()) {
+        return;
+    }
+    switch (event->kind) {
+    case EventKind::OrderUpdate: {
+        const auto wire = parse_order_update(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto order_event = map_order_event(*wire, state.instruments, received);
+            order_event.has_value()) {
+            state.sink->on_order_event(*order_event);
+        }
+        break;
+    }
+    case EventKind::ListenKeyExpired:
+        // The key died before its hour was up, which happens when the account
+        // opens a second stream. Nothing here can fix it; the keepalive tick
+        // notices the flag and rebuilds the socket.
+        state.listen_key_expired = true;
+        break;
+    case EventKind::AccountUpdate:
+        // Positions and balances are pulled on reconciliation rather than
+        // tracked incrementally: an incremental position that drifts is worse
+        // than one that is a few seconds old.
+        break;
+    default:
+        break;
+    }
+}
+
+class PrivateHandler final : public net::WsHandler {
+public:
+    explicit PrivateHandler(VenueState& state) : state_{&state} {}
+
+    void on_open() override {
+        // Nothing to subscribe to: the listen key in the URL IS the
+        // subscription, which is why an expired key presents as silence
+        // rather than as an error frame.
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Connected, .stream_id = 1, .ts = state_->clock->wall()});
+    }
+
+    void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        handle_private_frame(*state_, payload, received);
+    }
+
+    void on_close(net::WsCloseReason) override {
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = 1, .ts = state_->clock->wall()});
+    }
+
+private:
+    VenueState* state_;
+};
+
+// Keepalive cadence. The key lapses at 60 minutes; 30 leaves room for one
+// missed call before anything is lost.
+constexpr std::uint64_t k_listen_key_interval_ns = 30ULL * 60 * 1'000'000'000ULL;
+
+std::optional<net::RestResponse> await_response(VenueState& state,
+                                                net::RestClient& rest,
+                                                const net::RestRequest& request,
+                                                std::uint64_t timeout_ms = 10'000);
+
 class BinanceExec final : public exec::ExecutionClient {
 public:
-    explicit BinanceExec(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
+    explicit BinanceExec(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)},
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}},
+          handler_{*state_} {
+        state_->tick_hook = [this](UnixNanos now) { tick(now); };
+    }
 
-    std::expected<void, exec::VenueError> start() override { return {}; }
+    std::expected<void, exec::VenueError> start() override {
+        rest_.start();
+        started_ = true;
+        if (!state_->signer.has_credentials()) {
+            // Read-only by construction: without keys there is no user stream
+            // to open, and every order path already refuses.
+            return {};
+        }
+        return open_user_stream();
+    }
 
-    void stop() override {}
+    void stop() override {
+        if (!started_) {
+            return; // teardown calls stop twice
+        }
+        if (client_) {
+            client_->stop();
+            client_.reset();
+        }
+        if (state_->signer.has_credentials() && !state_->listen_key.empty()) {
+            if (const auto request = state_->builder.listen_key_close(); request.has_value()) {
+                (void)await_response(*state_, rest_, *request, 2'000);
+            }
+        }
+        state_->listen_key.clear();
+        rest_.stop();
+        started_ = false;
+    }
 
-    [[nodiscard]] bool connected() const noexcept override { return false; }
+    [[nodiscard]] bool connected() const noexcept override {
+        return client_ != nullptr && client_->connected();
+    }
 
-    void submit(const OrderCmd& cmd) noexcept override { emit(cmd, OrderEventType::Rejected); }
+    void submit(const OrderCmd& cmd) noexcept override {
+        const auto* instrument = state_->instruments.find(cmd.instrument);
+        if (instrument == nullptr) {
+            emit(cmd, OrderEventType::Rejected);
+            return;
+        }
+        const auto request =
+            state_->builder.create_order(cmd, base_of(*instrument), state_->venue_now());
+        if (!request.has_value()) {
+            emit(cmd, OrderEventType::Rejected);
+            return;
+        }
+        send_order(*request, cmd, OrderEventType::Rejected);
+    }
 
     void cancel(const OrderCmd& cmd) noexcept override {
-        // CancelRejected, not Rejected: the order this targets is still alive.
-        emit(cmd, OrderEventType::CancelRejected);
+        const auto* instrument = state_->instruments.find(cmd.instrument);
+        if (instrument == nullptr) {
+            emit(cmd, OrderEventType::CancelRejected);
+            return;
+        }
+        const auto request =
+            state_->builder.cancel_order(cmd, base_of(*instrument), state_->venue_now());
+        if (!request.has_value()) {
+            emit(cmd, OrderEventType::CancelRejected);
+            return;
+        }
+        send_order(*request, cmd, OrderEventType::CancelRejected);
+    }
+
+    void amend(const OrderCmd& cmd) noexcept override {
+        const auto* instrument = state_->instruments.find(cmd.instrument);
+        if (instrument == nullptr) {
+            emit(cmd, OrderEventType::ModifyRejected);
+            return;
+        }
+        const auto request =
+            state_->builder.amend_order(cmd, base_of(*instrument), state_->venue_now());
+        if (!request.has_value()) {
+            emit(cmd, OrderEventType::ModifyRejected);
+            return;
+        }
+        send_order(*request, cmd, OrderEventType::ModifyRejected);
     }
 
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
+        const auto request = state_->builder.open_orders(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local OrderBuffer storage;
+        const auto wire = parse_orders(*body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<exec::OrderStatusReport> out;
+        out.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            if (const auto report = map_open_order(entry, state_->instruments);
+                report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
-        return std::unexpected{unimplemented()};
+    query_order(const ExchangeClientOrderId& id, MarketType) override {
+        // Binance requires a symbol on a single-order query, and the id alone
+        // does not carry one. The open-order sweep is what recovers an order
+        // whose instrument we no longer know.
+        const auto* instrument = first_known_instrument();
+        if (instrument == nullptr) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "query needs a loaded catalogue")};
+        }
+        const auto request = state_->builder.query_order(
+            base_of(*instrument).exchange_symbol.view(), id, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto wire = parse_order(*body);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        const auto report = map_open_order(*wire, state_->instruments);
+        if (!report.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unmappable order")};
+        }
+        return *report;
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
-        return std::unexpected{unimplemented()};
+    fill_reports(MarketType, UnixNanos since) override {
+        const auto* instrument = first_known_instrument();
+        if (instrument == nullptr) {
+            return std::vector<exec::FillReport>{};
+        }
+        const auto request = state_->builder.user_trades(
+            base_of(*instrument).exchange_symbol.view(), since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local TradeBuffer storage;
+        const auto wire = parse_user_trades(*body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<exec::FillReport> out;
+        out.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            if (const auto report = map_user_trade(entry, state_->instruments);
+                report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
+        const auto request = state_->builder.position_risk(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        std::array<WirePositionRisk, 512> storage{};
+        const auto wire = parse_position_risk(*body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<exec::PositionReport> out;
+        out.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            if (const auto report = map_position(entry, state_->instruments); report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
+    }
+
+    // Called from the gateway loop by the data client's poll, which owns the
+    // io context; this only advances the key's clock.
+    void tick(UnixNanos now) noexcept {
+        if (!started_ || !state_->signer.has_credentials()) {
+            return;
+        }
+        if (state_->listen_key_expired) {
+            state_->listen_key_expired = false;
+            (void)open_user_stream();
+            return;
+        }
+        if (now.ns < state_->listen_key_due_ns || state_->listen_key.empty()) {
+            return;
+        }
+        state_->listen_key_due_ns = now.ns + k_listen_key_interval_ns;
+        if (const auto request = state_->builder.listen_key_keepalive(); request.has_value()) {
+            (void)rest_.send(*request, [](net::RestResponse&&) {});
+        }
     }
 
 private:
-    static exec::VenueError unimplemented() noexcept {
-        return exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "binance order entry not implemented");
+    [[nodiscard]] const Instrument* first_known_instrument() const noexcept {
+        const auto all = state_->instruments.all();
+        return all.empty() ? nullptr : &all.front();
+    }
+
+    static exec::VenueError build_failed(BuildError err) noexcept {
+        return exec::VenueError::make(err == BuildError::NoCredentials
+                                          ? exec::ErrorClass::AuthFailure
+                                          : exec::ErrorClass::Terminal,
+                                      0,
+                                      to_string(err));
+    }
+
+    // Turns a REST answer into a body, or into the classified failure the
+    // gateway acts on. A transport failure is Connectivity, not Terminal: the
+    // order may well have reached the venue, and reconciliation settles it.
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    usable_body(const std::optional<net::RestResponse>& response) const {
+        if (!response.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        }
+        if (const auto err = parse_rest_error(response->body);
+            err.has_value() && err->code != k_ok) {
+            return std::unexpected{
+                exec::VenueError::make(classify(err->code), err->code, err->msg)};
+        }
+        return response->body;
+    }
+
+    std::expected<void, exec::VenueError> open_user_stream() {
+        const auto request = state_->builder.listen_key_create();
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto key = parse_listen_key(*body);
+        if (!key.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "listen key missing")};
+        }
+        state_->listen_key.assign(*key);
+        state_->listen_key_due_ns = state_->clock->mono().ns + k_listen_key_interval_ns;
+
+        if (client_) {
+            client_->stop();
+        }
+        client_ = std::make_unique<net::WsClient>(
+            state_->io,
+            net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                          .port = "443",
+                          .target = "/ws/" + state_->listen_key},
+            handler_);
+        client_->start();
+        return {};
+    }
+
+    // A REST order path answers with either the venue's acceptance — which
+    // produces no event, because the user stream is authoritative — or a
+    // refusal, which must be synthesized locally. Binance does not send a
+    // user-stream frame for an order it never accepted, so silence here
+    // would leave the order open in the store forever.
+    void send_order(const net::RestRequest& request,
+                    const OrderCmd& cmd,
+                    OrderEventType on_failure) noexcept {
+        const auto captured = cmd;
+        const auto sent = rest_.send(request, [this, captured, on_failure](net::RestResponse&& r) {
+            if (r.transport_failed()) {
+                emit(captured, on_failure);
+                return;
+            }
+            const auto err = parse_rest_error(r.body);
+            if (!err.has_value() || err->code == k_ok) {
+                return; // accepted; the user stream reports what happens next
+            }
+            if (on_failure == OrderEventType::CancelRejected &&
+                is_benign_cancel_failure(err->code)) {
+                // The order already filled or was already gone. Reporting a
+                // CancelRejected here would alarm an operator about a race
+                // that resolved itself.
+                return;
+            }
+            emit(captured, on_failure);
+        });
+        if (!sent) {
+            emit(cmd, on_failure);
+        }
     }
 
     void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
@@ -292,6 +666,7 @@ private:
         event.side = cmd.side;
         event.order_type = cmd.order_type;
         event.tif = cmd.tif;
+        event.flags = cmd.flags;
         event.instrument = cmd.instrument;
         event.client_order_id = cmd.client_order_id;
         event.exchange_client_order_id = cmd.exchange_client_order_id;
@@ -303,12 +678,16 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
+    net::RestClient rest_;
+    PrivateHandler handler_;
+    std::unique_ptr<net::WsClient> client_;
+    bool started_{false};
 };
 
 std::optional<net::RestResponse> await_response(VenueState& state,
                                                 net::RestClient& rest,
                                                 const net::RestRequest& request,
-                                                std::uint64_t timeout_ms = 10'000) {
+                                                std::uint64_t timeout_ms) {
     std::optional<net::RestResponse> result;
     if (!rest.send(request,
                    [&result](net::RestResponse&& response) { result = std::move(response); })) {
@@ -401,6 +780,25 @@ private:
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+
+    // Credentials resolve here and nowhere else. Market data needs none, so a
+    // gateway started without them still runs — read-only by construction
+    // rather than by configuration.
+    config::DefaultSecretProvider provider;
+    if (!config.api_key_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
+            config::Secret key;
+            if (provider.resolve(*ref, key).has_value()) {
+                state->signer.set_api_key(key.view());
+            }
+        }
+    }
+    if (!config.api_secret_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
+            (void)provider.resolve(*ref, state->signer.secret());
+        }
+    }
+
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Binance);
     adapter.data = std::make_unique<BinanceData>(state);
