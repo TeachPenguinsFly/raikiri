@@ -21,6 +21,7 @@
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
+#include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 
 #include <fmt/format.h>
@@ -161,8 +162,9 @@ int main(int argc, char** argv) {
         }
     }
     const auto venue = venue_from_string(venue_name);
-    if (venue != VenueId::Sim && venue != VenueId::Bybit && venue != VenueId::Binance) {
-        fmt::print(stderr, "gatewayd: --venue must be sim, bybit or binance\n");
+    if (venue != VenueId::Sim && venue != VenueId::Bybit && venue != VenueId::Binance &&
+        venue != VenueId::Okx) {
+        fmt::print(stderr, "gatewayd: --venue must be sim, bybit, binance or okx\n");
         return 2;
     }
     // Credentials are optional on purpose: public market data needs none, so
@@ -241,6 +243,7 @@ int main(int argc, char** argv) {
     venues::sim::register_adapter();
     venues::bybit::register_adapter();
     venues::binance::register_adapter();
+    venues::okx::register_adapter();
     auto adapter = exec::make_venue({.venue = venue,
                                      .enable_perp = true,
                                      .testnet = testnet,

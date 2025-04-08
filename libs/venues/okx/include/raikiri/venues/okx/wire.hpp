@@ -1,0 +1,206 @@
+#pragma once
+
+// OKX v5 wire types and parsers.
+//
+// Same layering rule as every adapter: DTOs mirror OKX's JSON exactly and a
+// separate mapping step converts to domain types. Numbers stay as
+// string_views into the caller's buffer.
+//
+// Three things differ from binance in ways that reach this file.
+//
+// There is no stream wrapper to peel. A data frame is
+// {"arg":{"channel":..,"instId":..},"data":[...]} and dispatch reads
+// arg.channel, so every parser takes the whole frame and reads data[0]
+// itself. Control frames are {"event":"subscribe"|"error",...} instead.
+//
+// Timestamps are epoch milliseconds inside JSON STRINGS while sequence ids
+// are JSON numbers — the opposite split from binance, and prevSeqId is -1 on
+// a snapshot, so the id fields are signed.
+//
+// Every REST body is an envelope {"code":"0","msg":"","data":[...]} whose
+// code is a STRING. "0" is success; there is no negative-code convention to
+// lean on.
+
+#include <array>
+#include <cstdint>
+#include <expected>
+#include <span>
+#include <string_view>
+
+namespace raikiri::venues::okx {
+
+enum class WireError : std::uint8_t {
+    NotJson,
+    MissingField,
+    WrongType,
+    TooManyEntries,
+};
+
+[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+
+// Resolved from arg.channel once, so downstream dispatch is an integer
+// compare rather than a string compare per message.
+enum class EventKind : std::uint8_t {
+    Bbo,         // bbo-tbt — tick-by-tick top of book
+    Trade,       // trades
+    FundingRate, // funding-rate
+    MarkPrice,   // mark-price
+    Books,       // books — 400-level deltas
+    SubscribeAck,
+    Error,
+    Unknown,
+};
+
+struct EventInfo {
+    EventKind kind{EventKind::Unknown};
+    std::string_view inst_id; // empty on control frames
+};
+
+// A keepalive answer is the bare text "pong", not JSON, so it lands here as
+// NotJson and the caller ignores it — the same path as any frame OKX adds.
+[[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
+
+// A refused subscription: {"event":"error","code":"60018","msg":"..."}. Its
+// code is a string like every other OKX code.
+struct StreamError {
+    std::int64_t code{0};
+    std::string_view msg;
+};
+
+[[nodiscard]] std::expected<StreamError, WireError> parse_stream_error(std::string_view frame);
+
+// ------------------------------------------------------------ public ----
+
+struct WireBbo {
+    std::string_view inst_id;
+    std::string_view bid_price;
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::int64_t seq_id{0};
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
+
+// `side` is already the AGGRESSOR's side — OKX states the taker direction
+// directly, so nothing is inverted here or in the mapper. Binance's `m` says
+// the opposite thing and needs a flip; reading these two the same way is how
+// a signed flow series comes out backwards.
+struct WireTrade {
+    std::string_view inst_id;
+    std::string_view trade_id;
+    std::string_view price;
+    std::string_view qty;
+    bool aggressor_bought{false};
+    std::int64_t seq_id{0};
+    std::uint64_t ts_ms{0};
+};
+
+inline constexpr std::size_t k_max_trades = 128;
+
+struct TradeBuffer {
+    std::array<WireTrade, k_max_trades> trades{};
+};
+
+// One frame can carry several prints, so this returns a span where the other
+// channels return one struct.
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
+parse_trades(std::string_view frame, TradeBuffer& storage);
+
+// funding_ms is OKX's `fundingTime`: the settlement the CURRENT rate applies
+// to, which is the next settlement in wall-clock terms. `nextFundingTime` is
+// the one after that, and reading it as "next funding" puts every countdown
+// one interval into the future.
+//
+// The websocket funding-rate frame and GET /public/funding-rate ship the
+// identical object, so one parser reads both.
+struct WireFundingRate {
+    std::string_view inst_id;
+    std::string_view funding_rate;
+    std::string_view next_funding_rate; // forecast; observed empty in practice
+    std::uint64_t funding_ms{0};
+    std::uint64_t next_funding_ms{0};
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view frame);
+
+// Also shared between the mark-price channel and GET /public/mark-price.
+struct WireMarkPrice {
+    std::string_view inst_id;
+    std::string_view mark_price;
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty; // "0" means delete this level
+};
+
+// `books` pushes 400 levels a side on the snapshot; the ceiling leaves room
+// without letting a hostile frame make us allocate.
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Continuity is the seqId chain: a delta applies when its prev_seq_id equals
+// the previous message's seq_id. The checksum field OKX still pushes was
+// DEPRECATED on 2026-06-23 and is now pinned to 0 — validating it would
+// resync forever against a constant, which is why it is not surfaced at all.
+struct WireBooks {
+    std::string_view inst_id;
+    bool snapshot{false}; // action: "snapshot" vs "update"
+    std::int64_t seq_id{0};
+    std::int64_t prev_seq_id{0}; // -1 on a snapshot
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
+                                                              LevelBuffer& storage);
+
+// ------------------------------------------------------------- rest ----
+
+inline constexpr std::int64_t k_ok = 0;
+
+struct RestEnvelope {
+    std::int64_t code{0};
+    std::string_view msg;
+};
+
+// Fails rather than reporting success when `code` is missing or is not a run
+// of digits: a body whose envelope cannot be read must never be mistaken for
+// a body that said "0".
+[[nodiscard]] std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body);
+
+// ct_val/ct_mult are empty on SPOT rows and on rows that are not live yet.
+struct WireInstrument {
+    std::string_view inst_id;
+    std::string_view inst_type; // SWAP, FUTURES, SPOT, OPTION
+    std::string_view state;     // live, preopen, suspend, expired
+    std::string_view tick_size;
+    std::string_view lot_size;
+    std::string_view min_size;
+    std::string_view ct_val;
+    std::string_view ct_mult;
+};
+
+inline constexpr std::size_t k_max_instruments = 1024;
+
+struct InstrumentBuffer {
+    std::array<WireInstrument, k_max_instruments> instruments{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
+parse_instruments(std::string_view body, InstrumentBuffer& storage);
+
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
+
+} // namespace raikiri::venues::okx

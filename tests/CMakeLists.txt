@@ -38,6 +38,10 @@ raikiri_add_test(bybit_map_test SRCS venues/bybit/map_test.cpp LIBS raikiri::ven
 raikiri_add_test(bybit_rest_test SRCS venues/bybit/rest_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_ws_test SRCS venues/bybit/ws_test.cpp LIBS raikiri::venue_bybit raikiri::net)
 raikiri_add_test(bybit_venue_test SRCS venues/bybit/venue_test.cpp LIBS raikiri::venue_bybit raikiri::exec)
+raikiri_add_test(okx_map_test SRCS venues/okx/map_test.cpp LIBS raikiri::venue_okx raikiri::exec)
+raikiri_add_test(okx_wire_test SRCS venues/okx/wire_test.cpp LIBS raikiri::venue_okx)
+target_compile_definitions(okx_wire_test PRIVATE
+  RAIKIRI_OKX_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/okx/fixtures")
 raikiri_add_test(bybit_wire_test SRCS venues/bybit/wire_test.cpp LIBS raikiri::venue_bybit)
 target_compile_definitions(bybit_wire_test PRIVATE
   RAIKIRI_BYBIT_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues/bybit/fixtures")
