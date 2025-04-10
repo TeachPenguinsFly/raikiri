@@ -21,15 +21,15 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Binance,
         .spot = true,
         .perp = true,
-        .ws_order_entry = true,  // VERIFIED: ws-fapi (futures) + ws-api (spot)
+        .ws_order_entry = true, // VERIFIED: ws-fapi (futures) + ws-api (spot)
         // VERIFIED 2026-08: FIX 4.4/TLS, SPOT ONLY (no futures FIX exists).
         // Open to any account with FIX_API key permission; Ed25519 required.
         // Build scope: our only FIX implementation — and only relevant once
         // spot execution lands (perp-first ships REST+WS).
         .fix_order_entry = true,
         .cancel_by_client_order_id = true,
-        .batch_cancel = true, // futures batch endpoints
-        .amend_order = true,  // futures LIMIT modify
+        .batch_cancel = true,     // futures batch endpoints
+        .amend_order = true,      // futures LIMIT modify
         .native_post_only = true, // timeInForce GTX
         .book_checksum = false,
         .user_stream = UserStreamModel::ListenKey,
@@ -40,9 +40,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Bybit,
         .spot = true,
         .perp = true,
-        .ws_order_entry = true,  // v5 WS trade (order.create/amend/cancel)
-        .fix_order_entry = false, // VERIFIED 2026-08: no FIX; institutional
-                                  // low-latency path is the WS-based MMWS gateway
+        .ws_order_entry = true,            // v5 WS trade (order.create/amend/cancel)
+        .fix_order_entry = false,          // VERIFIED 2026-08: no FIX; institutional
+                                           // low-latency path is the WS-based MMWS gateway
         .cancel_by_client_order_id = true, // orderLinkId
         .batch_cancel = true,
         .amend_order = true,
@@ -56,8 +56,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Okx,
         .spot = true,
         .perp = true,
-        .ws_order_entry = true, // /ws/v5/private: order/batch-orders (<=20)
-        .fix_order_entry = false, // VERIFIED 2026-08: no FIX in v5 docs
+        .ws_order_entry = true,            // /ws/v5/private: order/batch-orders (<=20)
+        .fix_order_entry = false,          // VERIFIED 2026-08: no FIX in v5 docs
         .cancel_by_client_order_id = true, // clOrdId: <=32, alphanumeric ONLY
         .batch_cancel = true,
         .amend_order = true,
@@ -128,7 +128,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .ws_order_entry = false,
         .fix_order_entry = false,
         .cancel_by_client_order_id = true, // VERIFIED: query+cancel by clientOrderId
-        .batch_cancel = true, // VERIFIED: batch-cancel endpoints exist
+        .batch_cancel = true,              // VERIFIED: batch-cancel endpoints exist
         .amend_order = false,
         .native_post_only = false, // provisional
         .book_checksum = false,
@@ -170,6 +170,79 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 40,
         .headline_order_rate_per_s = 0,
     };
+
+    // --- read-only venues -------------------------------------------------
+    // Consumed for reference prices, basis and funding comparison; the
+    // framework does not trade them. The rows below still describe what each
+    // VENUE offers, not what our adapter implements — a caps row that lied
+    // about the venue to describe our progress would be useless the day the
+    // adapter caught up.
+
+    table[static_cast<std::size_t>(VenueId::Deribit)] = {
+        .venue = VenueId::Deribit,
+        .spot = false, // a spot book exists but is vestigial
+        .perp = true,
+        .ws_order_entry = true, // JSON-RPC over the same socket as market data
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 64, // `label`
+        .headline_order_rate_per_s = 20,
+    };
+    table[static_cast<std::size_t>(VenueId::Hyperliquid)] = {
+        .venue = VenueId::Hyperliquid,
+        .spot = true,
+        .perp = true,
+        .ws_order_entry = true,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 34, // `cloid`: 0x + 32 hex, exactly 128 bits
+        .headline_order_rate_per_s = 10,
+    };
+    table[static_cast<std::size_t>(VenueId::Coinbase)] = {
+        .venue = VenueId::Coinbase,
+        .spot = true,
+        .perp = false, // perps exist but only on the non-US entity
+        .ws_order_entry = false,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 36, // UUID
+        .headline_order_rate_per_s = 30,
+    };
+    table[static_cast<std::size_t>(VenueId::Kraken)] = {
+        .venue = VenueId::Kraken,
+        .spot = true,
+        .perp = true, // Kraken Futures, a separate API surface
+        .ws_order_entry = true,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 100, // `cliOrdId`
+        .headline_order_rate_per_s = 20,
+    };
+    table[static_cast<std::size_t>(VenueId::Bitmex)] = {
+        .venue = VenueId::Bitmex,
+        .spot = true,
+        .perp = true, // the original inverse perpetual
+        .ws_order_entry = false,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 36, // clOrdID
+        .headline_order_rate_per_s = 10,
+    };
+
     return table;
 }();
 

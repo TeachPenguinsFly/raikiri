@@ -34,9 +34,18 @@ enum class VenueId : std::uint8_t {
     Xt,
     Mexc,
     Sim,
+    // Appended, never inserted: these values reach the journal and Postgres,
+    // so renumbering an existing venue would silently reinterpret every row
+    // already written. Read-only venues live here — the framework consumes
+    // their data for reference prices and basis without trading them.
+    Deribit,
+    Hyperliquid,
+    Coinbase,
+    Kraken,
+    Bitmex,
 };
 
-inline constexpr std::size_t k_venue_count = 10; // including Invalid
+inline constexpr std::size_t k_venue_count = 15; // including Invalid
 
 enum class MarketType : std::uint8_t {
     Spot = 0,

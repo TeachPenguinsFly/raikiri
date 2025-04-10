@@ -21,8 +21,13 @@
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
 #include <raikiri/venues/bingx/bingx_venue.hpp>
+#include <raikiri/venues/bitmex/bitmex_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
+#include <raikiri/venues/coinbase/coinbase_venue.hpp>
+#include <raikiri/venues/deribit/deribit_venue.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
+#include <raikiri/venues/hyperliquid/hyperliquid_venue.hpp>
+#include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
@@ -250,6 +255,11 @@ int main(int argc, char** argv) {
     venues::sim::register_adapter();
     venues::bybit::register_adapter();
     venues::binance::register_adapter();
+    venues::deribit::register_adapter();
+    venues::hyperliquid::register_adapter();
+    venues::coinbase::register_adapter();
+    venues::kraken::register_adapter();
+    venues::bitmex::register_adapter();
     venues::gate::register_adapter();
     venues::kucoin::register_adapter();
     venues::bingx::register_adapter();
