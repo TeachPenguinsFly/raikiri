@@ -1,32 +1,256 @@
+#include <raikiri/net/io_context.hpp>
+#include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/mexc/errors.hpp>
+#include <raikiri/venues/mexc/map.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
+#include <raikiri/venues/mexc/rest.hpp>
+#include <raikiri/venues/mexc/ws.hpp>
 
+#include <array>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace raikiri::venues::mexc {
 
 namespace {
 
-// Scaffolding. Every path refuses with a Terminal error so that a gateway
-// pointed at this venue fails at startup instead of appearing to work.
-exec::VenueError unimplemented() noexcept {
-    return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "mexc adapter not implemented");
+// MEXC closes a socket that has sent nothing for 60 s and counts only CLIENT
+// messages toward that timer — verified: a connection receiving a push every
+// three seconds was still dropped at 62 s. Ten seconds leaves room for a
+// missed ping and a reconnect inside the window.
+constexpr std::uint64_t k_app_ping_interval_ns = 10'000'000'000ULL;
+
+// A subscription the gateway asked for, owned as strings because the
+// instrument table's views outlive nothing in particular.
+struct OwnedSubscription {
+    std::string channel;
+    std::string symbol;
+    std::uint32_t limit{0};
+};
+
+// State every mexc connection shares within one gateway process. Single
+// threaded by contract: the gateway loop is the only caller, which is why
+// nothing here synchronises.
+struct VenueState {
+    VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
+        : sink{&sink_ref}, clock{&clock_ref} {}
+
+    exec::GatewaySink* sink;
+    const Clock* clock;
+
+    net::IoContext io;
+    exec::InstrumentTable instruments;
+    Protocol protocol;
+    RequestBuilder builder;
+
+    // Desired subscriptions, owned here rather than by the transport: the
+    // socket re-asserts this set on every open, so a reconnect and a cold
+    // start run the same path.
+    std::vector<OwnedSubscription> desired;
+
+    std::uint64_t next_app_ping_ns{0};
+
+    // Venue clock offset, measured against /contract/ping. Unused until
+    // signing lands, but measured now because a wrong offset shows up as 603
+    // (request expired), which reads like a credentials problem.
+    std::int64_t clock_offset_ns{0};
+
+    // Subscriptions the venue refused. A stream that was never established and
+    // a stream that is merely quiet look identical from the sink, which is why
+    // the refusal is counted rather than inferred.
+    std::uint64_t subscribe_refusals{0};
+
+    void add_subscription(std::string_view channel, std::string_view symbol, std::uint32_t limit) {
+        for (const auto& existing : desired) {
+            if (existing.channel == channel && existing.symbol == symbol) {
+                return; // refcounting lives in the gateway core; this is a set
+            }
+        }
+        desired.emplace_back(std::string{channel}, std::string{symbol}, limit);
+    }
+};
+
+void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
+    const auto event = parse_event(frame);
+    if (!event.has_value()) {
+        return; // unknown shapes are ignored, never fatal
+    }
+    switch (event->kind) {
+    case EventKind::DepthFull: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_depth(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
+            state.sink->on_bbo(*bbo);
+        }
+        break;
+    }
+    case EventKind::Trade: {
+        static thread_local TradeBuffer trades;
+        const auto wire = parse_trades(frame, trades);
+        if (!wire.has_value()) {
+            return;
+        }
+        // One frame can carry several prints; dropping the tail would lose
+        // real volume on a busy contract.
+        for (const auto& entry : *wire) {
+            if (const auto trade = map_trade(entry, state.instruments, received);
+                trade.has_value()) {
+                state.sink->on_trade(*trade);
+            }
+        }
+        break;
+    }
+    case EventKind::Ticker: {
+        const auto wire = parse_ticker(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto funding = map_funding(*wire, state.instruments, received);
+            funding.has_value()) {
+            state.sink->on_funding(*funding);
+        }
+        break;
+    }
+    case EventKind::Depth:
+        // Parsed and tested, but nothing consumes a book yet: the BBO comes
+        // from depth.full, so maintaining one here would be state kept for its
+        // own sake. The begin/end chain it needs is already pinned by tests.
+        break;
+    case EventKind::Error: {
+        // rs.error covers both a refused subscription and the idle-timeout
+        // notice, and carries no code to tell them apart. Either way the
+        // channel it names is dead and silence is exactly how that presents,
+        // so it is counted here for the operator interface.
+        if (parse_stream_error(frame).has_value()) {
+            ++state.subscribe_refusals;
+        }
+        break;
+    }
+    case EventKind::SubscribeAck:
+    case EventKind::Pong:
+    case EventKind::Unknown:
+        break;
+    }
 }
+
+class PublicHandler final : public net::WsHandler {
+public:
+    explicit PublicHandler(VenueState& state) : state_{&state} {}
+
+    void on_open() override {
+        // The ONE resubscribe path: everything the gateway asked for is
+        // re-sent here, which is why the transport tracks none of it. One
+        // message per subscription — MEXC's param names a single symbol.
+        for (const auto& entry : state_->desired) {
+            const std::array<Subscription, 1> one{Subscription{
+                .channel = entry.channel, .symbol = entry.symbol, .limit = entry.limit}};
+            const auto frame = state_->protocol.subscribe_frame(one);
+            if (!frame.has_value() || !client_->send(frame->text)) {
+                break; // wedged socket; the reconnect retries the whole set
+            }
+        }
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
+    }
+
+    void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        handle_frame(*state_, payload, received);
+    }
+
+    void on_close(net::WsCloseReason) override {
+        state_->sink->on_connectivity(
+            {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
+    }
+
+    void attach(net::WsClient& client) noexcept { client_ = &client; }
+
+private:
+    VenueState* state_;
+    net::WsClient* client_{nullptr};
+};
 
 class MexcData final : public exec::DataClient {
 public:
-    std::expected<void, exec::VenueError> start() override {
-        return std::unexpected{unimplemented()};
+    explicit MexcData(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)}, handler_{*state_},
+          client_{state_->io,
+                  net::WsConfig{.host = std::string{stream_host()},
+                                .port = std::string{stream_port()},
+                                .target = std::string{stream_path()}},
+                  handler_} {
+        handler_.attach(client_);
     }
 
-    void stop() override {}
+    std::expected<void, exec::VenueError> start() override {
+        client_.start();
+        started_ = true;
+        return {};
+    }
 
-    [[nodiscard]] bool connected() const noexcept override { return false; }
+    void stop() override {
+        client_.stop();
+        started_ = false;
+    }
+
+    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+
+    std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
+                                                    InstrumentId instrument) override {
+        const auto symbol = state_->instruments.exchange_symbol(instrument);
+        if (symbol.empty()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
+        }
+        const auto channel = channel_for(kind);
+        if (channel.empty()) {
+            return DataClient::subscribe(kind, instrument);
+        }
+        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
+        }
+        const std::uint32_t limit = kind == exec::SubKind::Bbo ? k_bbo_depth : 0;
+        state_->add_subscription(channel, symbol, limit);
+        if (client_.connected()) {
+            const std::array<Subscription, 1> one{
+                Subscription{.channel = channel, .symbol = symbol, .limit = limit}};
+            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
+                (void)client_.send(frame->text);
+            }
+        }
+        return {};
+    }
+
+    void poll(UnixNanos now) noexcept override {
+        if (!started_) {
+            return;
+        }
+        state_->io.poll();
+        if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
+            (void)client_.send(Protocol::ping_frame());
+            state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
+        }
+    }
+
+private:
+    std::shared_ptr<VenueState> state_;
+    PublicHandler handler_;
+    net::WsClient client_;
+    bool started_{false};
 };
 
+// Order entry is not implemented. Every path refuses with a terminal event so
+// an order can never sit open in the store waiting for a verdict that no code
+// will ever produce.
 class MexcExec final : public exec::ExecutionClient {
 public:
-    explicit MexcExec(exec::GatewaySink& sink, const Clock& clock) : sink_{&sink}, clock_{&clock} {}
+    explicit MexcExec(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
 
     std::expected<void, exec::VenueError> start() override { return {}; }
 
@@ -62,37 +286,142 @@ public:
     }
 
 private:
+    static exec::VenueError unimplemented() noexcept {
+        return exec::VenueError::make(
+            exec::ErrorClass::Terminal, 0, "mexc order entry not implemented");
+    }
+
     void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
         OrderEvent event{};
         event.type = type;
         event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
         event.instrument = cmd.instrument;
         event.client_order_id = cmd.client_order_id;
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
-        event.ts_event = clock_->wall();
+        event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
-        sink_->on_order_event(event);
+        state_->sink->on_order_event(event);
     }
 
-    exec::GatewaySink* sink_;
-    const Clock* clock_;
+    std::shared_ptr<VenueState> state_;
 };
+
+std::optional<net::RestResponse> await_response(VenueState& state,
+                                                net::RestClient& rest,
+                                                const net::RestRequest& request,
+                                                std::uint64_t timeout_ms = 10'000) {
+    std::optional<net::RestResponse> result;
+    if (!rest.send(request,
+                   [&result](net::RestResponse&& response) { result = std::move(response); })) {
+        return std::nullopt;
+    }
+    const auto deadline = state.clock->mono().ns + timeout_ms * 1'000'000ULL;
+    while (!result.has_value() && state.clock->mono().ns < deadline) {
+        if (state.io.poll() == 0) {
+            state.io.run_for(5);
+        }
+    }
+    return result;
+}
+
+void sync_clock(VenueState& state, net::RestClient& rest) {
+    const auto sent = state.clock->wall();
+    const auto response = await_response(state, rest, state.builder.server_time(), 5'000);
+    if (!response.has_value() || response->transport_failed()) {
+        return;
+    }
+    const auto venue_ms = parse_server_time(response->body);
+    if (!venue_ms.has_value()) {
+        return;
+    }
+    // Half the round trip is the usual estimate of one-way delay; the offset
+    // only has to be good to a fraction of MEXC's signing window.
+    const auto received = state.clock->wall();
+    const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
+    state.clock_offset_ns =
+        static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
+}
 
 class MexcInstruments final : public exec::InstrumentSource {
 public:
-    std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType) override {
-        return std::unexpected{unimplemented()};
+    explicit MexcInstruments(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
+
+    std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
+        rest_.start();
+        sync_clock(*state_, rest_);
+
+        // No market parameter reaches the wire: /contract/detail is the whole
+        // futures catalogue and MEXC serves spot from a different host, so a
+        // spot request is refused before it is sent rather than answered with
+        // futures rows.
+        if (market != MarketType::Perp) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "mexc contract api serves perps only")};
+        }
+        const auto response =
+            await_response(*state_, rest_, state_->builder.contract_detail(), 20'000);
+        if (!response.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
+        }
+        if (response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
+        }
+        const auto envelope = parse_rest_envelope(response->body);
+        if (!envelope.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+        }
+        if (!envelope->success || envelope->code != k_ok) {
+            return std::unexpected{
+                exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
+        }
+
+        static thread_local InstrumentBuffer storage;
+        const auto wire = parse_instruments(response->body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+
+        std::vector<Instrument> loaded;
+        loaded.reserve(wire->size());
+        state_->instruments.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            auto instrument = map_instrument(entry, market);
+            if (!instrument.has_value()) {
+                continue; // not enabled, or a scale finer than FixedE9 models
+            }
+            const auto id = state_->instruments.add(*instrument);
+            if (!id.has_value()) {
+                continue; // duplicate or table full: reported by count, not by throw
+            }
+            // The table rewrote the id to the slot that indexes it, so the copy
+            // handed back carries the id every inbound frame will use.
+            loaded.push_back(*state_->instruments.find(*id));
+        }
+        return loaded;
     }
+
+private:
+    std::shared_ptr<VenueState> state_;
+    net::RestClient rest_;
 };
 
 exec::VenueAdapter make(const exec::VenueConfig&, exec::GatewaySink& sink, const Clock& clock) {
+    auto state = std::make_shared<VenueState>(sink, clock);
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Mexc);
-    adapter.data = std::make_unique<MexcData>();
-    adapter.execution = std::make_unique<MexcExec>(sink, clock);
-    adapter.instruments = std::make_unique<MexcInstruments>();
+    adapter.data = std::make_unique<MexcData>(state);
+    adapter.execution = std::make_unique<MexcExec>(state);
+    adapter.instruments = std::make_unique<MexcInstruments>(state);
     return adapter;
 }
 

@@ -1,5 +1,12 @@
 add_library(raikiri_venue_mexc STATIC
+  src/errors.cpp
+  src/map.cpp
   src/mexc_venue.cpp
+  src/rest.cpp
+  src/wire_detail.cpp
+  src/wire_public.cpp
+  src/wire_rest.cpp
+  src/ws.cpp
 )
 add_library(raikiri::venue_mexc ALIAS raikiri_venue_mexc)
 
