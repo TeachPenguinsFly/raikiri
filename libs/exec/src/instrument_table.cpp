@@ -25,7 +25,8 @@ std::string_view to_string(TableError err) noexcept {
 
 void InstrumentTable::reserve(std::size_t count) {
     instruments_.reserve(count);
-    exchange_symbols_.reserve(count);
+    // exchange_symbols_ is a deque: it has nothing to reserve and nothing to
+    // invalidate, which is the point.
     by_exchange_symbol_.reserve(count);
 }
 

@@ -24,10 +24,11 @@
 #include <raikiri/domain/instrument.hpp>
 
 #include <cstdint>
+#include <deque>
 #include <expected>
+#include <span>
 #include <string>
 #include <string_view>
-#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -62,14 +63,19 @@ public:
 
     [[nodiscard]] std::span<const Instrument> all() const noexcept { return instruments_; }
 
-    // Reserving up front keeps add() from rehashing mid-load and, more to
-    // the point, keeps the string keys stable — the map holds views into the
-    // owned instruments, so a reallocation would dangle them.
+    // Purely an optimization: it saves rehashing mid-load. It used to be a
+    // correctness requirement too, because the key views pointed into a
+    // vector that reallocated — three separate venue adapters were caught by
+    // that as a heap-use-after-free. The key storage is now node-stable, so
+    // forgetting this call costs time and nothing else.
     void reserve(std::size_t count);
 
 private:
-    std::vector<Instrument> instruments_;          // indexed by SymbolId
-    std::vector<std::string> exchange_symbols_;    // owned key storage
+    std::vector<Instrument> instruments_; // indexed by SymbolId
+    // Deque, not vector: references to existing elements survive every
+    // push_back, which is what makes the views below safe by construction
+    // rather than by the caller remembering to reserve.
+    std::deque<std::string> exchange_symbols_;
     std::unordered_map<std::string_view, std::uint32_t> by_exchange_symbol_;
 };
 
