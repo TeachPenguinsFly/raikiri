@@ -1,0 +1,1 @@
+{"type":"subscriptions","channels":[{"name":"ticker","product_ids":["BTC-USD","ETH-USD"],"account_ids":null},{"name":"matches","product_ids":["BTC-USD","ETH-USD"],"account_ids":null},{"name":"level2_50","product_ids":["BTC-USD","ETH-USD"],"account_ids":null}]}

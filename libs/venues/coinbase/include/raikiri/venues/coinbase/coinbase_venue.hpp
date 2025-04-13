@@ -1,11 +1,17 @@
 #pragma once
 
-// The Coinbase adapter — READ ONLY.
+// The Coinbase adapter — READ ONLY, and the only SPOT venue in this tree.
 //
-// This venue is consumed for reference prices, basis and funding comparison;
-// the framework does not trade it. Order entry therefore refuses permanently
-// rather than temporarily, and says so, so nothing upstream waits for a
-// verdict that will never come.
+// Market data is complete against Coinbase Exchange (the former Coinbase Pro,
+// api.exchange.coinbase.com), whose public reads need no credentials at all.
+// This venue is consumed for reference prices and basis; the framework does
+// not trade it. Order entry therefore refuses permanently rather than
+// temporarily, and says so, so nothing upstream waits for a verdict that will
+// never come.
+//
+// Everything below is spot: fetch_all refuses any market but Spot, and there
+// is no funding stream to subscribe to. That is the arm of the domain's
+// instrument variant no live adapter exercised before this one.
 
 #include <raikiri/exec/venue.hpp>
 

@@ -154,6 +154,7 @@ int main(int argc, char** argv) {
     std::string api_key_ref;
     std::string api_secret_ref;
     std::vector<std::string> symbols;
+    std::string market_arg;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg.starts_with("--venue=")) {
@@ -162,6 +163,8 @@ int main(int argc, char** argv) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
         } else if (arg == "--testnet") {
             testnet = true;
+        } else if (arg.starts_with("--market=")) {
+            market_arg = arg.substr(9);
         } else if (arg.starts_with("--symbol=")) {
             symbols.emplace_back(arg.substr(9));
         } else if (arg.starts_with("--api-key=")) {
@@ -266,8 +269,30 @@ int main(int argc, char** argv) {
     venues::xt::register_adapter();
     venues::mexc::register_adapter();
     venues::okx::register_adapter();
+    // Which market this gateway serves. A venue that lists no perpetuals —
+    // coinbase exchange is spot only — cannot be asked for one, and asking
+    // used to fail as "adapter build failed" with nothing naming the market.
+    const auto& caps = exec::caps_of(venue);
+    MarketType market = MarketType::Perp;
+    if (market_arg == "spot") {
+        market = MarketType::Spot;
+    } else if (market_arg == "perp" || market_arg.empty()) {
+        market = caps.perp ? MarketType::Perp : MarketType::Spot;
+    } else {
+        fmt::print(stderr, "gatewayd: --market must be spot or perp\n");
+        return 2;
+    }
+    if ((market == MarketType::Perp && !caps.perp) || (market == MarketType::Spot && !caps.spot)) {
+        fmt::print(stderr,
+                   "gatewayd[{}]: venue does not list {} instruments\n",
+                   venue_name,
+                   market == MarketType::Spot ? "spot" : "perpetual");
+        return 2;
+    }
+
     auto adapter = exec::make_venue({.venue = venue,
-                                     .enable_perp = true,
+                                     .enable_spot = market == MarketType::Spot,
+                                     .enable_perp = market == MarketType::Perp,
                                      .testnet = testnet,
                                      .api_key_env = api_key_ref,
                                      .api_secret_env = api_secret_ref},
@@ -289,7 +314,7 @@ int main(int argc, char** argv) {
     if (venue == VenueId::Sim) {
         catalogue = demo::sim_instruments();
     } else {
-        auto loaded = adapter->instruments->fetch_all(MarketType::Perp);
+        auto loaded = adapter->instruments->fetch_all(market);
         if (!loaded.has_value()) {
             fmt::print(stderr,
                        "gatewayd[{}]: catalogue load failed: {} (code {})\n",
