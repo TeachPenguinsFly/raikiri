@@ -1,0 +1,1 @@
+{"time":1786394643,"time_ms":1786394643031,"conn_id":"57de1a41a5dba67d","trace_id":"a1cbb558df9f68e5350b71ad9ee5d8a7","channel":"futures.book_ticker","event":"subscribe","payload":["NOPE_USDT"],"error":{"code":2,"message":"unknown currency pair NOPE_USDT"},"result":{"status":"fail"}}

@@ -1,0 +1,1 @@
+{"time":1786394633,"time_ms":1786394633166,"conn_id":"c060f2bc9d680430","trace_id":"73dd58c83eaa73aca0dba62c93c0a233","channel":"futures.book_ticker","event":"subscribe","payload":["BTC_USDT"],"result":{"status":"success"}}
