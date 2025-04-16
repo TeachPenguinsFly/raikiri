@@ -1,0 +1,170 @@
+#include <raikiri/venues/kucoin/ws.hpp>
+
+#include <algorithm>
+#include <charconv>
+#include <cstring>
+
+namespace raikiri::venues::kucoin {
+
+namespace {
+
+constexpr std::string_view k_scheme = "wss://";
+
+// KuCoin's own SDKs put the token on the request line unencoded, and the
+// tokens observed are base64url plus '=' and '.'. Anything that would end the
+// target or start another parameter is refused rather than sent.
+[[nodiscard]] bool safe_in_query(std::string_view text) noexcept {
+    return !text.empty() && std::ranges::none_of(text, [](char c) {
+        return c <= ' ' || c == '#' || c == '&' || c == '?' || c == '"' || c == '\\';
+    });
+}
+
+} // namespace
+
+std::string_view to_string(WsBuildError err) noexcept {
+    switch (err) {
+    case WsBuildError::UnsupportedKind:
+        return "UnsupportedKind";
+    case WsBuildError::NothingToSend:
+        return "NothingToSend";
+    case WsBuildError::BufferTooSmall:
+        return "BufferTooSmall";
+    case WsBuildError::BadEndpoint:
+        return "BadEndpoint";
+    }
+    return "Unknown";
+}
+
+std::string_view topic_for(exec::SubKind kind) noexcept {
+    switch (kind) {
+    case exec::SubKind::Bbo:
+        // tickerV2 is top of book without a local book to maintain. The older
+        // `ticker` topic carries the last trade instead, which is a different
+        // datum wearing the same name.
+        return "/contractMarket/tickerV2";
+    case exec::SubKind::Trades:
+        return "/contractMarket/execution";
+    case exec::SubKind::Depth:
+        return "/contractMarket/level2";
+    // Mark price and funding share one topic, separated by `subject`; both
+    // kinds map here and the parser sorts them out.
+    case exec::SubKind::Funding:
+    case exec::SubKind::MarkPrice:
+        return "/contract/instrument";
+    case exec::SubKind::Kline:
+        return {}; // needs a bar size in the topic; no consumer yet
+    }
+    return {};
+}
+
+std::expected<StreamEndpoint, WsBuildError>
+make_endpoint(std::string_view endpoint_url, std::string_view token, std::string_view connect_id) {
+    if (!endpoint_url.starts_with(k_scheme) || !safe_in_query(token) ||
+        !safe_in_query(connect_id)) {
+        return std::unexpected{WsBuildError::BadEndpoint};
+    }
+    const auto authority_and_path = endpoint_url.substr(k_scheme.size());
+    const auto slash = authority_and_path.find('/');
+    const auto authority =
+        slash == std::string_view::npos ? authority_and_path : authority_and_path.substr(0, slash);
+    const auto path =
+        slash == std::string_view::npos ? std::string_view{"/"} : authority_and_path.substr(slash);
+    if (authority.empty()) {
+        return std::unexpected{WsBuildError::BadEndpoint};
+    }
+
+    StreamEndpoint out{};
+    const auto colon = authority.find(':');
+    out.host = std::string{
+        authority.substr(0, colon == std::string_view::npos ? authority.size() : colon)};
+    out.port = colon == std::string_view::npos ? "443" : std::string{authority.substr(colon + 1)};
+    out.target.reserve(path.size() + token.size() + connect_id.size() + 24);
+    out.target.append(path)
+        .append("?token=")
+        .append(token)
+        .append("&connectId=")
+        .append(connect_id);
+    return out;
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::op_frame(std::string_view type, std::span<const Subscription> subscriptions) {
+    if (subscriptions.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    const auto topic = subscriptions.front().topic;
+    if (topic.empty()) {
+        // Empty means topic_for() declined the kind; sending it would
+        // subscribe to a literal ":SYMBOL" and earn a 404 refusal.
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    std::size_t batch = 0;
+    while (batch < subscriptions.size() && batch < k_max_symbols_per_topic &&
+           subscriptions[batch].topic == topic) {
+        if (subscriptions[batch].symbol.empty()) {
+            return std::unexpected{WsBuildError::UnsupportedKind};
+        }
+        ++batch;
+    }
+
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    std::array<char, 24> id{};
+    const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_++);
+    if (ec != std::errc{}) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    put(R"({"id":)");
+    put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
+    put(R"(,"type":")");
+    put(type);
+    put(R"(","topic":")");
+    put(topic);
+    for (std::size_t i = 0; i < batch; ++i) {
+        put(i == 0 ? ":" : ",");
+        put(subscriptions[i].symbol);
+    }
+    // response:true asks for the ack that proves the topic exists. A wrong
+    // SYMBOL is acked all the same (verified live) and simply never delivers,
+    // so this catches typo'd topics only.
+    put(R"(","response":true})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return Frame{.text = {frame_.data(), len}, .consumed = batch};
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
+    return op_frame("subscribe", subscriptions);
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
+    return op_frame("unsubscribe", subscriptions);
+}
+
+std::string_view Protocol::ping_frame() noexcept {
+    std::array<char, 24> id{};
+    const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_++);
+    if (ec != std::errc{}) {
+        return {};
+    }
+    constexpr std::string_view k_head = R"({"id":)";
+    constexpr std::string_view k_tail = R"(,"type":"ping"})";
+    const auto digits = static_cast<std::size_t>(stop - id.data());
+    std::memcpy(ping_.data(), k_head.data(), k_head.size());
+    std::memcpy(ping_.data() + k_head.size(), id.data(), digits);
+    std::memcpy(ping_.data() + k_head.size() + digits, k_tail.data(), k_tail.size());
+    return {ping_.data(), k_head.size() + digits + k_tail.size()};
+}
+
+} // namespace raikiri::venues::kucoin

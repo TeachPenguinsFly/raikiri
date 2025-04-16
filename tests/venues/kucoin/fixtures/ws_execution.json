@@ -1,0 +1,1 @@
+{"topic":"/contractMarket/execution:XBTUSDTM","type":"message","subject":"match","sn":1940359085512,"data":{"symbol":"XBTUSDTM","sequence":1940359085512,"side":"buy","size":1,"price":"64140","takerOrderId":"476394953371582464","makerOrderId":"476379727314038784","tradeId":"1940359085512","ts":1786394609912000000}}
