@@ -1,0 +1,30 @@
+#pragma once
+
+// Hyperliquid error classification.
+//
+// The generic gateway retries Retryable, backs off RateLimited, halts on
+// AuthFailure and synthesizes a terminal Rejected for Terminal, so a status in
+// the wrong bucket is a trading bug. Unrecognised failures default to Terminal:
+// an unknown refusal repeated at full speed is how an address earns a ban.
+//
+// Unlike every CEX adapter here there is NO numeric code envelope — /info
+// answers with an HTTP status and prose. The one reason `body` is a parameter:
+// a query the venue cannot satisfy comes back 200 OK with a body of `null`
+// (verified live), so nothing but the body separates it from a real read.
+
+#include <raikiri/exec/error.hpp>
+
+#include <string_view>
+
+namespace raikiri::venues::hyperliquid {
+
+// A body carrying no answer, spelled as the JSON literal `null`.
+[[nodiscard]] bool is_null_body(std::string_view body) noexcept;
+
+// Called only once a response has already failed to be read. `body` decides
+// where the status cannot: a 2xx whose body is `null` is a refusal wearing a
+// success status, while a 2xx whose body merely would not parse is a corrupt
+// read worth repeating.
+[[nodiscard]] exec::ErrorClass classify(int status, std::string_view body) noexcept;
+
+} // namespace raikiri::venues::hyperliquid

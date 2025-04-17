@@ -1,0 +1,1 @@
+{"channel":"error","data":"Error parsing JSON into valid websocket request: {\"method\":\"subscribe\",\"subscription\":{\"type\":\"nosuchchannel\",\"coin\":\"BTC\"}}\n"}
