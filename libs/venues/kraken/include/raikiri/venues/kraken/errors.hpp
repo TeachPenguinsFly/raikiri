@@ -1,0 +1,32 @@
+#pragma once
+
+// Kraken Futures error classification. A name in the wrong bucket is a
+// trading bug, not a logging detail: the gateway retries Retryable, backs off
+// RateLimited and halts on AuthFailure. Unrecognised names default to
+// Terminal — an unknown refusal repeated at full speed earns an IP ban, while
+// a spuriously terminal order is recoverable by reconciliation.
+//
+// What differs here: the code is a STRING NAME and there is no numeric code
+// anywhere in a Kraken error body. The name carries a suffix naming the
+// offending field — VERIFIED, `GET /orderbook?symbol=` answers
+// "invalidArgument: symbol" — so classification matches up to the first ':'.
+//
+// HTTP status is no substitute: an unauthenticated /accounts read returns
+// HTTP 200 with "authenticationError" (verified), so the body is the truth.
+
+#include <raikiri/exec/error.hpp>
+
+#include <string_view>
+
+namespace raikiri::venues::kraken {
+
+// Classifies a Kraken Futures error name, with or without its ": field"
+// suffix. An empty name is Terminal: a failure we cannot name is not one to
+// retry blindly.
+[[nodiscard]] exec::ErrorClass classify(std::string_view error) noexcept;
+
+// A cancel for an order Kraken has already finished with usually means the
+// order filled or was already cancelled; reconciliation settles the truth.
+[[nodiscard]] bool is_benign_cancel_failure(std::string_view error) noexcept;
+
+} // namespace raikiri::venues::kraken
