@@ -243,6 +243,45 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .headline_order_rate_per_s = 10,
     };
 
+    table[static_cast<std::size_t>(VenueId::Bitget)] = {
+        .venue = VenueId::Bitget,
+        .spot = true,
+        .perp = true,
+        .ws_order_entry = true,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 64,
+        .headline_order_rate_per_s = 10,
+    };
+    table[static_cast<std::size_t>(VenueId::Htx)] = {
+        .venue = VenueId::Htx,
+        .spot = true,
+        .perp = true,
+        .ws_order_entry = false,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 64,
+        .headline_order_rate_per_s = 10,
+    };
+    table[static_cast<std::size_t>(VenueId::Bitfinex)] = {
+        .venue = VenueId::Bitfinex,
+        .spot = true,
+        .perp = true,
+        .ws_order_entry = true,
+        .cancel_by_client_order_id = true,
+        .batch_cancel = true,
+        .amend_order = true,
+        .native_post_only = true,
+        .user_stream = UserStreamModel::AuthSubscribe,
+        .max_client_order_id_len = 36,
+        .headline_order_rate_per_s = 10,
+    };
+
     return table;
 }();
 
