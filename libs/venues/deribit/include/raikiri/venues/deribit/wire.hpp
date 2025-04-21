@@ -1,0 +1,211 @@
+#pragma once
+
+// Deribit v2 wire types and parsers.
+//
+// Same layering rule as every adapter: DTOs mirror Deribit's JSON exactly and
+// a separate mapping step converts to domain types. Numbers stay as
+// string_views into the caller's buffer. Three things differ from every other
+// venue here and reach this file.
+//
+// The transport is JSON-RPC 2.0 on BOTH sides. A push is
+// {"method":"subscription","params":{"channel":..,"data":..}}; a reply to
+// something we sent is {"id":N,"result":..}; a failure is
+// {"id":N,"error":{"code":..,"message":".."}} — an error OBJECT whose
+// presence is the signal, not a status field to compare against zero.
+//
+// Every number is a JSON NUMBER, not a digit string, and Deribit serialises
+// them with a float formatter: "9.5e4" for an option strike and "2.7e4" for a
+// book size are both live captures. Parsers hand out the RAW TOKEN and the
+// mapping layer reads it with parse_number_e9, which understands exponents.
+//
+// The channel name carries the instrument and the stream parameters
+// ("book.BTC-PERPETUAL.none.1.100ms"), so dispatch splits the channel instead
+// of reading a type field. Every implemented channel also repeats
+// instrument_name inside `data`, which is what the parsers read: a trades
+// frame is an array of prints and needs one per entry.
+
+#include <array>
+#include <cstdint>
+#include <expected>
+#include <limits>
+#include <span>
+#include <string_view>
+
+namespace raikiri::venues::deribit {
+
+enum class WireError : std::uint8_t {
+    NotJson,
+    MissingField,
+    WrongType,
+    TooManyEntries,
+};
+
+[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+
+// Resolved from the channel prefix once, so dispatch is an integer compare.
+enum class EventKind : std::uint8_t {
+    Bbo,       // book.{instrument}.none.1.100ms — depth-1 grouped snapshot
+    Trade,     // trades.{instrument}.100ms
+    Ticker,    // ticker.{instrument}.100ms — mark, index and funding in one
+    Book,      // book.{instrument}.100ms — incremental, change_id chained
+    Heartbeat, // server liveness probe; a test_request needs an answer
+    Response,  // reply to something we sent: result or error
+    Unknown,
+};
+
+struct EventInfo {
+    EventKind kind{EventKind::Unknown};
+    std::string_view instrument;  // second channel segment; empty on replies
+    bool needs_test_reply{false}; // Heartbeat only: type == "test_request"
+};
+
+[[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
+
+// ------------------------------------------------------------ public ----
+
+struct WireBbo {
+    std::string_view instrument;
+    std::string_view bid_price; // raw JSON number tokens, exponents included
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::int64_t change_id{0};
+    std::uint64_t ts_ms{0};
+};
+
+// Grouped, depth-limited books are always full snapshots — no type field, no
+// prev_change_id — which is what makes this a BBO stream.
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
+
+// `direction` is already the AGGRESSOR's side, so nothing is inverted here or
+// in the mapper. `amount` is the venue's own quantity unit — USD on the
+// reversed futures, coin contracts on options.
+struct WireTrade {
+    std::string_view instrument;
+    std::string_view trade_id;
+    std::string_view price;
+    std::string_view qty; // `amount`
+    bool aggressor_bought{false};
+    std::int64_t trade_seq{0};
+    std::uint64_t ts_ms{0};
+};
+
+inline constexpr std::size_t k_max_trades = 128;
+
+struct TradeBuffer {
+    std::array<WireTrade, k_max_trades> trades{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
+parse_trades(std::string_view frame, TradeBuffer& storage);
+
+// One frame carries mark price and funding, so unlike OKX there is no separate
+// mark channel to correlate. current_funding is the instantaneous rate and is
+// legitimately 0.0 (captured live), so absence must be decided by the FIELD
+// being missing — a dated future ships no funding fields at all. funding_8h is
+// the trailing realised average: read so a schema change stays visible, but
+// deliberately not mapped.
+struct WireTicker {
+    std::string_view instrument;
+    std::string_view mark_price;
+    std::string_view current_funding; // empty on anything but a perpetual
+    std::string_view funding_8h;      // empty on anything but a perpetual
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
+
+// Deribit states the ACTION per level instead of encoding a removal as a zero
+// quantity: a delete carries its last size, so reading the quantity alone
+// resurrects the level.
+enum class LevelAction : std::uint8_t { New, Change, Delete };
+
+struct WireLevel {
+    LevelAction action{LevelAction::New};
+    std::string_view price;
+    std::string_view qty;
+};
+
+// A live BTC-PERPETUAL snapshot ran 897 bids / 1080 asks. Past this a frame is
+// REFUSED, not truncated — half a book is worse than no book.
+inline constexpr std::size_t k_max_levels = 4096;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Continuity is the change_id chain: a delta applies when its prev_change_id
+// equals the previous message's change_id. A snapshot carries none at all.
+struct WireBook {
+    std::string_view instrument;
+    bool snapshot{false};
+    std::int64_t change_id{0};
+    std::int64_t prev_change_id{0}; // 0 on a snapshot: the field is absent
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
+                                                            LevelBuffer& storage);
+
+// A subscribe reply is {"id":N,"result":[<accepted channels>]}. Declined
+// channels are SILENTLY ABSENT from that array (verified: an unknown
+// instrument yields "result":[] with no error), so the accepted count is the
+// only evidence a subscription took. Non-array results count zero.
+// Deribit uses both negative (JSON-RPC standard) and positive codes, so the
+// "no error" sentinel cannot be 0 the way an OKX envelope's is.
+inline constexpr std::int64_t k_no_error = std::numeric_limits<std::int64_t>::min();
+
+struct WireResponse {
+    std::int64_t id{0};
+    std::int64_t error_code{k_no_error};
+    std::string_view error_message;
+    std::size_t accepted{0};
+
+    [[nodiscard]] bool failed() const noexcept { return error_code != k_no_error; }
+};
+
+// REST answers with the identical envelope, so this one reader serves both
+// transports; absence of `error` is success.
+[[nodiscard]] std::expected<WireResponse, WireError> parse_response(std::string_view frame);
+
+// ------------------------------------------------------------- rest ----
+
+// One /public/get_instruments row; numeric fields are raw tokens.
+//
+// kind + settlement_period together decide the market: BTC-PERPETUAL is kind
+// "future" with settlement_period "perpetual", because there is no "perpetual"
+// kind — asking for one is an Invalid params error (verified). instrument_type
+// decides what contract_size COUNTS, which is the difference between a correct
+// notional and one off by the price of BTC.
+struct WireInstrument {
+    std::string_view instrument_name;
+    std::string_view kind;              // future, option, spot
+    std::string_view instrument_type;   // reversed, linear
+    std::string_view settlement_period; // perpetual, day, week, month
+    std::string_view option_type;       // call, put; empty off options
+    std::string_view tick_size;
+    std::string_view contract_size;
+    std::string_view min_trade_amount;
+    std::string_view strike; // empty off options
+    std::uint64_t expiration_ms{0};
+    bool is_active{false};
+};
+
+// 794 live BTC options the day this was written. The catalogue is pulled one
+// currency at a time so this tracks a strike ladder, not the whole universe.
+inline constexpr std::size_t k_max_instruments = 2048;
+
+struct InstrumentBuffer {
+    std::array<WireInstrument, k_max_instruments> instruments{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
+parse_instruments(std::string_view body, InstrumentBuffer& storage);
+
+// /public/get_time answers a bare number as `result`, not an object.
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
+
+} // namespace raikiri::venues::deribit

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"subscription","params":{"channel":"book.BTC-11AUG26-64000-C.none.1.100ms","data":{"timestamp":1786395411520,"instrument_name":"BTC-11AUG26-64000-C","change_id":169357857008,"bids":[[0.004,23.1]],"asks":[[0.0048,7.0]]}}}
