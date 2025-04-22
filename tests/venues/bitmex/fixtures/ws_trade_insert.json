@@ -1,0 +1,1 @@
+{"table":"trade","action":"insert","data":[{"timestamp":"2026-08-10T21:01:38.443Z","symbol":"XBTUSD","side":"Sell","size":2500,"price":64022.1,"tickDirection":"MinusTick","trdMatchID":"00000000-006d-1000-0000-00364b06baad","grossValue":3904900,"homeNotional":0.039049,"foreignNotional":2500.0,"trdType":"Regular","pool":"Primary"}]}

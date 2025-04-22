@@ -1,0 +1,1 @@
+{"status":400,"error":"Unknown or expired symbol: NOSUCHSYMBOL. Please see the documentation at https://www.bitmex.com/app/wsAPI.","meta":{},"request":{"op":"subscribe","args":["quote:NOSUCHSYMBOL"]}}

@@ -1,0 +1,1 @@
+{"success":true,"subscribe":"quote:XBTUSD","pool":"Aggregated","request":{"op":"subscribe","args":["quote:XBTUSD","trade:XBTUSD","instrument:XBTUSD","orderBookL2_25:XBTUSD"]}}
