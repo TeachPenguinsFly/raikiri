@@ -1,9 +1,57 @@
+#include <raikiri/venues/htx/errors.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
+#include <raikiri/venues/htx/map.hpp>
+#include <raikiri/venues/htx/rest.hpp>
+#include <raikiri/venues/htx/ws.hpp>
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 namespace raikiri::venues::htx {
 namespace {
+
+std::string load_bytes(std::string_view name) {
+    const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
+    std::ifstream in{path, std::ios::binary};
+    EXPECT_TRUE(in.is_open()) << "missing fixture " << path.string();
+    return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
+
+// The JSON fixtures carry a trailing newline so the files are well-formed
+// text; the frames HTX sends do not.
+std::string load(std::string_view name) {
+    auto text = load_bytes(name);
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+        text.pop_back();
+    }
+    return text;
+}
+
+// Every mappable row in the contracts fixture, numbered the way a live
+// catalogue load numbers them.
+exec::InstrumentTable catalogue() {
+    static thread_local ContractBuffer storage;
+    const auto body = load("rest_contracts.json");
+    const auto rows = parse_contracts(body, storage);
+    EXPECT_TRUE(rows.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *rows) {
+        if (const auto instrument = map_instrument(row, MarketType::Perp); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    return table;
+}
+
+const InstrumentBase& base_for(const exec::InstrumentTable& table, std::string_view symbol) {
+    const auto* instrument = table.find(symbol);
+    EXPECT_NE(instrument, nullptr);
+    return base_of(*instrument);
+}
 
 class CaptureSink final : public exec::GatewaySink {
 public:
@@ -29,9 +77,12 @@ TEST(HtxVenue, RegistersAndBuilds) {
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Htx);
     EXPECT_NE(adapter->data, nullptr);
+    EXPECT_NE(adapter->execution, nullptr);
+    EXPECT_NE(adapter->instruments, nullptr);
 }
 
 TEST(HtxVenue, OrderWithoutAnImplementationFailsLoudly) {
+    // Silence would leave the order open in the store forever.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -44,6 +95,601 @@ TEST(HtxVenue, OrderWithoutAnImplementationFailsLoudly) {
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+
+    cmd.kind = CmdKind::Cancel;
+    adapter->execution->cancel(cmd);
+    ASSERT_EQ(sink.events.size(), 2U);
+    EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
+}
+
+TEST(HtxVenue, PullsThatCannotBeAnsweredReportTerminal) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
+    ASSERT_FALSE(orders.has_value());
+    EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
+    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
+}
+
+// ------------------------------------------------------- decompression ----
+
+TEST(HtxInflate, RestoresACompressedFrame) {
+    // The whole venue rests on this: the socket delivers gzip, and this is the
+    // only place it stops being gzip. The fixture is a dynamic-Huffman block,
+    // which is what a frame carrying real quotes actually compresses to.
+    Inflater inflater;
+    const auto frame = inflater.inflate(load_bytes("ws_bbo.frame.gz"));
+    ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
+    EXPECT_EQ(*frame, load("ws_bbo.json"));
+}
+
+TEST(HtxInflate, RestoresTheKeepalive) {
+    // Twenty-two bytes compress to a FIXED-Huffman block, so the two gz
+    // fixtures between them cover both block types HTX emits.
+    Inflater inflater;
+    const auto frame = inflater.inflate(load_bytes("ws_ping.frame.gz"));
+    ASSERT_TRUE(frame.has_value());
+    EXPECT_EQ(*frame, load("ws_ping.json"));
+}
+
+TEST(HtxInflate, ReusesOneStreamAcrossFrames) {
+    // reset() between frames, or the second one decodes against the first's
+    // window and produces plausible garbage.
+    Inflater inflater;
+    const auto bbo = load_bytes("ws_bbo.frame.gz");
+    const auto ping = load_bytes("ws_ping.frame.gz");
+    for (int i = 0; i < 3; ++i) {
+        const auto first = inflater.inflate(bbo);
+        ASSERT_TRUE(first.has_value());
+        EXPECT_EQ(*first, load("ws_bbo.json"));
+        const auto second = inflater.inflate(ping);
+        ASSERT_TRUE(second.has_value());
+        EXPECT_EQ(*second, load("ws_ping.json"));
+    }
+}
+
+TEST(HtxInflate, RefusesWhatIsNotGzip) {
+    // If HTX ever sent plain text, treating it as a frame silently would be
+    // worse than refusing: the parsers would see nothing and the venue would
+    // look quiet rather than broken.
+    Inflater inflater;
+    const auto plain = inflater.inflate(load("ws_bbo.json"));
+    ASSERT_FALSE(plain.has_value());
+    EXPECT_EQ(plain.error(), InflateError::NotGzip);
+    EXPECT_EQ(inflater.inflate("").error(), InflateError::Truncated);
+}
+
+TEST(HtxInflate, RefusesATruncatedFrame) {
+    Inflater inflater;
+    const auto whole = load_bytes("ws_bbo.frame.gz");
+    ASSERT_FALSE(inflater.inflate(std::string_view{whole}.substr(0, 8)).has_value());
+    const auto half = inflater.inflate(std::string_view{whole}.substr(0, whole.size() / 2));
+    ASSERT_FALSE(half.has_value());
+    EXPECT_EQ(half.error(), InflateError::Corrupt);
+}
+
+// ------------------------------------------------------------ ws wire ----
+
+TEST(HtxWire, ClassifiesEveryTopicAcrossBothSockets) {
+    struct Row {
+        std::string_view fixture;
+        EventKind kind;
+        std::string_view code;
+    };
+
+    for (const auto& row : {Row{"ws_bbo.json", EventKind::Bbo, "BTC-USDT"},
+                            Row{"ws_trade.json", EventKind::Trade, "BTC-USDT"},
+                            Row{"ws_trades_batch.json", EventKind::Trade, "ETH-USDT"},
+                            Row{"ws_depth_step0.json", EventKind::Depth, "BTC-USDT"},
+                            Row{"ws_notify_funding.json", EventKind::Funding, "BTC-USDT"}}) {
+        const auto frame = load(row.fixture);
+        const auto event = parse_event(frame);
+        ASSERT_TRUE(event.has_value()) << row.fixture;
+        EXPECT_EQ(event->kind, row.kind) << row.fixture;
+        // Recovered from `ch` or `topic` — the depth payload never names the
+        // contract, and "trade.detail" carries a dot of its own that the split
+        // must not mistake for the separator.
+        EXPECT_EQ(event->contract_code, row.code) << row.fixture;
+    }
+}
+
+TEST(HtxWire, ClassifiesBothKeepalivesAndKeepsTheirSpelling) {
+    // The market socket writes a number and the notification socket a quoted
+    // string. Carrying the raw token is what lets one echo answer both.
+    const auto market = load("ws_ping.json");
+    const auto market_event = parse_event(market);
+    ASSERT_TRUE(market_event.has_value());
+    EXPECT_EQ(market_event->kind, EventKind::MarketPing);
+    EXPECT_EQ(market_event->keepalive_ts, "1786431113951");
+
+    const auto notify = load("ws_notify_ping.json");
+    const auto notify_event = parse_event(notify);
+    ASSERT_TRUE(notify_event.has_value());
+    EXPECT_EQ(notify_event->kind, EventKind::NotifyPing);
+    EXPECT_EQ(notify_event->keepalive_ts, "\"1786431124111\"");
+}
+
+TEST(HtxWire, SeparatesAnAcknowledgementFromARefusal) {
+    // Every frame is a named string: the parsers hand back views INTO it, so a
+    // temporary here would dangle the fields under test.
+    const auto ack_frame = load("ws_subscribe_ack.json");
+    const auto ack = parse_event(ack_frame);
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->kind, EventKind::SubscribeAck);
+
+    const auto frame = load("ws_error.json");
+    const auto refusal = parse_event(frame);
+    ASSERT_TRUE(refusal.has_value());
+    EXPECT_EQ(refusal->kind, EventKind::Error);
+    const auto err = parse_stream_error(frame);
+    ASSERT_TRUE(err.has_value());
+    EXPECT_EQ(err->code, k_ws_bad_request);
+    EXPECT_EQ(err->msg, "invalid topic market.BTC-USDT.nosuch");
+
+    // The notification socket answers a sub with the same shape twice over:
+    // err-code 0 is the acknowledgement and anything else the refusal.
+    const auto notify_ack_frame = load("ws_notify_sub_ack.json");
+    const auto notify_ack = parse_event(notify_ack_frame);
+    ASSERT_TRUE(notify_ack.has_value());
+    EXPECT_EQ(notify_ack->kind, EventKind::SubscribeAck);
+    EXPECT_EQ(notify_ack->contract_code, "BTC-USDT");
+
+    const auto notify_bad_frame = load("ws_notify_error.json");
+    const auto notify_bad = parse_event(notify_bad_frame);
+    ASSERT_TRUE(notify_bad.has_value());
+    EXPECT_EQ(notify_bad->kind, EventKind::Error);
+    const auto notify_err = parse_stream_error(notify_bad_frame);
+    ASSERT_TRUE(notify_err.has_value());
+    EXPECT_EQ(notify_err->code, "2011"); // a NUMBER here, a word on the other socket
+    EXPECT_EQ(notify_err->msg, "Contract doesn't exist.");
+}
+
+TEST(HtxWire, ParsesBbo) {
+    const auto frame = load("ws_bbo.json");
+    const auto wire = parse_bbo(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract_code, "BTC-USDT");
+    EXPECT_EQ(wire->bid_price, "63920.1");
+    EXPECT_EQ(wire->bid_qty, "1455"); // contracts, not base units
+    EXPECT_EQ(wire->ask_price, "63920.2");
+    EXPECT_EQ(wire->ask_qty, "4485");
+    EXPECT_EQ(wire->ts_ms, 1786431108849ULL); // tick.ts, not the frame's 1786431108850
+    EXPECT_EQ(wire->version, 100125839299953ULL);
+}
+
+TEST(HtxWire, ParsedViewsPointIntoTheCallerBuffer) {
+    // The rebase contract: a view that pointed into simdjson's scratch would
+    // dangle the moment the next frame arrived.
+    const auto frame = load("ws_bbo.json");
+    const auto wire = parse_bbo(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto* begin = frame.data();
+    const auto* end = frame.data() + frame.size();
+    for (const auto field : {wire->contract_code, wire->bid_price, wire->ask_qty}) {
+        EXPECT_GE(field.data(), begin);
+        EXPECT_LE(field.data() + field.size(), end);
+    }
+}
+
+TEST(HtxWire, ParsesTradesIncludingABatch) {
+    TradeBuffer storage;
+    const auto single = load("ws_trade.json");
+    const auto one = parse_trades(single, storage);
+    ASSERT_TRUE(one.has_value());
+    ASSERT_EQ(one->size(), 1U);
+    EXPECT_EQ((*one)[0].contract_code, "BTC-USDT");
+    EXPECT_EQ((*one)[0].price, "63920.2");
+    EXPECT_EQ((*one)[0].amount, "2");
+    EXPECT_EQ((*one)[0].quantity, "0.002"); // the same trade in base units
+    EXPECT_EQ((*one)[0].trade_id, 1001258392876510000ULL);
+    EXPECT_EQ((*one)[0].ts_ms, 1786431073882ULL);
+    EXPECT_TRUE((*one)[0].aggressor_bought);
+
+    const auto batch = load("ws_trades_batch.json");
+    const auto many = parse_trades(batch, storage);
+    ASSERT_TRUE(many.has_value());
+    ASSERT_EQ(many->size(), 4U);
+    EXPECT_EQ((*many)[0].contract_code, "ETH-USDT");
+    EXPECT_EQ((*many)[3].amount, "890");
+    EXPECT_FALSE((*many)[3].aggressor_bought);
+    // Consecutive ids off one match, which is why the tail must not be dropped.
+    EXPECT_EQ((*many)[3].trade_id - (*many)[0].trade_id, 3U);
+}
+
+TEST(HtxWire, ParsesDepthSnapshot) {
+    LevelBuffer storage;
+    const auto frame = load("ws_depth_step0.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract_code, "BTC-USDT");
+    EXPECT_EQ(wire->ts_ms, 1786431109503ULL);
+    ASSERT_EQ(wire->bids.size(), 5U);
+    ASSERT_EQ(wire->asks.size(), 5U);
+    EXPECT_EQ(wire->bids[0].price, "63920.1");
+    EXPECT_EQ(wire->bids[4].price, "63919.7"); // descending
+    EXPECT_EQ(wire->asks[0].price, "63920.2");
+    EXPECT_EQ(wire->asks[4].price, "63922.5"); // ascending
+    EXPECT_EQ(wire->asks[0].qty, "4485");
+}
+
+TEST(HtxWire, RefusesABookDeeperThanTheBuffer) {
+    // step0 ships about 150 levels a side today; the ceiling exists so a
+    // hostile frame cannot make the gateway allocate.
+    std::string frame = R"({"ch":"market.BTC-USDT.depth.step0","ts":1,"tick":{"bids":[)";
+    for (std::size_t i = 0; i <= k_max_levels; ++i) {
+        if (i != 0) {
+            frame += ',';
+        }
+        frame += "[1,1]";
+    }
+    frame += R"(],"asks":[],"ts":1,"version":1}})";
+
+    LevelBuffer storage;
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_FALSE(wire.has_value());
+    EXPECT_EQ(wire.error(), WireError::TooManyEntries);
+}
+
+TEST(HtxWire, ParsesTheFundingNotification) {
+    const auto frame = load("ws_notify_funding.json");
+    const auto wire = parse_funding(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract_code, "BTC-USDT");
+    EXPECT_EQ(wire->funding_rate, "0.000100000000000000");
+    EXPECT_TRUE(wire->estimated_rate.empty()); // JSON null, not a rate of zero
+    // settlement_time is the next settlement; funding_time is when HTX built
+    // the message and moves every few seconds. GET /swap_funding_rate gives
+    // `funding_time` the OTHER meaning, which is why only this shape is read.
+    EXPECT_EQ(wire->settlement_ms, 1786435200000ULL);
+    EXPECT_EQ(wire->funding_ms, 1786431110000ULL);
+    EXPECT_EQ(wire->ts_ms, 1786431119069ULL);
+}
+
+TEST(HtxWire, RefusesAFrameOfTheWrongShape) {
+    // A parser aimed at the wrong topic must fail, not fill a struct with
+    // plausible zeros.
+    EXPECT_FALSE(parse_bbo(load("ws_trade.json")).has_value());
+    EXPECT_FALSE(parse_funding(load("ws_bbo.json")).has_value());
+    EXPECT_FALSE(parse_event(R"({"ch":)").has_value());
+    EXPECT_FALSE(parse_event("").has_value());
+    EXPECT_FALSE(parse_stream_error(load("ws_subscribe_ack.json")).has_value());
+
+    TradeBuffer trades;
+    EXPECT_FALSE(parse_trades(load("ws_bbo.json"), trades).has_value());
+    LevelBuffer levels;
+    EXPECT_FALSE(parse_depth(load("ws_bbo.json"), levels).has_value());
+}
+
+// ---------------------------------------------------------- rest wire ----
+
+TEST(HtxWire, ReadsBothRestEnvelopeSpellings) {
+    const auto ok_body = load("rest_contracts.json");
+    const auto ok = parse_rest_envelope(ok_body);
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_TRUE(ok->ok);
+
+    // The linear-swap-api family: a NUMERIC err_code.
+    const auto numeric_body = load("rest_error_bad_contract.json");
+    const auto numeric = parse_rest_envelope(numeric_body);
+    ASSERT_TRUE(numeric.has_value());
+    EXPECT_FALSE(numeric->ok);
+    EXPECT_EQ(numeric->code, "1014");
+    EXPECT_EQ(numeric->msg, "This contract doesnt exist.");
+
+    // The linear-swap-ex family: a hyphenated WORD, under a hyphenated key.
+    const auto word_body = load("rest_error_invalid_parameter.json");
+    const auto word = parse_rest_envelope(word_body);
+    ASSERT_TRUE(word.has_value());
+    EXPECT_FALSE(word->ok);
+    EXPECT_EQ(word->code, k_invalid_parameter);
+    EXPECT_EQ(word->msg, "invalid type:stepxx");
+}
+
+TEST(HtxWire, RefusesABodyThatIsNotAnEnvelope) {
+    // HTX answers an unrouted path with a Spring error whose `status` is the
+    // NUMBER 404. Reading that as a venue verdict would hide a routing bug.
+    EXPECT_FALSE(parse_rest_envelope(load("rest_error_not_found.json")).has_value());
+    EXPECT_FALSE(parse_rest_envelope(R"({"ts":1})").has_value());
+    EXPECT_FALSE(parse_rest_envelope("not json").has_value());
+    // "error" with nothing naming the error is not something to act on.
+    EXPECT_FALSE(parse_rest_envelope(R"({"status":"error","ts":1})").has_value());
+}
+
+TEST(HtxWire, ParsesContracts) {
+    static thread_local ContractBuffer storage;
+    const auto body = load("rest_contracts.json");
+    const auto rows = parse_contracts(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+
+    EXPECT_EQ((*rows)[0].contract_code, "BTC-USDT");
+    EXPECT_EQ((*rows)[0].symbol, "BTC");
+    EXPECT_EQ((*rows)[0].contract_status, 1);
+    EXPECT_EQ((*rows)[0].business_type, "swap");
+    EXPECT_EQ((*rows)[0].settlement_period_h, 8);
+    EXPECT_EQ((*rows)[0].settlement_ms, 1786435200000ULL);
+    // Carried as the token HTX wrote, trailing zeros and all.
+    EXPECT_EQ((*rows)[0].price_tick, "0.100000000000000000");
+    EXPECT_EQ((*rows)[0].contract_size, "0.001000000000000000");
+
+    // Scientific notation, straight from the venue on two live rows.
+    EXPECT_EQ((*rows)[2].contract_code, "SHIB-USDT");
+    EXPECT_EQ((*rows)[2].price_tick, "1.000000000E-9");
+    EXPECT_EQ((*rows)[3].contract_code, "PEPE-USDT");
+    EXPECT_EQ((*rows)[3].price_tick, "1.00000000E-10");
+
+    // A four-hour funding interval and a status that is not 1.
+    EXPECT_EQ((*rows)[4].contract_code, "CYBER-USDT");
+    EXPECT_EQ((*rows)[4].contract_status, 3);
+    EXPECT_EQ((*rows)[4].settlement_period_h, 4);
+    EXPECT_EQ((*rows)[4].delivery_time, "1767859200000");
+}
+
+TEST(HtxWire, ParsesServerTime) {
+    const auto time = parse_server_time(load("rest_server_time.json"));
+    ASSERT_TRUE(time.has_value());
+    EXPECT_EQ(*time, 1786430907715ULL);
+    EXPECT_FALSE(parse_server_time(load("rest_error_not_found.json")).has_value());
+    EXPECT_FALSE(parse_server_time(load("rest_error_bad_contract.json")).has_value());
+}
+
+// ---------------------------------------------------------------- map ----
+
+TEST(HtxMap, ReadsBothNumberSpellingsExactly) {
+    EXPECT_EQ(exact_e9("0.1")->raw, 100'000'000);
+    EXPECT_EQ(exact_e9("0.100000000000000000")->raw, 100'000'000);
+    EXPECT_EQ(exact_e9("63920.1")->raw, 63'920'100'000'000);
+    EXPECT_EQ(exact_e9("1455")->raw, 1455 * k_e9);
+    EXPECT_EQ(exact_e9("-0.5")->raw, -500'000'000);
+    // The spellings parse_decimal_e9 refuses outright, both live on the
+    // catalogue: 1e-9 is representable, 1e-10 is not.
+    EXPECT_EQ(exact_e9("1.000000000E-9")->raw, 1);
+    EXPECT_FALSE(exact_e9("1.00000000E-10").has_value());
+    EXPECT_EQ(exact_e9("1000000.000000000000000000")->raw, 1'000'000 * k_e9);
+
+    EXPECT_FALSE(exact_e9("").has_value());
+    EXPECT_FALSE(exact_e9("1.2.3").has_value());
+    EXPECT_FALSE(exact_e9("abc").has_value());
+    EXPECT_FALSE(exact_e9("1e").has_value());
+
+    // Rates truncate where prices refuse: HTX pads every funding rate to
+    // eighteen digits and the tail is not always zero.
+    EXPECT_EQ(rate_e9("0.000100000000000000")->raw, 100'000);
+    EXPECT_EQ(rate_e9("-0.000058784590419109")->raw, -58'784);
+    EXPECT_FALSE(exact_e9("-0.000058784590419109").has_value());
+    EXPECT_FALSE(rate_e9("").has_value());
+}
+
+TEST(HtxMap, BuildsInstrumentsAndRefusesTheOnesItCannotTrade) {
+    static thread_local ContractBuffer storage;
+    const auto body = load("rest_contracts.json");
+    const auto rows = parse_contracts(body, storage);
+    ASSERT_TRUE(rows.has_value());
+
+    const auto btc = map_instrument((*rows)[0], MarketType::Perp);
+    ASSERT_TRUE(btc.has_value());
+    const auto& base = base_of(*btc);
+    EXPECT_EQ(base.exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base.tick_size.raw, 100'000'000);    // 0.1
+    EXPECT_EQ(base.lot_size.raw, k_e9);            // one contract, always
+    EXPECT_EQ(base.contract_value.raw, 1'000'000); // 0.001 BTC per contract
+    ASSERT_TRUE(std::holds_alternative<PerpInstrument>(*btc));
+    // Stated by the catalogue, where okx has to infer it from funding frames.
+    EXPECT_EQ(std::get<PerpInstrument>(*btc).funding_interval_s, 8U * 3600U);
+
+    const auto shib = map_instrument((*rows)[2], MarketType::Perp);
+    ASSERT_TRUE(shib.has_value());
+    EXPECT_EQ(base_of(*shib).tick_size.raw, 1); // the finest FixedE9 holds
+    EXPECT_EQ(base_of(*shib).contract_value.raw, 1000 * k_e9);
+
+    // A 1e-10 tick cannot be represented without rounding it to zero, and a
+    // zero step divides every later price conversion.
+    EXPECT_FALSE(map_instrument((*rows)[3], MarketType::Perp).has_value());
+    // status 3: still shipping usable numbers, so only the status keeps it out.
+    EXPECT_FALSE(map_instrument((*rows)[4], MarketType::Perp).has_value());
+    // This endpoint is the USDT-M swap catalogue and nothing else.
+    EXPECT_FALSE(map_instrument((*rows)[0], MarketType::Spot).has_value());
+}
+
+TEST(HtxMap, MapsBbo) {
+    const auto table = catalogue();
+    const auto frame = load("ws_bbo.json");
+    const auto wire = parse_bbo(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto bbo = map_bbo(*wire, table, UnixNanos{99});
+    ASSERT_TRUE(bbo.has_value());
+    const auto& base = base_for(table, "BTC-USDT");
+    EXPECT_EQ(bbo->instrument.packed, base.id.packed);
+    EXPECT_EQ(bbo->bid.raw, 639'201); // 63920.1 / 0.1
+    EXPECT_EQ(bbo->ask.raw, 639'202);
+    EXPECT_EQ(bbo->bid_qty.raw, 1455); // already a count of contracts
+    EXPECT_EQ(bbo->ask_qty.raw, 4485);
+    EXPECT_EQ(bbo->ts_event.ns, 1786431108849ULL * 1'000'000ULL);
+    EXPECT_EQ(bbo->ts_init.ns, 99U);
+}
+
+TEST(HtxMap, DropsAQuoteThatDoesNotDivideByTheStep) {
+    const auto table = catalogue();
+    WireBbo wire{};
+    wire.contract_code = "BTC-USDT";
+    wire.bid_price = "63920.15"; // finer than the 0.1 tick HTX states
+    wire.bid_qty = "1455";
+    wire.ask_price = "63920.2";
+    wire.ask_qty = "4485";
+    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+
+    wire.bid_price = "63920.1";
+    wire.bid_qty = "1455.5"; // half a contract is not a size HTX can mean
+    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+
+    // An instrument the catalogue refused has no step to divide by.
+    wire.bid_qty = "1455";
+    wire.contract_code = "PEPE-USDT";
+    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+}
+
+TEST(HtxMap, TakesTheAggressorFromTheDirection) {
+    const auto table = catalogue();
+    TradeBuffer storage;
+    const auto frame = load("ws_trades_batch.json");
+    const auto wire = parse_trades(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 4U);
+
+    // "sell": HTX names the TAKER's side, so nothing is inverted here.
+    const auto sold = map_trade((*wire)[0], table, UnixNanos{7});
+    ASSERT_TRUE(sold.has_value());
+    EXPECT_EQ(sold->aggressor, Side::Sell);
+    EXPECT_EQ(sold->price.raw, 187'259); // 1872.59 / 0.01
+    EXPECT_EQ(sold->qty.raw, 20);        // contracts, from `amount`
+    EXPECT_EQ(sold->ts_event.ns, 1786431135430ULL * 1'000'000ULL);
+
+    WireTrade taker = (*wire)[0];
+    taker.aggressor_bought = true;
+    const auto bought = map_trade(taker, table, UnixNanos{7});
+    ASSERT_TRUE(bought.has_value());
+    EXPECT_EQ(bought->aggressor, Side::Buy);
+}
+
+TEST(HtxMap, MapsFundingFromTheNotification) {
+    const auto table = catalogue();
+    const auto frame = load("ws_notify_funding.json");
+    const auto wire = parse_funding(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto funding = map_funding(*wire, table, UnixNanos{1234});
+    ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001
+    // settlement_time, not funding_time: the other reading puts the next
+    // settlement a few seconds from now, forever.
+    EXPECT_EQ(funding->next_funding_time.ns, 1786435200000ULL * 1'000'000ULL);
+    EXPECT_EQ(funding->interval_s, 8U * 3600U);
+    // estimated_rate is null; echoing the current rate would fabricate one.
+    EXPECT_TRUE(funding->predicted_rate.is_undef());
+    // HTX ships no mark on this frame, and a zero would read as a real price.
+    EXPECT_TRUE(funding->mark_price.is_undef());
+    EXPECT_EQ(funding->ts_event.ns, 1786431110000ULL * 1'000'000ULL);
+    EXPECT_EQ(funding->ts_init.ns, 1234U);
+
+    WireFunding silent = *wire;
+    silent.funding_rate = {};
+    // No rate at all is not the same as a rate of zero.
+    EXPECT_FALSE(map_funding(silent, table, UnixNanos{1}).has_value());
+}
+
+// ----------------------------------------------------------------- ws ----
+
+TEST(HtxWs, BuildsSubscriptionFrames) {
+    Protocol protocol;
+    const auto first = protocol.subscribe_frame("BTC-USDT", topic_suffix(exec::SubKind::Bbo));
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->text, R"({"sub":"market.BTC-USDT.bbo","id":"1"})");
+
+    // The id is echoed in the answer, so it has to move.
+    const auto second = protocol.subscribe_frame("ETH-USDT", topic_suffix(exec::SubKind::Trades));
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(second->text, R"({"sub":"market.ETH-USDT.trade.detail","id":"2"})");
+
+    const auto depth = protocol.subscribe_frame("BTC-USDT", topic_suffix(exec::SubKind::Depth));
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_EQ(depth->text, R"({"sub":"market.BTC-USDT.depth.step0","id":"3"})");
+
+    const auto off = protocol.unsubscribe_frame("BTC-USDT", "bbo");
+    ASSERT_TRUE(off.has_value());
+    EXPECT_EQ(off->text, R"({"unsub":"market.BTC-USDT.bbo","id":"4"})");
+
+    // Funding is the other socket, and its dialect names the op instead.
+    const auto funding = protocol.funding_subscribe_frame("BTC-USDT");
+    ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->text, R"({"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"5"})");
+}
+
+TEST(HtxWs, AnswersEachKeepaliveWithTheTokenItWasGiven) {
+    // The end-to-end claim: a real ping in, the exact pong out. HTX drops a
+    // connection whose pong does not match the value byte for byte.
+    Protocol protocol;
+    const auto market = load("ws_ping.json");
+    const auto market_event = parse_event(market);
+    ASSERT_TRUE(market_event.has_value());
+    const auto market_pong = protocol.market_pong_frame(market_event->keepalive_ts);
+    ASSERT_TRUE(market_pong.has_value());
+    EXPECT_EQ(market_pong->text, R"({"pong":1786431113951})");
+
+    const auto notify = load("ws_notify_ping.json");
+    const auto notify_event = parse_event(notify);
+    ASSERT_TRUE(notify_event.has_value());
+    const auto notify_pong = protocol.notify_pong_frame(notify_event->keepalive_ts);
+    ASSERT_TRUE(notify_pong.has_value());
+    // The quotes come from HTX, not from us: it sends the same instant as a
+    // string here and a number there.
+    EXPECT_EQ(notify_pong->text, R"({"op":"pong","ts":"1786431124111"})");
+
+    EXPECT_FALSE(protocol.market_pong_frame({}).has_value());
+    EXPECT_FALSE(protocol.notify_pong_frame({}).has_value());
+}
+
+TEST(HtxWs, RefusesToBuildAFrameItCannotName) {
+    Protocol protocol;
+    // Funding lives on the other socket and mark price on a third; sending ""
+    // would subscribe to a topic HTX refuses with bad-request.
+    EXPECT_TRUE(topic_suffix(exec::SubKind::Funding).empty());
+    EXPECT_TRUE(topic_suffix(exec::SubKind::MarkPrice).empty());
+    EXPECT_TRUE(topic_suffix(exec::SubKind::Kline).empty());
+    EXPECT_EQ(protocol.subscribe_frame("BTC-USDT", {}).error(), WsBuildError::UnsupportedKind);
+    EXPECT_EQ(protocol.subscribe_frame({}, "bbo").error(), WsBuildError::UnsupportedKind);
+    EXPECT_EQ(protocol.funding_subscribe_frame({}).error(), WsBuildError::UnsupportedKind);
+
+    const std::string huge(400, 'X');
+    EXPECT_EQ(protocol.subscribe_frame(huge, "bbo").error(), WsBuildError::BufferTooSmall);
+    EXPECT_EQ(protocol.funding_subscribe_frame(huge).error(), WsBuildError::BufferTooSmall);
+    EXPECT_EQ(protocol.market_pong_frame(huge).error(), WsBuildError::BufferTooSmall);
+}
+
+TEST(HtxWs, NamesTheTwoEndpointsOnOneHost) {
+    EXPECT_EQ(stream_host(), "api.hbdm.com");
+    EXPECT_EQ(stream_port(), "443");
+    EXPECT_EQ(market_path(), "/linear-swap-ws");
+    EXPECT_EQ(notify_path(), "/linear-swap-notification");
+    EXPECT_EQ(rest_host(), "api.hbdm.com");
+}
+
+TEST(HtxRest, BuildsUnauthenticatedReads) {
+    EXPECT_EQ(RequestBuilder::contracts().target, "/linear-swap-api/v1/swap_contract_info");
+    EXPECT_EQ(RequestBuilder::contracts().method, net::HttpMethod::Get);
+    // Outside both market-data families, hence the bare path.
+    EXPECT_EQ(RequestBuilder::server_time().target, "/api/v1/timestamp");
+}
+
+// ------------------------------------------------------------- errors ----
+
+TEST(HtxErrors, ClassifiesWhatTheVenueActuallySaid) {
+    // One classifier, three spellings: a number from REST, a number from the
+    // notification socket, a word from the market socket.
+    EXPECT_EQ(classify("403"), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify("1014"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify("1332"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify("2011"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_ws_bad_request), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_invalid_parameter), exec::ErrorClass::Terminal);
+    // Unknown codes are Terminal, never Retryable: retrying an unrecognised
+    // refusal at full speed is how an IP earns a ban.
+    EXPECT_EQ(classify("999999"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify("something-new"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(""), exec::ErrorClass::Terminal);
+}
+
+TEST(HtxErrors, ClassifiesTheHttpStatusWhenThereIsNoEnvelope) {
+    EXPECT_EQ(classify_http(429), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify_http(503), exec::ErrorClass::Retryable);
+    EXPECT_EQ(classify_http(500), exec::ErrorClass::Retryable);
+    EXPECT_EQ(classify_http(0), exec::ErrorClass::Connectivity);
+    EXPECT_EQ(classify_http(200), exec::ErrorClass::Terminal);
+    // The Spring 404 an unrouted path answers with.
+    EXPECT_EQ(classify_http(404), exec::ErrorClass::Terminal);
 }
 
 } // namespace
