@@ -1,0 +1,1 @@
+{"event":"error","arg":{"instType":"USDT-FUTURES","channel":"ticker","instId":"NOSUCHCOINUSDT"},"code":30001,"msg":"instType:USDT-FUTURES,channel:ticker,instId:NOSUCHCOINUSDT,precision:null doesn't exist","op":"subscribe"}

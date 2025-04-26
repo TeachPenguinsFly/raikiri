@@ -1,9 +1,11 @@
 #pragma once
 
-// The Bitget adapter.
+// The Bitget adapter, USDT-M futures.
 //
-// Market data only; order entry refuses loudly rather than pretending, so an
-// order can never sit open waiting for a verdict no code will produce.
+// Market data is complete; order entry is not. Every ExecutionClient method
+// refuses loudly rather than pretending — a gateway started against Bitget
+// streams real prices and rejects any order with a terminal event, which is
+// the only honest state for an adapter whose signing path is unwritten.
 
 #include <raikiri/exec/venue.hpp>
 
