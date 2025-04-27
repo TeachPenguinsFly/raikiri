@@ -1,5 +1,12 @@
 add_library(raikiri_venue_bitfinex STATIC
   src/bitfinex_venue.cpp
+  src/errors.cpp
+  src/map.cpp
+  src/rest.cpp
+  src/ws.cpp
+  src/wire_detail.cpp
+  src/wire_public.cpp
+  src/wire_rest.cpp
 )
 add_library(raikiri::venue_bitfinex ALIAS raikiri_venue_bitfinex)
 

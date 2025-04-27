@@ -1,0 +1,1 @@
+{"channel":"ticker","symbol":"tNOSUCHSYM","event":"error","msg":"symbol: invalid","code":10300,"pair":"NOSUCHSYM"}
