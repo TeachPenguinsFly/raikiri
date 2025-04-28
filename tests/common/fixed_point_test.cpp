@@ -63,14 +63,81 @@ TEST(ParseDecimalE9, Rejections) {
 }
 
 TEST(FormatE9, RoundTripsParse) {
-    const std::string_view cases[] = {"0", "1", "-1", "0.0001", "-12.5", "3.141592653",
-                                      "0.000000001"};
+    const std::string_view cases[] = {
+        "0", "1", "-1", "0.0001", "-12.5", "3.141592653", "0.000000001"};
     char buf[32];
     for (const auto text : cases) {
         const auto parsed = parse_decimal_e9(text);
         ASSERT_TRUE(parsed.has_value()) << text;
         EXPECT_EQ(format_e9(*parsed, buf, sizeof buf), text);
     }
+}
+
+// --- exponent-aware reading -----------------------------------------------
+
+TEST(ParseNumberE9, ReadsTheSpellingsVenuesActuallySend) {
+    // Every literal here was observed on a live socket or REST body, and each
+    // one defeats parse_decimal_e9.
+    EXPECT_EQ(parse_number_e9("1.0E-4")->raw, 100'000);           // bitmex, ws
+    EXPECT_EQ(parse_number_e9("0.0001")->raw, 100'000);           // bitmex, rest
+    EXPECT_EQ(parse_number_e9("6.4e4")->raw, 64'000'000'000'000); // deribit strike
+    EXPECT_EQ(parse_number_e9("1.000000000E-9")->raw, 1);         // htx SHIB tick
+    EXPECT_EQ(parse_number_e9("7e-05")->raw, 70'000);             // bingx min qty
+}
+
+TEST(ParseNumberE9, KrakensFundingNeedsTheRateReaderNotTheExactOne) {
+    // -8.907125e-6 is -8907.125 in e9, so the tail sits below what the scale
+    // can hold. The exact reader must refuse it and the rate reader must not —
+    // which is precisely why there are two entry points rather than a flag
+    // callers would forget to set.
+    EXPECT_FALSE(parse_number_e9("-8.907125e-6").has_value());
+    EXPECT_EQ(parse_rate_e9("-8.907125e-6")->raw, -8'907);
+}
+
+TEST(ParseNumberE9, AgreesWithThePlainReaderWhereBothApply) {
+    for (const auto* text : {"0", "1", "64488.5", "0.001", "-12.25", "0.000000001"}) {
+        const auto plain = parse_decimal_e9(text);
+        const auto general = parse_number_e9(text);
+        ASSERT_TRUE(plain.has_value()) << text;
+        ASSERT_TRUE(general.has_value()) << text;
+        EXPECT_EQ(plain->raw, general->raw) << text;
+    }
+}
+
+TEST(ParseNumberE9, RefusesSignificanceBelowNineDigits) {
+    // OKX lists SATS-USDT-SWAP at this tick and MEXC lists three more like it.
+    // Refusing is correct under the no-rounding rule; the instrument is
+    // dropped loudly rather than quoted on a tick we cannot represent.
+    EXPECT_FALSE(parse_number_e9("0.000000000001").has_value());
+    EXPECT_FALSE(parse_number_e9("1.0E-10").has_value());
+    // Trailing zeros past 1e-9 carry no significance and must still pass.
+    EXPECT_EQ(parse_number_e9("0.0000000010000")->raw, 1);
+}
+
+TEST(ParseRateE9, TruncatesWhereExactWouldSilenceTheStream) {
+    // Live HTX funding, padded to eighteen fractional digits with a non-zero
+    // tail. Exact reading refuses every frame the venue has ever sent, which
+    // presents a running stream as silence.
+    EXPECT_FALSE(parse_number_e9("-0.000058784590419109").has_value());
+    EXPECT_EQ(parse_rate_e9("-0.000058784590419109")->raw, -58'784);
+    // Toward zero, not away: a rate must never grow in magnitude by parsing.
+    EXPECT_EQ(parse_rate_e9("0.0000000019")->raw, 1);
+    EXPECT_EQ(parse_rate_e9("-0.0000000019")->raw, -1);
+}
+
+TEST(ParseNumberE9, RejectsMalformedTokensRatherThanGuessing) {
+    for (const auto* text : {"", ".", "-", "1.2.3", "1e", "1e+", "abc", "1 2", "0x10", "1,5"}) {
+        EXPECT_FALSE(parse_number_e9(text).has_value()) << text;
+        EXPECT_FALSE(parse_rate_e9(text).has_value()) << text;
+    }
+}
+
+TEST(ParseNumberE9, RefusesWhatWouldOverflowTheRepresentation) {
+    // Better no value than a wrapped one: a wrapped price is a plausible
+    // number, and nothing downstream can tell it from a real one.
+    EXPECT_FALSE(parse_number_e9("1e30").has_value());
+    EXPECT_FALSE(parse_number_e9("99999999999.999999999").has_value());
+    EXPECT_FALSE(parse_number_e9("1e-40").has_value());
 }
 
 } // namespace

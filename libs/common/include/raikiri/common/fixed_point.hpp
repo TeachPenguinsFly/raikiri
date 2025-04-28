@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <expected>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 namespace raikiri {
@@ -60,8 +61,7 @@ namespace detail {
 // Strongly-typed int64 with an explicit scale meaning per tag. No implicit
 // conversions between tags; no implicit construction from raw integers except
 // via the named factory, so call sites read as what they are.
-template <typename Tag>
-struct Scaled64 {
+template <typename Tag> struct Scaled64 {
     std::int64_t raw{k_undef_raw};
 
     [[nodiscard]] static constexpr Scaled64 from_raw(std::int64_t r) noexcept { return {r}; }
@@ -134,5 +134,30 @@ enum class ParseError : std::uint8_t {
 // Format 1e9 fixed-point back into a decimal string without trailing zeros.
 // `buf` must hold >= 32 bytes; returns the view into buf.
 [[nodiscard]] std::string_view format_e9(FixedE9 value, char* buf, std::size_t buf_len) noexcept;
+
+// Exponent-aware decimal reading.
+//
+// parse_decimal_e9 above reads plain decimals in int64 and is the hot-path
+// reader. It cannot read scientific notation, and venues spell numbers however
+// their serialiser feels: HTX ships `1.000000000E-9` and `0.100000000000000000`
+// in ONE response, BitMEX writes `0.0001` over REST and `1.0E-4` over the
+// socket for the same field, Deribit sends strike prices as `6.4e4`. Six venue
+// adapters independently wrote the same int128-mantissa-plus-exponent reader
+// before it was worth admitting it belongs here.
+//
+// The two entry points differ ONLY in what happens to significance below 1e-9,
+// and that difference is the reason there are two:
+//
+//   parse_number_e9 REFUSES it. Prices and quantities must be exact — a value
+//   silently rounded is an order one tick from where it was meant.
+//
+//   parse_rate_e9 TRUNCATES toward zero. Funding rates arrive padded to 18
+//   fractional digits with a non-zero tail (`-0.000058784590419109` live on
+//   HTX), so an exact read refuses every frame the venue has ever sent and
+//   presents a running stream as silence. Truncating a dimensionless rate at
+//   1e-9 leaves eight significant figures on a number nothing divides an order
+//   by. Never use this for a price or a size.
+[[nodiscard]] std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept;
+[[nodiscard]] std::optional<FixedE9> parse_rate_e9(std::string_view text) noexcept;
 
 } // namespace raikiri
