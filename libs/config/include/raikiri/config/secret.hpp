@@ -26,11 +26,12 @@
 namespace raikiri::config {
 
 enum class SecretError : std::uint8_t {
-    TooLarge,      // longer than k_max_bytes
-    NotFound,      // env var unset / file missing / command produced nothing
-    ReadFailed,    // I/O or permission failure
-    CommandFailed, // exec provider: non-zero exit
-    BadReference,  // malformed "scheme:payload"
+    TooLarge,         // longer than k_max_bytes
+    NotFound,         // env var unset / file missing / command produced nothing
+    ReadFailed,       // I/O or permission failure
+    CommandFailed,    // exec provider: non-zero exit
+    NotAuthenticated, // the secret manager is present but has no credentials
+    BadReference,     // malformed "scheme:payload"
     UnknownScheme,
 };
 
@@ -77,6 +78,7 @@ private:
 //   env:BINANCE_API_KEY                    development default
 //   file:/run/credentials/binance.key      systemd LoadCredential, k8s secrets
 //   exec:op read op://trading/binance/key  1Password, vault, any CLI
+//   op:trading/binance/api-key             1Password, with diagnosis (one_password.hpp)
 //   literal:sk_live_abc...                 the value itself (see below)
 // A bare string with no scheme is treated as env: for convenience.
 //
@@ -92,7 +94,7 @@ private:
 // (is_plaintext() exists for exactly that). Every other scheme keeps the
 // config naming a location instead of holding a value.
 struct SecretRef {
-    enum class Scheme : std::uint8_t { Env, File, Exec, Literal };
+    enum class Scheme : std::uint8_t { Env, File, Exec, Literal, OnePassword };
 
     Scheme scheme{Scheme::Env};
     std::string payload;

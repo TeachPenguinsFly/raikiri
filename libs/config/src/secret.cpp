@@ -1,3 +1,4 @@
+#include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 
 #include <fcntl.h>
@@ -46,6 +47,8 @@ std::string_view to_string(SecretRef::Scheme scheme) noexcept {
     switch (scheme) {
     case SecretRef::Scheme::Env:
         return "env";
+    case SecretRef::Scheme::OnePassword:
+        return "1password";
     case SecretRef::Scheme::File:
         return "file";
     case SecretRef::Scheme::Exec:
@@ -66,6 +69,8 @@ std::string_view to_string(SecretError err) noexcept {
         return "secret read failed";
     case SecretError::CommandFailed:
         return "secret command failed";
+    case SecretError::NotAuthenticated:
+        return "secret manager not authenticated";
     case SecretError::BadReference:
         return "malformed secret reference";
     case SecretError::UnknownScheme:
@@ -157,6 +162,9 @@ std::expected<SecretRef, SecretError> SecretRef::parse(std::string_view spec) {
     if (scheme == "exec") {
         return SecretRef{.scheme = Scheme::Exec, .payload = std::string{payload}};
     }
+    if (scheme == "op") {
+        return SecretRef{.scheme = Scheme::OnePassword, .payload = std::string{payload}};
+    }
     if (scheme == "literal") {
         // The payload is the value, colons and all: a key containing ':' is
         // ordinary, so only the FIRST colon separates the scheme.
@@ -197,6 +205,13 @@ std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef&
         auto result = out.assign({buf.data(), static_cast<std::size_t>(n)});
         wipe(buf.data(), buf.size()); // the staging copy dies too
         return result;
+    }
+    case SecretRef::Scheme::OnePassword: {
+        // Probed once per process: repeating two `op` invocations per secret
+        // would multiply startup cost for a diagnostic that cannot change
+        // while the process runs.
+        static const OpStatus status = probe_one_password();
+        return resolve_one_password(ref.payload, status, out);
     }
     case SecretRef::Scheme::Literal:
         // Straight through: there is nowhere to fetch it from, which is the

@@ -1,4 +1,5 @@
 add_library(raikiri_config STATIC
+  src/one_password.cpp
   src/secret.cpp
 )
 add_library(raikiri::config ALIAS raikiri_config)
