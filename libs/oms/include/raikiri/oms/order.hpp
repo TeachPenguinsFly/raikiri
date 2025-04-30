@@ -15,9 +15,6 @@
 // - quantities: the venue's leaves_qty on a fill is authoritative; filled is
 //   derived (qty - leaves) rather than summed, so venues that resend fill
 //   notifications cannot double-count.
-//
-// Updated events do not yet fold amended price/qty back into the origin
-// fields; amend support stops at the status level for now.
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
@@ -37,16 +34,14 @@ public:
     Order() noexcept = default;
 
     Order(const OrderCmd& cmd, const ExchangeClientOrderId& exchange_client_order_id) noexcept
-        : instrument_{cmd.instrument}, side_{cmd.side}, order_type_{cmd.order_type},
-          tif_{cmd.tif}, flags_{cmd.flags}, price_{cmd.price}, qty_{cmd.qty},
-          filled_{QtyLots::from_raw(0)}, leaves_{cmd.qty},
-          client_order_id_{cmd.client_order_id},
+        : instrument_{cmd.instrument}, side_{cmd.side}, order_type_{cmd.order_type}, tif_{cmd.tif},
+          flags_{cmd.flags}, price_{cmd.price}, qty_{cmd.qty}, filled_{QtyLots::from_raw(0)},
+          leaves_{cmd.qty}, client_order_id_{cmd.client_order_id},
           exchange_client_order_id_{exchange_client_order_id}, ts_created_{cmd.ts_created},
           ts_updated_{cmd.ts_created} {}
 
     [[nodiscard]] std::expected<void, TransitionError> apply(const OrderEvent& event) noexcept {
-        const bool full_fill =
-            event.type == OrderEventType::Filled && event.leaves_qty.raw == 0;
+        const bool full_fill = event.type == OrderEventType::Filled && event.leaves_qty.raw == 0;
         const auto next = transition(status_, event.type, full_fill, prior_working_);
         if (!next) {
             return std::unexpected{next.error()};
@@ -78,16 +73,27 @@ public:
     [[nodiscard]] bool is_terminal() const noexcept { return raikiri::is_terminal(status_); }
 
     [[nodiscard]] InstrumentId instrument() const noexcept { return instrument_; }
+
     [[nodiscard]] Side side() const noexcept { return side_; }
+
     [[nodiscard]] OrderType order_type() const noexcept { return order_type_; }
+
     [[nodiscard]] TimeInForce tif() const noexcept { return tif_; }
+
     [[nodiscard]] OrderFlags flags() const noexcept { return flags_; }
+
     [[nodiscard]] PriceTicks price() const noexcept { return price_; }
+
     [[nodiscard]] QtyLots qty() const noexcept { return qty_; }
+
     [[nodiscard]] QtyLots filled() const noexcept { return filled_; }
+
     [[nodiscard]] QtyLots leaves() const noexcept { return leaves_; }
+
     [[nodiscard]] OrderStatus status() const noexcept { return status_; }
+
     [[nodiscard]] OrderStatus prior_working() const noexcept { return prior_working_; }
+
     [[nodiscard]] ClientOrderId client_order_id() const noexcept { return client_order_id_; }
 
     [[nodiscard]] const ExchangeClientOrderId& exchange_client_order_id() const noexcept {
@@ -99,6 +105,7 @@ public:
     }
 
     [[nodiscard]] UnixNanos ts_created() const noexcept { return ts_created_; }
+
     [[nodiscard]] UnixNanos ts_updated() const noexcept { return ts_updated_; }
 
 private:

@@ -1,9 +1,6 @@
 #pragma once
 
-// Bounded lossless SPSC ring for shared memory. One producer process, one
-// consumer process. Used for order-command channels (strategy -> gateway),
-// where "full" is meaningful backpressure (the gateway is dead or stuck) and
-// must surface as an error — never a silent drop, never a spin-wait.
+// Bounded lossless SPSC ring for shared memory.
 //
 // Layout derives from rigtorp::SPSCQueue (MIT, credited in NOTICE): head and
 // tail on separate padded lines, and each side keeps a *cached* copy of the
@@ -11,9 +8,6 @@
 // The twist for shared memory: those caches are process-private state, so
 // they live in the Producer/Consumer handles, not in the shared struct —
 // two processes must never share a "private" cache.
-//
-// The shared struct is trivially constructible in place over zeroed mapped
-// memory; construction is just the mapping itself.
 
 #include <raikiri/common/cacheline.hpp>
 
@@ -39,8 +33,7 @@ struct SpscRing {
     alignas(k_pad_align) T slots[N];
 };
 
-template <typename T, std::size_t N>
-class SpscProducer {
+template <typename T, std::size_t N> class SpscProducer {
 public:
     explicit SpscProducer(SpscRing<T, N>* ring) noexcept
         : ring_{ring}, cached_head_{ring->head.load(std::memory_order_acquire)} {}
@@ -63,8 +56,7 @@ private:
     std::uint64_t cached_head_; // process-private; never in shm
 };
 
-template <typename T, std::size_t N>
-class SpscConsumer {
+template <typename T, std::size_t N> class SpscConsumer {
 public:
     explicit SpscConsumer(SpscRing<T, N>* ring) noexcept
         : ring_{ring}, cached_tail_{ring->tail.load(std::memory_order_acquire)} {}

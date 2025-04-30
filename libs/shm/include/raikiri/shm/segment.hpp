@@ -2,13 +2,6 @@
 
 // Shared-memory segment lifecycle.
 //
-// A segment is one file-backed mmap (tmpfs on Linux; a regular file on
-// macOS — same code path, which is why this is file-backed rather than
-// shm_open) owned by exactly one producer process. The owner creates the
-// file, places channels into it with a bump allocator, and publishes; peers
-// attach read-write (command rings and the reader registry are written by
-// consumers), validate magic/ABI/layout, and resolve channels by name.
-//
 // Crash protocol:
 // - The owner stamps a heartbeat every ~10 ms. Peers treat the owner as dead
 //   when the pid is gone OR the heartbeat is stale (pids recycle; the
@@ -89,8 +82,7 @@ struct SegmentHeader {
 // C++23 gives std::start_lifetime_as for exactly this "the bytes are the
 // object" situation; until libc++/libstdc++ ship it, a laundered cast is the
 // universally-deployed fallback.
-template <typename T>
-[[nodiscard]] T* channel_cast(void* p) noexcept {
+template <typename T> [[nodiscard]] T* channel_cast(void* p) noexcept {
 #if defined(__cpp_lib_start_lifetime_as)
     return std::start_lifetime_as<T>(p);
 #else
@@ -108,15 +100,15 @@ public:
 
     // `generation` should be the owner's start MonoNanos; `now_ns` is used to
     // judge a pre-existing owner's heartbeat.
-    [[nodiscard]] static std::expected<SegmentOwner, SegError>
-    create(const std::string& path, std::size_t total_size, std::uint64_t generation,
-           std::uint64_t now_ns);
+    [[nodiscard]] static std::expected<SegmentOwner, SegError> create(const std::string& path,
+                                                                      std::size_t total_size,
+                                                                      std::uint64_t generation,
+                                                                      std::uint64_t now_ns);
 
     // Bump-allocates a named channel and placement-constructs T in it.
     // Call between create() and publish(); returns nullptr when out of space
     // or directory full (caller treats as fatal misconfiguration).
-    template <typename T>
-    [[nodiscard]] T* create_channel(std::string_view name) noexcept {
+    template <typename T> [[nodiscard]] T* create_channel(std::string_view name) noexcept {
         void* p = place(name, sizeof(T), alignof(T));
         return p != nullptr ? ::new (p) T{} : nullptr;
     }
@@ -131,8 +123,8 @@ public:
 private:
     SegmentOwner() = default;
 
-    [[nodiscard]] void* place(std::string_view name, std::size_t size,
-                              std::size_t alignment) noexcept;
+    [[nodiscard]] void*
+    place(std::string_view name, std::size_t size, std::size_t alignment) noexcept;
 
     SegmentHeader* header_{nullptr};
     std::byte* base_{nullptr};

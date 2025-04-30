@@ -1,25 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where OKX's vocabulary becomes ours: strings become instrument-scaled
-// integers, instrument ids become interned ids. Everything above this file is
-// venue-agnostic; everything below it is OKX-shaped.
-//
-// Three differences from the binance adapter are structural rather than
-// cosmetic.
-//
-// Sizes are CONTRACTS, not base units. A SWAP's ctVal says how much of
-// ctValCcy one contract is worth, so contract_value is loaded from the
-// catalogue instead of being pinned to 1 the way USD-M perps allow.
-//
-// Aggressor side arrives the right way round. OKX's `side` is the taker's
-// direction, so there is no flip here — the binance mapper's inversion is a
-// binance fact, not a shared one.
-//
-// The funding interval is derived, not assumed. /public/instruments does not
-// carry it and OKX runs both 8h and 4h contracts, so it comes from the gap
-// between the funding frame's own two settlement times.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

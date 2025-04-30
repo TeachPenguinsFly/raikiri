@@ -1,24 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where Coinbase's vocabulary becomes ours: strings become instrument-scaled
-// integers, product ids become interned ids. Everything above this file is
-// venue-agnostic; everything below it is Coinbase-shaped.
-//
-// Three differences from the okx adapter are structural rather than cosmetic.
-//
-// This is the SPOT path. Coinbase Exchange lists no perpetuals and no dated
-// futures, so map_instrument builds a SpotInstrument and refuses every other
-// market outright rather than filtering rows by type.
-//
-// Timestamps are ISO-8601 strings, so there is no ms_to_unix; the parser
-// below replaces it and lives here because the format is the reason it
-// exists.
-//
-// The aggressor side arrives INVERTED. The matches channel states the maker's
-// direction, so map_trade flips it — the opposite of okx, whose `side` is
-// already the taker's.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

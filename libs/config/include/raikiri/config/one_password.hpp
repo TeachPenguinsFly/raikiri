@@ -2,9 +2,6 @@
 
 // 1Password as a secret source.
 //
-// The `exec:` scheme already runs `op read op://vault/item/field` and works.
-// This exists for the two things that scheme cannot do.
-//
 // FIRST: say why it failed. `exec:` collapses every failure into "the command
 // exited non-zero" — op missing, not signed in, wrong vault, item renamed,
 // network down all look identical, and the fix for each is different. The
@@ -18,9 +15,6 @@
 // terminal and expires. Production authenticates one of two ways, and the
 // probe reports which is in play so a box that silently fell back to a stale
 // developer session is visible before it matters:
-//
-//   OP_SERVICE_ACCOUNT_TOKEN   a 1Password service account, the usual answer
-//   OP_CONNECT_HOST + _TOKEN   a self-hosted Connect server
 //
 // What this does NOT do is hold the vault open. Each resolve is one `op`
 // invocation costing a process spawn and a round trip — roughly a third of a

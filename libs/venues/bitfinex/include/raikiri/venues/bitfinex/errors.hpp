@@ -9,14 +9,6 @@
 // Unrecognised codes default to Terminal, not Retryable: an unknown refusal
 // repeated at full speed is how an account earns an IP ban, while a spuriously
 // terminal order is recoverable by reconciliation.
-//
-// Codes are JSON NUMBERS on both transports here, unlike okx's digit strings —
-// but the transports disagree on shape rather than on type: a websocket
-// refusal is {"event":"error","code":10300,...} while a REST refusal is the
-// array ["error",10020,"symbol: invalid"]. One numeric namespace covers both.
-//
-// 10300 (websocket) and 10020 (REST) were observed live against production;
-// the rest are from the v2 error reference.
 
 #include <raikiri/exec/error.hpp>
 

@@ -1,31 +1,11 @@
 #pragma once
 
 // XT futures public websocket protocol: topic naming and subscription frames.
-// Message building only — no sockets, no state.
-//
-// Four differences from okx shape this file.
-//
-// A subscription is a single STRING, not an object: "depth@btc_usdt,5,100ms".
-// The channel, the symbol and any parameters are joined by '@' and commas, so
-// a topic is assembled rather than described.
-//
-// There is NO application-level keepalive. The text "ping" is answered with
-// the bare text "Invalid parameter" and {"method":"ping"} with "No enum
-// constant ... Method.PING", so the transport's own websocket ping/pong frames
-// are the only keepalive — WsConfig already runs them.
 //
 // The BBO comes from `depth`, a periodic top-N snapshot. XT's agg_ticker looks
 // like the natural BBO channel and is not: it publishes `bp` and `ap` with no
 // sizes at all, so it cannot fill a Bbo. `bbo@` and `book_ticker@` do not
 // exist. depth@sym,5,100ms is the fastest self-contained top of book XT has.
-//
-// There is NO funding channel. funding_rate@, funding@ and fundingRate@ are
-// each refused with "No enum constant ... Topic.x", so funding is polled over
-// REST instead — see rest.hpp.
-//
-// Every claim above was checked against wss://fstream.xt.com/ws/market in
-// 2026-08 by subscribing and reading what came back. Frames are uncompressed
-// UTF-8 JSON; nothing here needs binary frame support.
 
 #include <raikiri/exec/data_client.hpp>
 

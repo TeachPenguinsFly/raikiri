@@ -2,24 +2,10 @@
 
 // Coinbase Exchange (formerly Coinbase Pro) wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror the venue's JSON exactly
-// and a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Three things differ from okx and binance in ways that reach this file.
-//
 // Every timestamp is an ISO-8601 STRING, never an epoch number, and the
 // fractional part is 3, 6 or 9 digits depending on the endpoint (verified:
 // /time sends 3, the ticker channel 6, /products/*/book 9). Nothing is
 // converted here; map.cpp owns the parser and explains why it is hand-rolled.
-//
-// There is no envelope and no numeric error code anywhere on this API. A REST
-// failure is a bare {"message":"NotFound"} whose class lives in the HTTP
-// status, and a websocket failure is {"type":"error","message":..,"reason":..}
-// with no code at all. errors.hpp classifies on those instead.
-//
-// Frames dispatch on a top-level "type", and the matches channel sends ONE
-// print per frame, so there is no data array to walk the way okx needs.
 
 #include <array>
 #include <cstdint>

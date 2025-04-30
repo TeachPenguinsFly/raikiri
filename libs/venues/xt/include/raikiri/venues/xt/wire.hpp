@@ -2,28 +2,9 @@
 
 // XT.com futures wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror XT's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Four things differ from okx in ways that reach this file.
-//
 // `data` is always a single OBJECT, never an array — including on the trade
 // channel, which carries exactly one print per frame. There is no data[0] to
 // unwrap and no multi-trade buffer.
-//
-// Timestamps are JSON NUMBERS while sequence ids are digit STRINGS — the
-// opposite split from okx, and the reason both a numeric and a textual
-// millisecond reader exist below.
-//
-// Every REST body is an envelope {"returnCode":0,"msgInfo":"success",
-// "error":null,"result":...}. returnCode is a number and carries one bit:
-// 0 succeeded, 1 failed. The machine-readable code lives in error.code and is
-// a STRING ("invalid_symbol"), so envelopes surface text, not an integer.
-//
-// The websocket speaks a THIRD code space: control frames are
-// {"code":0|1,"msg":...,"id":...} with a numeric code and no per-error
-// identity beyond the message. All three were observed live 2026-08.
 
 #include <array>
 #include <cstdint>

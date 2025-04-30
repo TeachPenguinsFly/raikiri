@@ -2,18 +2,6 @@
 
 // MEXC futures (contract.mexc.com) wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror MEXC's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Four things differ from okx in ways that reach this file.
-//
-// Prices, sizes and timestamps are JSON NUMBERS, not strings. The views below
-// are raw number TOKENS, which the mapper feeds to the same decimal parser a
-// quoted okx field would reach — no double is constructed anywhere on the way.
-// MEXC is not consistent about it either: push.deal ships `t` as a number and
-// `cts` as a quoted string in the same object, so the readers accept both.
-//
 // There is no `arg` object to peel. A data frame is
 // {"channel":"push.ticker","symbol":"BTC_USDT","data":{...},"ts":...} and both
 // the channel and the symbol sit at the ENVELOPE level, `data` being the
@@ -24,10 +12,6 @@
 // frame. An unknown `method` gets no answer at all (verified: sub.bogus was
 // silently dropped while the two malformed sub.ticker calls each drew an
 // rs.error), so silence is not evidence a channel was accepted.
-//
-// Every REST body is an envelope {"success":true,"code":0,"data":...}. Success
-// is the BOOLEAN plus code == 0; `data` is an object or an array depending on
-// the endpoint, not always an array the way okx's is.
 
 #include <array>
 #include <cstdint>

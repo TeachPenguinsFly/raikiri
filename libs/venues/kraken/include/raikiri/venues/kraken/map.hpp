@@ -3,17 +3,8 @@
 // Wire types -> domain types: numeric tokens become instrument-scaled
 // integers, product ids become interned ids.
 //
-// Three differences from the okx adapter are structural.
-//
 // Values arrive in two spellings, so parse_number_e9 replaces
 // parse_decimal_e9 everywhere — the latter cannot read exponents at all.
-//
-// The quantity step is published as a signed EXPONENT, not a step;
-// step_from_precision is the only place that fact is encoded.
-//
-// PF_ and PI_ are both perpetuals on the same underlying and are DIFFERENT
-// instruments: PF_ is linear (quantities in base coin), PI_ is inverse
-// (quantities in USD of notional). Both load under their own symbols.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

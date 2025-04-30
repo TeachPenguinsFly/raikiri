@@ -1,9 +1,7 @@
 #pragma once
 
 // Bitfinex v2 public websocket protocol: channel naming and subscription
-// frames. Message building only — no sockets, no state.
-//
-// Three differences from okx shape this file.
+// frames.
 //
 // THERE IS NO BATCH SUBSCRIBE. One `{"event":"subscribe",...}` object carries
 // exactly one channel, so a frame builder that takes a span would be lying
@@ -15,10 +13,6 @@
 // "chanId":17470}`. The venue never accepts the symbol back, which is the
 // clearest statement that the channel id — not the symbol — is the identity of
 // a stream here.
-//
-// EACH CHANNEL TAKES DIFFERENT KEYS. `book` needs prec/freq/len and `status`
-// is addressed by a composite `key` with no `symbol` field at all, so the
-// builder switches on the channel rather than templating one shape.
 //
 // Keepalive: Bitfinex pushes `[CHAN_ID,"hb"]` on every subscribed channel
 // about every 15 s, so silence is already diagnostic. The app-level

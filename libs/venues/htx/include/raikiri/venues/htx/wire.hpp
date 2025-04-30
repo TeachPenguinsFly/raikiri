@@ -2,27 +2,9 @@
 
 // HTX (formerly Huobi) USDT-M swap wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror HTX's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Four things differ from okx in ways that reach this file.
-//
-// Every websocket frame arrives GZIP-compressed under a binary opcode.
-// ws.hpp's Inflater produces the text these parsers take, so the buffer the
-// views below point into is the inflater's, not the socket's.
-//
-// Prices and sizes are JSON NUMBERS, not strings, and the catalogue spells
-// some of them in scientific notation ("1.00000000E-10"). Each is carried as
-// its raw token: a number that went through a double and came back would no
-// longer be the venue's number.
-//
 // Market data and funding arrive from two endpoints speaking two dialects —
 // `ch`/`sub` on /linear-swap-ws, `op`/`topic` on /linear-swap-notification.
 // One EventKind covers both, because `ch` and `op` never appear together.
-//
-// `err-code` has three spellings across those surfaces (see errors.hpp), so
-// every one is carried as a raw token and one classifier reads them all.
 
 #include <array>
 #include <cstdint>

@@ -1,18 +1,6 @@
 #pragma once
 
 // Binance USD-M futures wire types and parsers.
-//
-// Same layering rule as every adapter: DTOs mirror binance's JSON exactly,
-// and a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer — conversion to fixed point happens
-// where the instrument's tick and lot sizes are known.
-//
-// Two things differ from bybit in ways that reach this file. Binance
-// multiplexes streams over one socket and wraps each frame as
-// {"stream":"btcusdt@bookTicker","data":{...}}, so dispatch reads the
-// wrapper, not a topic field. And its depth deltas chain on `pu` (the
-// previous event's `u`) rather than on update_id + 1, which is why both ids
-// are surfaced rather than collapsed into one.
 
 #include <array>
 #include <cstdint>

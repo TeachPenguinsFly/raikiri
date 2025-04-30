@@ -1,25 +1,6 @@
 #pragma once
 
 // OKX v5 wire types and parsers.
-//
-// Same layering rule as every adapter: DTOs mirror OKX's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Three things differ from binance in ways that reach this file.
-//
-// There is no stream wrapper to peel. A data frame is
-// {"arg":{"channel":..,"instId":..},"data":[...]} and dispatch reads
-// arg.channel, so every parser takes the whole frame and reads data[0]
-// itself. Control frames are {"event":"subscribe"|"error",...} instead.
-//
-// Timestamps are epoch milliseconds inside JSON STRINGS while sequence ids
-// are JSON numbers — the opposite split from binance, and prevSeqId is -1 on
-// a snapshot, so the id fields are signed.
-//
-// Every REST body is an envelope {"code":"0","msg":"","data":[...]} whose
-// code is a STRING. "0" is success; there is no negative-code convention to
-// lean on.
 
 #include <array>
 #include <cstdint>

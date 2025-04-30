@@ -2,22 +2,12 @@
 
 // Bybit v5 wire types and parsers.
 //
-// The layering that keeps venue quirks from leaking into the system: wire
-// DTOs mirror bybit's JSON exactly (strings stay strings, their field names
-// stay their field names), and a separate mapping step converts to domain
-// types. Nothing above this file knows that bybit calls a client order id
-// "orderLinkId" or that its timestamps are milliseconds-as-strings.
-//
 // Parsing is simdjson On-Demand over the read buffer, so a frame is walked
 // once with no intermediate document. Every parse function is a fuzz target:
 // venue JSON is untrusted input arriving at line rate, and the failure mode
 // we refuse is a malformed frame taking down a gateway that holds live
 // orders. Missing or unexpected fields yield an error, never a partial
 // struct with a plausible-looking zero in it.
-//
-// Numbers stay as string_views into the caller's buffer here. Conversion to
-// fixed-point happens in the mapping step, where the instrument's tick and
-// lot sizes are known — the only place that conversion is meaningful.
 
 #include <raikiri/common/time.hpp>
 
@@ -121,7 +111,7 @@ parse_trades(std::string_view frame, TradeBuffer& storage);
 struct WireTicker {
     std::string_view symbol;
     bool is_snapshot{false};
-    std::string_view mark_price;      // empty when absent
+    std::string_view mark_price; // empty when absent
     std::string_view index_price;
     std::string_view funding_rate;
     std::string_view next_funding_ms;

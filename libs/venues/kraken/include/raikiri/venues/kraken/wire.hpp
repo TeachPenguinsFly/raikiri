@@ -1,23 +1,6 @@
 #pragma once
 
-// Kraken Futures wire types and parsers. DTOs mirror Kraken's JSON exactly;
-// mapping to domain types is a separate step. Values stay as string_views
-// into the caller's buffer.
-//
-// Three differences from okx reach this file.
-//
-// Every value is a JSON NUMBER, and Kraken emits both plain (0.00001477885)
-// and exponent (8.907125e-6) forms for the same field on the same socket, so
-// the views here are raw numeric TOKENS and map.cpp reads both exactly.
-//
-// A websocket frame is flat — `feed` at the root is what dispatch reads, and
-// control frames carry `event` instead.
-//
-// A REST failure names a STRING (`invalidArgument: symbol`) and `serverTime`
-// is ISO-8601 text while websocket times are epoch ms as JSON numbers.
-// Neither ever goes through parse_decimal_e9.
-//
-// Kraken Spot is a different venue surface and nothing here reads it.
+// Kraken Futures wire types and parsers.
 
 #include <array>
 #include <cstdint>

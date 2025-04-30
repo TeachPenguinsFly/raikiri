@@ -1,14 +1,7 @@
 #pragma once
 
 // Hyperliquid public websocket protocol: channel naming and subscription
-// frames. Message building only — no sockets, no state.
-//
-// A frame carries exactly ONE subscription — no args array to batch into, so a
-// gateway watching N symbols sends N messages per open. Affordable because the
-// documented limit is on subscription COUNT (1000 per connection) rather than
-// on messages the way okx's 480-op hourly budget is. Keepalive is
-// {"method":"ping"} answered by {"channel":"pong"}, JSON both ways where okx
-// uses bare text; the venue closes a connection idle for 60 s.
+// frames.
 //
 // VERIFIED live, and why subscriptions are validated before they are sent: an
 // unknown subscription TYPE earns {"channel":"error",...} and then a CLOSED

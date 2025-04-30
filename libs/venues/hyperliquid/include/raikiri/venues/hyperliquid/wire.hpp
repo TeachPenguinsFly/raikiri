@@ -1,19 +1,6 @@
 #pragma once
 
 // Hyperliquid wire types and parsers.
-//
-// Same layering rule as every adapter: DTOs mirror the venue's JSON exactly
-// and a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Four things differ from the CEX adapters in ways that reach this file. There
-// are no REST GET endpoints for market data — every read is POST /info with a
-// body naming the request type, so a REST parser's shape is chosen by that body
-// rather than by a path. Timestamps are epoch milliseconds as JSON NUMBERS, so
-// opt_ms reads a raw token where okx reads a quoted one. A frame is
-// {"channel":..,"data":..} with the coin INSIDE data rather than beside the
-// channel the way okx's `arg` does, so parse_event resolves only the kind and
-// each parser reads its own coin. Asset names are bare tickers: "BTC".
 
 #include <array>
 #include <cstdint>

@@ -1,10 +1,6 @@
 #pragma once
 
 // Seqlock table: single-writer, many-reader, overwrite-newest state cells.
-// One cell per instrument (indexed by SymbolId), carrying BBO/funding state.
-// A stale tick is worthless — readers always want the latest value, so this
-// channel class overwrites and never queues. The writer is wait-free; readers
-// retry on the (rare) torn window.
 //
 // Memory-model correctness: the payload is stored as an array of
 // std::atomic<uint64_t> words written/read with relaxed ordering between the
@@ -13,10 +9,6 @@
 // atomics compile to the same plain loads/stores on x86-64 and arm64, are
 // defined behavior, and let TSan verify these tests instead of being
 // suppressed. Odd version = write in progress.
-//
-// Reader change-gate: read() returns the version; callers keep their last
-// seen version per cell and skip processing when unchanged — that gate cuts
-// strategy wakeups by roughly the ratio of polls to real updates.
 
 #include <raikiri/common/cacheline.hpp>
 
@@ -79,8 +71,7 @@ struct alignas(k_cache_line) SeqlockCell {
     }
 };
 
-template <typename T, std::size_t N>
-struct SeqlockTable {
+template <typename T, std::size_t N> struct SeqlockTable {
     static constexpr std::size_t k_capacity = N;
 
     SeqlockCell<T> cells[N];

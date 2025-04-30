@@ -1,19 +1,6 @@
 #pragma once
 
-// The public extension point: everything a plugged-in strategy can see and
-// do. Private strategies (funding-arb, market-making) link exactly this
-// header plus the domain vocabulary — never the kernel, never venues, never
-// transports. That boundary is what lets a closed-source strategy ride the
-// open framework.
-//
-// Callbacks receive Context& per call instead of storing a reference:
-// lifetimes stay trivial, and the same strategy object is reusable across
-// engine restarts (crash-only kernels recreate the context, not the
-// strategy).
-//
-// Everything here is hot-path adjacent: noexcept, fixed-point, no
-// allocation implied. Timers and data callbacks arrive on ONE thread — the
-// kernel is single-threaded by design, so strategies need no locks, ever.
+// The public extension point: everything a plugged-in strategy can see and do.
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/instrument.hpp>

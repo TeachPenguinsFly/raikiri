@@ -8,11 +8,6 @@
 // events, and `transition()` is the single arbiter of what an event does to
 // a status. Any (status, event) pair not listed is a venue-protocol violation
 // we want to hear about loudly, not paper over.
-//
-// The table encodes venue reality, not an idealized lifecycle — see the
-// per-arm comments (fills before acks, cancel/fill races, cancels that
-// resolve after expiry). Sourced from years of the Go system trading on
-// these venues plus nautilus_trader's equivalent table.
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
@@ -27,12 +22,12 @@ namespace raikiri {
 
 enum class OrderEventType : std::uint8_t {
     Initialized = 0,
-    Denied,      // risk gate refusal (never reached the wire)
-    Submitted,   // OMS handed the order to a gateway
-    Accepted,    // venue ack (WS or REST)
-    Rejected,    // venue reject; ALSO synthesized locally on REST error —
-                 // venues do not push WS notifications for REST-level rejects
-    Triggered,   // conditional order armed
+    Denied,    // risk gate refusal (never reached the wire)
+    Submitted, // OMS handed the order to a gateway
+    Accepted,  // venue ack (WS or REST)
+    Rejected,  // venue reject; ALSO synthesized locally on REST error —
+               // venues do not push WS notifications for REST-level rejects
+    Triggered, // conditional order armed
     PendingUpdate,
     Updated,        // modify confirmed
     ModifyRejected, // modify refused; order continues in its prior state
@@ -61,7 +56,9 @@ struct TransitionError {
 // entering the pending state (Accepted, PartiallyFilled or Triggered).
 // ReconGap never changes status (audit only); ReconClosed force-closes.
 [[nodiscard]] std::expected<OrderStatus, TransitionError>
-transition(OrderStatus status, OrderEventType event, bool full_fill = false,
+transition(OrderStatus status,
+           OrderEventType event,
+           bool full_fill = false,
            OrderStatus resume = OrderStatus::Accepted) noexcept;
 
 // The wire/journal-facing event record. POD: embedded in shm exec_events and
@@ -83,12 +80,12 @@ struct OrderEvent {
     ExecId exec_id{};                    // 41 B
     std::uint8_t pad3_[6]{};
 
-    PriceTicks price{};        // limit price or fill price
-    QtyLots qty{};             // order qty or fill qty
-    QtyLots leaves_qty{};      // remaining after this event
-    FixedE9 fee{};             // venue fee for this fill (quote units, e9)
-    UnixNanos ts_event{};      // venue timestamp
-    UnixNanos ts_init{};       // local ingest timestamp
+    PriceTicks price{};   // limit price or fill price
+    QtyLots qty{};        // order qty or fill qty
+    QtyLots leaves_qty{}; // remaining after this event
+    FixedE9 fee{};        // venue fee for this fill (quote units, e9)
+    UnixNanos ts_event{}; // venue timestamp
+    UnixNanos ts_init{};  // local ingest timestamp
 };
 
 static_assert(sizeof(OrderEvent) <= 192, "OrderEvent is the shm exec_events payload");

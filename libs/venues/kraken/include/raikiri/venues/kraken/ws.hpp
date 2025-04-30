@@ -1,15 +1,7 @@
 #pragma once
 
 // Kraken Futures public websocket protocol: feed naming and subscription
-// frames. Message building only — no sockets, no state.
-//
-// Three differences from okx shape this file.
-//
-// A subscribe frame names ONE feed and MANY products, the opposite grouping
-// from okx's array of {channel, instId} pairs, so batching is per feed.
-//
-// Three subscription kinds resolve to the same `ticker` feed, because Kraken
-// ships top of book, mark, index and funding in one frame.
+// frames.
 //
 // There is no application-level keepalive. VERIFIED: {"event":"ping"} is
 // answered with {"event":"alert","message":"Bad websocket message"}, so the

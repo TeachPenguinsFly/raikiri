@@ -6,14 +6,6 @@
 // equivalents; the shared layer gets extracted once there are enough adapters
 // to extract it FROM, so that it takes the shape of all of them rather than
 // the shape of whichever one was written first.
-//
-// What is NOT a copy is everything below Session. Bitfinex names no fields, so
-// there is no find_field_unordered anywhere in this adapter — reads go through
-// Row<Arity>, which turns "element 3" into a compile-time-bounded access
-// against an arity declared once in wire.hpp.
-//
-// simdjson stays confined to this directory; wire.hpp hands out only
-// string_view and span.
 
 #include <raikiri/venues/bitfinex/wire.hpp>
 

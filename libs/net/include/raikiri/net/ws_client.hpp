@@ -12,10 +12,6 @@
 // keeps the desired set and re-asserts it from on_open(), because only the
 // core knows what refcounting says should currently be live.
 //
-// Threading: single-threaded by contract. Every callback fires from the
-// thread that calls IoContext::poll(), which is the gateway loop, which is
-// why handlers may touch shm and the journal without synchronization.
-//
 // on_message is the hot path: it receives a view into the read buffer that
 // is invalidated on return, so a handler parses in place (simdjson
 // on-demand) and never stores the pointer.
@@ -32,16 +28,16 @@ namespace raikiri::net {
 class IoContext;
 
 struct WsConfig {
-    std::string host;          // "stream.bybit.com"
+    std::string host; // "stream.bybit.com"
     std::string port{"443"};
-    std::string target{"/"};   // "/v5/public/linear"
+    std::string target{"/"}; // "/v5/public/linear"
     std::uint32_t ping_interval_ms{20'000};
     std::uint32_t pong_timeout_ms{10'000};
     std::uint32_t reconnect_min_ms{250};
     std::uint32_t reconnect_max_ms{30'000};
     std::size_t send_queue_capacity{256};
     std::size_t max_message_bytes{1 << 20};
-    bool verify_tls{true};     // false only for local test servers
+    bool verify_tls{true}; // false only for local test servers
 };
 
 enum class WsCloseReason : std::uint8_t {

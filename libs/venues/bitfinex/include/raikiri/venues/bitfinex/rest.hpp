@@ -1,18 +1,6 @@
 #pragma once
 
 // Bitfinex v2 REST request building.
-//
-// Only the unauthenticated reads the market-data path needs. Signing arrives
-// with order entry, and its shape is already decided — Bitfinex signs
-// "/api" + path + nonce + body with HMAC-SHA384 (not SHA256, the odd one out
-// among the venues here) and carries key, signature and the nonce in headers.
-// Recording that keeps the next commit from rediscovering it.
-//
-// Two things differ from every other REST builder in this repo. The catalogue
-// lives under /conf, a generic key-value endpoint whose answer is nested one
-// level deeper than its payload because it is built to serve several keys at
-// once. And the two markets are separate KEYS rather than a query parameter,
-// so which catalogue is wanted reaches the path.
 
 #include <raikiri/net/rest_client.hpp>
 

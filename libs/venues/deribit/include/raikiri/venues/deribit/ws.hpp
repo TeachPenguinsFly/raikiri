@@ -1,13 +1,6 @@
 #pragma once
 
 // Deribit v2 public websocket protocol: channel naming and JSON-RPC frames.
-// Message building only — no sockets, no state.
-//
-// Three things shape this file.
-//
-// A subscription is a fully-formed CHANNEL STRING carrying the instrument and
-// the stream parameters ("book.BTC-PERPETUAL.none.1.100ms"), not an object
-// with fields — which is why channel_for takes a caller buffer.
 //
 // public/subscribe is ALL OR NOTHING. Verified live: a batch holding one
 // refused channel ("ticker.BTC-PERPETUAL.raw", 13778 unauthenticated) failed
@@ -15,10 +8,6 @@
 // behaves differently again — dropped silently and simply absent from the
 // reply's accepted list. Hence small batches, and an accepted count compared
 // against the requested count rather than assumed.
-//
-// Keepalive is public/set_heartbeat, after which Deribit pushes
-// {"method":"heartbeat","params":{"type":"test_request"}} when it wants an
-// answer; the answer is public/test, and ignoring one costs the socket.
 
 #include <raikiri/exec/data_client.hpp>
 

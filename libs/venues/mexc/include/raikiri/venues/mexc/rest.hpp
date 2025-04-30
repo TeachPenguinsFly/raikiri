@@ -1,19 +1,6 @@
 #pragma once
 
 // MEXC futures REST request building.
-//
-// Only the unauthenticated reads the market-data path needs. Signing arrives
-// with order entry, and its shape is already decided — MEXC signs
-// apiKey + timestamp + (query string or raw JSON body) with HMAC-SHA256, hex
-// encodes the digest, and carries ApiKey, Request-Time and Signature in
-// HEADERS rather than in the query. Recording it here keeps the next commit
-// from rediscovering it.
-//
-// Two path shapes coexist and mixing them up costs a debug cycle: depth and
-// funding_rate take the symbol as a PATH SEGMENT, while ticker takes it as a
-// query parameter.
-//
-// There is no futures testnet host, so nothing here takes a flag.
 
 #include <raikiri/net/rest_client.hpp>
 

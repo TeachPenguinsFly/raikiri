@@ -1,19 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where KuCoin's vocabulary becomes ours: decimal text becomes
-// instrument-scaled integers, symbols become interned ids. Everything above
-// this file is venue-agnostic; everything below it is KuCoin-shaped.
-//
-// Three differences from the okx adapter are structural rather than cosmetic.
-// Decimals can carry an exponent, because /api/v1/contracts/active serialises
-// its steps with Java's default double formatting ("0.1" and "1.0E-10" both
-// appear), so parse_decimal_e9 alone cannot read the catalogue. Sizes are
-// CONTRACTS and `multiplier` converts to base units — negative on inverse
-// contracts, which are refused rather than stored with a negative size. And
-// the funding interval is stated by the catalogue rather than derived, since
-// KuCoin runs 1h, 4h and 8h contracts side by side.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

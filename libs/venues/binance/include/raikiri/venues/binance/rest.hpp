@@ -9,10 +9,6 @@
 // parameters appear. Re-serialising the parameters after signing, or letting a
 // map reorder them, produces a signature binance rejects as -1022, which reads
 // like a bad key rather than a bad ordering.
-//
-// The listen-key endpoints are the exception: they authenticate with the
-// X-MBX-APIKEY header alone and carry no signature at all. Signing them yields
-// a rejection that looks like a credentials problem.
 
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/order_cmd.hpp>

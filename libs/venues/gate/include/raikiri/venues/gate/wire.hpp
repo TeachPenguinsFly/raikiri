@@ -2,29 +2,12 @@
 
 // Gate.io v4 wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror Gate's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// Four things differ from the okx adapter in ways that reach this file.
-//
-// Gate mixes encodings for the same class of value: prices are JSON strings,
-// sizes are JSON INTEGERS, and `order_size_min` is a string in Gate's own SDK
-// but an integer on the live endpoint. Numeric fields are therefore read from
-// the raw token with the quotes optional.
-//
 // Timestamps come in both units and the field name does not settle it. `t` is
 // milliseconds; `create_time` and `funding_next_apply` are seconds. Worse, the
 // REST /futures/{settle}/trades endpoint ships `create_time_ms` as FRACTIONAL
 // SECONDS (1786394934.376) where the websocket ships the same field name as
 // integer milliseconds — verified live, 2026-08. Only the websocket form is
 // parsed here.
-//
-// The aggressor side is the SIGN of the trade size, not a separate field.
-//
-// There is no REST envelope: a successful catalogue read is a top-level JSON
-// ARRAY, and a refusal is {"label":"CONTRACT_NOT_FOUND",...} whose code is a
-// string rather than a number.
 
 #include <array>
 #include <cstdint>

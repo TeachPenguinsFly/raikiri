@@ -10,10 +10,6 @@
 // repeated at full speed is how an account earns an IP ban, while a spuriously
 // terminal order is recoverable by reconciliation.
 //
-// Codes arrive as JSON NUMBERS in the REST envelope. The websocket has no code
-// to classify at all — a refusal is {"channel":"rs.error","data":"<text>"} —
-// which is why nothing here takes a websocket path.
-//
 // Marked VERIFIED codes were provoked against production on 2026-08-10; the
 // rest are from the contract API reference and stay provisional until seen.
 

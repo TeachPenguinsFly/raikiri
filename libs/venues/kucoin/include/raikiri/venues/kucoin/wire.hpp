@@ -1,30 +1,6 @@
 #pragma once
 
 // KuCoin Futures wire types and parsers.
-//
-// Same layering rule as every adapter: DTOs mirror KuCoin's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as string_views
-// into the caller's buffer.
-//
-// Four things differ from okx in ways that reach this file.
-//
-// A data frame is {"topic":"/contractMarket/tickerV2:XBTUSDTM","type":"message",
-// "subject":"tickerV2","sn":..,"data":{..}}. `subject` alone discriminates every
-// shape, `data` is one object rather than an array, and the topic suffix after
-// ':' is the authoritative symbol — level2 and the instrument subjects put none
-// in `data`. A batched subscription is still echoed one symbol per frame.
-//
-// Numeric types are mixed WITHIN one object: tickerV2 quotes prices as JSON
-// strings and sizes as JSON numbers, so every decimal is read as its raw token
-// with quotes stripped and no DTO records which side of that split it fell on.
-//
-// Epochs are JSON NUMBERS whose unit varies per channel: tickerV2 and execution
-// send NANOSECONDS, level2 and the instrument subjects MILLISECONDS. The field
-// names below carry the unit for that reason.
-//
-// Codes live in two namespaces. A REST envelope is {"code":"200000","data":..}
-// with code a STRING; a websocket refusal is {"type":"error","code":404,
-// "data":"topic does not exist"} with code a NUMBER and the message in `data`.
 
 #include <array>
 #include <cstdint>

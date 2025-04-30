@@ -1,7 +1,7 @@
 #pragma once
 
 // HTX USDT-M swap websocket protocol: frame decompression, topic naming and
-// subscription messages. No sockets and no subscription state.
+// subscription messages.
 //
 // THE quirk, and why this header carries an Inflater: HTX sends every frame
 // gzip-compressed under a BINARY opcode, on both endpoints and in both
@@ -16,11 +16,6 @@
 // funding_rate"}. VERIFIED: market.{code}.funding_rate is refused on both the
 // market socket and /ws_index, so the notification path is the only funding
 // push HTX has.
-//
-// Keepalive runs the opposite way from most venues: the SERVER pings every
-// five seconds and the client echoes the value it was given. The market socket
-// sends {"ping":<number>} and the other {"op":"ping","ts":"<string>"} — one
-// instant, quoted differently — so the raw token is what goes back.
 
 #include <raikiri/exec/data_client.hpp>
 

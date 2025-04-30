@@ -1,19 +1,7 @@
 #pragma once
 
 // MEXC futures public websocket protocol: channel naming and subscription
-// frames. Message building only — no sockets, no state.
-//
-// Three differences from okx shape this file.
-//
-// A subscription names ONE symbol: {"method":"sub.ticker","param":{"symbol":
-// "BTC_USDT"}}. There is no args array and no batch form, so a frame carries
-// exactly one subscription and a wide gateway sends one message per symbol per
-// channel. Nothing is baked into the path, so one socket carries every channel.
-//
-// The method and the pushed channel are the same name under different
-// prefixes — sub.deal is answered by rs.sub.deal and delivers push.deal — so
-// channel_for() returns the bare stem and the prefixes are applied here and in
-// the parser.
+// frames.
 //
 // Keepalive is mandatory and inbound data does not count. VERIFIED live: a
 // socket that received a push.ticker every three seconds but sent nothing was

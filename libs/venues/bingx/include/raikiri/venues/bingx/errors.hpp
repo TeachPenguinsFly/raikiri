@@ -15,9 +15,6 @@
 // guessing at the rest would put codes in buckets nobody has checked. When
 // signing lands, the timestamp-window refusal it earns belongs in Retryable —
 // clock skew is fixed by resyncing, not by halting a venue whose keys are fine.
-//
-// Codes are JSON NUMBERS, unlike okx's digit strings, and one code space covers
-// both REST and the websocket.
 
 #include <raikiri/exec/error.hpp>
 

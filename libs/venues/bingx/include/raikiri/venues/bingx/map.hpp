@@ -2,12 +2,6 @@
 
 // Wire types -> domain types.
 //
-// Where BingX's vocabulary becomes ours: strings become instrument-scaled
-// integers, symbols become interned ids. Everything above this file is
-// venue-agnostic; everything below it is BingX-shaped.
-//
-// Two differences from okx are structural rather than cosmetic.
-//
 // The steps are DERIVED: BingX states pricePrecision and quantityPrecision —
 // counts of decimal digits — and never a tick or lot size, so map_instrument
 // builds 10^-precision itself where every other adapter copies a stated number.

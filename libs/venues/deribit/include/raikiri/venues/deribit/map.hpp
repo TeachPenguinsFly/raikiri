@@ -2,22 +2,9 @@
 
 // Wire types -> domain types.
 //
-// Where Deribit's vocabulary becomes ours: JSON number tokens become
-// instrument-scaled integers, names become interned ids. Three differences
-// from the okx adapter are structural rather than cosmetic.
-//
 // Decimals arrive as JSON numbers written by a float formatter, so "0.5",
 // "1e-05" and "9.5e4" all appear on the wire and parse_decimal_e9 alone
 // cannot read a single catalogue row.
-//
-// There is no perpetual kind. BTC-PERPETUAL is kind "future" with
-// settlement_period "perpetual", so Perp and Future come out of the same
-// endpoint and the mapper is what separates them.
-//
-// Options load, filling the OptionInstrument seam nothing exercised before.
-// Both that and the INVERSE contract_value semantics are decided in
-// map_instrument; those two comments are the ones worth reading before
-// touching this file.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

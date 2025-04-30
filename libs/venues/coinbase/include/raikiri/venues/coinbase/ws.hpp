@@ -1,26 +1,13 @@
 #pragma once
 
-// Coinbase Exchange public websocket protocol: channel naming and
-// subscription frames. Message building only — no sockets, no state.
-//
-// Three differences from okx shape this file.
+// Coinbase Exchange public websocket protocol: channel naming and subscription
+// frames.
 //
 // A subscription is a CHANNEL carrying its own product list:
 // {"name":"ticker","product_ids":["BTC-USD"]}. The flat form the docs lead
 // with ("channels":["ticker"], "product_ids":[..]) applies every product to
 // every channel; the object form was verified live and is what lets one frame
 // carry different products per channel.
-//
-// There is no application-level keepalive. Coinbase answers protocol ping
-// frames, which WsClient already sends, so nothing here needs a ping_frame()
-// — okx's four-byte "ping" has no analogue.
-//
-// Depth is declined, not unimplemented. The only level-2 channel Coinbase
-// offers opens with the ENTIRE book: BTC-USD measured 45,440 levels in a
-// single 1.14 MiB frame, over WsConfig's 1 MiB max_message_bytes, so a depth
-// subscription would trip the transport's oversize-frame path and close the
-// socket that BBO and trades share. Declining says that; a half-working
-// subscription would not.
 
 #include <raikiri/exec/data_client.hpp>
 

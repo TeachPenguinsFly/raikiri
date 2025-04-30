@@ -6,13 +6,6 @@
 // AuthFailure and synthesizes a terminal Rejected for Terminal — so a
 // condition in the wrong bucket is a trading bug, not a logging detail.
 //
-// The structural difference from every other adapter here: Coinbase publishes
-// NO numeric error codes. A REST failure is a bare {"message":"NotFound"} and
-// the only machine-readable part is the HTTP status; a websocket failure is
-// {"type":"error","message":..,"reason":..} with nothing numeric at all. So
-// classification takes a status or a message instead of a code, and
-// VenueError::venue_code stays 0 for this venue throughout.
-//
 // Unrecognised conditions default to Terminal, not Retryable: an unknown
 // refusal repeated at full speed is how an IP earns a ban, while a spuriously
 // terminal request is recoverable by asking again deliberately.

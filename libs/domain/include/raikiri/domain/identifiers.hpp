@@ -1,18 +1,6 @@
 #pragma once
 
-// Identifier scheme. The rule (learned from nautilus_trader): intern or pack
-// only bounded-cardinality identifiers; anything an exchange mints in
-// unbounded quantity stays as inline fixed-capacity text.
-//
-//   InstrumentId  packed u64 {venue | market | symbol} — array-indexable
-//   ClientOrderId packed u64 {strategy_id:16 | seq:48} — strategy-minted
-//   ExchangeClientOrderId = ULID text                  — OMS-minted, sent to venue
-//   ExchangeOrderId / ExecId = inline text             — venue-minted, unbounded
-//
-// Three-ID order scheme (ported from the Go system): the strategy knows its
-// ClientOrderId, the OMS mints the ExchangeClientOrderId (journaled BEFORE
-// send — that record is what makes crash recovery possible), the venue
-// returns its own ExchangeOrderId. The order store indexes all three.
+// Identifier scheme.
 
 #include <raikiri/common/fixed_string.hpp>
 #include <raikiri/common/ulid.hpp>
@@ -115,8 +103,8 @@ struct AccountId {
 
 // Formats into caller storage ("bybit", "bybit-spot", "bybit-fut",
 // "bybit-opt"); buf must hold >= 16 bytes.
-[[nodiscard]] std::string_view format_account(AccountId account, char* buf,
-                                              std::size_t buf_len) noexcept;
+[[nodiscard]] std::string_view
+format_account(AccountId account, char* buf, std::size_t buf_len) noexcept;
 
 // Strategy-minted order handle: {strategy_id:16 | seq:48}.
 struct ClientOrderId {
@@ -131,9 +119,7 @@ struct ClientOrderId {
         return static_cast<std::uint16_t>(raw >> 48);
     }
 
-    [[nodiscard]] constexpr std::uint64_t seq() const noexcept {
-        return raw & 0xFFFF'FFFF'FFFFULL;
-    }
+    [[nodiscard]] constexpr std::uint64_t seq() const noexcept { return raw & 0xFFFF'FFFF'FFFFULL; }
 
     [[nodiscard]] constexpr bool valid() const noexcept { return raw != 0; }
 
@@ -150,15 +136,13 @@ using ExecId = FixedString<40>;
 
 } // namespace raikiri
 
-template <>
-struct std::hash<raikiri::InstrumentId> {
+template <> struct std::hash<raikiri::InstrumentId> {
     [[nodiscard]] std::size_t operator()(raikiri::InstrumentId id) const noexcept {
         return std::hash<std::uint64_t>{}(id.packed);
     }
 };
 
-template <>
-struct std::hash<raikiri::ClientOrderId> {
+template <> struct std::hash<raikiri::ClientOrderId> {
     [[nodiscard]] std::size_t operator()(raikiri::ClientOrderId id) const noexcept {
         return std::hash<std::uint64_t>{}(id.raw);
     }

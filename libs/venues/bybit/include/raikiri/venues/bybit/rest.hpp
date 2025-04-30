@@ -2,21 +2,11 @@
 
 // Signed bybit v5 REST requests.
 //
-// Signing is where this venue punishes carelessness. The message is a bare
-// concatenation with no separators:
-//
-//     timestamp + apiKey + recvWindow + (JSON body for POST, query for GET)
-//
 // so a POST that signs the query string, or a GET that signs a body it does
 // not send, produces a signature that is wrong in a way the venue reports as
 // a generic authentication error — which reads like a bad key and costs
 // hours. The two paths are therefore separate functions here, and the tests
 // pin the exact bytes that go into the digest.
-//
-// Ownership: built requests hold views into this object's scratch buffers and
-// stay valid only until the next build call. That is sufficient because
-// RestClient::send() materialises its own owning copy synchronously; it is
-// also why one builder belongs to one gateway thread.
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>

@@ -2,23 +2,6 @@
 
 // BingX USDT-perpetual wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror BingX's JSON exactly and a
-// separate mapping step converts to domain types. Numbers stay as string_views
-// into the caller's buffer.
-//
-// Four things differ from okx in ways that reach this file.
-//
-// Every websocket frame arrives GZIP-COMPRESSED inside a binary opcode.
-// ws.hpp's Inflater turns one into the text these parsers take, so nothing
-// below this line knows the socket carries compressed bytes.
-//
-// Dispatch reads `dataType`, which packs the instrument and the channel into
-// one string: "BTC-USDT@bookTicker". Splitting on '@' recovers the symbol on
-// channels whose payload does not repeat it (depth).
-//
-// Timestamps, ids and the REST envelope's `code` are JSON NUMBERS — the
-// opposite of okx, where every one of those is a digit string.
-//
 // The keepalive is the literal text "Ping" after inflation and must be answered
 // with "Pong". It is not JSON, so parse_event resolves it before opening a
 // document.

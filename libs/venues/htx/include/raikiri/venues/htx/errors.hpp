@@ -9,15 +9,6 @@
 // account earns an IP ban, while a spuriously terminal order is recoverable
 // by reconciliation.
 //
-// The classifier takes TEXT because HTX has three spellings for one idea and
-// the surface decides which arrives: a numeric err_code on the
-// linear-swap-api family, a hyphenated err-code on linear-swap-ex and on the
-// market socket, a numeric err-code again on the notification socket. A run of
-// digits reads as a number, anything else as a word.
-//
-// The table is short on purpose: every code below was provoked against
-// production and read off the wire.
-//
 // NOT YET KNOWN, and load-bearing when signing lands: HTX checks the access
 // key before the timestamp, so the window refusal cannot be provoked without
 // credentials. Whatever its code is, it belongs in Retryable — clock skew is

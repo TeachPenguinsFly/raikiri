@@ -3,15 +3,6 @@
 // Fixed-capacity order store with the three-ID index (see identifiers.hpp for
 // why three): ClientOrderId (strategy's handle), ExchangeClientOrderId (ours,
 // journaled before send), ExchangeOrderId (the venue's, bound on first sight).
-// Venue events routinely arrive carrying only a subset of these, so every
-// lookup path must exist.
-//
-// Memory model: all slots and the free-list are allocated at construction and
-// the index maps reserve their bucket arrays for full capacity up front, so
-// steady-state traffic is limited to per-insert map nodes (a bounded, reused
-// pool under most allocators). The trade-off of node maps over open addressing
-// was taken for pointer stability of nothing (slots are stable anyway) but
-// simplicity of everything; revisit only if profiling says so.
 //
 // Terminal orders are retired immediately: unindexed and their slot recycled.
 // A late event for a retired order (the documented Canceled -> Filled race)
@@ -72,16 +63,13 @@ public:
     [[nodiscard]] std::expected<const Order*, ApplyError>
     apply_event(const OrderEvent& event) noexcept;
 
-    [[nodiscard]] std::size_t open_count() const noexcept {
-        return slots_.size() - free_.size();
-    }
+    [[nodiscard]] std::size_t open_count() const noexcept { return slots_.size() - free_.size(); }
 
     [[nodiscard]] std::size_t capacity() const noexcept { return slots_.size(); }
 
     // Iteration order is unspecified. The callback must not create or retire
     // orders (it walks the live index).
-    template <typename F>
-    void for_each_open(F&& fn) const {
+    template <typename F> void for_each_open(F&& fn) const {
         for (const auto& [id, slot] : by_client_) {
             fn(slots_[slot]);
         }

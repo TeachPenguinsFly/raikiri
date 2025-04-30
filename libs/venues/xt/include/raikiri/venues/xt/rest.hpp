@@ -1,23 +1,6 @@
 #pragma once
 
 // XT futures REST request building.
-//
-// Only the unauthenticated reads the market-data path needs. Signing arrives
-// with order entry; XT carries the key and digest in `validate-*` headers
-// (validate-appkey, validate-timestamp, validate-recvwindow,
-// validate-signature, validate-algorithms) rather than in the query string,
-// and an unsigned private call answers error.code "400" with "Absence of
-// [appKey] in client request is prohibited". Recording that here keeps the
-// next commit from rediscovering it.
-//
-// Two traps live in this file's URLs.
-//
-// Symbols are case-INSENSITIVE on the way in and ECHOED BACK verbatim: asking
-// for BTC_USDT answers with "s":"BTC_USDT", which would then miss the
-// lowercase symbol interned from the catalogue and drop every frame. Only the
-// catalogue's own spelling is ever sent.
-//
-// There is no futures testnet host, so nothing here takes a flag.
 
 #include <raikiri/net/rest_client.hpp>
 

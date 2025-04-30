@@ -1,28 +1,6 @@
 #pragma once
 
 // Deribit v2 wire types and parsers.
-//
-// Same layering rule as every adapter: DTOs mirror Deribit's JSON exactly and
-// a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer. Three things differ from every other
-// venue here and reach this file.
-//
-// The transport is JSON-RPC 2.0 on BOTH sides. A push is
-// {"method":"subscription","params":{"channel":..,"data":..}}; a reply to
-// something we sent is {"id":N,"result":..}; a failure is
-// {"id":N,"error":{"code":..,"message":".."}} — an error OBJECT whose
-// presence is the signal, not a status field to compare against zero.
-//
-// Every number is a JSON NUMBER, not a digit string, and Deribit serialises
-// them with a float formatter: "9.5e4" for an option strike and "2.7e4" for a
-// book size are both live captures. Parsers hand out the RAW TOKEN and the
-// mapping layer reads it with parse_number_e9, which understands exponents.
-//
-// The channel name carries the instrument and the stream parameters
-// ("book.BTC-PERPETUAL.none.1.100ms"), so dispatch splits the channel instead
-// of reading a type field. Every implemented channel also repeats
-// instrument_name inside `data`, which is what the parsers read: a trades
-// frame is an array of prints and needs one per entry.
 
 #include <array>
 #include <cstdint>

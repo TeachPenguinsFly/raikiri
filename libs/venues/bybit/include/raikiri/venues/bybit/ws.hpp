@@ -3,12 +3,6 @@
 // Bybit v5 websocket protocol: topic naming, subscription frames, and the
 // private-stream handshake.
 //
-// Message building only — no sockets, no state. The transport lives in
-// raikiri::net and the desired subscription set lives in the gateway core,
-// which re-asserts it from on_open(). That split is what makes a reconnect
-// and a cold start run identical code, and it is why this file has no
-// notion of what is currently subscribed.
-//
 // The private handshake is its own signature scheme, unrelated to REST: the
 // message is the literal "GET/realtime" followed by an expiry timestamp that
 // must be in the FUTURE. Signing the current time produces a frame bybit
@@ -29,9 +23,9 @@
 namespace raikiri::venues::bybit {
 
 enum class WsBuildError : std::uint8_t {
-    UnsupportedKind,   // a subscription kind bybit does not offer
+    UnsupportedKind, // a subscription kind bybit does not offer
     UnknownInstrument,
-    TooManyTopics,     // more args than one frame may carry
+    TooManyTopics, // more args than one frame may carry
     BufferTooSmall,
     NotSigned,
 };
@@ -57,8 +51,8 @@ inline constexpr std::size_t k_max_topics_per_frame = 10;
 
 // Builds "orderbook.50.BTCUSDT" and friends. Returns empty for a kind bybit
 // does not stream.
-[[nodiscard]] std::string_view topic_name(exec::SubKind kind, std::string_view exchange_symbol,
-                                          std::span<char> out) noexcept;
+[[nodiscard]] std::string_view
+topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
 
 class Protocol {
 public:
@@ -90,9 +84,8 @@ public:
     [[nodiscard]] std::string_view last_auth_message() const noexcept;
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
-                                                              std::span<const std::string_view>
-                                                                  topics);
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    op_frame(std::string_view op, std::span<const std::string_view> topics);
 
     std::array<char, 1024> frame_{};
     std::array<char, 64> auth_msg_{};

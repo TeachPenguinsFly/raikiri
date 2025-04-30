@@ -9,14 +9,6 @@
 // Unrecognised labels default to Terminal, not Retryable: an unknown refusal
 // repeated at full speed is how an account earns an IP ban, while a
 // spuriously terminal order is recoverable by reconciliation.
-//
-// Gate speaks two error dialects that share no vocabulary. REST refusals
-// carry a STRING label ({"label":"CONTRACT_NOT_FOUND"}), so classify()
-// compares text; websocket refusals carry a small integer, which is why
-// classify_stream() is a separate function rather than a conversion.
-//
-// CONTRACT_NOT_FOUND, TOO_BIG, INVALID_PARAM_VALUE and MISSING_REQUIRED_HEADER
-// were observed live; the rest are from Gate's published label list.
 
 #include <raikiri/exec/error.hpp>
 

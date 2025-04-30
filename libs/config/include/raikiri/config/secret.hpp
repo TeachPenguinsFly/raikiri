@@ -7,11 +7,6 @@
 // shared memory, or written to Postgres — the only thing safe to emit about
 // a key is its fingerprint.
 //
-// Only gateway processes ever resolve secrets. The strategy kernel, the
-// persister and the tools run without credentials in their address space at
-// all, which is one of the concrete wins of splitting venues into their own
-// processes: compromising the strategy yields no keys.
-//
 // Storage hardening: pages are mlock'd so keys cannot reach swap, and the
 // buffer is explicitly zeroized on destruction (through a volatile write the
 // optimizer may not elide). Gateways additionally disable core dumps — a

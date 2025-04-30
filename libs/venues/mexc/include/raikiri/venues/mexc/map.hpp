@@ -2,21 +2,11 @@
 
 // Wire types -> domain types.
 //
-// Where MEXC's vocabulary becomes ours: number tokens become instrument-scaled
-// integers, symbols become interned ids. Everything above this file is
-// venue-agnostic; everything below it is MEXC-shaped.
-//
-// Three differences from the okx adapter are structural rather than cosmetic.
-//
 // The instrument's steps are DERIVED. MEXC states priceScale and volScale —
 // counts of decimal digits — and never a tick or a lot size, so the step is
 // built here as an integer power of ten. That derivation has a hard edge:
 // FixedE9 carries nine fractional digits and MEXC lists contracts at scale 10
 // and 11, which are refused rather than rounded.
-//
-// The BBO comes from a DEPTH snapshot. push.ticker has bid1/ask1 but no sizes
-// at all, and MEXC publishes no tick-by-tick top of book, so depth.full's
-// first level a side is the only honest source of a complete Bbo.
 //
 // Funding rides on the ticker channel. MEXC's dedicated funding channel
 // acknowledges a subscribe and then pushes nothing between settlements

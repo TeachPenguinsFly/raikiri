@@ -8,11 +8,6 @@
 // bugs. Decimal <-> integer conversion happens only at the process edges
 // (wire parse / wire serialize), through the functions in this header.
 //
-// - PriceTicks / QtyLots: integer multiples of an instrument's tick/lot size.
-//   Meaningless without the instrument; the domain layer owns the pairing.
-// - FixedE9: decimal scaled by 1e9 (funding rates, fees). +-9.2e9 range.
-// - Notional128: 128-bit product of two 64-bit fixed-point values.
-//
 // Arithmetic aborts on overflow (crash-only philosophy: corrupt data is worse
 // than no data). The branch is one predictable compare on the hot path.
 

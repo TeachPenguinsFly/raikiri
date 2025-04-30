@@ -8,10 +8,6 @@
 // a well-formed order for the wrong contract, which nothing downstream can
 // catch. So the consumer adopts the gateway's numbering instead of deriving
 // its own.
-//
-// Written once before publish() and immutable after, so an attached consumer
-// always sees a complete table and needs no synchronisation to read it. New
-// listings mean a gateway restart under a fresh generation.
 
 #include <raikiri/domain/instrument.hpp>
 

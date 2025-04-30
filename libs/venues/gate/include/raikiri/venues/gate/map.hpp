@@ -2,24 +2,11 @@
 
 // Wire types -> domain types.
 //
-// Where Gate's vocabulary becomes ours: strings become instrument-scaled
-// integers, contract names become interned ids. Everything above this file is
-// venue-agnostic; everything below it is Gate-shaped.
-//
-// Three differences from the binance adapter are structural rather than
-// cosmetic.
-//
 // Sizes are CONTRACTS, not base units. `quanto_multiplier` says how much of
 // the base asset one contract is, so contract_value comes from the catalogue
 // instead of being pinned to 1 the way USD-M perps allow. The lot step is one
 // whole contract: public market data quotes integer sizes on every contract,
 // verified live including the `enable_decimal` ones.
-//
-// Aggressor side arrives as the sign of the size and the wire layer already
-// split it, so there is no flip here — binance's inversion is a binance fact.
-//
-// The funding interval is stated, not derived: Gate carries funding_interval
-// on both the catalogue and the ticker channel.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

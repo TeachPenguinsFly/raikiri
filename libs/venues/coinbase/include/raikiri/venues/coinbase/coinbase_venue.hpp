@@ -8,10 +8,6 @@
 // not trade it. Order entry therefore refuses permanently rather than
 // temporarily, and says so, so nothing upstream waits for a verdict that will
 // never come.
-//
-// Everything below is spot: fetch_all refuses any market but Spot, and there
-// is no funding stream to subscribe to. That is the arm of the domain's
-// instrument variant no live adapter exercised before this one.
 
 #include <raikiri/exec/venue.hpp>
 

@@ -1,17 +1,7 @@
 #pragma once
 
-// Append-only mmap journal: durability, replay, and the hot->cold data feed
-// in one mechanism. One journal per process (single-writer invariant — no
-// cross-process write coordination, ever); cold consumers tail by mmap.
-//
-// Segment file layout (<prefix>.<seq>.rj, preallocated, default 256 MiB):
-//
-//   [FileHeader page, 4 KiB]
-//   [frame][frame][frame]...
-//
-// Frame: [payload_len u32 | schema_id u16 | schema_ver u16 | seq u64 |
-//         ts_ns u64 | payload bytes | crc32c u32], padded to 8 bytes.
-// The CRC covers header+payload and is what recovery trusts.
+// Append-only mmap journal: durability, replay, and the hot->cold data feed in
+// one mechanism.
 //
 // Hot append = memcpy into the mapping + release-store of committed_bytes.
 // No syscall, no fsync on the hot path; a cold thread calls flush() on a
@@ -19,11 +9,6 @@
 // documented: the venue is the ultimate system of record and reconciliation
 // covers the gap — what the journal must never do is present a torn frame
 // as valid, and the CRC walk at open guarantees that.
-//
-// Process crash: committed_bytes is coherent (page cache survives the
-// process). Machine crash: pages may land out of order, so recovery ignores
-// committed_bytes and re-walks frames by CRC, truncating at the first
-// invalid frame. Startup and crash recovery are the same code path.
 
 #include <cstddef>
 #include <cstdint>

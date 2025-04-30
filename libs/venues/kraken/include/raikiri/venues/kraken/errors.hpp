@@ -1,10 +1,6 @@
 #pragma once
 
-// Kraken Futures error classification. A name in the wrong bucket is a
-// trading bug, not a logging detail: the gateway retries Retryable, backs off
-// RateLimited and halts on AuthFailure. Unrecognised names default to
-// Terminal — an unknown refusal repeated at full speed earns an IP ban, while
-// a spuriously terminal order is recoverable by reconciliation.
+// Kraken Futures error classification.
 //
 // What differs here: the code is a STRING NAME and there is no numeric code
 // anywhere in a Kraken error body. The name carries a suffix naming the

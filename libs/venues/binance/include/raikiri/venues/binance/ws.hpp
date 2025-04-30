@@ -1,20 +1,7 @@
 #pragma once
 
 // Binance USD-M futures websocket protocol: stream naming and subscription
-// frames. Message building only — no sockets, no state.
-//
-// Two differences from bybit shape this file.
-//
-// Stream names are lowercase symbol + "@" + type, and everything shares one
-// socket: /stream carries a multiplexed feed and each frame arrives wrapped
-// in {"stream":...,"data":...}. Bybit needs a socket per market; binance
-// needs one per process.
-//
-// There is no application-level ping. Binance sends a websocket control ping
-// roughly every three minutes and disconnects a client that stops answering;
-// the transport already replies to control frames, so nothing here has to.
-// Adding a bybit-style app ping would send a frame binance treats as an
-// unknown method and answers with an error.
+// frames.
 
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>

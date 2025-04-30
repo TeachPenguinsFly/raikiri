@@ -1,19 +1,6 @@
 #pragma once
 
 // Bitget v2 REST request building.
-//
-// Only the unauthenticated reads the market-data path needs. Signing arrives
-// with order entry, and its shape is decided — HMAC-SHA256 over
-// timestamp + method + requestPath + body, base64'd, carried in ACCESS-KEY,
-// ACCESS-SIGN, ACCESS-TIMESTAMP (epoch milliseconds, not okx's ISO-8601) and
-// an ACCESS-PASSPHRASE header.
-//
-// productType is required on every mix endpoint, including ones that already
-// name a symbol, and omitting it does not default: /mix/market/ticker with
-// only a symbol answers 400172 "Parameter verification failed", which reads
-// like a malformed symbol rather than a missing sibling parameter. There is
-// no separate demo host either — productType SUSDT-FUTURES on this same host
-// serves the simulated product, with S-prefixed symbols.
 
 #include <raikiri/net/rest_client.hpp>
 

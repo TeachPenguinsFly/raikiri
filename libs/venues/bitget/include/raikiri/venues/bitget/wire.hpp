@@ -2,25 +2,12 @@
 
 // Bitget v2 wire types and parsers, USDT-M futures.
 //
-// Same layering rule as every adapter: DTOs mirror Bitget's JSON exactly and
-// a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer. Three things differ from okx in ways
-// that reach this file.
-//
 // The error code is a STRING over REST and a JSON NUMBER over the websocket,
 // verified live: {"code":"40034",...} against {"event":"error","code":30001}.
 // Different types AND different code spaces, so one path per transport. The
 // REST envelope also succeeds on "00000", not "0" — five characters that any
 // integer conversion turns into the zero a missing field would produce, which
 // is why the envelope keeps the text.
-//
-// Bid, ask, mark, index and funding all arrive on ONE channel (`ticker`), so
-// a single frame feeds both the BBO and the funding sink. okx and binance
-// both split those, and reading Bitget the same way loses the mark.
-//
-// The instrument id is only reliable in the frame's `arg`: trade and books
-// elements carry none at all, and the REST rows name it `symbol` while the
-// websocket names it `instId`.
 
 #include <array>
 #include <cstdint>

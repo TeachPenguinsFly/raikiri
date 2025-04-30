@@ -9,9 +9,6 @@
 // timestamps in JSON numbers and its sequence ids in digit strings, so both a
 // numeric and a textual reader are needed where okx needed only the textual
 // one.
-//
-// simdjson stays confined to this directory; wire.hpp hands out only
-// string_view and span.
 
 #include <raikiri/venues/xt/wire.hpp>
 

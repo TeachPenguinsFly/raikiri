@@ -1,21 +1,12 @@
 #pragma once
 
 // KuCoin Futures public websocket protocol: topic naming, the connect URL, and
-// subscription frames. Message building only — no sockets, no state.
-//
-// THE URL IS NOT STATIC — the defining quirk. A client POSTs
-// /api/v1/bullet-public and the answer names the endpoint plus a short-lived
-// token for the query string, so make_endpoint() runs on every connect rather
-// than once at startup.
+// subscription frames.
 //
 // A subscription is a TOPIC STRING, "/contractMarket/tickerV2:XBTUSDTM", whose
 // symbol part is a comma-joined list. The venue echoes one symbol per message
 // regardless (verified live), so batching keeps the topic count — what
 // KuCoin's limit of 100 per connection counts — at one per kind.
-//
-// Keepalive is an APPLICATION message, {"id":"7","type":"ping"}; websocket
-// control frames do not count, and the bullet response states the interval
-// (18 s observed) and a 10 s timeout.
 
 #include <raikiri/exec/data_client.hpp>
 

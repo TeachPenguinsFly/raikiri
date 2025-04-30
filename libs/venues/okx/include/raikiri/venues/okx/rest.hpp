@@ -2,13 +2,6 @@
 
 // OKX v5 REST request building.
 //
-// Only the unauthenticated reads the market-data path needs. Signing arrives
-// with order entry, and its shape is already decided — OKX signs
-// timestamp + method + requestPath + body with HMAC-SHA256, base64s the
-// digest, and carries key, sign, an ISO-8601 timestamp and a PASSPHRASE in
-// headers. The passphrase is the part with no binance or bybit analogue, so
-// recording it here keeps the next commit from rediscovering it.
-//
 // There is no separate demo host: OKX switches an account to demo trading
 // with an x-simulated-trading header on the same host. Public reads answer
 // identically with or without it (verified), so nothing here takes a flag.

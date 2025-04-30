@@ -1,0 +1,10 @@
+# Without this clangd guesses the flags and reports std::expected, std::span
+# and every other C++23 name as missing. The database lives in the build tree,
+# which is gitignored, so the path is what gets committed rather than a symlink
+# that would dangle on a fresh checkout.
+CompileFlags:
+  CompilationDatabase: build/dev-asan
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None

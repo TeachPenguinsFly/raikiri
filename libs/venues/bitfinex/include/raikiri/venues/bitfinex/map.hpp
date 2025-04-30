@@ -2,24 +2,9 @@
 
 // Wire types -> domain types.
 //
-// Where Bitfinex's vocabulary becomes ours: raw numeric tokens become
-// instrument-scaled integers, pair names become interned ids. Everything above
-// this file is venue-agnostic; everything below it is Bitfinex-shaped.
-//
-// THE INSTRUMENT IS AN ARGUMENT, NOT A FIELD. Every other mapper in this repo
-// reads the symbol out of the frame it was handed. Bitfinex data frames name
-// only a numeric channel id, so the symbol arrives from the venue layer's
-// chanId -> instrument registry and these functions take it as a parameter.
-// That is the whole reason the registry exists.
-//
-// Two more differences are structural.
-//
 // SIZES ARE SIGNED AND THE SIGN IS NOT THE SIZE. A trade's AMOUNT encodes the
 // aggressor and a book level's AMOUNT encodes the side; both must become a
 // magnitude plus a flag rather than a negative quantity.
-//
-// FUNDING AND MARK RIDE THE SAME `status` CHANNEL, whose payload is 23
-// positional slots. No separate mark-price stream exists.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

@@ -1,7 +1,6 @@
 #pragma once
 
-// BitMEX realtime protocol: topic naming and subscription frames. Message
-// building only — no sockets, no state.
+// BitMEX realtime protocol: topic naming and subscription frames.
 //
 // A subscription arg is the flat text "table:symbol", so one socket carries
 // every table and the endpoint never changes. Symbols are optional in the
@@ -13,10 +12,6 @@
 // — not JSON, verified live. BitMEX's banner reports heartbeatEnabled:false and
 // the venue documents dropping a connection that has heard nothing, so a quiet
 // contract still needs one.
-//
-// There is no separate testnet host in this file's sense: testnet is a
-// different domain entirely (testnet.bitmex.com), which is why the host takes
-// the flag.
 
 #include <raikiri/exec/data_client.hpp>
 

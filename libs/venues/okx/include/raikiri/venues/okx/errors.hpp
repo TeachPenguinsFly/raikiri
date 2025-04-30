@@ -9,11 +9,6 @@
 // Unrecognised codes default to Terminal, not Retryable: an unknown refusal
 // repeated at full speed is how an account earns an IP ban, while a
 // spuriously terminal order is recoverable by reconciliation.
-//
-// OKX codes arrive as digit STRINGS in both the REST envelope and the
-// websocket error frame; the wire layer converts once and everything below
-// works in integers. 51001 and 60018 were observed live against production;
-// the rest are from the v5 error reference.
 
 #include <raikiri/exec/error.hpp>
 

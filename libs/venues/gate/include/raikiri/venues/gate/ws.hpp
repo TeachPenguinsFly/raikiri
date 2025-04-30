@@ -1,15 +1,7 @@
 #pragma once
 
 // Gate.io v4 futures public websocket protocol: channel naming and
-// subscription frames. Message building only — no sockets, no state.
-//
-// Two differences from the okx adapter shape this file.
-//
-// A frame names ONE channel and lists its contracts in a payload array:
-// {"time":1786394633,"channel":"futures.book_ticker","event":"subscribe",
-//  "payload":["BTC_USDT","ETH_USDT"]}. Batching therefore only works within a
-// channel, which is why the builder consumes a leading run. The depth channel
-// does not batch at all: its payload is [contract, interval, level].
+// subscription frames.
 //
 // Keepalive is a JSON frame on its own channel — {"time":t,"channel":
 // "futures.ping"} — answered on "futures.pong" with an EMPTY event string

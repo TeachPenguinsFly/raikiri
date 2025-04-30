@@ -1,22 +1,11 @@
 #pragma once
 
 // Bitget v2 public websocket protocol: channel naming and subscription frames.
-// Message building only — no sockets, no state.
-//
-// A subscription is an OBJECT carrying THREE fields, not two:
-// {"instType":"USDT-FUTURES","channel":"ticker","instId":"BTCUSDT"}. The
-// instType is not optional and not inferable from the symbol — BTCUSDT names
-// a contract under USDT-FUTURES and another under SUSDT-FUTURES (the demo
-// product), so omitting it is refused rather than defaulted.
 //
 // Keepalive is the bare text "ping", answered with the bare text "pong".
 // VERIFIED live, and verified in the other direction too: "ping\n" comes back
 // as {"event":"error","code":30002,"msg":"Unrecognized request:ping\n"}, so
 // it must be exactly those four bytes.
-//
-// Bitget documents a 30 s idle timeout and a 10 message/second cap per
-// connection, which is why subscriptions batch — one frame per instrument
-// would spend the whole budget on a few hundred symbols.
 
 #include <raikiri/exec/data_client.hpp>
 

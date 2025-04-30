@@ -2,9 +2,6 @@
 
 // Wire types -> domain types.
 //
-// Where BitMEX's vocabulary becomes ours. Three things have no analogue in the
-// binance or okx mappers.
-//
 // THE INVERSE DIRECTION. XBTUSD is quoted in USD, settled in BTC, and one
 // contract is worth one USD, so contract_value holds a QUOTE-currency amount
 // per contract on an inverse row and a BASE-currency amount on a linear one.
@@ -14,10 +11,6 @@
 // TIMESTAMPS ARE TEXT — ISO-8601, never epoch numbers — so there is a
 // hand-rolled parser below. None of it goes near parse_decimal_e9, which scales
 // by 1e9 and would overflow int64 on an epoch value.
-//
-// FRAMES ARE PARTIAL. No stateless function can build a complete Bbo or
-// FundingUpdate from them, so the two mergers below hold last-known state per
-// instrument and publish only once the merged picture is whole.
 
 #include <raikiri/common/fixed_string.hpp>
 #include <raikiri/domain/market_data.hpp>

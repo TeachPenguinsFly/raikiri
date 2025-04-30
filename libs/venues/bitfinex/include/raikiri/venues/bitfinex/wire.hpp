@@ -2,17 +2,6 @@
 
 // Bitfinex v2 wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror the venue's JSON exactly
-// and a separate mapping step converts to domain types. Numbers stay as
-// string_views into the caller's buffer.
-//
-// THE WIRE IS POSITIONAL. Nothing here has a field name. A ticker update is
-// `[CHAN_ID,[BID,BID_SIZE,ASK,ASK_SIZE,...]]`; a trade is
-// `[CHAN_ID,"te",[ID,MTS,AMOUNT,PRICE]]`. Every other venue in this repo reads
-// by key and gets MissingField for free when a schema moves. Here, reading
-// index 3 where Bitfinex meant index 4 returns a plausible number and no
-// error at all, so three things replace the missing-field signal:
-//
 //   1. Arity is declared once per schema as `k_*_arity` beside the layout
 //      comment, and `detail::read_row<Arity>` refuses a shorter array outright
 //      (WireError::ShortArray). LENGTH IS THE ONLY STRUCTURAL CHECK THE
@@ -25,15 +14,6 @@
 //   3. map.cpp asserts semantic invariants a one-slot shift would break
 //      (bid < ask, sizes positive) — those, not the parser, are what would
 //      catch an insertion.
-//
-// Numbers arrive as BARE JSON NUMBERS, not strings, and small amounts come in
-// scientific notation (`1e-8`, observed live), so tokens are kept as raw JSON
-// text and converted by map.cpp's exponent-aware parser. parse_decimal_e9
-// refuses an exponent outright.
-//
-// Timestamps are epoch MILLISECONDS as JSON numbers.
-//
-// REST answers are arrays too, errors included: `["error",10020,"..."]`.
 
 #include <array>
 #include <cstdint>

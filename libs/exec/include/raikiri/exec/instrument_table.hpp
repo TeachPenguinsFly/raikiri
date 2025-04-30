@@ -2,18 +2,6 @@
 
 // Symbol interning and instrument lookup for one venue.
 //
-// This is where venue strings stop existing. A gateway resolves an exchange
-// symbol to a dense SymbolId exactly once — when the catalogue loads — and
-// every later message carries the integer. The predecessor system did the
-// opposite, hashing a string on every inbound tick, and that lookup was its
-// single most-executed line of code.
-//
-// Two directions are needed and they are not symmetric:
-//   exchange symbol -> InstrumentId   on every inbound frame (hot)
-//   InstrumentId    -> exchange symbol on every outbound order (warm)
-// The first is a hash lookup; the second is an array index, because
-// InstrumentId embeds the SymbolId that indexes this table.
-//
 // The table is immutable after load. Instruments get delisted and added, but
 // that is a restart or an explicit reload — never a mutation racing with the
 // hot loop, which is what makes lock-free reads safe here without any

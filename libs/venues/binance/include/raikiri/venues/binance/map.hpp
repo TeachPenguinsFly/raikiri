@@ -1,21 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where binance's vocabulary becomes ours: strings become instrument-scaled
-// integers, symbols become interned ids. Everything above this file is
-// venue-agnostic; everything below it is binance-shaped.
-//
-// Two differences from the bybit adapter are structural rather than cosmetic.
-//
-// BBO arrives ready-made. Binance publishes a dedicated bookTicker stream, so
-// top-of-book needs no local book and no resynchronisation — the depth stream
-// exists for full-book work that does not ship yet. Bybit has no such stream,
-// which is why it maintains a book to produce the same event.
-//
-// Aggressor side is inverted on the wire. `m` is "the buyer was the maker",
-// so m == true means the AGGRESSOR SOLD. The wire struct keeps binance's name
-// and meaning; the flip happens here, once.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>

@@ -1,19 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where Hyperliquid's vocabulary becomes ours: strings become
-// instrument-scaled integers, coin names become interned ids. Everything above
-// this file is venue-agnostic; everything below it is Hyperliquid-shaped.
-//
-// Three differences from the CEX adapters are structural. THE VENUE PUBLISHES
-// NO STEPS: there is no tickSz and no lotSz anywhere, only szDecimals, so both
-// are DERIVED as integer powers of ten — map_instrument carries the derivation
-// and the reason the significant-figures half of the precision rule is not one.
-// Sizes are BASE UNITS, so contract_value is 1. Funding is HOURLY and uniform
-// across every perp, so the interval is a constant rather than derived from two
-// settlement timestamps the way okx needs; no settlement time is published at
-// all.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>

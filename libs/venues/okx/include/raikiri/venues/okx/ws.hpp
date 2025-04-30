@@ -1,18 +1,10 @@
 #pragma once
 
 // OKX v5 public websocket protocol: channel naming and subscription frames.
-// Message building only — no sockets, no state.
-//
-// Three differences from binance shape this file.
 //
 // A subscription is an OBJECT, not a stream name: {"channel":..,"instId":..}
 // inside an args array. Nothing is baked into a path, so one socket carries
 // every channel and the endpoint never changes.
-//
-// The budget that matters is not stream count but op-message count: OKX allows
-// 480 subscribe/unsubscribe/login messages per hour per connection. That is
-// why subscriptions batch instead of going out one per instrument — a
-// per-instrument frame would exhaust an hour's budget on 480 symbols.
 //
 // Keepalive is the bare text "ping" — not JSON, and OKX documents a 30 s idle
 // timeout on application messages, so a quiet contract needs one. It must be

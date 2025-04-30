@@ -1,10 +1,7 @@
 #pragma once
 
 // Broadcast ring: single producer, many independent readers, each with a
-// process-private cursor. The producer never blocks and never reads consumer
-// state — a slow reader can never apply backpressure to a gateway's hot loop.
-// Instead, a lapped reader detects OVERRUN explicitly and applies its
-// channel's policy:
+// process-private cursor.
 //
 //   md_events   -> count the gap, jump to head, request a book resync (lossy
 //                  by declared policy, but never silently)
@@ -69,8 +66,7 @@ struct BroadcastRing {
 // Process-private reader cursor. Attach at head; poll() advances one item at
 // a time. After Overrun, gap() reports how many items were missed and the
 // cursor has already jumped to the current head.
-template <typename T, std::size_t N>
-class BroadcastReader {
+template <typename T, std::size_t N> class BroadcastReader {
 public:
     explicit BroadcastReader(const BroadcastRing<T, N>* ring) noexcept
         : ring_{ring}, next_{ring->published.load(std::memory_order_acquire) + 1} {}

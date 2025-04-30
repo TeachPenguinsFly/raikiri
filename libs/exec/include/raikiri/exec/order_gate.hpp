@@ -3,8 +3,6 @@
 // Venue-agnostic order plumbing: what every ExecutionClient needs before it
 // may send a live order, and what none of them should write twice.
 //
-// Two pieces, both extracted from working adapters rather than imagined.
-//
 // RateLimiter. Every venue meters differently — binance charges WEIGHT per
 // endpoint against a per-minute budget and counts orders separately, bybit
 // meters per endpoint, bitmex allows a flat 180/min — so the limiter takes a

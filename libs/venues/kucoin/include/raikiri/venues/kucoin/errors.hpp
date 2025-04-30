@@ -9,10 +9,6 @@
 // Unrecognised codes default to Terminal, not Retryable: an unknown refusal
 // repeated at full speed is how an account earns an IP ban, while a spuriously
 // terminal order is recoverable by reconciliation.
-//
-// KuCoin's two code namespaces (six-digit REST strings, three-digit websocket
-// numbers) do not overlap, so one classify() covers both — but the constants
-// stay apart, because the same three digits mean different things on each side.
 
 #include <raikiri/exec/error.hpp>
 

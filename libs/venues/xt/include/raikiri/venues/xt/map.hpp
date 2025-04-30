@@ -2,20 +2,6 @@
 
 // Wire types -> domain types.
 //
-// Where XT's vocabulary becomes ours: strings become instrument-scaled
-// integers, symbols become interned ids. Everything above this file is
-// venue-agnostic; everything below it is XT-shaped.
-//
-// Three differences from the okx adapter are structural rather than cosmetic.
-//
-// The BBO is the top of a periodic top-N snapshot, not a dedicated channel.
-// XT's agg_ticker publishes bid and ask PRICES with no sizes, so `depth` is
-// the only channel that can fill a Bbo honestly.
-//
-// The price step is stated (minStepPrice) but the quantity step is not: XT
-// gives quantityPrecision, a digit count, and the step is derived from it as
-// an integer power of ten. That derivation is ours, not XT's.
-//
 // Quantities are counts of CONTRACTS, so contract_value carries what one is
 // worth and cannot be pinned to 1.
 

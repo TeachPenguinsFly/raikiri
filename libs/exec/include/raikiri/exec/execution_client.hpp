@@ -1,22 +1,6 @@
 #pragma once
 
 // Execution side of a venue adapter.
-//
-// submit()/cancel() return nothing: every outcome — venue ack over the user
-// stream, REST-response ack, fill, and the locally-synthesized Rejected
-// when the transport itself fails — arrives as an OrderEvent through the
-// GatewaySink. The Go predecessor split outcomes between a return value and
-// a status publisher, and the seams between those two paths are where
-// lifecycle bugs lived. One path, always.
-//
-// Transport is an adapter-internal choice (REST today; WS-trade or FIX where
-// the venue offers them — see VenueCaps); the contract does not change.
-//
-// Reconciliation is part of the SAME contract because crash-only recovery
-// depends on it: on every (re)attach the gateway pulls reports and the OMS
-// synthesizes whatever events were missed. An adapter without working
-// reports is not production-credible, so the methods are pure virtual, not
-// optional.
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -57,7 +41,7 @@ struct FillReport {
 
 struct PositionReport {
     InstrumentId instrument{};
-    QtyLots net_qty{};   // signed: positive long, negative short
+    QtyLots net_qty{}; // signed: positive long, negative short
     PriceTicks avg_entry{};
     UnixNanos ts_venue{};
 };

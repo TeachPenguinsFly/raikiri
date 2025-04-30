@@ -2,17 +2,6 @@
 
 // BitMEX v1 wire types and parsers.
 //
-// Same layering rule as every adapter: DTOs mirror BitMEX's JSON exactly and a
-// separate mapping step converts to domain types. Values stay as string_views
-// into the caller's buffer.
-//
-// Four BitMEX facts reach this file and none is shared with binance or okx.
-//
-// Prices and sizes are JSON NUMBERS while timestamps are ISO-8601 STRINGS — the
-// exact inversion of the other venues. Numeric fields are surfaced as their RAW
-// TOKEN so the venue's own digits reach parse_decimal_e9 unrounded; the
-// alternative is get_double(), and double is banned in decision code.
-//
 // A data frame is {"table":..,"action":"partial|insert|update|delete","data":[]}
 // and `update` carries ONLY the columns that changed. Every field below except
 // the one identifying the row is therefore OPTIONAL here — an empty view means
@@ -23,9 +12,6 @@
 // `quote` rows are per liquidity POOL, and the aggregate is their sum at the
 // best price — verified against the Aggregated orderBookL2_25 top, where
 // 80200 + 2043500 is the 2123700 the venue reports at 64054.7.
-//
-// REST has no {code,msg} envelope: success is a bare JSON ARRAY, failure is
-// {"error":{...}}, and the HTTP status carries the classification.
 
 #include <array>
 #include <cstdint>

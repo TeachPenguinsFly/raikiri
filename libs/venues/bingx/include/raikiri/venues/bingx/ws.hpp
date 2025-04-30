@@ -1,7 +1,7 @@
 #pragma once
 
 // BingX swap-market websocket protocol: frame decompression, channel naming
-// and subscription messages. No sockets and no subscription state.
+// and subscription messages.
 //
 // THE quirk, and why this header carries an Inflater: BingX sends every frame
 // gzip-compressed under a BINARY opcode. libs/net hands the bytes of a binary
@@ -14,9 +14,6 @@
 // cost N messages — the opposite of okx, where batching protects an op-message
 // budget. `id` comes back in the answer and any string works (VERIFIED: "1" is
 // acknowledged), so a counter stands in for the uuid the examples show.
-//
-// Keepalive runs the opposite way from every other venue here: BingX SENDS
-// "Ping" and expects "Pong", so nothing goes out unprompted.
 
 #include <raikiri/exec/data_client.hpp>
 

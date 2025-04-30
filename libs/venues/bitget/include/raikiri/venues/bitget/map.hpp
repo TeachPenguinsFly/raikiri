@@ -1,18 +1,6 @@
 #pragma once
 
 // Wire types -> domain types.
-//
-// Where Bitget's vocabulary becomes ours: strings become instrument-scaled
-// integers, symbols become interned ids. Everything above this file is
-// venue-agnostic; everything below it is Bitget-shaped.
-//
-// Three differences from the okx adapter are structural. The tick is a
-// PRODUCT of two catalogue fields, priceEndStep * 10^-pricePlace, and neither
-// alone is the step (derivation in map.cpp). Sizes are base units, not
-// contracts, so contract_value is 1 the way binance's USD-M perps allow and
-// okx's SWAPs do not. And the funding interval is stated by the catalogue
-// (fundInterval, in hours) rather than derived from the gap between two
-// settlement stamps — 1h, 4h and 8h contracts are all live.
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/instrument_table.hpp>
