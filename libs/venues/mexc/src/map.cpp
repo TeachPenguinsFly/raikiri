@@ -94,8 +94,6 @@ map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // `cts` is the matching-engine time, distinct from the envelope's send
-    // time; the parser already preferred it.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -137,10 +135,6 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     FundingUpdate out{};
     out.instrument = base->id;
     out.rate = *rate;
-    // fairPrice is MEXC's mark — liquidation and unrealised PnL price against
-    // it. It carries the venue's own precision, which is not always the
-    // instrument's, so a value off the tick leaves mark_price undefined rather
-    // than dropping a funding rate that is perfectly good.
     if (const auto mark = to_ticks(wire.fair_price, *base); mark.has_value()) {
         out.mark_price = *mark;
     }
@@ -167,8 +161,6 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
         out.mark_price = *mark;
     }
     out.next_funding_time = ms_to_unix(wire.next_settle_ms, UnixNanos{0});
-    // collectCycle is stated in hours and is 8 on BTC_USDT, but MEXC runs
-    // shorter cycles on volatile listings, so it is read rather than assumed.
     if (wire.collect_cycle_h > 0) {
         out.interval_s = static_cast<std::uint32_t>(wire.collect_cycle_h * 3600);
     }
@@ -178,24 +170,13 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // /contract/detail is a futures catalogue only: MEXC serves spot from a
-    // different host with a different schema, so a spot request cannot be
-    // answered from these rows at all rather than answered wrongly.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
     if (wire.state != k_state_enabled) {
         return std::nullopt;
     }
-    // apiAllowed is deliberately NOT a filter: it gates order placement, and 26
-    // of 1086 rows have it false while streaming market data normally. Dropping
-    // them here would blind the gateway to contracts it can legitimately watch.
 
-    // KNOWN LIMIT, not a venue quirk: the step is 10^-priceScale and FixedE9
-    // stops at nine fractional digits, so PEPE_USDT (10), CHEEMS_USDT (10) and
-    // SATS_USDT (11) are refused. Correct under the no-rounding rule, and the
-    // only way to reach them is to widen the fixed-point scale across the
-    // domain. Three of 1086 today.
     const auto tick = step_from_scale(wire.price_scale);
     const auto lot = step_from_scale(wire.vol_scale);
     if (!tick.has_value() || !lot.has_value()) {
@@ -205,10 +186,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    // Sizes on this venue are CONTRACT COUNTS: volScale is 0 on every row, so
-    // the lot step is one contract and contractSize is what converts it to base
-    // units (0.0001 BTC, but 10,000,000 PEPE). A hardcoded 1 would misprice
-    // every notional by four orders of magnitude on BTC_USDT alone.
     const auto contract_size = parse_decimal_e9(wire.contract_size);
     if (!contract_size.has_value() || contract_size->raw <= 0) {
         return std::nullopt;
@@ -222,13 +199,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract_size;
-    // min_notional stays undefined: MEXC's floor is minVol, a count of
-    // CONTRACTS, and converting it to a notional needs a price we do not have
-    // here. A zero would read as "no minimum", which is the wrong answer.
-    //
-    // funding_interval_s stays zero for the same reason okx's does: the
-    // catalogue does not carry it — /contract/detail has no funding field at
-    // all — and /contract/funding_rate states the real cycle per symbol.
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

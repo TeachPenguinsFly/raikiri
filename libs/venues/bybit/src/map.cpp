@@ -1,6 +1,5 @@
-#include <raikiri/venues/bybit/map.hpp>
-
 #include <raikiri/exec/execution_client.hpp>
+#include <raikiri/venues/bybit/map.hpp>
 
 #include <charconv>
 
@@ -92,8 +91,8 @@ Side side_from(std::string_view text) noexcept {
     return text == "Sell" ? Side::Sell : Side::Buy;
 }
 
-std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::InstrumentTable& table,
-                                   UnixNanos ts_init) {
+std::optional<TradeTick>
+map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt; // a symbol we never subscribed to
@@ -115,12 +114,8 @@ std::optional<TradeTick> map_trade(const WireTrade& wire, const exec::Instrument
     return out;
 }
 
-std::optional<FundingUpdate> map_funding(const WireTicker& wire,
-                                         const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // A ticker delta that touched neither the rate nor the next settlement
-    // carries no funding news. Publishing anyway would overwrite a live rate
-    // with a default, which is the exact failure the wire layer keeps absent
-    // fields empty to prevent.
+std::optional<FundingUpdate>
+map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.funding_rate.empty() && wire.next_funding_ms.empty()) {
         return std::nullopt;
     }
@@ -137,9 +132,6 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    // Parsed as a plain integer, NOT through the decimal parser: that one
-    // scales by 1e9, and an epoch in milliseconds (~1.7e12) overflows int64
-    // the moment it is scaled, silently yielding no timestamp at all.
     if (const auto ms = digits_to_ms(wire.next_funding_ms); ms != 0) {
         out.next_funding_time = UnixNanos{ms * 1'000'000ULL};
     }
@@ -152,7 +144,8 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
 }
 
 std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
-                                          const exec::InstrumentTable& table, UnixNanos ts_init) {
+                                          const exec::InstrumentTable& table,
+                                          UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -176,14 +169,10 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
         type = OrderEventType::Canceled;
         break;
     case WireOrderStatus::PartiallyFilledCanceled:
-        // Terminal despite the name: the remainder was cancelled. The fills
-        // it refers to arrived on the execution stream already.
         type = OrderEventType::Canceled;
         break;
     case WireOrderStatus::PartiallyFilled:
     case WireOrderStatus::Filled:
-        // No event. The execution stream owns fills; emitting here would
-        // double every position.
         return std::nullopt;
     case WireOrderStatus::Unknown:
         return std::nullopt;
@@ -212,8 +201,8 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
     return out;
 }
 
-std::optional<OrderEvent> map_execution(const WireExecution& wire,
-                                        const exec::InstrumentTable& table, UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -222,8 +211,6 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     const auto price = to_ticks(wire.exec_price, base);
     const auto qty = to_lots(wire.exec_qty, base);
     if (!price.has_value() || !qty.has_value()) {
-        // A fill we cannot express exactly is worse than no fill: it would
-        // enter the position at a wrong size. Reconciliation will find it.
         return std::nullopt;
     }
 
@@ -245,8 +232,6 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     }
     out.price = *price;
     out.qty = *qty;
-    // leaves_qty is what tells the FSM whether this fill closed the order,
-    // so an unparseable value defaults to zero only when bybit sent nothing.
     if (const auto leaves = to_lots(wire.leaves_qty, base); leaves.has_value()) {
         out.leaves_qty = *leaves;
     } else {
@@ -285,8 +270,6 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
         out.status = OrderStatus::PartiallyFilled;
         break;
     default:
-        // Anything else is not open, and an "open orders" pull that returns
-        // it is describing a race we resolve by ignoring the entry.
         return std::nullopt;
     }
     if (const auto price = to_ticks(wire.price, base); price.has_value()) {
@@ -316,9 +299,6 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
 
     exec::PositionReport out{};
     out.instrument = base.id;
-    // Signed net quantity: bybit reports magnitude plus a side, and an empty
-    // side means flat. Carrying the sign here means nothing downstream has
-    // to remember bybit's convention.
     out.net_qty = wire.side == "Sell" ? QtyLots::from_raw(-size->raw) : *size;
     if (const auto avg = to_ticks(wire.avg_price, base); avg.has_value()) {
         out.avg_entry = *avg;
@@ -334,8 +314,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     const auto tick = parse_decimal_e9(wire.tick_size);
     const auto lot = parse_decimal_e9(wire.qty_step);
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
-        // Every later price conversion divides by these. An instrument that
-        // cannot supply them must never reach the table.
+        // Every later price conversion divides by these.
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.symbol);
@@ -344,13 +323,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // The id is provisional: InstrumentTable::add assigns the SymbolId that
-    // indexes it, because that slot is what makes the id array-indexable.
     base.id = InstrumentId::make(VenueId::Bybit, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // Local symbol is the venue's own until a catalogue mapping exists;
-    // bybit's "BTCUSDT" is unambiguous within bybit, which is the only scope
-    // this table covers.
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;

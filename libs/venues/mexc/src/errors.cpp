@@ -13,17 +13,10 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_rate_limited:
         return exec::ErrorClass::RateLimited;
 
-    // 500 stays Retryable even though a deliberately malformed signature
-    // provoked it (verified): the message is literally "Internal error. Please
-    // try again", so MEXC is reporting an internal fault it expects to pass,
-    // and filing every one of them under AuthFailure would halt a venue whose
-    // keys are fine.
     case k_internal_error:
     case k_system_busy:
         return exec::ErrorClass::Retryable;
 
-    // Clock skew, not bad credentials: the same payload signed against a
-    // corrected offset succeeds, so retrying after a resync is right.
     case k_request_expired:
         return exec::ErrorClass::Retryable;
 

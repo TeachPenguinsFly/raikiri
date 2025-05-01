@@ -43,17 +43,12 @@ std::string_view inst_type(bool testnet) noexcept {
 
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
-    // One channel carries top of book, mark, index and funding, so three
-    // intents resolve to it. The desired-set dedup upstream keeps that from
-    // becoming three subscribe frames for the same thing.
     case exec::SubKind::Bbo:
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return "ticker";
     case exec::SubKind::Trades:
         return "trade";
-    // books5 over the incremental `books`: it restates the whole top of book
-    // every frame, so the adapter keeps no book and needs no resync path.
     case exec::SubKind::Depth:
         return "books5";
     case exec::SubKind::Kline:

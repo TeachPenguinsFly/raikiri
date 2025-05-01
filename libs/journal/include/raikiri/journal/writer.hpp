@@ -33,17 +33,14 @@ public:
     JournalWriter& operator=(JournalWriter&&) = delete;
     ~JournalWriter();
 
-    // Opens (creating `dir` if needed) and recovers: the newest segment is
-    // CRC-walked and truncated past the last valid frame; appends continue
-    // with the next record seq. A fresh directory starts at segment 0, seq 1.
     [[nodiscard]] static std::expected<JournalWriter, JournalError>
     open(std::string dir, std::string prefix, std::size_t segment_bytes = k_default_segment_bytes);
 
-    // Hot append. Returns the record seq. Rotates into a new segment when
-    // full. The caller owns SBE-encoding `payload` (see sbe.hpp helpers).
     [[nodiscard]] std::expected<std::uint64_t, JournalError>
-    append(std::uint16_t schema_id, std::uint16_t schema_version,
-           std::span<const std::byte> payload, std::uint64_t ts_ns) noexcept;
+    append(std::uint16_t schema_id,
+           std::uint16_t schema_version,
+           std::span<const std::byte> payload,
+           std::uint64_t ts_ns) noexcept;
 
     // Cold-thread group commit (fdatasync/F_FULLFSYNC of the current segment).
     void flush() noexcept;

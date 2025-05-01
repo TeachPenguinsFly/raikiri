@@ -17,9 +17,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         }
         const auto status = detail::opt_str(*root, "status");
         if (!status.has_value()) {
-            // A Spring 404 body writes `status` as the number 404. Refusing it
-            // here is what makes the caller fall back to the HTTP status
-            // instead of reading a routing failure as a venue verdict.
             return std::unexpected(status.error());
         }
         if (*status == "ok") {
@@ -28,9 +25,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (*status != "error") {
             return std::unexpected(WireError::WrongType);
         }
-        // The api family answers err_code/err_msg with a numeric code; the
-        // ex/market family answers err-code/err-msg with a hyphenated word.
-        // One body never carries both.
         auto code = detail::opt_raw(*root, "err_code");
         auto msg = detail::opt_str(*root, "err_msg");
         if (!code.has_value() || !msg.has_value()) {
@@ -44,9 +38,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             }
         }
         if (code->empty()) {
-            // A failure that names nothing is not something to act on, and an
-            // envelope reporting one with an empty code is exactly the
-            // partly-filled struct this layer exists to avoid.
             return std::unexpected(WireError::MissingField);
         }
         return RestEnvelope{.ok = false, .code = detail::unquote(*code), .msg = *msg};

@@ -48,7 +48,7 @@ enum class BookError : std::uint8_t {
 struct Fill {
     std::uint64_t maker_id{0};
     std::uint32_t maker_owner{0};
-    PriceTicks price{};     // resting order's price
+    PriceTicks price{}; // resting order's price
     QtyLots qty{};
     QtyLots maker_leaves{}; // maker remainder after this fill
 };
@@ -70,9 +70,6 @@ public:
         std::uint64_t seq{0}; // arrival sequence — the time-priority audit trail
     };
 
-    // Best-level aggregate. Scaled64 default-initializes to undef, so an
-    // empty side reads as undef; bbo() returns nullopt only when BOTH sides
-    // are empty (a one-sided book still has a printable top).
     struct BboLevels {
         PriceTicks bid{};
         PriceTicks ask{};
@@ -82,34 +79,26 @@ public:
         friend bool operator==(const BboLevels&, const BboLevels&) noexcept = default;
     };
 
-    // Preconditions (the Engine owns validation and Rejected events):
-    // price > 0, qty > 0, id unique. post_only that would cross is refused
-    // with no fills; IOC/FOK remainders expire, GTC remainders rest.
-    [[nodiscard]] MatchResult submit_limit(std::uint64_t id, std::uint32_t owner, Side side,
-                                           PriceTicks price, QtyLots qty, bool post_only,
+    [[nodiscard]] MatchResult submit_limit(std::uint64_t id,
+                                           std::uint32_t owner,
+                                           Side side,
+                                           PriceTicks price,
+                                           QtyLots qty,
+                                           bool post_only,
                                            TimeInForce tif = TimeInForce::Gtc);
 
-    // Matches until qty is exhausted or the far side is empty; the unfilled
-    // remainder expires — a market order never rests.
-    [[nodiscard]] MatchResult submit_market(std::uint64_t id, std::uint32_t owner, Side side,
-                                            QtyLots qty);
+    [[nodiscard]] MatchResult
+    submit_market(std::uint64_t id, std::uint32_t owner, Side side, QtyLots qty);
 
     bool cancel(std::uint64_t id);
 
-    // new_leaves is the desired REMAINING quantity (the book does not know
-    // original totals — the Engine translates venue "new total qty").
-    // Pure size-down at the same price keeps queue position; any price change
-    // (or size-up) is a cancel+re-add that loses time priority and may cross.
-    [[nodiscard]] std::expected<MatchResult, BookError> amend(std::uint64_t id,
-                                                              PriceTicks new_price,
-                                                              QtyLots new_leaves);
+    [[nodiscard]] std::expected<MatchResult, BookError>
+    amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves);
 
     [[nodiscard]] std::optional<BboLevels> bbo() const;
 
     [[nodiscard]] bool contains(std::uint64_t id) const noexcept { return index_.contains(id); }
 
-    // Introspection for tests and background-liquidity bookkeeping; nullptr
-    // when the id is not resting.
     [[nodiscard]] const RestingOrder* find(std::uint64_t id) const noexcept;
 
 private:

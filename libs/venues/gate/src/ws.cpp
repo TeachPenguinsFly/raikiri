@@ -77,16 +77,11 @@ std::string_view stream_path() noexcept {
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Top of book as its own channel, so no local book has to be
-        // maintained to produce a BBO — the same shape binance's bookTicker
-        // gives.
         return "futures.book_ticker";
     case exec::SubKind::Trades:
         return "futures.trades";
     case exec::SubKind::Depth:
         return k_channel_depth;
-    // One channel carries funding rate AND mark price, unlike okx where they
-    // are separate subscriptions. The venue state deduplicates the pair.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return "futures.tickers";
@@ -102,13 +97,9 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
         return std::unexpected{WsBuildError::NothingToSend};
     }
     const auto channel = subscriptions.front().channel;
-    // Empty means channel_for() declined the kind; sending it would subscribe
-    // to the literal "" and earn a code-2 refusal.
     if (channel.empty() || subscriptions.front().contract.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
-    // The depth channel spends the rest of its payload on interval and level,
-    // so it is one contract per frame no matter how many are queued.
     std::size_t batch = 1;
     if (channel != k_channel_depth) {
         const auto limit = std::min(subscriptions.size(), k_max_subscriptions_per_frame);

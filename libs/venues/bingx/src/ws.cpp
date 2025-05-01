@@ -96,8 +96,6 @@ std::expected<std::string_view, InflateError> Inflater::inflate(std::string_view
         return std::unexpected{deflated.error()};
     }
 
-    // Each frame is an independent stream; reset() drops the last one's window
-    // without dropping the allocation.
     impl_->stream.reset();
 
     zlib::z_params params{};
@@ -116,8 +114,6 @@ std::expected<std::string_view, InflateError> Inflater::inflate(std::string_view
         if (ec && ec != zlib::error::need_buffers) {
             return std::unexpected{InflateError::Corrupt};
         }
-        // need_buffers with room left means the input ended mid-stream;
-        // growing again would spin forever.
         if (params.avail_out != 0) {
             return std::unexpected{InflateError::Corrupt};
         }
@@ -171,13 +167,9 @@ std::string_view data_type_suffix(exec::SubKind kind) noexcept {
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        // The cadence is part of the name and 100ms is the fastest offered;
-        // omitting it subscribes to nothing.
         return "depth5@100ms";
     case exec::SubKind::MarkPrice:
         return "markPrice";
-    // Neither names a channel: BingX streams no funding, and a kline needs a
-    // bar size no consumer has asked for.
     case exec::SubKind::Funding:
     case exec::SubKind::Kline:
         return {};

@@ -25,9 +25,6 @@ bool is_rest_error(std::string_view body) noexcept {
         return false;
     }
     text.remove_prefix(1);
-    // An error is the only Bitfinex REST answer whose first element is a
-    // string, which is the whole of the discrimination available: there is no
-    // envelope and no status field to read.
     return detail::trim(text).starts_with(k_quoted_error_tag);
 }
 
@@ -94,9 +91,6 @@ std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::str
                         ++index;
                         continue;
                     }
-                    // The row's own arity differs by market — 12 on spot, 10
-                    // on futures — so only the prefix the mapper reads is
-                    // required, and the tail is left unwalked.
                     const auto row = detail::read_row<k_pair_row_arity>(value);
                     if (!row.has_value()) {
                         return std::unexpected(row.error());

@@ -22,10 +22,6 @@ enum class VenueId : std::uint8_t {
     Xt,
     Mexc,
     Sim,
-    // Appended, never inserted: these values reach the journal and Postgres,
-    // so renumbering an existing venue would silently reinterpret every row
-    // already written. Read-only venues live here — the framework consumes
-    // their data for reference prices and basis without trading them.
     Deribit,
     Hyperliquid,
     Coinbase,

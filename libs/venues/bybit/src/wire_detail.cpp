@@ -51,9 +51,6 @@ WireError map_error(simdjson::error_code ec) noexcept {
     case simdjson::SCALAR_DOCUMENT_AS_VALUE:
         return WireError::WrongType;
     default:
-        // Truncated frames, unclosed strings, bad UTF-8, allocation failure:
-        // all of them mean the same thing to a caller — this frame cannot be
-        // trusted and the connection state has to be rebuilt.
         return WireError::NotJson;
     }
 }
@@ -76,17 +73,13 @@ std::expected<ondemand::object, WireError> Session::open_object(std::string_view
     }
 
     std::memcpy(scratch_.data(), frame.data(), frame.size());
-    // The padding bytes are read by the SIMD kernels but never interpreted;
-    // zeroing them keeps the previous frame's tail out of this frame's
-    // structural scan, which matters only when reading a debugger dump but
-    // costs 64 bytes.
     std::memset(scratch_.data() + frame.size(), 0, simdjson::SIMDJSON_PADDING);
 
     origin_ = frame.data();
     origin_size_ = frame.size();
 
-    const simdjson::padded_string_view view{scratch_.data(), frame.size(),
-                                            frame.size() + simdjson::SIMDJSON_PADDING};
+    const simdjson::padded_string_view view{
+        scratch_.data(), frame.size(), frame.size() + simdjson::SIMDJSON_PADDING};
     if (const auto ec = parser_.iterate(view).get(doc_); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
@@ -103,10 +96,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // A view outside the copy would mean simdjson handed back memory it
-    // materialised itself (unescaped strings live in the parser's own buffer).
-    // Returning empty there is the only answer that keeps the promise the
-    // header makes about lifetimes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};

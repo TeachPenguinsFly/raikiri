@@ -39,13 +39,9 @@ struct BroadcastRing {
         std::atomic<std::uint64_t> words[k_words];
     };
 
-    // Highest published sequence; lets a late-attaching reader start at the
-    // head instead of replaying the whole ring.
     alignas(k_pad_align) std::atomic<std::uint64_t> published{0};
     alignas(k_pad_align) Slot slots[N];
 
-    // Producer side. Single producer by contract (enforced by segment
-    // ownership, not by this struct).
     void publish(const T& item) noexcept {
         const auto seq = published.load(std::memory_order_relaxed) + 1;
         Slot& slot = slots[(seq - 1) & k_mask];

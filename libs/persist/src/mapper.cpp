@@ -1,7 +1,6 @@
-#include <raikiri/persist/mapper.hpp>
-
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/persist/mapper.hpp>
 #include <raikiri/schema/codec.hpp>
 
 #include <string>
@@ -23,8 +22,7 @@ std::string trim_fixed(const auto& array_ref) {
     return end == std::string_view::npos ? std::string{} : std::string{raw.substr(0, end + 1)};
 }
 
-template <typename Enum>
-std::string enum_name(Enum e, std::string_view (*to_str)(std::uint8_t)) {
+template <typename Enum> std::string enum_name(Enum e, std::string_view (*to_str)(std::uint8_t)) {
     return std::string{to_str(static_cast<std::uint8_t>(sbepp::to_underlying(e)))};
 }
 
@@ -76,8 +74,7 @@ std::string status_for(raikiri_journal::types::orderEventTypeEnum type, std::int
 
 void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     const auto m = schema::view_msg<msgs::OrderEventMsg>(frame.payload);
-    const auto type_name =
-        enum_name(m.eventType(), +[](std::uint8_t v) { return event_name(v); });
+    const auto type_name = enum_name(m.eventType(), +[](std::uint8_t v) { return event_name(v); });
     const auto exec_id = trim_fixed(m.execIdField());
 
     batch.order_events.push_back({
@@ -96,16 +93,16 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
 
     batch.order_upserts.push_back({
         .client_order_id = m.clientOrderIdField().value(),
-        .exchange_client_order_id =
-            trim_fixed(m.exchangeClientOrderIdField()),
+        .exchange_client_order_id = trim_fixed(m.exchangeClientOrderIdField()),
         .exchange_order_id = trim_fixed(m.exchangeOrderIdField()),
         .instrument_id = m.instrument().value(),
-        .side = enum_name(m.side(), +[](std::uint8_t v) { return side_name(v); }),
-        .order_type = m.orderType() == raikiri_journal::types::orderTypeEnum::Market ? "market"
-                                                                                   : "limit",
+        .side = enum_name(
+            m.side(), +[](std::uint8_t v) { return side_name(v); }),
+        .order_type =
+            m.orderType() == raikiri_journal::types::orderTypeEnum::Market ? "market" : "limit",
         .tif = m.tif() == raikiri_journal::types::tifEnum::Ioc   ? "ioc"
                : m.tif() == raikiri_journal::types::tifEnum::Fok ? "fok"
-                                                               : "gtc",
+                                                                 : "gtc",
         .flags = static_cast<std::int16_t>(m.flags().value()),
         .price_ticks = m.price().value(),
         .qty_lots = m.qty().value(),
@@ -121,13 +118,15 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
             .exchange_order_id = trim_fixed(m.exchangeOrderIdField()),
             .client_order_id = m.clientOrderIdField().value(),
             .instrument_id = m.instrument().value(),
-            .side = enum_name(m.side(), +[](std::uint8_t v) { return side_name(v); }),
+            .side = enum_name(
+                m.side(), +[](std::uint8_t v) { return side_name(v); }),
             .price_ticks = m.price().value(),
             .qty_lots = m.qty().value(),
             .fee_e9 = m.fee().value(),
-            .liquidity = m.liquidity() == raikiri_journal::types::liquidityEnum::Maker   ? "maker"
-                         : m.liquidity() == raikiri_journal::types::liquidityEnum::Taker ? "taker"
-                                                                                       : "unknown",
+            .liquidity = m.liquidity() == raikiri_journal::types::liquidityEnum::Maker ? "maker"
+                         : m.liquidity() == raikiri_journal::types::liquidityEnum::Taker
+                             ? "taker"
+                             : "unknown",
             .ts_event = m.tsEvent().value(),
         });
     }
@@ -154,8 +153,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         using CE = raikiri_journal::types::connEventEnum;
         batch.connectivity.push_back({
             .journal_seq = frame.seq,
-            .venue = std::string{
-                to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
+            .venue = std::string{to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
             .event = m.event() == CE::Connected      ? "connected"
                      : m.event() == CE::Disconnected ? "disconnected"
                      : m.event() == CE::AuthFailed   ? "auth_failed"
@@ -167,8 +165,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         const auto m = schema::view_msg<msgs::LatencySampleMsg>(frame.payload);
         batch.latency.push_back({
             .journal_seq = frame.seq,
-            .venue = std::string{
-                to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
+            .venue = std::string{to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
             .metric = m.metric().value(),
             .p50_ns = m.p50Ns().value(),
             .p99_ns = m.p99Ns().value(),
@@ -178,8 +175,6 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .ts_recorded = m.tsInit().value(),
         });
     }
-    // BboMsg / TradeMsg / OrderCmdMsg: journal-only by design (MD never goes
-    // to Postgres; commands are covered by the event log).
     batch.last_seq = frame.seq;
 }
 

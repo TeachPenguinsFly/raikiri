@@ -44,8 +44,6 @@ struct OpStatus {
     std::string account;    // whoami's identity, for the startup line
     std::string diagnostic; // why it is unusable, when it is
 
-    // Usable means a resolve has a chance. It says nothing about whether the
-    // reference points at anything.
     [[nodiscard]] bool usable() const noexcept { return installed && auth != OpAuth::None; }
 };
 

@@ -42,8 +42,6 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
         return "trades";
     case exec::SubKind::Depth:
         return "l2Book";
-    // One channel answers both, unlike okx: the context carries markPx and
-    // funding together.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return "activeAssetCtx";
@@ -55,9 +53,6 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
 
 std::expected<std::string_view, WsBuildError>
 Protocol::method_frame(std::string_view method, const Subscription& subscription) {
-    // Empty means channel_for() declined the kind. Sending it would subscribe
-    // to the literal "", which this venue answers by closing the socket — so
-    // the check has to happen here rather than being left to the venue.
     if (subscription.channel.empty() || subscription.coin.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }

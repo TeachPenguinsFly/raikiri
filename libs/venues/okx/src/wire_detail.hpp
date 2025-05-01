@@ -103,8 +103,6 @@ template <typename Fn>
         }
         return std::forward<Fn>(fn)(obj);
     }
-    // An empty data array is how OKX answers a query it could not satisfy;
-    // reporting it as a datum would invent a zero-valued one.
     return std::unexpected(WireError::MissingField);
 }
 

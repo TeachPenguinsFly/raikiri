@@ -82,8 +82,6 @@ bool is_valid_op_reference(std::string_view reference) noexcept {
     if (segments < 3 || segments > 4) {
         return false;
     }
-    // No empty segment: "vault//field" resolves to something surprising rather
-    // than to nothing.
     return reference.front() != '/' && reference.back() != '/' &&
            reference.find("//") == std::string_view::npos;
 }
@@ -99,9 +97,6 @@ OpStatus probe_one_password() {
     status.installed = true;
     status.version = version.text;
 
-    // The environment decides the mode before op is asked: a service account
-    // token or Connect credentials take precedence over any session, and
-    // knowing which is in play is the whole point of reporting it.
     if (env_set("OP_SERVICE_ACCOUNT_TOKEN")) {
         status.auth = OpAuth::ServiceAccount;
     } else if (env_set("OP_CONNECT_HOST") && env_set("OP_CONNECT_TOKEN")) {
@@ -110,9 +105,7 @@ OpStatus probe_one_password() {
 
     const auto whoami = run_probe("op whoami 2>&1");
     if (whoami.exit_code != 0) {
-        // Not authenticated. On a server this is the expected failure and the
-        // fix is a service account, so say so rather than suggesting a signin
-        // that cannot work there.
+        // Not authenticated.
         status.auth = OpAuth::None;
         status.diagnostic = whoami.text.empty() ? "op is not authenticated" : whoami.text;
         return status;
@@ -133,8 +126,6 @@ resolve_one_password(std::string_view reference, const OpStatus& status, Secret&
         return std::unexpected{SecretError::CommandFailed};
     }
     if (status.auth == OpAuth::None) {
-        // Distinct from a failed read: the credentials are absent, not wrong,
-        // and no amount of retrying or re-pathing helps.
         return std::unexpected{SecretError::NotAuthenticated};
     }
 
@@ -143,8 +134,6 @@ resolve_one_password(std::string_view reference, const OpStatus& status, Secret&
         reference.remove_prefix(5);
     }
     command.append(reference);
-    // stderr is discarded rather than merged: a diagnostic concatenated onto
-    // the value would be signed as though it were the key.
     command.append(" 2>/dev/null");
 
     std::FILE* pipe = ::popen(command.c_str(), "r");
@@ -155,9 +144,6 @@ resolve_one_password(std::string_view reference, const OpStatus& status, Secret&
     const auto n = std::fread(buf.data(), 1, buf.size(), pipe);
     const int rc = ::pclose(pipe);
     if (rc != 0) {
-        // op is installed and authenticated, so the reference is what is
-        // wrong — a vault, item or field that does not exist, or one this
-        // identity cannot read.
         std::memset(buf.data(), 0, buf.size());
         return std::unexpected{SecretError::NotFound};
     }

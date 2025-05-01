@@ -73,8 +73,6 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // Unquoted here, quoted in the REST envelope. A string read yields
-        // WrongType on every refusal, which presents as a quiet channel.
         const auto code = detail::opt_i64(*root, "code");
         const auto msg = detail::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
@@ -98,8 +96,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             *root, [&](detail::ondemand::object& obj) -> std::expected<WireTicker, WireError> {
                 WireTicker out{};
                 out.inst_id = *inst_id;
-                // Populated on all 745 contracts: an absent quote is a
-                // malformed frame, not an empty book.
                 const auto bid = detail::req_str(obj, "bidPr");
                 const auto bid_qty = detail::req_str(obj, "bidSz");
                 const auto ask = detail::req_str(obj, "askPr");

@@ -14,8 +14,6 @@ EventKind kind_from_feed(std::string_view feed) noexcept {
     if (feed == "ticker_lite") {
         return EventKind::TickerLite;
     }
-    // Snapshot and live push arrive under DIFFERENT feed names, and both must
-    // reach the same parser or a subscribe drops its first hundred prints.
     if (feed == "trade" || feed == "trade_snapshot") {
         return EventKind::Trade;
     }
@@ -32,8 +30,6 @@ EventKind kind_from_event(std::string_view event) noexcept {
     if (event == "info") {
         return EventKind::Info;
     }
-    // "alert" is what production sends for a refusal; "error" is accepted too
-    // so a rename cannot turn a rejection into silence.
     if (event == "alert" || event == "error") {
         return EventKind::Alert;
     }
@@ -166,8 +162,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             return std::unexpected(product.error());
         }
         out.product_id = *product;
-        // ticker_lite drops the derivative fields entirely, so only the touch
-        // is required here.
         const auto bid = detail::opt_num(*root, "bid");
         const auto ask = detail::opt_num(*root, "ask");
         const auto bid_size = detail::opt_num(*root, "bid_size");
@@ -285,9 +279,6 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             out.asks = {storage.asks.data(), *asks};
             return out;
         }
-        // A delta is ONE level at the root and `side` picks the book; the
-        // opposite span stays empty rather than carrying a zero level that
-        // would delete the far touch.
         const auto side = detail::req_str(*root, "side");
         const auto price = detail::req_num(*root, "price");
         const auto qty = detail::req_num(*root, "qty");

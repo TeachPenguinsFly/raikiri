@@ -109,9 +109,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself
-    // (unescaped strings live in the parser's own buffer), and handing those
-    // back would break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -196,9 +193,6 @@ std::expected<std::string_view, WireError> num_of(ondemand::value value) {
     if (raw->size() >= 2 && raw->front() == '"' && raw->back() == '"') {
         return session().rebase(raw->substr(1, raw->size() - 2));
     }
-    // A bare token that is not a number (an object, an array, true) would
-    // reach the decimal parsers as nonsense; refusing here keeps the failure
-    // at the field that caused it.
     const char lead = raw->front();
     if (lead != '-' && lead != '+' && (lead < '0' || lead > '9')) {
         return std::unexpected(WireError::WrongType);

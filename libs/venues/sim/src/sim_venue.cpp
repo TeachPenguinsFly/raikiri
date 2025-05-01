@@ -1,8 +1,7 @@
-#include <raikiri/venues/sim/sim_venue.hpp>
-
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/simcore/engine.hpp>
 #include <raikiri/simcore/mdgen.hpp>
+#include <raikiri/venues/sim/sim_venue.hpp>
 
 #include <memory>
 #include <vector>
@@ -85,8 +84,7 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown sim instrument")};
         }
-        state_->mdgen.add_instrument(instrument,
-                                     PriceTicks::from_raw(demo::k_demo_mid_ticks[idx]));
+        state_->mdgen.add_instrument(instrument, PriceTicks::from_raw(demo::k_demo_mid_ticks[idx]));
         state_->active.push_back(instrument);
         return {};
     }
@@ -99,8 +97,6 @@ public:
         for (const auto instrument : state_->active) {
             const auto result = state_->mdgen.step(state_->engine, instrument, now);
             state_->publish(result, instrument, now);
-            // The generator moves the book most steps; refreshing BBO on the
-            // step cadence (1 kHz) is the sim's tick rate.
             state_->publish_bbo(instrument, now);
         }
     }
@@ -136,8 +132,8 @@ public:
             report.exchange_order_id = meta.exchange_order_id;
             report.instrument = meta.instrument;
             report.side = meta.side;
-            report.status = meta.leaves == meta.qty ? OrderStatus::Accepted
-                                                    : OrderStatus::PartiallyFilled;
+            report.status =
+                meta.leaves == meta.qty ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
             report.price = meta.price;
             report.qty = meta.qty;
             report.leaves = meta.leaves;
@@ -159,10 +155,8 @@ public:
             exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open on sim")};
     }
 
-    std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
-                                                                                UnixNanos) override {
-        // The sim never loses events over its "wire" (shm), so there is
-        // nothing to backfill; live venues override this with real history.
+    std::expected<std::vector<exec::FillReport>, exec::VenueError>
+    fill_reports(MarketType, UnixNanos) override {
         return std::vector<exec::FillReport>{};
     }
 
@@ -192,8 +186,7 @@ public:
     }
 };
 
-exec::VenueAdapter make_sim(const exec::VenueConfig&, exec::GatewaySink& sink,
-                            const Clock& clock) {
+exec::VenueAdapter make_sim(const exec::VenueConfig&, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<SimState>(sink);
     exec::VenueAdapter adapter;
     adapter.caps = exec::caps_of(VenueId::Sim);

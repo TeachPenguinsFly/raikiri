@@ -39,16 +39,10 @@ std::string_view stream_path() noexcept {
 Topic topic_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Five levels is the shallowest XT allows and 100 ms the fastest;
-        // only the top of it is read, so the extra four levels are the price
-        // of the venue's minimum.
         return {.channel = "depth", .params = ",5,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
     case exec::SubKind::Depth:
-        // The incremental stream, chained on u/pu. XT appends its own default
-        // interval to the topic name in the echo ("depth_update@sym,100ms")
-        // even when none is requested.
         return {.channel = "depth_update", .params = {}};
     case exec::SubKind::MarkPrice:
         return {.channel = "mark_price", .params = {}};
@@ -67,8 +61,6 @@ Protocol::method_frame(std::string_view method, std::span<const Subscription> su
     }
     const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means topic_for() declined the kind; sending it would
-        // subscribe to the literal "@sym" and earn an "args error".
         if (subscriptions[i].channel.empty() || subscriptions[i].symbol.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }

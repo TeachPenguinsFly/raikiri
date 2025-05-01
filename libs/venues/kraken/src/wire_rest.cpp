@@ -39,8 +39,6 @@ days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
 } // namespace
 
 std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) {
-    // "2026-08-10T20:52:16.918Z", but the fraction is VARIABLE width: ".64Z"
-    // and ".918Z" appeared in one session and `lastTime` carries six digits.
     constexpr std::size_t k_seconds_len = 19;
     if (text.size() < k_seconds_len) {
         return std::unexpected(WireError::WrongType);
@@ -106,8 +104,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             }
             out.error = *error;
             if (out.error.empty()) {
-                // The routing-layer shape carries no `error` at all, so
-                // falling back keeps a 404 out of the empty-name bucket.
                 const auto status = detail::opt_str(*root, "status");
                 if (!status.has_value()) {
                     return std::unexpected(status.error());

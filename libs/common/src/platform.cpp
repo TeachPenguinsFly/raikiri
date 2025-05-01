@@ -1,11 +1,12 @@
 #include <raikiri/common/platform.hpp>
 
-#include <cerrno>
-#include <csignal>
-#include <cstdlib>
 #include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
+
+#include <cerrno>
+#include <csignal>
+#include <cstdlib>
 
 #if defined(__linux__)
 #include <sched.h>
@@ -27,9 +28,6 @@ std::expected<void, std::error_code> preallocate(int fd, std::uint64_t bytes) no
         return std::unexpected{std::error_code(errno, std::system_category())};
     }
 #else
-    // F_PREALLOCATE reserves contiguous-then-anywhere blocks; ftruncate sets
-    // the logical size. Failure of the reservation is non-fatal as long as
-    // ftruncate succeeds (sparse file, still correct — just slower appends).
     fstore_t store{};
     store.fst_flags = F_ALLOCATECONTIG;
     store.fst_posmode = F_PEOFPOSMODE;

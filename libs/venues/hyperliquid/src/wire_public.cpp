@@ -29,8 +29,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "error") {
         return EventKind::Error;
     }
-    // allMids, candle and the user channels are real; only what ws.cpp
-    // subscribes to is claimed here.
     return EventKind::Unknown;
 }
 
@@ -123,9 +121,6 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
                 if (!pair.has_value()) {
                     return std::unexpected(pair.error());
                 }
-                // Positional [bid, ask], either possibly JSON null on a side
-                // with nothing resting. A null side stays empty and the mapper
-                // drops the tick rather than inventing a price.
                 std::size_t index = 0;
                 for (auto entry : *pair) {
                     detail::ondemand::value value;
@@ -183,8 +178,6 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             const auto price = detail::req_str(obj, "px");
             const auto qty = detail::req_str(obj, "sz");
             const auto side = detail::req_str(obj, "side");
-            // `tid` is a JSON number nothing does arithmetic on, so it stays
-            // as its digits.
             const auto trade_id = detail::opt_raw(obj, "tid");
             const auto ts = detail::opt_ms(obj, "time");
             if (!coin.has_value() || !price.has_value() || !qty.has_value() || !side.has_value() ||
@@ -246,8 +239,6 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
                 }
                 out.coin = *coin;
                 out.ts_ms = *ts;
-                // `levels` is an array of exactly two arrays, positional
-                // [bids, asks] — there are no "bids"/"asks" keys to read.
                 auto levels = detail::req_array(obj, "levels");
                 if (!levels.has_value()) {
                     return std::unexpected(levels.error());

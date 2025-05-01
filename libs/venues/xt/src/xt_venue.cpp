@@ -47,27 +47,17 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold start
-    // run the same path.
     std::vector<OwnedSubscription> desired;
 
-    // Funding lives outside `desired` because it is not a topic: nothing about
-    // it is re-asserted on reconnect.
     std::vector<std::string> funding_symbols;
     std::size_t funding_cursor{0};
     std::uint64_t next_funding_poll_ns{0};
     bool funding_in_flight{false};
 
-    // Venue clock offset, measured against /public/time. Unused until signing
-    // lands, but measured now because a wrong offset shows up as a rejected
-    // request that reads like a credentials problem.
+    // Venue clock offset, measured against /public/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established and
-    // a stream that is merely quiet look identical from the sink, which is why
-    // the refusal is counted rather than inferred. XT's control code is 1 for
-    // every failure, so the message is the only thing worth keeping.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::string last_error;
 
@@ -85,8 +75,6 @@ struct VenueState {
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
-        // Includes the bare "Invalid parameter" XT answers a bad method with:
-        // unknown shapes are ignored, never fatal.
         return;
     }
     switch (event->kind) {
@@ -112,10 +100,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Error: {
-        // A refused subscription is terminal for the topic it names, and
-        // silence is exactly how it would otherwise present. Recorded here so
-        // the operator interface can report it; nothing above the adapter can
-        // ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_ack(frame); err.has_value()) {
             state.last_error.assign(err->msg);
             ++state.subscribe_refusals;
@@ -123,9 +107,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::DepthUpdate:
-        // Parsed and tested, but nothing consumes a book yet: the BBO comes
-        // from the depth snapshot, so maintaining one here would be state kept
-        // for its own sake. The u/pu chain it needs is already pinned by tests.
         break;
     case EventKind::MarkPrice:
     case EventKind::Ack:
@@ -139,8 +120,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is re-sent
-        // here, which is why the transport tracks none of it.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -276,8 +255,6 @@ private:
         }
     }
 
-    // The response is mapped on the same thread that polls, so the sink sees
-    // funding on the gateway loop exactly like a websocket frame.
     static void on_funding_response(VenueState& state, const net::RestResponse& response) noexcept {
         if (response.transport_failed()) {
             return;
@@ -409,16 +386,12 @@ class XtInstruments final : public exec::InstrumentSource {
 public:
     explicit XtInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          // The catalogue is 2.2 MiB, which does not fit the 5 s default on a
-          // slow link; a truncated read would present as an unparsable body.
           rest_{state_->io,
                 net::RestConfig{
                     .host = std::string{rest_host()}, .port = "443", .timeout_ms = 30'000}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {
-            // fapi.xt.com serves futures only. Answering a spot request with an
-            // empty list would read as "XT lists no spot pairs", which is false.
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "xt spot catalogue is a different host")};
         }
@@ -463,8 +436,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the copy
-            // handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

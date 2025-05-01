@@ -38,16 +38,11 @@ std::string_view to_string(WsBuildError err) noexcept {
 std::string_view topic_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // tickerV2 is top of book without a local book to maintain. The older
-        // `ticker` topic carries the last trade instead, which is a different
-        // datum wearing the same name.
         return "/contractMarket/tickerV2";
     case exec::SubKind::Trades:
         return "/contractMarket/execution";
     case exec::SubKind::Depth:
         return "/contractMarket/level2";
-    // Mark price and funding share one topic, separated by `subject`; both
-    // kinds map here and the parser sorts them out.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return "/contract/instrument";
@@ -94,8 +89,6 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
     }
     const auto topic = subscriptions.front().topic;
     if (topic.empty()) {
-        // Empty means topic_for() declined the kind; sending it would
-        // subscribe to a literal ":SYMBOL" and earn a 404 refusal.
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t batch = 0;
@@ -132,9 +125,7 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
         put(i == 0 ? ":" : ",");
         put(subscriptions[i].symbol);
     }
-    // response:true asks for the ack that proves the topic exists. A wrong
-    // SYMBOL is acked all the same (verified live) and simply never delivers,
-    // so this catches typo'd topics only.
+    // response:true asks for the ack that proves the topic exists.
     put(R"(","response":true})");
     if (overflow) {
         return std::unexpected{WsBuildError::BufferTooSmall};

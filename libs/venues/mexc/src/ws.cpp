@@ -38,9 +38,6 @@ std::string_view stream_path() noexcept {
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // MEXC has no tick-by-tick top of book. depth.full is a throttled
-        // limit-N snapshot (~4/s observed) and the only public frame carrying
-        // top-of-book SIZES: push.ticker has bid1/ask1 but no sizes at all.
         return "depth.full";
     case exec::SubKind::Trades:
         return "deal";
@@ -48,10 +45,6 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
         return "depth";
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        // One channel serves both: push.ticker is where fundingRate and
-        // fairPrice live. MEXC's dedicated sub.funding.rate acknowledges a
-        // subscribe and then pushes nothing between settlements (verified over
-        // 90 s), so a gateway relying on it would look merely quiet.
         return "ticker";
     case exec::SubKind::Kline:
         return {}; // needs an interval in the param; no consumer yet
@@ -61,9 +54,7 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
                                                                 const Subscription& subscription) {
-    // Empty means channel_for() declined the kind. MEXC ignores an unknown
-    // method in silence (verified), so a bad frame would present as a channel
-    // that simply never delivers.
+    // Empty means channel_for() declined the kind.
     if (subscription.channel.empty() || subscription.symbol.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }

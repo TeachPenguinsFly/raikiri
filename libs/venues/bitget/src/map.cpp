@@ -106,8 +106,6 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // The element's own `ts`, not the frame's outer one: matching-engine
-    // stamp against push time, a millisecond or two apart on every tick.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -128,15 +126,10 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = *rate;
-    // predicted_rate stays undefined: this channel has no forecast field.
-    // mark_price is real, unlike okx's, because the same frame carries it —
-    // still conditional, since a mark off the tick grid is dropped.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
-    // Stated by the catalogue at load, not inferred from two settlement
-    // stamps the way okx has to.
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
     }
@@ -173,23 +166,14 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
-    // Dated contracts share this endpoint on the coin-margined products, and
-    // taking one under a perp's id is a category of position bug.
     if (wire.symbol_type != "perpetual") {
         return std::nullopt;
     }
-    // maintain, limit_open, restrictedAPI and off all ship complete precision
-    // fields, so status is all that separates a row that parses from a row we
-    // may trade.
     if (wire.symbol_status != "normal") {
         return std::nullopt;
     }
 
     const auto tick = tick_size_of(wire.price_place, wire.price_end_step);
-    // sizeMultiplier is the quantity STEP; `volumePlace` is only display
-    // precision and the two disagree on 23 live rows (SHIBUSDT shows 0
-    // decimals and steps by 10000). VERIFIED against 365 live prints on six
-    // contracts: every size divided evenly by sizeMultiplier.
     const auto lot = to_e9(wire.size_multiplier);
     if (!tick.has_value() || !lot.has_value() || lot->raw <= 0) {
         return std::nullopt;
@@ -206,19 +190,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // minTradeUSDT is the quote-currency floor min_notional models;
-    // minTradeNum is a lot floor with no field here, and the two differ on
-    // four live rows.
     if (const auto min_notional = to_e9(wire.min_trade_usdt); min_notional.has_value()) {
         base.min_notional = *min_notional;
     }
-    // maker/taker stay undefined although the catalogue carries them: those
-    // are base-tier rates, and a VIP account would compute every fee against
-    // a number wrong in the expensive direction. USDT-M sizes are base units
-    // — BTCUSDT prints 0.0015 BTC — so there is no ctVal to load either.
     base.contract_value = *parse_decimal_e9("1");
-    // HOURS. An unreadable one leaves the domain's "unknown" zero rather than
-    // refusing a tradable instrument over funding metadata.
     std::uint32_t interval_s = 0;
     if (const auto hours = whole_number(wire.fund_interval); hours.has_value()) {
         interval_s = static_cast<std::uint32_t>(*hours * 3600);

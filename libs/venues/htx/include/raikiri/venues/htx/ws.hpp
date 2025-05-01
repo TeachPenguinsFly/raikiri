@@ -89,8 +89,6 @@ public:
     // {"op":"sub","topic":"public.BTC-USDT.funding_rate","cid":"1"}
     [[nodiscard]] std::expected<Frame, WsBuildError> funding_subscribe_frame(std::string_view code);
 
-    // The two keepalive answers. `ts` is the raw token off the ping, echoed
-    // byte for byte: HTX drops a connection whose pong does not match.
     [[nodiscard]] std::expected<Frame, WsBuildError> market_pong_frame(std::string_view ts);
     [[nodiscard]] std::expected<Frame, WsBuildError> notify_pong_frame(std::string_view ts);
 
@@ -101,9 +99,7 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError> pong(std::string_view head,
                                                           std::string_view ts);
 
-    // One topic per message, so this is generous; BufferTooSmall costs a
-    // subscription silently. Every builder writes here, so a frame must be
-    // sent before the next one is built — which is what every caller does.
+    // One topic per message, so this is generous; BufferTooSmall costs a subscription silently.
     std::array<char, 256> frame_{};
     std::uint64_t next_id_{0};
 };

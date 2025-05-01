@@ -48,17 +48,13 @@ public:
 
     [[nodiscard]] std::expected<void, SecretError> assign(std::string_view value) noexcept;
 
-    // The raw bytes, for signing. Deliberately awkward to store: the span is
-    // only valid while this Secret lives.
+    // The raw bytes, for signing.
     [[nodiscard]] std::string_view view() const noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return len_; }
 
     [[nodiscard]] bool empty() const noexcept { return len_ == 0; }
 
-    // Safe to log: "sha256:1a2b3c4d" over the secret plus a fixed salt, so
-    // the digest cannot be matched against a rainbow table of candidate
-    // keys. Enough to answer "did the right key load?" and nothing more.
     [[nodiscard]] std::string fingerprint() const;
 
     void clear() noexcept;

@@ -20,8 +20,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        // Zero is success, so an unreadable code must not be allowed to
-        // decay into one: a body whose envelope we cannot read is an error.
         const auto value = detail::digits_to_u64(*code);
         if (value == 0 && *code != "0") {
             return std::unexpected(WireError::WrongType);
@@ -58,9 +56,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             }
             out.inst_id = *inst_id;
             out.inst_type = *inst_type;
-            // A row that is not live yet ships every numeric field as "",
-            // so these are optional at the wire layer and the mapper is what
-            // refuses the row.
             for (const auto& [key, field] : {std::pair{"state", &out.state},
                                              std::pair{"tickSz", &out.tick_size},
                                              std::pair{"lotSz", &out.lot_size},

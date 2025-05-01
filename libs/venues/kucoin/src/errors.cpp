@@ -21,14 +21,9 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_service_unavailable:
         return exec::ErrorClass::Retryable;
 
-    // Clock skew, not bad credentials: KuCoin's signing window is 5 seconds,
-    // and the same payload signed against a corrected offset succeeds. Filing
-    // this under AuthFailure would halt a venue whose keys are fine.
     case k_timestamp_invalid:
         return exec::ErrorClass::Retryable;
 
-    // The bullet token lapsed, not the credentials — and it is issued by an
-    // UNAUTHENTICATED call, so there are no credentials involved at all.
     case k_ws_token_invalid:
         return exec::ErrorClass::Retryable;
 

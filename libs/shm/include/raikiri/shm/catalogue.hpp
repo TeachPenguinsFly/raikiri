@@ -33,8 +33,6 @@ enum class CatalogueError : std::uint8_t {
 
 class CatalogueTable {
 public:
-    // Owner side, before publish(). Slot order IS the numbering, so an
-    // instrument that disagrees with its slot is refused, not renumbered.
     [[nodiscard]] std::expected<void, CatalogueError> push(const Instrument& instrument) noexcept;
 
     [[nodiscard]] std::uint32_t size() const noexcept {
@@ -45,8 +43,6 @@ public:
         return {entries_.data(), size()};
     }
 
-    // Null when the id names an unpublished slot, or a venue or market other
-    // than the one that slot holds.
     [[nodiscard]] const Instrument* find(InstrumentId id) const noexcept;
 
 private:

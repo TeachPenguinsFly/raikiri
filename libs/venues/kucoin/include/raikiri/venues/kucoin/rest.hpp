@@ -22,27 +22,14 @@ namespace raikiri::venues::kucoin {
 
 class RequestBuilder {
 public:
-    // POST /api/v1/bullet-public — unauthenticated, empty body, and the only
-    // way to learn a websocket URL. Its token expires, so this runs on every
-    // connect rather than once.
     [[nodiscard]] net::RestRequest bullet_public() noexcept;
 
-    // /api/v1/contracts/active — every listed contract in one call, roughly
-    // 900 KiB across 677 rows. There is no per-market filter.
     [[nodiscard]] net::RestRequest contracts_active() noexcept;
 
-    // /api/v1/timestamp — used to measure the venue clock offset before
-    // anything is signed. KuCoin's signing window is 5 s, the tightest of the
-    // venues here.
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    // /api/v1/funding-rate/{symbol}/current — seeds funding at subscribe time,
-    // because the stream only pushes at a settlement boundary up to eight
-    // hours away.
     [[nodiscard]] net::RestRequest funding_rate_current(std::string_view symbol) noexcept;
 
-    // /api/v1/level2/snapshot — the book a depth subscription would start
-    // from, since the level2 stream carries deltas only and no snapshot.
     [[nodiscard]] net::RestRequest level2_snapshot(std::string_view symbol) noexcept;
 
 private:

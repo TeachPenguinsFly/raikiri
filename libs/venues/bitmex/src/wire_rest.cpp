@@ -56,9 +56,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.symbol = *symbol;
             out.state = *state;
             out.typ = *typ;
-            // Which scale field a row carries depends on its contract type, and
-            // expiry is absent on every perpetual, so these stay optional here
-            // and the mapper is what refuses a row it cannot price.
             for (const auto& [key, field] :
                  {std::pair{"tickSize", &out.tick_size},
                   std::pair{"lotSize", &out.lot_size},

@@ -25,8 +25,6 @@ FrameKind kind_from_event(std::string_view event) noexcept {
     if (event == "pong") {
         return FrameKind::Pong;
     }
-    // The `conf` acknowledgement lands here: nothing acts on it beyond having
-    // asked for it.
     return FrameKind::Unknown;
 }
 
@@ -122,10 +120,6 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // The whole envelope is walked, but the payload is stepped OVER
-        // rather than into: peeking an element's type and never asking for its
-        // contents leaves simdjson to skip the subtree structurally. That is
-        // what makes reading a trailing timestamp cost nothing.
         std::size_t index = 0;
         for (auto entry : *root) {
             detail::ondemand::value value;
@@ -162,13 +156,9 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
             }
             ++index;
         }
-        // A bare `[123]` names a channel and says nothing about it. On a
-        // positional wire that is not an empty update, it is a truncated one.
         if (index < 2) {
             return std::unexpected(WireError::ShortArray);
         }
-        // "hb" occupies the same slot a trade tag does, so a dispatcher that
-        // does not single it out feeds a heartbeat to a payload parser.
         info.kind = info.tag == "hb" ? FrameKind::Heartbeat : FrameKind::Data;
         return info;
     });
@@ -188,8 +178,6 @@ std::expected<WireSubscribed, WireError> parse_subscribed(std::string_view frame
             !key.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        // Without a channel id the ack binds nothing, and an unbound channel's
-        // data frames are unattributable for the life of the connection.
         if (*chan_id == 0 || channel->empty()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -294,10 +282,6 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
                 if (const auto ec = payload.get_array().get(rows); ec != simdjson::SUCCESS) {
                     return std::unexpected(detail::map_error(ec));
                 }
-                // No tag distinguishes a book snapshot from a single-level
-                // delta; only the TYPE of the payload's first element does.
-                // On-Demand is forward-only, so the flat case is collected as
-                // it is walked rather than re-read once the shape is known.
                 bool snapshot = false;
                 bool decided = false;
                 std::size_t count = 0;

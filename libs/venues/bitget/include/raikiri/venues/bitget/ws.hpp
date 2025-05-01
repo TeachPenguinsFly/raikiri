@@ -68,9 +68,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     op_frame(std::string_view op, std::span<const Subscription> subscriptions);
 
-    // Sized so a full batch of the longest instType/channel/instId triple
-    // still fits: BufferTooSmall costs a whole batch of subscriptions,
-    // silently.
     std::array<char, 8192> frame_{};
 };
 

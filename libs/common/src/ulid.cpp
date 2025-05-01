@@ -1,6 +1,5 @@
-#include <raikiri/common/ulid.hpp>
-
 #include <raikiri/common/int128.hpp>
+#include <raikiri/common/ulid.hpp>
 
 #include <random>
 
@@ -56,8 +55,6 @@ std::uint64_t UlidGen::next_random() noexcept {
 Ulid UlidGen::next(UnixNanos wall) noexcept {
     const std::uint64_t ms = wall.ns / 1'000'000U;
     if (ms == last_ms_) {
-        // Same millisecond: increment the 80-bit random part so ids stay
-        // strictly ordered and unique without re-rolling.
         if (++rand_lo_ == 0) {
             rand_hi_ = (rand_hi_ + 1) & 0xFFFFU;
         }
@@ -67,8 +64,6 @@ Ulid UlidGen::next(UnixNanos wall) noexcept {
         rand_lo_ = next_random();
     }
 
-    // Layout: 48 bits time | 16 bits rand_hi | 64 bits rand_lo = 128 bits,
-    // encoded as 26 base32 chars (10 for time, 16 for randomness).
     Ulid out{};
     out.len = 26;
 

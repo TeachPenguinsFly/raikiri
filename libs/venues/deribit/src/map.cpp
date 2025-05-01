@@ -180,8 +180,6 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
         return std::nullopt;
     }
-    // An untraded option quotes one side or neither and the grouped book
-    // answers with an empty array, reaching here as zero. Not a quote.
     if (bid->raw <= 0 || ask->raw <= 0) {
         return std::nullopt;
     }
@@ -215,8 +213,6 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // `direction` is the taker's own, so there is no flip here. Binance's `m`
-    // says the opposite; reading both alike inverts a signed flow series.
     out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
@@ -229,9 +225,6 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // Absence is the FIELD missing, never the value being zero: a perpetual
-    // quoting 0.0 was captured live, and reading that as "no funding" would
-    // blind a basis series exactly at the sign flip.
     if (wire.current_funding.empty()) {
         return std::nullopt;
     }
@@ -244,15 +237,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     const auto& base = base_of(*instrument);
     out.instrument = base.id;
     out.rate = *rate;
-    // predicted_rate stays undefined: Deribit publishes no forecast, and the
-    // funding_8h on this frame is the TRAILING realised average — a
-    // backward-looking number under a forward-looking name is worse than none.
-    // next_funding_time stays zero for the same kind of reason: funding accrues
-    // continuously, so no settlement exists to count down to. interval_s gives
-    // the eight-hour basis so the rate compares against venues that do settle.
     out.interval_s = k_funding_basis_s;
-    // Conditional because the perpetual mark is a fair value off the tick grid
-    // (64111.95 against 0.5), so it drops; an option's is on the tick.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
@@ -286,19 +271,11 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     case MarketType::Spot:
         return std::nullopt; // listed, but the caps row calls it vestigial
     }
-    // REFUSED, not adapted: Deribit lists USDC-settled linear futures beside
-    // the coin-margined ones, and on those contract_size counts BASE units
-    // where the reversed contracts count USD. Loading both would put two
-    // incompatible meanings behind one contract_value on one venue, and the
-    // error is the price of BTC. Linear perps are what binance and okx are for.
     if (wire.instrument_type != "reversed") {
         return std::nullopt;
     }
 
     const auto tick = parse_number_e9(wire.tick_size);
-    // min_trade_amount, not contract_size: it is the increment the wire uses.
-    // They agree at 10 on BTC-PERPETUAL, but a BTC option has contract_size 1.0
-    // and trades in 0.1 steps (23.1 seen live), which the coarser field drops.
     const auto lot = parse_number_e9(wire.min_trade_amount);
     const auto contract = parse_number_e9(wire.contract_size);
     if (!tick.has_value() || !lot.has_value() || !contract.has_value() || tick->raw <= 0 ||
@@ -317,24 +294,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // DIRECTION, and getting it backwards misprices every position: on the
-    // reversed futures contract_size is denominated in the QUOTE currency —
-    // one BTC-PERPETUAL contract is 10 USD, settled in BTC. Binance USD-M and
-    // okx point the other way, where the multiplier counts BASE units per
-    // contract. So `lots_to_qty()` already yields a USD notional here and
-    // contract_value states the contract's USD face value; it is NOT a
-    // base-unit multiplier to fold in again. Reaching base coin needs a
-    // division by price, which is what "inverse" means and which
-    // InstrumentBase has no field to express.
-    //
-    // Options invert back: their amount and contract_size are both in the
-    // coin (1.0 BTC per contract), and only the premium/strike pairing is
-    // reversed. See the strike note below.
     base.contract_value = *contract;
 
     if (market == MarketType::Option) {
-        // min_notional stays undefined: an option's floor is a coin count, and
-        // making it a notional needs a premium this function does not have.
         const auto strike = exact_steps(wire.strike, base.tick_size);
         if (!strike.has_value() || *strike <= 0) {
             return std::nullopt;
@@ -342,18 +304,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         if (wire.expiration_ms == 0 || wire.expiration_ms > k_max_expiry_ms) {
             return std::nullopt;
         }
-        // KNOWN UNIT MISMATCH, recorded rather than papered over: strike is a
-        // PriceTicks, so it lands in multiples of this instrument's tick — and
-        // that tick belongs to the PREMIUM, quoted in BTC, while the strike is
-        // in USD. The NUMBER round-trips exactly (ticks_to_price(strike) ==
-        // 64000); only the currency differs, and InstrumentBase has none to
-        // differ in. So read a strike back through ticks_to_price, and never
-        // compare its tick count against a quote's.
-        //
-        // That tick is also the FINEST of Deribit's piecewise option ticks
-        // (tick_size_steps coarsens to 0.0005 above a 0.005 premium). Finest is
-        // the safe end: coarser prices stay exact multiples, so this
-        // over-accepts rather than dropping live quotes.
         if (wire.option_type != "put" && wire.option_type != "call") {
             return std::nullopt;
         }
@@ -364,9 +314,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
                                 put_call};
     }
 
-    // On the reversed futures the floor IS a USD notional (10 USD on
-    // BTC-PERPETUAL), which is exactly what this field means — unlike okx's
-    // minSz or KuCoin's contract count.
     base.min_notional = *lot;
 
     if (market == MarketType::Future) {
@@ -375,8 +322,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         }
         return FutureInstrument{base, ms_to_unix(wire.expiration_ms, UnixNanos{0})};
     }
-    // funding_interval_s stays zero on purpose: funding accrues continuously,
-    // so any number here would read as a settlement cadence that does not exist.
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

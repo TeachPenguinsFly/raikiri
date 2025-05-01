@@ -61,8 +61,6 @@ public:
 
     [[nodiscard]] MonoNanos mono() const noexcept override {
 #if defined(__APPLE__)
-        // clock_gettime(CLOCK_MONOTONIC) is truncated to microseconds on
-        // macOS; the _np call is the real nanosecond counter.
         return {clock_gettime_nsec_np(CLOCK_UPTIME_RAW)};
 #else
         timespec ts{};

@@ -46,22 +46,14 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path. Grouped by channel because the frame builder
-    // can only batch within one.
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Venue clock offset, measured against /api/v4/spot/time. Unused until
-    // signing lands, but measured now because a wrong offset shows up as
-    // REQUEST_EXPIRED, which reads like a credentials problem.
+    // Venue clock offset, measured against /api/v4/spot/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established
-    // and a stream that is merely quiet look identical from the sink, which
-    // is why the refusal is counted rather than inferred.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
@@ -71,8 +63,6 @@ struct VenueState {
                 return; // refcounting lives in the gateway core; this is a set
             }
         }
-        // Insert after the last entry sharing this channel so the resubscribe
-        // path hands the builder contiguous runs.
         auto at = desired.end();
         for (auto it = desired.begin(); it != desired.end(); ++it) {
             if (it->channel == channel) {
@@ -110,8 +100,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose
-        // real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -132,15 +120,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::BookUpdate:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // futures.book_ticker, so maintaining one here would be state kept for
-        // its own sake. The update-id chain is already pinned by tests.
         break;
     case EventKind::Error: {
-        // A refused subscription is terminal for the channel it names, and
-        // silence is exactly how it would otherwise present. Recorded here so
-        // the operator interface can report it; nothing above the adapter can
-        // ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -159,8 +140,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -241,9 +220,6 @@ public:
         }
         const auto before = state_->desired.size();
         state_->add_subscription(channel, symbol);
-        // Funding and mark price resolve to the same channel, so the second
-        // request is already covered; re-sending it would spend a frame to be
-        // told the subscription exists.
         if (state_->desired.size() == before) {
             return {};
         }
@@ -369,8 +345,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay; the offset
-    // only has to be good to a fraction of Gate's signing window.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -394,17 +368,10 @@ public:
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host(state_->testnet)},
                                 .port = "443",
-                                // The 5 s default is not enough: Gate takes
-                                // 3.6-4.2 s to serve the 1.1 MiB catalogue, so
-                                // a cold start failed on a timeout that looked
-                                // like the venue being down.
                                 .timeout_ms = k_catalogue_timeout_ms}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {
-            // Spot lives at /spot/currency_pairs, a differently shaped body
-            // with no parser here. Refusing beats an empty list, which reads
-            // as "this venue lists nothing".
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "gate adapter covers usdt perpetuals only")};
         }
@@ -423,8 +390,6 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        // No envelope to consult: success is a bare JSON array, so the HTTP
-        // status is what separates a catalogue from a refusal.
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body)};
         }
@@ -448,8 +413,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

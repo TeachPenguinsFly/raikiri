@@ -69,9 +69,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             }
             out.contract_size = *contract_size;
             out.min_vol = *min_vol;
-            // Negative sentinels rather than zero: scale 0 is a real value
-            // (every contract quotes whole numbers of contracts) and state 0
-            // means enabled, so a missing field must not read as either.
             const auto price_scale = detail::opt_i64(obj, "priceScale", -1);
             const auto vol_scale = detail::opt_i64(obj, "volScale", -1);
             const auto state = detail::opt_i64(obj, "state", -1);

@@ -36,28 +36,17 @@ struct VenueState {
     net::IoContext io;
     exec::InstrumentTable instruments;
 
-    // One builder for both sockets: every caller sends the frame it just
-    // built, and the two sockets never interleave inside a single-threaded
-    // poll.
     Protocol protocol;
 
-    // Owned here rather than by the transports: each socket re-asserts its own
-    // set on every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
     std::vector<std::string> funding_codes;
 
-    // Venue clock offset from /api/v1/timestamp. Unused until signing lands,
-    // but measured now because a wrong offset reads like a credentials
-    // problem.
+    // Venue clock offset from /api/v1/timestamp.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused: a stream that never opened and one that
-    // is merely quiet look identical from the sink.
     std::uint64_t subscribe_refusals{0};
     std::string last_error_code;
 
-    // Frames that arrived but did not decompress — a different fault from a
-    // shape we misread, and worth telling apart.
     std::uint64_t inflate_failures{0};
 
     void add_subscription(std::string_view code, std::string_view suffix) {
@@ -88,8 +77,6 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose
-        // real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -110,13 +97,8 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         break;
     }
     case EventKind::Depth:
-        // Parsed and tested, but nothing consumes a book: BBO comes from the
-        // bbo topic, so a book here would be state kept for its own sake.
         break;
     case EventKind::Error: {
-        // A refused subscription is terminal for the topic it names, and
-        // silence is how it would otherwise present. Nothing above the adapter
-        // can ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -137,8 +119,6 @@ public:
     explicit MarketHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path for this socket, which is why the transport
-        // tracks none of it. One message per topic; HTX has no batch form.
         for (const auto& entry : state_->desired) {
             const auto frame = state_->protocol.subscribe_frame(entry.code, entry.suffix);
             if (!frame.has_value()) {
@@ -164,8 +144,6 @@ public:
                 return; // unknown shapes are ignored, never fatal
             }
             if (event->kind == EventKind::MarketPing) {
-                // Inline, not from poll(): HTX drops a connection that leaves
-                // a ping unanswered, and poll() runs on the gateway's cadence.
                 if (const auto pong = state_->protocol.market_pong_frame(event->keepalive_ts);
                     pong.has_value()) {
                     (void)client_->send(pong->text);
@@ -174,8 +152,6 @@ public:
             }
             handle_frame(*state_, event->kind, *frame, received);
         } catch (...) {
-            // The inflate buffer grows by allocating, and one frame is not
-            // worth taking the process down for.
             ++state_->inflate_failures;
         }
     }
@@ -209,8 +185,6 @@ public:
                 break;
             }
         }
-        // No ConnEvent from here: connectivity is one state per venue, and the
-        // socket carrying prices is the one that should set it.
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -277,8 +251,6 @@ public:
         started_ = false;
     }
 
-    // The market socket decides: a venue with funding but no prices is down
-    // for every purpose a caller has.
     [[nodiscard]] bool connected() const noexcept override { return market_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
@@ -321,8 +293,6 @@ public:
         if (!started_) {
             return;
         }
-        // Nothing goes out on a timer: HTX pings both sockets and on_message
-        // answers each with the value it was given.
         state_->io.poll();
     }
 
@@ -454,9 +424,6 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        // Status before body: an unrouted path answers with a Spring error
-        // carrying no envelope, and calling that a parse failure hides whether
-        // to try again.
         if (response->status != 200) {
             return std::unexpected{exec::VenueError::make(
                 classify_http(response->status), response->status, "catalogue: http error")};
@@ -490,8 +457,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so this
-            // copy carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

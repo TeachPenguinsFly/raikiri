@@ -81,9 +81,6 @@ std::string_view to_string(SecretError err) noexcept {
 
 Secret::Secret() noexcept {
     locked_ = ::mlock(buf_, sizeof buf_) == 0;
-    // A failed mlock is not fatal: unprivileged macOS and constrained
-    // containers refuse it. The caller can still trade; the key may reach
-    // swap, which is a deployment concern, not a correctness one.
 }
 
 Secret::~Secret() {
@@ -114,9 +111,6 @@ std::string_view Secret::view() const noexcept {
 }
 
 std::string Secret::fingerprint() const {
-    // Salted so the digest cannot be matched against precomputed hashes of
-    // candidate keys; the salt is fixed because this only has to be stable
-    // within one deployment, not secret.
     static constexpr std::string_view k_salt = "raikiri-fingerprint-v1";
     std::array<unsigned char, EVP_MAX_MD_SIZE> md{};
     unsigned int md_len = 0;
@@ -166,8 +160,6 @@ std::expected<SecretRef, SecretError> SecretRef::parse(std::string_view spec) {
         return SecretRef{.scheme = Scheme::OnePassword, .payload = std::string{payload}};
     }
     if (scheme == "literal") {
-        // The payload is the value, colons and all: a key containing ':' is
-        // ordinary, so only the FIRST colon separates the scheme.
         return SecretRef{.scheme = Scheme::Literal, .payload = std::string{payload}};
     }
     return std::unexpected{SecretError::UnknownScheme};
@@ -207,20 +199,12 @@ std::expected<void, SecretError> DefaultSecretProvider::resolve(const SecretRef&
         return result;
     }
     case SecretRef::Scheme::OnePassword: {
-        // Probed once per process: repeating two `op` invocations per secret
-        // would multiply startup cost for a diagnostic that cannot change
-        // while the process runs.
         static const OpStatus status = probe_one_password();
         return resolve_one_password(ref.payload, status, out);
     }
     case SecretRef::Scheme::Literal:
-        // Straight through: there is nowhere to fetch it from, which is the
-        // whole point and the whole problem.
         return out.assign(ref.payload);
     case SecretRef::Scheme::Exec: {
-        // Through /bin/sh with the environment intact so `op`, `vault` and
-        // friends find their own session state. The command must print the
-        // secret on stdout and nothing else.
         std::FILE* pipe = ::popen(ref.payload.c_str(), "r");
         if (pipe == nullptr) {
             return std::unexpected{SecretError::CommandFailed};

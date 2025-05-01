@@ -42,8 +42,6 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
 
-    // Owned here rather than by the transport: the socket re-asserts this set
-    // on every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
 
     // Symbols the gateway asked for funding on, polled round-robin.
@@ -51,17 +49,12 @@ struct VenueState {
     std::size_t funding_cursor{0};
     std::uint64_t next_funding_poll_ns{0};
 
-    // Venue clock offset from /server/time. Unused until signing lands, but
-    // measured now because a wrong offset reads like a credentials problem.
+    // Venue clock offset from /server/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused: a stream that never opened and one that
-    // is merely quiet look identical from the sink.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
-    // Frames that arrived but did not decompress — a different fault from a
-    // shape we misread, and worth telling apart.
     std::uint64_t inflate_failures{0};
 
     void add_subscription(std::string_view symbol, std::string_view suffix) {
@@ -92,8 +85,6 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose real
-        // volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -103,12 +94,8 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         break;
     }
     case EventKind::Depth:
-        // Parsed and tested, but nothing consumes a book: BBO comes from
-        // bookTicker, so a book here would be state kept for its own sake.
         break;
     case EventKind::Error: {
-        // A refused subscription is terminal for the stream it names, and
-        // silence is how it would otherwise present.
         if (const auto control = parse_control(frame); control.has_value()) {
             state.last_error_code = control->code;
             ++state.subscribe_refusals;
@@ -128,8 +115,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path, which is why the transport tracks none of
-        // it. One message per stream — BingX has no batch form.
         for (const auto& entry : state_->desired) {
             const auto frame = state_->protocol.subscribe_frame(entry.symbol, entry.suffix);
             if (!frame.has_value()) {
@@ -155,16 +140,11 @@ public:
                 return; // unknown shapes are ignored, never fatal
             }
             if (event->kind == EventKind::Ping) {
-                // Inline, not from poll(): BingX drops a connection that
-                // leaves a Ping unanswered, and poll() runs on the gateway's
-                // cadence rather than the venue's.
                 (void)client_->send(Protocol::pong_frame());
                 return;
             }
             handle_frame(*state_, event->kind, *frame, received);
         } catch (...) {
-            // The inflate buffer grows by allocating, and one frame is not
-            // worth taking the process down for.
             ++state_->inflate_failures;
         }
     }
@@ -250,8 +230,6 @@ public:
     }
 
 private:
-    // One symbol per tick, round-robin. No keepalive goes out from here: BingX
-    // drives that from its side and on_message answers it.
     void poll_funding(UnixNanos now) noexcept {
         if (state_->funding_symbols.empty() || now.ns < state_->next_funding_poll_ns ||
             funding_in_flight_) {
@@ -262,8 +240,6 @@ private:
         state_->funding_cursor = (state_->funding_cursor + 1) % state_->funding_symbols.size();
         funding_in_flight_ = true;
         try {
-            // send() allocates the completion handler and poll() is noexcept by
-            // contract; a funding rate is not worth ending a process over.
             if (!rest_.send(builder_.premium_index(symbol),
                             [this](const net::RestResponse& response) { on_funding(response); })) {
                 funding_in_flight_ = false;
@@ -419,8 +395,6 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        // Status before body: a 429 or 5xx carries no envelope, and calling
-        // either a parse failure hides whether to try again.
         if (response->status != 200) {
             return std::unexpected{exec::VenueError::make(
                 classify_http(response->status), response->status, "catalogue: http error")};
@@ -454,8 +428,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so this
-            // copy carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

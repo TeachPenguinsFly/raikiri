@@ -63,17 +63,12 @@ public:
         std::size_t consumed{0};
     };
 
-    // Consumes the leading run of subscriptions sharing one topic, so callers
-    // that group by topic get one frame per kind.
-    // {"id":1,"type":"subscribe","topic":"/contractMarket/tickerV2:XBTUSDTM","response":true}
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions);
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
 
-    // Not static and not constant: every message needs its own id, and the
-    // pong echoes it, which is the only way to tell which ping was answered.
     [[nodiscard]] std::string_view ping_frame() noexcept;
 
 private:
@@ -81,8 +76,6 @@ private:
     op_frame(std::string_view type, std::span<const Subscription> subscriptions);
 
     std::uint64_t next_id_{1};
-    // Sized so a full batch of the longest topic/symbol pairs still fits:
-    // BufferTooSmall costs a whole batch of subscriptions, silently.
     std::array<char, 8192> frame_{};
     std::array<char, 64> ping_{};
 };

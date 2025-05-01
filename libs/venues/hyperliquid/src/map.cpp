@@ -127,14 +127,9 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
     const auto& base = base_of(*instrument);
     out.instrument = base.id;
     out.rate = *rate;
-    // predicted_rate stays undefined: no forecast is published, and a zero here
-    // would read as a real prediction of no funding.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    // next_funding_time stays undefined: the boundary is knowable from a wall
-    // clock, but the venue states none on either transport, and filling one in
-    // would present a derivation as a venue fact. interval_s says the schedule.
     out.interval_s = k_funding_interval_s;
     // No timestamp on this payload at all, so ingest is the only honest one.
     out.ts_event = ts_init;
@@ -143,28 +138,14 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
 }
 
 std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType market) {
-    // A delisted asset keeps its slot forever (55 of 232), still quoting a
-    // stale prevDayPx; loading one admits a symbol no book will ever update.
     if (wire.delisted) {
         return std::nullopt;
     }
-    // Spot exists but under a different catalogue call and naming scheme
-    // (`@1`, `PURR/USDC`), so a spot request here would silently load perps.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
 
-    // DERIVED, NOT VENUE-STATED. The catalogue publishes szDecimals and no
-    // steps at all, so both come from it as exact powers of ten: size by
-    // 10^-szDecimals, price by 10^-(6 - szDecimals), the cap on decimal places.
-    //
-    // The OTHER rule, at most 5 significant figures, is deliberately NOT a step
-    // here: it constrains what may be SUBMITTED, and being magnitude-dependent
-    // (spacing 1.0 at 64143, 0.1 at 6414.3) it describes no fixed grid. Nor do
-    // published prices obey it — across all 232 assets every markPx, midPx,
-    // oraclePx and prevDayPx honours the decimal cap while 45 exceed 5 sig figs
-    // ("1.356952", "64145.5"). A sig-fig tick would drop those under exact
-    // division; this one never drops a price the venue published.
+    // DERIVED, NOT VENUE-STATED.
     const auto lot = step_from_decimals(wire.sz_decimals);
     const auto tick = step_from_decimals(k_perp_price_digits - wire.sz_decimals);
     if (!lot.has_value() || !tick.has_value()) {
@@ -185,9 +166,6 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     base.lot_size = *lot;
     // Size is the coin itself, so there is no contract multiplier to load.
     base.contract_value = *parse_decimal_e9("1");
-    // min_notional stays undefined: the venue's floor is $10 of notional, a
-    // quote-currency amount this base-unit field cannot express. A zero would
-    // read as "no minimum".
     return PerpInstrument{base, k_funding_interval_s};
 }
 

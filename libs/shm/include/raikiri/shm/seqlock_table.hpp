@@ -42,8 +42,6 @@ struct alignas(k_cache_line) SeqlockCell {
         version.store(v + 2, std::memory_order_release);
     }
 
-    // Returns the even version of the snapshot written into `out`, or 0 if
-    // the cell has never been written. Retries internally on torn reads.
     [[nodiscard]] std::uint32_t read(T& out) const noexcept {
         std::uint64_t dst[k_words];
         for (;;) {

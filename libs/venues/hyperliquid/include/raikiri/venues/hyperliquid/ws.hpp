@@ -56,8 +56,6 @@ private:
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     method_frame(std::string_view method, const Subscription& subscription);
 
-    // One subscription per frame, so this only has to hold the longest coin
-    // name plus the longest channel name.
     std::array<char, 256> frame_{};
 };
 

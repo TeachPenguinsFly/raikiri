@@ -77,10 +77,7 @@ public:
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
-    // Query is built into `query_`, signed, then joined with the path into
-    // `target_`. One request is in flight per builder — the gateway loop
-    // sends before it builds the next — which is why a single buffer is
-    // enough and why it must not be cached by the caller.
+    // Query is built into `query_`, signed, then joined with the path into `target_`.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     finish(net::HttpMethod method, std::string_view path, std::size_t query_len);
 

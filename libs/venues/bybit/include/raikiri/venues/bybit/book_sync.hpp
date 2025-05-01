@@ -35,8 +35,6 @@ public:
         QtyLots size{};
     };
 
-    // tick/lot come from the instrument table; a level that does not divide
-    // exactly by them is a venue schema change, not something to round.
     BookSync(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
     [[nodiscard]] SyncResult apply(const WireOrderbook& update);
@@ -50,8 +48,6 @@ public:
 
     [[nodiscard]] std::uint64_t gaps() const noexcept { return gaps_; }
 
-    // Called when the transport reconnects: the next message must be a
-    // snapshot, and anything else is stale by definition.
     void invalidate() noexcept;
 
     [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }

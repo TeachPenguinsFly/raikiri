@@ -146,9 +146,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself
-    // (unescaped strings live in the parser's own buffer), and handing those
-    // back would break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -182,8 +179,6 @@ std::expected<std::string_view, WireError> str_of(ondemand::value value) {
         return std::unexpected(map_error(ec));
     }
     raw = trim(raw);
-    // Bitget writes JSON null for the data of a refused request and for the
-    // delivery fields of a perpetual row.
     if (raw == "null") {
         return std::string_view{};
     }

@@ -12,8 +12,6 @@ struct TrustStore {
     std::string dir;  // hashed CA directory, empty if none was found
     bool found{false};
 
-    // Where it came from, for the startup log: an operator who sees
-    // "SSL_CERT_FILE" knows their override took effect.
     std::string_view source;
 };
 

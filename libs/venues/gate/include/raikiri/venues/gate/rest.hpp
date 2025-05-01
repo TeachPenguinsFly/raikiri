@@ -28,17 +28,10 @@ inline constexpr std::string_view k_settle_usdt = "usdt";
 
 class RequestBuilder {
 public:
-    // /api/v4/futures/{settle}/contracts — roughly 1.1 MiB for 899 rows, and
-    // the only catalogue call; there is no per-market filter.
     [[nodiscard]] net::RestRequest contracts(std::string_view settle) noexcept;
 
-    // The only clock endpoint Gate publishes; the futures API has none. Used
-    // to measure the venue clock offset before anything is signed.
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    // The snapshot futures.order_book_update has to be seeded from, since that
-    // channel never sends one. Nothing consumes a book yet, so the response is
-    // built but not parsed. `depth` above 300 is refused with TOO_BIG.
     [[nodiscard]] net::RestRequest
     order_book(std::string_view settle, std::string_view contract, std::uint32_t depth) noexcept;
 

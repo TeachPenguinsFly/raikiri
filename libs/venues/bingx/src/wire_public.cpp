@@ -20,13 +20,9 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "markPrice") {
         return EventKind::MarkPrice;
     }
-    // @depth5@100ms, @depth20@500ms and so on: the level count and cadence
-    // live in the suffix, and all carry the same payload shape.
     if (channel.starts_with("depth")) {
         return EventKind::Depth;
     }
-    // @lastPrice and @ticker exist and are not subscribed to; naming them here
-    // would claim a parser that does not exist.
     return EventKind::Unknown;
 }
 
@@ -86,8 +82,6 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
 } // namespace
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
-    // Before anything is opened as a document: the keepalive is not JSON, and
-    // an unanswered one costs the connection.
     if (detail::trim(frame) == k_ping) {
         return EventInfo{.kind = EventKind::Ping, .symbol = {}};
     }
@@ -247,8 +241,6 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // Both of these sit beside `data`, and on-demand cannot come back to
-        // the parent once it has descended, so they are read first.
         const auto data_type = detail::req_str(*root, "dataType");
         const auto ts = detail::opt_u64(*root, "ts");
         if (!data_type.has_value() || !ts.has_value()) {

@@ -39,8 +39,6 @@ std::string_view stream_path() noexcept {
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Tick-by-tick top of book, so no local book has to be maintained to
-        // produce a BBO — the same shape binance's bookTicker gives.
         return "bbo-tbt";
     case exec::SubKind::Trades:
         return "trades";
@@ -48,8 +46,6 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
         return "books";
     case exec::SubKind::Funding:
         return "funding-rate";
-    // Unlike binance, mark and funding are separate channels here; one
-    // subscription does not cover both.
     case exec::SubKind::MarkPrice:
         return "mark-price";
     case exec::SubKind::Kline:
@@ -65,8 +61,6 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     }
     const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means channel_for() declined the kind; sending it would
-        // subscribe to the literal "" and earn a 60018 refusal.
         if (subscriptions[i].channel.empty() || subscriptions[i].inst_id.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }

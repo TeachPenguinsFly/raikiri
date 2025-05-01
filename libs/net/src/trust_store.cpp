@@ -1,10 +1,10 @@
 #include <raikiri/net/trust_store.hpp>
 
 #include <openssl/x509.h>
+#include <sys/stat.h>
 
 #include <array>
 #include <cstdlib>
-#include <sys/stat.h>
 
 namespace raikiri::net {
 
@@ -23,8 +23,6 @@ bool exists(const char* path) noexcept {
 TrustStore resolve_trust_store() {
     TrustStore store{};
 
-    // 1. The operator's explicit choice always wins. OpenSSL reads these
-    // itself, but resolving them here means the startup log can say so.
     if (const char* file = std::getenv(X509_get_default_cert_file_env()); exists(file)) {
         store.file = file;
         store.found = true;
@@ -39,8 +37,6 @@ TrustStore resolve_trust_store() {
         return store;
     }
 
-    // 2. The compiled-in default, but only if it actually exists — for a
-    // package-manager build it names a path from the build machine.
     if (exists(X509_get_default_cert_file())) {
         store.file = X509_get_default_cert_file();
         store.found = true;
@@ -50,12 +46,12 @@ TrustStore resolve_trust_store() {
 
     // 3. Where systems really keep bundles.
     static constexpr std::array k_candidates{
-        "/etc/ssl/cert.pem",                        // macOS
-        "/etc/ssl/certs/ca-certificates.crt",       // Debian, Ubuntu, Alpine
-        "/etc/pki/tls/certs/ca-bundle.crt",         // RHEL, Fedora
-        "/etc/ssl/ca-bundle.pem",                   // SUSE
+        "/etc/ssl/cert.pem",                          // macOS
+        "/etc/ssl/certs/ca-certificates.crt",         // Debian, Ubuntu, Alpine
+        "/etc/pki/tls/certs/ca-bundle.crt",           // RHEL, Fedora
+        "/etc/ssl/ca-bundle.pem",                     // SUSE
         "/opt/homebrew/etc/ca-certificates/cert.pem", // Homebrew on arm64
-        "/usr/local/etc/ca-certificates/cert.pem",  // Homebrew on x86-64
+        "/usr/local/etc/ca-certificates/cert.pem",    // Homebrew on x86-64
     };
     for (const char* candidate : k_candidates) {
         if (exists(candidate)) {

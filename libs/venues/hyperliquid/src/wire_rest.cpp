@@ -46,9 +46,6 @@ std::expected<std::size_t, WireError> read_universe(detail::ondemand::object& me
 std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view body,
                                                                 AssetBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireAsset>, WireError> {
-        // A body of the bare literal `null` — how /info answers some queries
-        // WITH HTTP 200 — fails right here: an empty catalogue and a refused
-        // query must not look the same.
         auto root = session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
@@ -71,8 +68,6 @@ std::expected<std::span<const WireAssetCtx>, WireError> parse_asset_ctxs(std::st
         std::size_t element = 0;
         std::size_t count = 0;
         for (auto entry : *root) {
-            // [meta, contexts]: the meta half is read by parse_meta, so this
-            // walks past it rather than reparsing the whole 70 KiB body.
             if (element++ == 0) {
                 continue;
             }

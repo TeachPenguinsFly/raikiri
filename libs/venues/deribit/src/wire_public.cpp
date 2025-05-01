@@ -187,8 +187,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 return std::unexpected(type.error());
             }
             info.kind = EventKind::Heartbeat;
-            // "heartbeat" is informational; "test_request" is a probe Deribit
-            // closes the socket over if it goes unanswered.
             info.needs_test_reply = *type == "test_request";
             return info;
         }
@@ -237,8 +235,6 @@ std::expected<WireResponse, WireError> parse_response(std::string_view frame) {
             return std::unexpected(detail::map_error(error_ec));
         }
 
-        // Only an array result is countable: set_heartbeat answers "ok" and
-        // get_time a bare number, neither a list of accepted channels.
         detail::ondemand::array accepted;
         if (root->find_field_unordered("result").get_array().get(accepted) == simdjson::SUCCESS) {
             for (auto entry : accepted) {
@@ -296,8 +292,6 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!params.has_value()) {
             return std::unexpected(params.error());
         }
-        // trades is the one channel whose `data` is an array rather than an
-        // object; a busy contract batches several prints into one frame.
         auto array = detail::req_array(*params, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
@@ -368,8 +362,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.current_funding = *current;
         out.funding_8h = *eight_hour;
         out.ts_ms = *ts;
-        // Greeks and mark_iv ride this frame for options and are deliberately
-        // not read: they exist only as doubles, with nowhere to land.
         return out;
     });
 }

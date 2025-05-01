@@ -53,10 +53,6 @@ struct FrameInfo {
     std::int64_t chan_id{0}; // Data and Heartbeat only
     std::int64_t code{0};    // Info and Error; zero on the plain greeting
     std::string_view tag;    // "te"/"tu" on trade updates, empty otherwise
-    // The venue's send time, present only once the `conf` TIMESTAMP flag has
-    // been requested, where it is appended after the payload. Read here rather
-    // than in the payload parsers because it belongs to the envelope, and
-    // because the ticker channel has no other time at all.
     std::uint64_t ts_ms{0};
 };
 

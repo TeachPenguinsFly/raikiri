@@ -43,23 +43,16 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Owned here rather than by the transport: the socket re-asserts this set
-    // on every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Unused until signing lands, but measured now because a wrong offset
-    // shows up as 40008 (timestamp expired), which reads like bad keys.
     std::int64_t clock_offset_ns{0};
 
-    // A stream that was never established and one that is merely quiet look
-    // identical from the sink, so refusals are counted rather than inferred.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
-    // True when the pair was new. Bbo, Funding and MarkPrice all name
-    // `ticker`, and a 10 message/second budget cannot afford the repeats.
+    // True when the pair was new.
     bool add_subscription(std::string_view channel, std::string_view inst_id) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.inst_id == inst_id) {
@@ -86,10 +79,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
-        // The same frame carries rate, settlement and mark, so funding
-        // publishes at the ticker's cadence rather than on a channel of its
-        // own. Suppressing repeats would need per-instrument state here to
-        // answer what the consumer can already answer from the values.
         if (const auto funding = map_funding(*wire, state.instruments, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
@@ -102,8 +91,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose
-        // real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -113,13 +100,9 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Books:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // the ticker channel, so maintaining one would be state kept for its
-        // own sake. The seq chain it needs is already pinned by tests.
         break;
     case EventKind::Error: {
-        // Terminal for the channel it names, and silence is how it would
-        // otherwise present. Nothing above can ask a socket what it refused.
+        // Terminal for the channel it names, and silence is how it would otherwise present.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -339,8 +322,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip estimates one-way delay; the offset only has to be
-    // good to a fraction of Bitget's signing window.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -355,8 +336,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {
-            // Spot has its own endpoint and row shape; an empty catalogue
-            // would look like a venue that lists no spot symbols.
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "bitget spot catalogue not implemented")};
         }
@@ -403,8 +382,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

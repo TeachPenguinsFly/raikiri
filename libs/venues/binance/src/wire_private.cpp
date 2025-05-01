@@ -40,8 +40,6 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view da
         }
         out.event_ms = *event_ms;
 
-        // Everything about the order lives under "o"; the top level carries
-        // only the envelope timestamps.
         auto order = detail::req_object(*root, "o");
         if (!order.has_value()) {
             return std::unexpected(order.error());
@@ -64,8 +62,6 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view da
         if (const auto ok = read_strings(*order, wanted); !ok.has_value()) {
             return std::unexpected(ok.error());
         }
-        // Commission is absent on non-fill frames, which is not the same as
-        // zero: a missing fee must not be reported as a free fill.
         const auto commission = detail::opt_str(*order, "n");
         if (!commission.has_value()) {
             return std::unexpected(commission.error());
@@ -179,8 +175,6 @@ std::expected<WireOrder, WireError> parse_order(std::string_view body) {
 std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_view body,
                                                                   OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
-        // A bare array at the top level, so the session's object entry point
-        // does not apply — iterate the document directly.
         auto& sess = session();
         auto array = sess.open_array(body);
         if (!array.has_value()) {

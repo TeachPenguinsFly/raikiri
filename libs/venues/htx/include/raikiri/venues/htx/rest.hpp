@@ -22,12 +22,8 @@ namespace raikiri::venues::htx {
 // buffer; the class stays for the seam a parameterised endpoint will need.
 class RequestBuilder {
 public:
-    // /linear-swap-api/v1/swap_contract_info — the whole USDT-M swap
-    // catalogue in one call, roughly 115 KiB for 276 rows.
     [[nodiscard]] static net::RestRequest contracts() noexcept;
 
-    // /api/v1/timestamp — the venue clock offset, measured before anything is
-    // signed. It answers {"status":"ok","ts":<ms>} with no `data` at all.
     [[nodiscard]] static net::RestRequest server_time() noexcept;
 };
 

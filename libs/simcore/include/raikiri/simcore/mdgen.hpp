@@ -36,13 +36,8 @@ public:
     explicit MdGen(std::uint64_t seed) noexcept;
     MdGen(std::uint64_t seed, const Config& cfg) noexcept;
 
-    // Registers an instrument with its starting mid (in ticks). Stepping an
-    // unregistered instrument is a no-op: there is no sane default price.
     void add_instrument(InstrumentId instrument, PriceTicks initial_mid);
 
-    // One generator tick: walk the mid, prune/refresh quotes, maybe print a
-    // trade. Returns everything the engine emitted — client maker fills ride
-    // along when background flow hits resting client orders.
     [[nodiscard]] SimResult step(Engine& engine, InstrumentId instrument, UnixNanos now);
 
 private:
@@ -59,8 +54,13 @@ private:
 
     [[nodiscard]] std::uint64_t next_random() noexcept;
     [[nodiscard]] std::uint64_t rand_below(std::uint64_t bound) noexcept;
-    void quote_level(Engine& engine, InstrumentId instrument, InstState& st, Side side,
-                     PriceTicks price, UnixNanos now, SimResult& out);
+    void quote_level(Engine& engine,
+                     InstrumentId instrument,
+                     InstState& st,
+                     Side side,
+                     PriceTicks price,
+                     UnixNanos now,
+                     SimResult& out);
 
     std::uint64_t state_[4]{}; // xoshiro256++ state
     Config cfg_{};

@@ -91,9 +91,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself
-    // (unescaped strings live in the parser's own buffer), and handing those
-    // back would break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -144,9 +141,7 @@ std::expected<std::string_view, WireError> num_of(ondemand::value value) {
     if (raw == "null") {
         return std::string_view{};
     }
-    // A quoted token here means Deribit changed a number into a string. That
-    // is a schema event and must be loud: parse_number_e9 would refuse the
-    // quote anyway, but as a dropped message rather than a named error.
+    // A quoted token here means Deribit changed a number into a string.
     if (raw.empty() || raw.front() == '"') {
         return std::unexpected(WireError::WrongType);
     }

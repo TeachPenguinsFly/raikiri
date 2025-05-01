@@ -22,10 +22,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .spot = true,
         .perp = true,
         .ws_order_entry = true, // VERIFIED: ws-fapi (futures) + ws-api (spot)
-        // VERIFIED 2026-08: FIX 4.4/TLS, SPOT ONLY (no futures FIX exists).
-        // Open to any account with FIX_API key permission; Ed25519 required.
-        // Build scope: our only FIX implementation — and only relevant once
-        // spot execution lands (perp-first ships REST+WS).
         .fix_order_entry = true,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,     // futures batch endpoints
@@ -62,10 +58,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
-        // VERIFIED 2026-08: checksum DEPRECATED 2026-06-23 — field still
-        // pushed but fixed to 0, "must no longer be used"; integrity is
-        // seqId/prevSeqId chaining. Validating the old crc32 would resync
-        // forever against a constant zero.
         .book_checksum = false,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 32,
@@ -83,10 +75,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true,
         .book_checksum = false,
         .user_stream = UserStreamModel::AuthSubscribe,
-        // VERIFIED 2026-08: field "text" = mandatory "t-" prefix + max 28
-        // BYTES payload (digits/letters/_/-/.), so "t-<26-char ULID>" fits.
-        // QUIRK: client-id lookup/cancel only within 30 MINUTES of creation
-        // (hard platform rule) — stale orders must cancel by exchange id.
         .max_client_order_id_len = 28,
         .headline_order_rate_per_s = 100,
     };
@@ -147,9 +135,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = false,
         .native_post_only = true, // provisional
         .book_checksum = false,
-        // VERIFIED 2026-08: futures = auth-subscribe (login on contract.mexc
-        // .com/edge, personal channels pushed by default). Spot uses a
-        // different (listenKey-ish) model — revisit when spot exec lands.
         .user_stream = UserStreamModel::AuthSubscribe,
         // VERIFIED: futures externalOid max 32 (error 2030 beyond).
         .max_client_order_id_len = 32,
@@ -170,13 +155,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 40,
         .headline_order_rate_per_s = 0,
     };
-
-    // --- read-only venues -------------------------------------------------
-    // Consumed for reference prices, basis and funding comparison; the
-    // framework does not trade them. The rows below still describe what each
-    // VENUE offers, not what our adapter implements — a caps row that lied
-    // about the venue to describe our progress would be useless the day the
-    // adapter caught up.
 
     table[static_cast<std::size_t>(VenueId::Deribit)] = {
         .venue = VenueId::Deribit,

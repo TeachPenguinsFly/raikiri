@@ -22,22 +22,12 @@ namespace raikiri::venues::bingx {
 
 class RequestBuilder {
 public:
-    // /quote/contracts — the whole perpetual catalogue, roughly 470 KiB for
-    // 1021 rows. An optional `symbol` filters it; nothing here needs that.
     [[nodiscard]] net::RestRequest contracts() noexcept;
 
-    // /server/time — used to measure the venue clock offset before anything is
-    // signed.
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    // /quote/premiumIndex — mark, index, the rate in force and the next
-    // settlement. Scoped to one symbol: unscoped it answers with every
-    // contract, ~300 KiB to learn one rate.
     [[nodiscard]] net::RestRequest premium_index(std::string_view symbol) noexcept;
 
-    // /quote/depth — the snapshot a depth subscription would start from if
-    // anything consumed a book. `limit` must be one of 5/10/20/50/100/500/1000;
-    // anything else is refused with 109400 (VERIFIED).
     [[nodiscard]] net::RestRequest depth(std::string_view symbol, std::uint32_t limit) noexcept;
 
     [[nodiscard]] net::RestRequest ticker(std::string_view symbol) noexcept;

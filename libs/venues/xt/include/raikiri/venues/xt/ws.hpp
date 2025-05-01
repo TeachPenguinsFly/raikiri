@@ -60,11 +60,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // {"method":"subscribe","params":["depth@btc_usdt,5,100ms"],"id":"1"}
-    //
-    // A batch containing one bad topic still subscribes the good ones and
-    // answers with a single error naming only the first failure, so an id per
-    // FRAME is as much correlation as XT offers.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions);
 
@@ -75,8 +70,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     method_frame(std::string_view method, std::span<const Subscription> subscriptions);
 
-    // Sized so a full batch of the longest topic still fits: BufferTooSmall
-    // costs a whole batch of subscriptions, silently.
     std::array<char, 4096> frame_{};
     std::uint64_t next_id_{1};
 };

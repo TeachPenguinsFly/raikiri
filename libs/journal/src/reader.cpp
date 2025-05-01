@@ -1,13 +1,12 @@
-#include <raikiri/journal/reader.hpp>
-
 #include <raikiri/journal/detail.hpp>
-
-#include <new>
+#include <raikiri/journal/reader.hpp>
 
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <new>
 #include <utility>
 
 namespace raikiri::journal {
@@ -112,8 +111,6 @@ bool JournalReader::open_segment(std::uint64_t segment_seq) noexcept {
 
 ReadResult JournalReader::next(FrameView& out) noexcept {
     if (!have_segment_) {
-        // The writer may have created the first segment after open() failed
-        // to find any... or we closed on corruption. Try to (re)enter.
         const auto segments = detail::list_segments(dir_, prefix_);
         if (segments.empty() || !open_segment(segments.front())) {
             return ReadResult::Empty;
@@ -122,8 +119,6 @@ ReadResult JournalReader::next(FrameView& out) noexcept {
 
     const auto committed = header_->committed_bytes.load(std::memory_order_acquire);
     if (read_off_ >= committed) {
-        // Caught up with this segment. Move on only when it is sealed (the
-        // writer rotated away) and the next file exists.
         if (header_->sealed.load(std::memory_order_acquire) != 0 &&
             open_segment(segment_seq_ + 1)) {
             return next(out);
@@ -132,8 +127,6 @@ ReadResult JournalReader::next(FrameView& out) noexcept {
     }
 
     if (!detail::decode_frame(base_, map_size_, read_off_, out)) {
-        // Below the committed watermark a frame must decode; this is real
-        // corruption (bad disk, foreign truncation), not a torn tail.
         return ReadResult::Corrupt;
     }
     read_off_ += frame_bytes(out.payload.size());

@@ -43,8 +43,6 @@ std::uint64_t MdGen::next_random() noexcept {
 }
 
 std::uint64_t MdGen::rand_below(std::uint64_t bound) noexcept {
-    // Modulo bias is acceptable: this randomness shapes scenery, not
-    // statistics — determinism, not uniformity, is the requirement.
     return next_random() % bound;
 }
 
@@ -62,8 +60,6 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     }
     InstState& st = it->second;
 
-    // Integer random walk: -1, 0 or +1 tick per step, floored so the deepest
-    // bid level always stays at a positive price.
     const std::int64_t drift = static_cast<std::int64_t>(rand_below(3)) - 1;
     const std::int64_t floor_ticks = static_cast<std::int64_t>(cfg_.depth) + 2;
     std::int64_t mid = st.mid.raw + drift;
@@ -72,8 +68,6 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     }
     st.mid = PriceTicks::from_raw(mid);
 
-    // Prune pass: forget quotes a taker already consumed, pull quotes that
-    // drifted out of the band, and randomly refresh some for churn.
     const Book* book = engine.book(instrument);
     std::vector<BgOrder> keep;
     keep.reserve(st.orders.size());
@@ -93,9 +87,6 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     }
     st.orders = std::move(keep);
 
-    // Refill pass: one quote per level on both sides. A fresh quote may cross
-    // a client order resting inside the band — those fills (maker events +
-    // trades) accumulate into `out` via the engine.
     for (std::uint32_t lvl = 1; lvl <= cfg_.depth; ++lvl) {
         const std::int64_t d = static_cast<std::int64_t>(lvl);
         quote_level(engine, instrument, st, Side::Buy, PriceTicks::from_raw(mid - d), now, out);
@@ -114,22 +105,24 @@ SimResult MdGen::step(Engine& engine, InstrumentId instrument, UnixNanos now) {
     return out;
 }
 
-void MdGen::quote_level(Engine& engine, InstrumentId instrument, InstState& st, Side side,
-                        PriceTicks price, UnixNanos now, SimResult& out) {
+void MdGen::quote_level(Engine& engine,
+                        InstrumentId instrument,
+                        InstState& st,
+                        Side side,
+                        PriceTicks price,
+                        UnixNanos now,
+                        SimResult& out) {
     for (const BgOrder& order : st.orders) {
         if (order.side == side && order.price == price) {
             return; // level already quoted
         }
     }
-    const std::int64_t jitter =
-        cfg_.level_qty_jitter > 0
-            ? static_cast<std::int64_t>(rand_below(static_cast<std::uint64_t>(cfg_.level_qty_jitter)))
-            : 0;
+    const std::int64_t jitter = cfg_.level_qty_jitter > 0
+                                    ? static_cast<std::int64_t>(rand_below(
+                                          static_cast<std::uint64_t>(cfg_.level_qty_jitter)))
+                                    : 0;
     const QtyLots qty = QtyLots::from_raw(cfg_.level_qty_base + jitter);
-    const std::uint64_t id =
-        engine.place_background_limit(instrument, side, price, qty, now, out);
-    // Track the id even if the quote crossed and fully filled on placement —
-    // the next prune pass drops ids the book no longer contains.
+    const std::uint64_t id = engine.place_background_limit(instrument, side, price, qty, now, out);
     st.orders.push_back(BgOrder{id, side, price});
 }
 

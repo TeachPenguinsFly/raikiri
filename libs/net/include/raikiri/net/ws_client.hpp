@@ -56,9 +56,6 @@ public:
     WsHandler(const WsHandler&) = delete;
     WsHandler& operator=(const WsHandler&) = delete;
 
-    // Connected and ready to send. The adapter re-asserts its desired
-    // subscriptions here — this is the ONLY resubscribe path, so a
-    // reconnect and a cold start take identical code.
     virtual void on_open() = 0;
 
     // Hot path. `payload` is valid only for the duration of the call.
@@ -86,9 +83,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept;
 
-    // Queues a text frame. False when the queue is full, which means the
-    // socket is wedged — the caller treats that as venue-down rather than
-    // waiting, because blocking here would stall the whole gateway loop.
     [[nodiscard]] bool send(std::string_view text);
 
     struct Stats {

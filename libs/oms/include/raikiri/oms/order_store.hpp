@@ -43,8 +43,6 @@ public:
     OrderStore(const OrderStore&) = delete;
     OrderStore& operator=(const OrderStore&) = delete;
 
-    // Allocation failure inside the reserved maps terminates (crash-only, same
-    // policy as fixed-point overflow) — hence noexcept despite the containers.
     [[nodiscard]] std::expected<Order*, StoreError>
     create(const OrderCmd& cmd, const ExchangeClientOrderId& exchange_client_order_id) noexcept;
 
@@ -55,11 +53,6 @@ public:
     [[nodiscard]] Order* find_by_exchange_id(const ExchangeOrderId& id) noexcept;
     [[nodiscard]] const Order* find_by_exchange_id(const ExchangeOrderId& id) const noexcept;
 
-    // Routes by the first id the event carries (client, then exchange-client,
-    // then exchange), binds the venue's ExchangeOrderId into the index on
-    // first sight, applies the event, and retires the order if it went
-    // terminal. See the header comment for the returned pointer's lifetime on
-    // terminal orders.
     [[nodiscard]] std::expected<const Order*, ApplyError>
     apply_event(const OrderEvent& event) noexcept;
 
@@ -67,8 +60,7 @@ public:
 
     [[nodiscard]] std::size_t capacity() const noexcept { return slots_.size(); }
 
-    // Iteration order is unspecified. The callback must not create or retire
-    // orders (it walks the live index).
+    // Iteration order is unspecified.
     template <typename F> void for_each_open(F&& fn) const {
         for (const auto& [id, slot] : by_client_) {
             fn(slots_[slot]);

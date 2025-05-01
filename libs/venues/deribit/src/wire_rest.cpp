@@ -39,10 +39,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             }
             out.instrument_name = *name;
             out.kind = *kind;
-            // settlement_period and option_type are absent on some kinds, and
-            // the numeric steps are absent on none of them — but a row this
-            // layer cannot read at all is still a row the MAPPER should
-            // refuse, not one that kills the whole catalogue.
             for (const auto& [key, field] : {std::pair{"instrument_type", &out.instrument_type},
                                              std::pair{"settlement_period", &out.settlement_period},
                                              std::pair{"option_type", &out.option_type}}) {

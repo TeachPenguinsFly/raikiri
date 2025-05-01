@@ -177,8 +177,6 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
         return std::unexpected{BuildError::NoCredentials};
     }
     if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
-        // GTX on a market order is a contradiction binance answers with a
-        // generic -1102; refusing here names the actual mistake.
         return std::unexpected{BuildError::UnsupportedOrderType};
     }
 
@@ -218,8 +216,6 @@ RequestBuilder::cancel_order(const OrderCmd& cmd, const InstrumentBase& instrume
     }
     Appender q{query_};
     q << "symbol=" << instrument.exchange_symbol.view();
-    // Prefer the venue's own id when we have it; ours is the fallback that
-    // makes a cancel possible before the first ack ever arrived.
     if (!cmd.target_exchange_order_id.empty()) {
         q << "&orderId=" << cmd.target_exchange_order_id.view();
     } else {
@@ -238,8 +234,6 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const InstrumentBase& instrumen
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    // Binance modifies LIMIT orders only, and requires side plus both new
-    // values on every amend — a partial modify is not expressible.
     Appender q{query_};
     q << "symbol=" << instrument.exchange_symbol.view();
     q << "&side=" << side_text(cmd.side);
@@ -268,9 +262,6 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(UnixNano
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    // Account-wide: omitting symbol costs far more rate-limit weight, but a
-    // per-symbol sweep would miss an order on an instrument we no longer
-    // subscribe to, and reconciliation exists precisely for what we lost.
     Appender q{query_};
     q << "recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
     if (!q.ok()) {

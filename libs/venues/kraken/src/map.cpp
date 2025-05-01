@@ -53,8 +53,6 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
             return std::nullopt;
         }
         seen_digit = true;
-        // Leading zeros carry no significance and must not consume the
-        // digit budget: "0.00000000001" is eleven characters of nothing.
         if (out.mantissa != 0 || c != '0') {
             if (++digits > k_max_mantissa_digits) {
                 return std::nullopt;
@@ -176,8 +174,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
 }
 
 std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
-    // Nine is where 1e9 fixed point runs out on one side and where 1e9 * 10^9
-    // still fits int64 on the other; live rows span only -3..4.
     if (precision > 9 || precision < -9) {
         return std::nullopt;
     }
@@ -208,8 +204,6 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
     if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
         return std::nullopt;
     }
-    // Kraken quotes an empty side as a literal zero, and zero divides by any
-    // tick, so "no quote" has to be caught here or it publishes as a price.
     if (bid->raw <= 0 || ask->raw <= 0 || bid_qty->raw <= 0 || ask_qty->raw <= 0) {
         return std::nullopt;
     }
@@ -268,18 +262,10 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
         predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    // markPrice is index-derived, not tradeable, so it lands on a tick only
-    // by coincidence (64113.93588534861 against a tick of 1). Attempted, and
-    // left undefined when it does not divide: rounding would publish a mark
-    // that never existed.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_rate_time_ms, UnixNanos{0});
-    // interval_s stays zero: Kraken publishes only the NEXT settlement time,
-    // never the period, and fundingRateCoefficient (8 on every live row)
-    // scales the rate rather than naming an interval. A guessed 8h would be
-    // invisible when wrong.
     out.ts_event = ms_to_unix(wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -289,16 +275,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!wire.tradeable) {
         return std::nullopt;
     }
-    // Kraken Spot is a different host, symbology and message shape; this
-    // adapter serves Kraken Futures only, so a spot request is declined here
-    // rather than answered with futures rows.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
-    // `type` does NOT separate perpetual from dated — flexible_futures covers
-    // both PF_ and FF_, futures_inverse both PI_ and FI_. Getting a dated
-    // contract back when asking for perps is a position bug, so the venue's
-    // own marker and the symbol prefix both have to agree.
     if (!wire.last_trading_time.empty()) {
         return std::nullopt;
     }
@@ -311,10 +290,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         return std::nullopt; // an absent exponent is not a precision of zero
     }
 
-    // KNOWN LIMIT, not a venue quirk: FixedE9 holds nine fractional digits
-    // and PF_PEPEUSD ticks at 0.0000000001. Refused here, correctly under the
-    // no-rounding rule; reaching it means widening the domain's fixed-point
-    // scale. Two rows of 298 today.
     const auto tick = parse_number_e9(wire.tick_size);
     const auto lot = step_from_precision(wire.contract_value_trade_precision);
     const auto contract = parse_number_e9(wire.contract_size);
@@ -334,15 +309,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // contractSize is 1 on every live row, but the UNIT behind it differs by
-    // family and the domain records it nowhere: a PF_ quantity is base coin
-    // (0.0015 BTC), a PI_ quantity is USD of notional (55146 USD). So
-    // qty * contract_value is a notional for PF_ and meaningless for PI_ —
-    // which is why the two never share a symbol.
     base.contract_value = *contract;
-    // min_notional stays undefined: Kraken's floor is a contract count and
-    // converting it needs a price we do not have. Zero would read as "no
-    // minimum", which is the wrong answer.
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

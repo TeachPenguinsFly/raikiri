@@ -22,13 +22,9 @@ public:
     IoContext(const IoContext&) = delete;
     IoContext& operator=(const IoContext&) = delete;
 
-    // Runs handlers that are ready right now and returns immediately.
-    // Returns how many ran, which the caller may use to decide whether the
-    // loop did useful work this iteration.
     std::size_t poll() noexcept;
 
     // Runs ready handlers, or blocks up to `timeout_ms` waiting for one.
-    // For cold threads only — never the gateway hot loop.
     std::size_t run_for(std::size_t timeout_ms) noexcept;
 
     void stop() noexcept;

@@ -38,19 +38,12 @@ std::string_view stream_path() noexcept {
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Not a quote stream: this republishes on every match, so the BBO it
-        // carries only moves when a trade prints. See map.hpp.
         return "ticker";
     case exec::SubKind::Trades:
         return "matches";
     // Everything below declines, each for a reason that will not change.
     case exec::SubKind::Depth:
-        // level2_batch exists and would fit here, but its snapshot is the
-        // whole book and overruns the transport's frame limit — ws.hpp has
-        // the measurement.
     case exec::SubKind::Funding:
-        // Spot has no funding at all: a property of the venue, not something
-        // left unwritten.
     case exec::SubKind::MarkPrice: // no derivatives here, so no mark
     case exec::SubKind::Kline:     // no websocket candles on this API
         return {};
@@ -65,8 +58,6 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
     }
     const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means channel_for() declined the kind; sending it would
-        // subscribe to the literal "" and earn a "Failed to subscribe".
         if (subscriptions[i].channel.empty() || subscriptions[i].product_id.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
@@ -87,8 +78,6 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
     put(R"(","channels":[)");
     std::size_t emitted = 0;
     for (std::size_t i = 0; i < batch; ++i) {
-        // Quadratic in the batch, which is at most 64 and runs once per
-        // reconnect; a set would cost more than it saves at that size.
         const auto seen_before = [&] {
             for (std::size_t j = 0; j < i; ++j) {
                 if (subscriptions[j].channel == subscriptions[i].channel) {

@@ -52,9 +52,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // Consumes the leading run of subscriptions that share the FIRST entry's
-    // feed and stops at the first one that does not, so a caller sweeping a
-    // mixed list makes progress on every call without reordering it.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions);
 
@@ -65,8 +62,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     event_frame(std::string_view event, std::span<const Subscription> subscriptions);
 
-    // Sized so a full batch of the longest feed/product pair still fits:
-    // BufferTooSmall costs a whole batch of subscriptions, silently.
     std::array<char, 4096> frame_{};
 };
 

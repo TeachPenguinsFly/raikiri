@@ -35,8 +35,6 @@ namespace ondemand = simdjson::ondemand;
 // back points into scratch memory that the next frame overwrites.
 class Session {
 public:
-    // Opens the frame and returns its root object. Anything that is not a
-    // JSON object at the top level is a frame we did not come here to read.
     [[nodiscard]] std::expected<ondemand::object, WireError> open_object(std::string_view frame);
 
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;
@@ -105,8 +103,7 @@ private:
 // people will edit. The catch is the cheap half of that argument, and an
 // exception escaping into a gateway that holds live orders is the expensive
 // half.
-template <typename Fn>
-[[nodiscard]] auto guarded(Fn&& fn) -> decltype(fn()) {
+template <typename Fn> [[nodiscard]] auto guarded(Fn&& fn) -> decltype(fn()) {
     try {
         return std::forward<Fn>(fn)();
     } catch (...) {

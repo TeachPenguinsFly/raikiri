@@ -43,9 +43,7 @@ public:
     RequestBuilder(const RequestBuilder&) = delete;
     RequestBuilder& operator=(const RequestBuilder&) = delete;
 
-    // Order entry. `now` must be venue-aligned time: bybit rejects anything
-    // outside recvWindow of ITS clock, so the caller feeds the clock-sync
-    // corrected value rather than the local one.
+    // Order entry.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
@@ -69,9 +67,6 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
-    // Public: the instrument catalogue needs no credentials, so it is built
-    // unsigned — sending a signature here would only risk leaking a stale one
-    // to an endpoint that never asked for it.
     [[nodiscard]] net::RestRequest instruments(MarketType market);
 
     // Exposed for tests: the exact bytes that go into the HMAC.
@@ -87,10 +82,7 @@ private:
     const net::Signer* signer_;
     std::uint32_t recv_window_ms_;
 
-    // Scratch, reused per build. Sized for the largest payload any of these
-    // endpoints produces, with room to spare — overflow is reported rather
-    // than truncated, because a truncated signed body authenticates as
-    // something we did not mean to send.
+    // Scratch, reused per build.
     std::array<char, 1024> body_{};
     std::array<char, 256> target_{};
     std::array<char, 512> sign_msg_{};

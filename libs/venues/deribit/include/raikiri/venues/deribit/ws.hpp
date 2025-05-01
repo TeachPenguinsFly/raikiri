@@ -75,8 +75,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     channel_frame(std::string_view method, std::span<const Subscription> subscriptions);
 
-    // Sized so a full batch of the longest channel fits: BufferTooSmall costs
-    // a whole batch of subscriptions, silently.
     std::array<char, 2048> frame_{};
     std::int64_t next_id_{1};
 };

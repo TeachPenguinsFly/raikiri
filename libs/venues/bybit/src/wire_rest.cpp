@@ -21,9 +21,6 @@ std::expected<WireRestEnvelope, WireError> parse_envelope(std::string_view body)
         auto obj = *root;
 
         WireRestEnvelope out{};
-        // retCode is the only field that decides whether this response is an
-        // outcome or a refusal, so its absence is a schema failure rather
-        // than something to default.
         const auto code = detail::opt_i64(obj, "retCode");
         if (!code.has_value()) {
             return std::unexpected{code.error()};
@@ -34,9 +31,6 @@ std::expected<WireRestEnvelope, WireError> parse_envelope(std::string_view body)
         obj.reset();
         out.time_ms = detail::opt_u64(obj, "time").value_or(0);
         obj.reset();
-        // "result" is handed on as raw JSON: its shape depends on the
-        // endpoint, and decoding it here would put every endpoint's schema
-        // into one function.
         out.result = detail::opt_raw(obj, "result").value_or(std::string_view{});
         return out;
     });
@@ -56,8 +50,6 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view result) 
         obj.reset();
         out.order_link_id = detail::opt_str(obj, "orderLinkId").value_or(std::string_view{});
         if (out.order_id.empty() && out.order_link_id.empty()) {
-            // An ack that identifies no order cannot be matched to anything
-            // in the store; treating it as success would strand the order.
             return std::unexpected{WireError::MissingField};
         }
         return out;
@@ -102,10 +94,6 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             out.quote_coin = field("quoteCoin");
             out.status = field("status");
 
-            // The two numbers that matter most for correctness live in
-            // NESTED objects, which is exactly the kind of shape a flat
-            // field-by-name loader silently misses — and an instrument
-            // loaded with a zero tick size divides by zero at order time.
             entry.reset();
             if (auto price_filter = detail::req_object(entry, "priceFilter");
                 price_filter.has_value()) {

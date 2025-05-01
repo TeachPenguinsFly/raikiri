@@ -96,9 +96,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself
-    // (unescaped strings live in the parser's own buffer), and handing those
-    // back would break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -174,8 +171,6 @@ std::expected<std::string_view, WireError> num_of(ondemand::value value) {
     if (raw == "null") {
         return std::string_view{};
     }
-    // Rejecting here rather than downstream keeps a quoted or boolean field
-    // from reaching the decimal parser as a token it would have to guess at.
     for (const char c : raw) {
         if (!is_number_char(c)) {
             return std::unexpected(WireError::WrongType);

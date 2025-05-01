@@ -56,9 +56,6 @@ topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char>
 
 class Protocol {
 public:
-    // Builds {"op":"subscribe","args":[...]} from as many of `topics` as fit
-    // in one frame. Returns the frame and how many topics it consumed, so
-    // the caller loops rather than guessing the batch size.
     struct Frame {
         std::string_view text;
         std::size_t consumed{0};
@@ -70,14 +67,9 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const std::string_view> topics);
 
-    // The private-stream handshake. `now` is venue-aligned time; the expiry
-    // sent is now + `validity_ms`, because bybit requires it to be ahead of
-    // its own clock when the frame lands.
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t validity_ms = 5'000);
 
-    // Bybit runs its own application-level ping on top of the websocket
-    // control frame, and drops connections that only answer the latter.
     [[nodiscard]] std::string_view ping_frame() const noexcept { return R"({"op":"ping"})"; }
 
     // Exposed for tests: the exact bytes signed by the last auth_frame.

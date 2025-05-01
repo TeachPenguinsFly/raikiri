@@ -47,25 +47,18 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Owned here rather than by the transport: the socket re-asserts this set
-    // on every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t app_ping_interval_ns{k_default_ping_ms * 1'000'000ULL};
     std::uint64_t next_app_ping_ns{0};
 
-    // The URL is minted per connection, so reconnecting is our job: a socket
-    // retrying on its own would present the same dead token forever.
     bool reopen_due{false};
     std::uint64_t reopen_at_ns{0};
     std::uint64_t connect_seq{0};
 
-    // Measured against /api/v1/timestamp. Unused until signing lands, but a
-    // wrong offset shows up as 400002, which reads like a credentials problem.
+    // Measured against /api/v1/timestamp.
     std::int64_t clock_offset_ns{0};
 
-    // A stream that was never established and one that is merely quiet look
-    // identical from the sink, so refusals are counted rather than inferred.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
@@ -83,8 +76,6 @@ struct VenueState {
         reopen_at_ns = clock->mono().ns + k_reopen_delay_ns;
     }
 
-    // Unique per connection, which is what KuCoin uses to tell reconnects
-    // apart; it echoes this back in the welcome frame.
     [[nodiscard]] std::string next_connect_id() {
         return "raikiri" + std::to_string(clock->wall().ns + connect_seq++);
     }
@@ -108,8 +99,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Trade: {
-        // One frame is one print here; KuCoin does not batch matches the way
-        // okx and binance do.
         const auto wire = parse_trade(frame);
         if (!wire.has_value()) {
             return;
@@ -131,13 +120,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Depth:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // tickerV2, and level2 carries no snapshot to start one from anyway.
         break;
     case EventKind::Error: {
-        // An expired bullet token arrives as an ordinary message on a socket
-        // that stays open and then delivers nothing — the one failure the
-        // transport's own reconnect cannot see, so it is acted on here.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             if (is_expired_token(err->code)) {
@@ -162,8 +146,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path, which is why the transport tracks none of
-        // it. Sorting by topic lets one frame carry every symbol of a kind.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -192,8 +174,6 @@ public:
     }
 
     void on_close(net::WsCloseReason reason) override {
-        // The token that opened this socket may already be dead, so the next
-        // connection is minted rather than retried.
         if (reason != net::WsCloseReason::Requested) {
             state_->schedule_reopen();
         }
@@ -309,16 +289,12 @@ public:
         if (!started_) {
             return;
         }
-        // Acted on here rather than inside on_close: rebuilding the client
-        // from its own callback would destroy the object mid-call.
         if (state_->reopen_due && state_->clock->mono().ns >= state_->reopen_at_ns) {
             state_->reopen_due = false;
             reopen();
         }
         state_->io.poll();
         if (connected() && now.ns >= state_->next_app_ping_ns) {
-            // KuCoin drops a client that answers only websocket control
-            // frames, whatever the traffic on the socket.
             if (const auto frame = state_->protocol.ping_frame(); !frame.empty()) {
                 (void)client_->send(frame);
             }
@@ -327,8 +303,6 @@ public:
     }
 
 private:
-    // poll() is noexcept and this path allocates, so any failure schedules
-    // another attempt instead of terminating a gateway holding live orders.
     void reopen() noexcept {
         try {
             (void)open_stream().has_value(); // failures schedule their own retry
@@ -337,8 +311,6 @@ private:
         }
     }
 
-    // The bullet handshake: one unauthenticated POST naming both the host and
-    // the token that authorises it. Not hoistable to startup — the token expires.
     std::expected<void, exec::VenueError> open_stream() {
         const auto body =
             usable_body(await_response(*state_, rest_, state_->builder.bullet_public(), 10'000));
@@ -377,8 +349,6 @@ private:
         return {};
     }
 
-    // The stream republishes once a minute, so this closes the cold-start gap
-    // and is the one place the venue states its own next settlement time.
     void seed_funding(std::string_view symbol) {
         std::string owned{symbol};
         (void)rest_.send(state_->builder.funding_rate_current(symbol),
@@ -482,8 +452,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay; the offset
-    // only has to be good to a fraction of KuCoin's 5 s signing window.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -498,8 +466,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {
-            // api-futures.kucoin.com carries no spot catalogue at all, so an
-            // empty list would read as "KuCoin lists no spot pairs".
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kucoin futures serves perpetuals only")};
         }
@@ -531,8 +497,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

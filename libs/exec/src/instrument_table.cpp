@@ -25,8 +25,6 @@ std::string_view to_string(TableError err) noexcept {
 
 void InstrumentTable::reserve(std::size_t count) {
     instruments_.reserve(count);
-    // exchange_symbols_ is a deque: it has nothing to reserve and nothing to
-    // invalidate, which is the point.
     by_exchange_symbol_.reserve(count);
 }
 
@@ -44,16 +42,11 @@ std::expected<InstrumentId, TableError> InstrumentTable::add(Instrument instrume
     }
 
     const auto index = static_cast<std::uint32_t>(instruments_.size());
-    // The id is rewritten rather than trusted: the loader that built this
-    // instrument knew the venue and market but not which slot it would land
-    // in, and SymbolId IS that slot.
     const auto id = InstrumentId::make(base.id.venue(), base.id.market(), SymbolId{index});
     std::visit([id](auto& concrete) { concrete.base.id = id; }, instrument);
 
     instruments_.push_back(std::move(instrument));
     exchange_symbols_.push_back(symbol_text);
-    // Keyed on the owned copy, which reserve() keeps stable for the life of
-    // the table.
     by_exchange_symbol_.emplace(exchange_symbols_.back(), index);
     return id;
 }

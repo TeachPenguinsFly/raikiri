@@ -40,15 +40,10 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
 
-    // Owned here rather than by the transport: the socket re-asserts this set
-    // on every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Worth counting twice over here: a refusal also CLOSES the socket, so an
-    // error frame explains a reconnect loop that otherwise reads as a network
-    // problem.
     std::uint64_t subscribe_refusals{0};
 
     void add_subscription(std::string_view channel, std::string_view coin) {
@@ -104,16 +99,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Book:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from the
-        // bbo channel, so maintaining one here would be state kept for its own
-        // sake. That these frames are snapshots rather than deltas is pinned by
-        // tests — it decides whether a consumer ever needs a resync path.
         break;
     case EventKind::Error: {
-        // Terminal for the channel it names AND for every other subscription
-        // on the connection, because the venue closes the socket behind it.
-        // Nothing above the adapter can ask a socket what it failed to
-        // subscribe to, so it is recorded rather than inferred.
         if (parse_stream_error(frame).has_value()) {
             ++state.subscribe_refusals;
         }
@@ -131,8 +118,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path, which is why the transport tracks none of
-        // it. One frame per subscription: there is no args array to batch into.
         for (const auto& entry : state_->desired) {
             const auto frame =
                 state_->protocol.subscribe_frame({.channel = entry.channel, .coin = entry.coin});
@@ -192,8 +177,6 @@ public:
                                                     InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
-            // The venue answers an unknown coin with total silence — no ack,
-            // no error — so this is the only place the mistake is visible.
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
@@ -269,8 +252,6 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        // Empty rather than an error: there are no fills of ours to reconcile,
-        // and a failing pull would look like a broken connection.
         return std::vector<exec::FillReport>{};
     }
 
@@ -337,9 +318,6 @@ public:
         static thread_local AssetBuffer storage;
         const auto wire = parse_meta(response->body, storage);
         if (!wire.has_value()) {
-            // The status alone cannot say this failed — an unsatisfiable query
-            // comes back 200 with `null` — so the parse result decides and the
-            // status only classifies, and takes the venue-code slot.
             const auto reason = is_null_body(response->body)
                                     ? std::string_view{"/info answered null"}
                                     : to_string(wire.error());

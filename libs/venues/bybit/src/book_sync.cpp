@@ -36,7 +36,8 @@ void BookSync::invalidate() noexcept {
     last_seq_ = 0;
 }
 
-bool BookSync::apply_side(std::span<const WireLevel> levels, std::vector<Level>& side,
+bool BookSync::apply_side(std::span<const WireLevel> levels,
+                          std::vector<Level>& side,
                           bool descending) {
     for (const auto& wire : levels) {
         const auto price = exact_steps(wire.price, tick_size_);
@@ -53,8 +54,7 @@ bool BookSync::apply_side(std::span<const WireLevel> levels, std::vector<Level>&
         const bool exists = pos != side.end() && pos->price.raw == level.price.raw;
 
         if (level.size.raw == 0) {
-            // Size zero is bybit's delete. Deleting a level we never had is
-            // normal after a resync, not an error.
+            // Size zero is bybit's delete.
             if (exists) {
                 side.erase(pos);
             }
@@ -85,18 +85,13 @@ SyncResult BookSync::apply(const WireOrderbook& update) {
     }
 
     if (!synced_) {
-        // A delta before any snapshot cannot be applied to anything. Wait
-        // for the snapshot the venue sends after (re)subscribe.
+        // A delta before any snapshot cannot be applied to anything.
         return SyncResult::Ignored;
     }
     if (update.update_id <= last_update_id_) {
         return SyncResult::Ignored; // duplicate or reordered; already applied
     }
     if (update.update_id != last_update_id_ + 1) {
-        // The one invariant bybit gives us is broken: we missed a delta, so
-        // the book we hold is fiction. Drop it rather than patch it — a
-        // plausible-but-wrong book is what gets orders placed into a spread
-        // that does not exist.
         ++gaps_;
         invalidate();
         return SyncResult::GapDetected;

@@ -107,9 +107,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself (unescaped
-    // strings live in the parser's own buffer), and handing those back would
-    // break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -197,14 +194,9 @@ std::expected<std::string_view, WireError> opt_num(ondemand::object& obj, std::s
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
     }
-    // BitMEX writes an unset optional as JSON null (limitDownPrice, expiry on a
-    // perpetual): absent and null mean the same thing to every caller.
     if (raw->empty() || *raw == "null") {
         return std::string_view{};
     }
-    // A quoted value in a numeric column would be a schema change, and passing
-    // it on would hand parse_decimal_e9 a leading quote and earn a silent drop
-    // far from here.
     if (raw->front() == '"' || raw->front() == '{' || raw->front() == '[') {
         return std::unexpected(WireError::WrongType);
     }

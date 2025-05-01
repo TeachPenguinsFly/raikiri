@@ -109,9 +109,6 @@ std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
     if (base == nullptr || scratch_view.data() == nullptr) {
         return {};
     }
-    // Outside the copy means simdjson materialised the bytes itself
-    // (unescaped strings live in the parser's own buffer), and handing those
-    // back would break the lifetime promise wire.hpp makes.
     if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
         static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
         return {};
@@ -252,8 +249,6 @@ std::expected<void, WireError> read_ctx_fields(ondemand::object& ctx, WireAssetC
                                      std::pair{"oraclePx", &out.oracle_price},
                                      std::pair{"prevDayPx", &out.prev_day_price},
                                      std::pair{"openInterest", &out.open_interest}}) {
-        // Optional at the wire layer because a delisted asset ships midPx as
-        // JSON null; the mapper is what refuses a row it cannot use.
         const auto value = opt_str(ctx, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());

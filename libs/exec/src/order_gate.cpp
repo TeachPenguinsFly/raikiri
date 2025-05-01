@@ -14,10 +14,6 @@ void RateLimiter::refill(MonoNanos now) noexcept {
         return;
     }
     const auto elapsed = now.ns - last_refill_ns_;
-    // Integer arithmetic throughout: tokens earned is elapsed * capacity /
-    // window, and the remainder stays owed by advancing the clock only by
-    // what was actually paid for. Rounding it away would leak throughput on
-    // every call and eventually earn the ban this class exists to avoid.
     const auto earned = (elapsed * capacity_) / window_ns_;
     if (earned == 0) {
         return;
@@ -34,8 +30,6 @@ std::expected<void, RateDenied> RateLimiter::take(std::uint32_t cost, MonoNanos 
         return std::unexpected{RateDenied{.retry_after_ns = blocked_until_ns_ - now.ns}};
     }
     if (cost > capacity_) {
-        // Asking for more than the bucket can ever hold would wait forever;
-        // that is a misconfigured cost, not congestion.
         ++denials_;
         return std::unexpected{RateDenied{.retry_after_ns = 0}};
     }
@@ -76,8 +70,6 @@ bool InFlightTable::resolve(ClientOrderId id) noexcept {
     if (it == entries_.end()) {
         return false;
     }
-    // Swap-and-pop: order does not matter and expire() scans the whole table
-    // anyway, so keeping insertion order would buy nothing.
     *it = entries_.back(); // NOLINT: plain aggregate copy
     entries_.pop_back();
     return true;

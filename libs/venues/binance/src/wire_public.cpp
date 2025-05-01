@@ -65,8 +65,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (event->empty()) {
-            // No event type: either an acknowledgement or a refusal, and the
-            // two differ only by the presence of an "error" object.
             const auto err = detail::opt_raw(*root, "error");
             if (!err.has_value()) {
                 return std::unexpected(err.error());
@@ -162,9 +160,6 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
         }
         out.symbol = *symbol;
         out.mark_price = *mark;
-        // Index price and funding rate are absent on contracts that have
-        // neither; empty means "not quoted", which the mapper drops rather
-        // than turning into a zero rate.
         const auto index = detail::opt_str(*root, "i");
         const auto rate = detail::opt_str(*root, "r");
         if (!index.has_value() || !rate.has_value()) {

@@ -120,8 +120,6 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // `code` is a bare number and the text sits in `data`; the REST
-        // envelope spells both the other way round.
         const auto code = detail::opt_i64(*root, "code");
         const auto msg = detail::opt_str(*root, "data");
         if (!code.has_value() || !msg.has_value()) {

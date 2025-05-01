@@ -32,15 +32,10 @@ public:
     JsonWriter& arr_begin() noexcept;
     JsonWriter& arr_end() noexcept;
 
-    // Every value method emits the separator itself, so callers chain
-    // without tracking commas.
     JsonWriter& str(std::string_view key, std::string_view value) noexcept;
     JsonWriter& num(std::string_view key, std::int64_t value) noexcept;
     JsonWriter& boolean(std::string_view key, bool value) noexcept;
 
-    // A 1e9-scaled fixed-point value as a JSON *string* — which is what
-    // every venue of the eight expects for prices and quantities, and what
-    // keeps precision exact end to end.
     JsonWriter& decimal(std::string_view key, FixedE9 value) noexcept;
 
     // Same, but rendered unquoted for the venues that want a JSON number.

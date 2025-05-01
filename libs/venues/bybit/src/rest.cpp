@@ -1,6 +1,5 @@
-#include <raikiri/venues/bybit/rest.hpp>
-
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bybit/rest.hpp>
 
 #include <charconv>
 #include <cstring>
@@ -17,8 +16,9 @@ constexpr std::string_view k_hdr_recv = "X-BAPI-RECV-WINDOW";
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     const auto [end, ec] = std::to_chars(out.data(), out.data() + out.size(), value);
-    return ec == std::errc{} ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
-                             : std::string_view{};
+    return ec == std::errc{}
+               ? std::string_view{out.data(), static_cast<std::size_t>(end - out.data())}
+               : std::string_view{};
 }
 
 // Appends into a fixed buffer, reporting overflow rather than truncating: a
@@ -38,6 +38,7 @@ public:
     }
 
     [[nodiscard]] bool ok() const noexcept { return !overflow_; }
+
     [[nodiscard]] std::string_view view() const noexcept { return {buf_.data(), len_}; }
 
 private:
@@ -107,9 +108,7 @@ RequestBuilder::signed_post(std::string_view target, std::string_view body, Unix
     const auto ts = render_u64(now.ns / 1'000'000ULL, timestamp_);
     const auto recv = render_u64(recv_window_ms_, recv_window_text_);
 
-    // Bare concatenation, no separators. The body must be byte-identical to
-    // what is actually sent — signing a re-serialised copy is how signatures
-    // drift from payloads.
+    // Bare concatenation, no separators.
     Appender msg{sign_msg_};
     msg << ts << signer_->api_key() << recv << body;
     if (!msg.ok()) {
@@ -141,9 +140,6 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     const auto ts = render_u64(now.ns / 1'000'000ULL, timestamp_);
     const auto recv = render_u64(recv_window_ms_, recv_window_text_);
 
-    // GET signs the QUERY STRING in place of the body, and without its
-    // leading '?'. This asymmetry with POST is the single most common way to
-    // produce a signature bybit rejects as a generic auth failure.
     Appender msg{sign_msg_};
     msg << ts << signer_->api_key() << recv << query;
     if (!msg.ok()) {
@@ -173,9 +169,8 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     return request;
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& table,
-                             UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
+    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -189,8 +184,6 @@ RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& t
         .str("symbol", symbol)
         .str("side", side_text(cmd.side))
         .str("orderType", cmd.order_type == OrderType::Market ? "Market" : "Limit")
-        // Quantities and prices go out as decimal strings rendered straight
-        // from fixed-point, never through a float.
         .decimal("qty", base.lots_to_qty(cmd.qty));
     if (cmd.order_type == OrderType::Limit) {
         json.decimal("price", base.ticks_to_price(cmd.price));
@@ -208,21 +201,15 @@ RequestBuilder::create_order(const OrderCmd& cmd, const exec::InstrumentTable& t
     return signed_post("/v5/order/create", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table,
-                             UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
+    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
         return std::unexpected{BuildError::UnknownInstrument};
     }
 
     net::JsonWriter json{body_};
-    json.obj_begin()
-        .str("category", category_of(cmd.instrument.market()))
-        .str("symbol", symbol);
-    // Prefer the venue's own id when we have it. Bybit resolves orderLinkId
-    // only within 30 minutes of creation on some products, so an exchange id
-    // is the more durable handle whenever the ack has already bound one.
+    json.obj_begin().str("category", category_of(cmd.instrument.market())).str("symbol", symbol);
     if (!cmd.target_exchange_order_id.empty()) {
         json.str("orderId", cmd.target_exchange_order_id.view());
     } else {
@@ -236,9 +223,8 @@ RequestBuilder::cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& t
     return signed_post("/v5/order/cancel", json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table,
-                            UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
+    const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -247,16 +233,12 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& ta
     const auto symbol = table.exchange_symbol(cmd.instrument);
 
     net::JsonWriter json{body_};
-    json.obj_begin()
-        .str("category", category_of(cmd.instrument.market()))
-        .str("symbol", symbol);
+    json.obj_begin().str("category", category_of(cmd.instrument.market())).str("symbol", symbol);
     if (!cmd.target_exchange_order_id.empty()) {
         json.str("orderId", cmd.target_exchange_order_id.view());
     } else {
         json.str("orderLinkId", cmd.exchange_client_order_id.view());
     }
-    // Bybit amends only the fields present, so sending an unset price would
-    // rewrite it to zero rather than leave it alone.
     if (!cmd.qty.is_undef()) {
         json.decimal("qty", base.lots_to_qty(cmd.qty));
     }
@@ -274,7 +256,10 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTable& ta
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketType market,
                                                                        UnixNanos now) {
     net::JsonWriter json{body_};
-    json.obj_begin().str("category", category_of(market)).str("settleCoin", k_settle_coin).obj_end();
+    json.obj_begin()
+        .str("category", category_of(market))
+        .str("settleCoin", k_settle_coin)
+        .obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -308,7 +293,7 @@ RequestBuilder::executions(MarketType market, UnixNanos since, UnixNanos now) {
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
-                                                                       UnixNanos now) {
+                                                                      UnixNanos now) {
     Appender query{body_};
     query << "category=" << category_of(market) << "&settleCoin=" << k_settle_coin;
     if (!query.ok()) {
@@ -324,8 +309,6 @@ net::RestRequest RequestBuilder::instruments(MarketType market) {
     net::RestRequest request{};
     request.method = net::HttpMethod::Get;
     request.target = target.view();
-    // No credentials: the catalogue is public, and attaching a signature
-    // would only risk leaking a stale one to an endpoint that never asked.
     return request;
 }
 

@@ -56,10 +56,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // {"type":"subscribe","channels":[{"name":"ticker","product_ids":[..]}]}
-    // Entries sharing a channel are merged into one product list, because the
-    // ack comes back in that shape and a repeated channel name reads as a
-    // second subscription to the operator interface.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions);
 
@@ -70,8 +66,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     op_frame(std::string_view type, std::span<const Subscription> subscriptions);
 
-    // Sized so a full batch of hyphenated product ids still fits:
-    // BufferTooSmall costs a whole batch of subscriptions, silently.
     std::array<char, 8192> frame_{};
 };
 

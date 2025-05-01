@@ -37,10 +37,6 @@ std::string_view stream_path() noexcept {
 
 std::string_view feed_for(exec::SubKind kind) noexcept {
     switch (kind) {
-    // One feed answers three kinds: a `ticker` frame carries the touch,
-    // markPrice, index and funding together, so a BBO subscription delivers
-    // funding whether or not anyone asked. `ticker_lite` is cheaper and
-    // deliberately unused: it drops the reason this venue is here.
     case exec::SubKind::Bbo:
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
@@ -61,8 +57,6 @@ Protocol::event_frame(std::string_view event, std::span<const Subscription> subs
         return std::unexpected{WsBuildError::NothingToSend};
     }
     const auto feed = subscriptions.front().feed;
-    // Empty means feed_for() declined the kind; sending it would subscribe to
-    // the literal "" and earn an alert.
     if (feed.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }

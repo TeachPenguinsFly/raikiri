@@ -15,8 +15,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // Required, not optional: zero is success, so a body whose envelope
-        // cannot be read must never be mistaken for a body that said 0.
         const auto code = detail::req_i64(*root, "code");
         const auto msg = detail::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
@@ -52,8 +50,6 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            // The precisions ARE the steps (see wire.hpp), so a row missing
-            // one fails the load rather than becoming a tick size of 1.
             const auto price_precision = detail::req_i64(obj, "pricePrecision");
             const auto quantity_precision = detail::req_i64(obj, "quantityPrecision");
             const auto status = detail::opt_i64(obj, "status");
@@ -86,8 +82,6 @@ std::expected<WirePremiumIndex, WireError> parse_premium_index(std::string_view 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // Scoped to a symbol, `data` is an object; unscoped it is an array of
-        // every contract, ~300 KiB to learn one rate.
         auto data = detail::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());

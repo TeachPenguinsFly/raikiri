@@ -37,8 +37,6 @@ class Session {
 public:
     [[nodiscard]] std::expected<ondemand::object, WireError> open_object(std::string_view frame);
 
-    // REST answers a successful read with a bare array, so the array case is a
-    // first-class entry point rather than a field lookup.
     [[nodiscard]] std::expected<ondemand::array, WireError> open_array(std::string_view frame);
 
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;

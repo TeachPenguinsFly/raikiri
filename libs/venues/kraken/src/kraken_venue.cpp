@@ -44,19 +44,11 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open. Grouped by feed because a
-    // subscribe frame names one feed and many products.
     std::vector<OwnedSubscription> desired;
 
-    // Venue clock offset, from the `serverTime` riding on the catalogue read.
-    // Unused while this venue stays read-only, but a large offset is the first
-    // sign the box's clock drifted.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established
-    // and a stream that is merely quiet look identical from the sink, which
-    // is why the refusal is counted rather than inferred.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
 
     void add_subscription(std::string_view feed, std::string_view product_id) {
@@ -65,8 +57,6 @@ struct VenueState {
                 return; // refcounting lives in the gateway core; this is a set
             }
         }
-        // Grouped insert: a frame carries one feed, so keeping like with like
-        // makes a resubscribe cost one frame per feed, not one per product.
         const auto after_feed = std::ranges::find_if(
             desired, [&](const OwnedSubscription& entry) { return entry.feed != feed; });
         desired.insert(
@@ -87,8 +77,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        // One frame, two data types: Kraken bundles top of book with the
-        // funding fields, so a ticker subscription feeds both sinks.
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
@@ -104,8 +92,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        // A trade_snapshot replays the last 100 prints; dropping the tail
-        // would lose real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -115,13 +101,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Book:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // the ticker feed. The seq chain it needs is already pinned by tests.
         break;
     case EventKind::Alert:
-        // A refused subscription is terminal for the feed it names, and
-        // silence is exactly how it would otherwise present. Nothing above the
-        // adapter can ask a socket what it failed to subscribe to.
         if (parse_stream_alert(frame).has_value()) {
             ++state.subscribe_refusals;
         }
@@ -138,8 +119,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -192,8 +171,6 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         if (state_->testnet) {
-            // Kraken retired the demo host, so a testnet run that "worked"
-            // would be a production socket wearing the wrong label.
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
         }
@@ -226,8 +203,6 @@ public:
         }
         const auto before = state_->desired.size();
         state_->add_subscription(feed, symbol);
-        // Bbo, Funding and MarkPrice all resolve to `ticker`, so the second
-        // and third asks are already satisfied.
         if (state_->desired.size() == before) {
             return {};
         }
@@ -244,8 +219,6 @@ public:
         if (!started_) {
             return;
         }
-        // No application keepalive: Kraken refuses {"event":"ping"} and relies
-        // on websocket control frames, which WsClient already sends.
         state_->io.poll();
     }
 
@@ -291,8 +264,6 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        // Empty rather than an error: this venue has no fills of ours to
-        // reconcile, and a failing pull would look like a broken connection.
         return std::vector<exec::FillReport>{};
     }
 
@@ -347,9 +318,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {
-            // Kraken Spot is a separate API surface and no part of this
-            // adapter reads it; futures rows would be a worse answer than
-            // failing.
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kraken adapter serves futures only")};
         }
@@ -371,8 +339,6 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
         }
         if (!envelope->ok) {
-            // venue_code stays 0: Kraken has no numeric code anywhere in an
-            // error body, and inventing one would make the field lie.
             return std::unexpected{
                 exec::VenueError::make(classify(envelope->error), 0, envelope->error)};
         }
@@ -404,8 +370,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

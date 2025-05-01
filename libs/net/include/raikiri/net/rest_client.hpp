@@ -30,7 +30,7 @@ enum class HttpMethod : std::uint8_t { Get, Post, Put, Delete };
 struct RestConfig {
     std::string host;
     std::string port{"443"};
-    std::size_t pool_size{2};        // warm connections held open
+    std::size_t pool_size{2}; // warm connections held open
     std::uint32_t timeout_ms{5'000};
     std::uint32_t connect_timeout_ms{3'000};
     bool verify_tls{true};
@@ -43,9 +43,9 @@ struct HttpHeader {
 
 struct RestRequest {
     HttpMethod method{HttpMethod::Post};
-    std::string_view target;                  // "/v5/order/create?a=b"
-    std::string_view body;                    // JSON, usually from JsonWriter
-    std::vector<HttpHeader> headers;          // signature, api key, timestamps
+    std::string_view target;         // "/v5/order/create?a=b"
+    std::string_view body;           // JSON, usually from JsonWriter
+    std::vector<HttpHeader> headers; // signature, api key, timestamps
     std::string_view content_type{"application/json"};
 };
 
@@ -75,15 +75,10 @@ public:
     void start();
     void stop();
 
-    // Sends as soon as a pooled connection is free. Returns false only when
-    // the in-flight limit is reached, which means the venue is not draining
-    // — venue-down, not something to queue behind.
     [[nodiscard]] bool send(const RestRequest& request, RestCallback on_complete);
 
     [[nodiscard]] std::size_t in_flight() const noexcept;
 
-    // Keeps idle sockets from being reaped by the venue's idle timeout.
-    // Called from the gateway's slow cadence.
     void keepalive(UnixNanos now);
 
 private:

@@ -15,8 +15,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // req_str, so a body without a readable code is an error rather than
-        // an empty string the caller might compare against "00000" and lose.
         const auto code = detail::req_str(*root, "code");
         const auto msg = detail::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
@@ -82,8 +80,6 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // /api/v2/public/time answers with a bare object, not the
-        // single-element array the market endpoints use.
         auto data = detail::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
@@ -146,9 +142,6 @@ std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body,
             return std::unexpected(data.error());
         }
         WireBooks out{};
-        // A REST read is always a full book and names no instrument, so the
-        // caller supplies the symbol it asked for. Reporting snapshot=false
-        // here would invite chaining it onto a stream it shares no seq with.
         out.snapshot = true;
         if (const auto ok = detail::read_book_body(*data, storage, out); !ok.has_value()) {
             return std::unexpected(ok.error());

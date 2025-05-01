@@ -1,8 +1,8 @@
+#include <raikiri/net/io_context.hpp>
+#include <raikiri/net/trust_store.hpp>
 #include <raikiri/net/ws_client.hpp>
 
-#include <raikiri/net/trust_store.hpp>
-
-#include <raikiri/net/io_context.hpp>
+#include <openssl/ssl.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -16,9 +16,6 @@
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
-
-#include <openssl/ssl.h>
-
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -100,24 +97,11 @@ namespace detail {
 class WsSession : public std::enable_shared_from_this<WsSession> {
 public:
     WsSession(asio::io_context& ioc, WsConfig config, WsHandler& handler)
-        : ioc_{ioc},
-          cfg_{std::move(config)},
-          handler_{handler},
-          tls_{ssl::context::tls_client},
-          resolver_{ioc},
-          ping_timer_{ioc},
-          reconnect_timer_{ioc},
-          backoff_ms_{cfg_.reconnect_min_ms},
-          rng_{static_cast<std::minstd_rand::result_type>(
-              reinterpret_cast<std::uintptr_t>(this) | 1U)} {
+        : ioc_{ioc}, cfg_{std::move(config)}, handler_{handler}, tls_{ssl::context::tls_client},
+          resolver_{ioc}, ping_timer_{ioc}, reconnect_timer_{ioc},
+          backoff_ms_{cfg_.reconnect_min_ms}, rng_{static_cast<std::minstd_rand::result_type>(
+                                                  reinterpret_cast<std::uintptr_t>(this) | 1U)} {
         if (cfg_.verify_tls) {
-            // The trust store is resolved explicitly rather than trusting
-            // OpenSSL's compiled-in path: for a package-manager build that
-            // path belongs to the build machine and does not exist here, and
-            // the resulting handshake failure names the PEER, which reads
-            // like the venue's problem rather than ours. Failure to find one
-            // surfaces as a handshake failure, not an exception out of a
-            // constructor.
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
             if (!trust.file.empty()) {
@@ -134,8 +118,6 @@ public:
         } else {
             tls_.set_verify_mode(ssl::verify_none);
         }
-        // Venues reject a Host header carrying the default port; test servers
-        // on ephemeral ports need it.
         host_header_ = cfg_.port == "443" ? cfg_.host : cfg_.host + ":" + cfg_.port;
     }
 
@@ -155,17 +137,13 @@ public:
         running_ = false;
         reconnect_timer_.cancel();
         if (state_ == State::Idle) {
-            // Idempotent: a second stop() must not synthesize a second
-            // on_close. Bumping the generation still disarms a reconnect
-            // handler that expired in the same poll as the cancel.
+            // Idempotent: a second stop() must not synthesize a second on_close.
             ++generation_;
             return;
         }
         close_with(WsCloseReason::Requested);
     }
 
-    // Destructor path only: no callback may fire from here, because the
-    // handler reference is the caller's and the caller is going away.
     void shutdown() noexcept {
         dead_ = true;
         running_ = false;
@@ -208,8 +186,6 @@ private:
         Open,
     };
 
-    // One per connection attempt. Owns everything the kernel might still be
-    // reading from or writing into, so abandoning it is always safe.
     struct Conn {
         Conn(asio::io_context& ioc, ssl::context& tls, std::size_t max_bytes)
             : stream{ioc.get_executor(), tls}, buffer{max_bytes} {}
@@ -219,7 +195,8 @@ private:
         std::string write_buf;
     };
 
-    [[nodiscard]] bool current(std::uint64_t gen, const std::shared_ptr<Conn>& conn) const noexcept {
+    [[nodiscard]] bool current(std::uint64_t gen,
+                               const std::shared_ptr<Conn>& conn) const noexcept {
         return !dead_ && gen == generation_ && conn == conn_;
     }
 
@@ -229,14 +206,17 @@ private:
         conn_ = std::make_shared<Conn>(ioc_, tls_, cfg_.max_message_bytes);
         state_ = State::Resolving;
         resolver_.async_resolve(
-            cfg_.host, cfg_.port,
-            [self = shared_from_this(), gen, conn = conn_](const beast::error_code& ec,
-                                                           const tcp::resolver::results_type& results) {
+            cfg_.host,
+            cfg_.port,
+            [self = shared_from_this(), gen, conn = conn_](
+                const beast::error_code& ec, const tcp::resolver::results_type& results) {
                 self->on_resolve(gen, conn, ec, results);
             });
     }
 
-    void on_resolve(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec,
+    void on_resolve(std::uint64_t gen,
+                    const std::shared_ptr<Conn>& conn,
+                    const beast::error_code& ec,
                     const tcp::resolver::results_type& results) {
         if (!current(gen, conn)) {
             return;
@@ -246,20 +226,18 @@ private:
             return;
         }
         state_ = State::Connecting;
-        // WsConfig carries no connect deadline. pong_timeout_ms is its only
-        // "how long do we wait for this venue to answer" knob, so it doubles
-        // as the setup deadline; a venue that cannot complete a handshake in
-        // the time it is allowed to answer a ping is down.
+        // WsConfig carries no connect deadline.
         auto& lowest = beast::get_lowest_layer(conn->stream);
         lowest.expires_after(std::chrono::milliseconds{cfg_.pong_timeout_ms});
-        lowest.async_connect(results, [self = shared_from_this(), gen, conn](
-                                          const beast::error_code& connect_ec, const tcp::endpoint&) {
-            self->on_connect(gen, conn, connect_ec);
-        });
+        lowest.async_connect(results,
+                             [self = shared_from_this(), gen, conn](
+                                 const beast::error_code& connect_ec, const tcp::endpoint&) {
+                                 self->on_connect(gen, conn, connect_ec);
+                             });
     }
 
-    void on_connect(std::uint64_t gen, const std::shared_ptr<Conn>& conn,
-                    const beast::error_code& ec) {
+    void
+    on_connect(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec) {
         if (!current(gen, conn)) {
             return;
         }
@@ -268,9 +246,6 @@ private:
             return;
         }
         state_ = State::TlsHandshake;
-        // Without SNI the venue's edge cannot pick a certificate and aborts
-        // the handshake — the single most common cause of a client that works
-        // against a test server and dies against production.
         if (!is_ip_literal(cfg_.host) &&
             SSL_set_tlsext_host_name(conn->stream.next_layer().native_handle(),
                                      cfg_.host.c_str()) != 1) {
@@ -293,15 +268,10 @@ private:
             return;
         }
         state_ = State::WsHandshake;
-        // Hand the deadline over to beast's websocket timer: the tcp_stream
-        // timer and the websocket timer fight if both are armed.
         beast::get_lowest_layer(conn->stream).expires_never();
 
         websock::stream_base::timeout timeout{};
         timeout.handshake_timeout = std::chrono::milliseconds{cfg_.pong_timeout_ms};
-        // Our own ping cadence drives liveness (see on_ping_timer). Beast's
-        // idle timer would run a second, uncoordinated one and close the
-        // socket out from under the state machine.
         timeout.idle_timeout = websock::stream_base::none();
         timeout.keep_alive_pings = false;
         conn->stream.set_option(timeout);
@@ -311,10 +281,6 @@ private:
         conn->stream.set_option(websock::stream_base::decorator([](websock::request_type& req) {
             req.set(beast::http::field::user_agent, k_user_agent);
         }));
-        // Raw `this` is safe: the callback only runs inside a read on this
-        // stream, and that read's handler holds a shared_ptr to the session.
-        // Capturing shared_from_this() here would instead create a cycle,
-        // since the stream that owns the callback is owned by the session.
         conn->stream.control_callback([this](websock::frame_type kind, beast::string_view) {
             if (kind == websock::frame_type::pong) {
                 awaiting_pong_ = false;
@@ -322,13 +288,15 @@ private:
         });
 
         conn->stream.async_handshake(
-            host_header_, cfg_.target,
+            host_header_,
+            cfg_.target,
             [self = shared_from_this(), gen, conn](const beast::error_code& ws_ec) {
                 self->on_ws_handshake(gen, conn, ws_ec);
             });
     }
 
-    void on_ws_handshake(std::uint64_t gen, const std::shared_ptr<Conn>& conn,
+    void on_ws_handshake(std::uint64_t gen,
+                         const std::shared_ptr<Conn>& conn,
                          const beast::error_code& ec) {
         if (!current(gen, conn)) {
             return;
@@ -343,14 +311,9 @@ private:
         writing_ = false;
         ping_pending_ = false;
 
-        // on_open before the read loop: the adapter re-asserts subscriptions
-        // from here, and it must be able to send() while it does.
         try {
             handler_.on_open();
         } catch (...) {
-            // A handler that cannot replay its subscriptions has nothing to
-            // do with the socket, so this is not Transport. Close and let the
-            // backoff give it another try with a clean stream.
             close_with(WsCloseReason::ProtocolError);
             return;
         }
@@ -363,13 +326,16 @@ private:
     }
 
     void do_read(std::uint64_t gen, const std::shared_ptr<Conn>& conn) {
-        conn->stream.async_read(conn->buffer, [self = shared_from_this(), gen, conn](
-                                                  const beast::error_code& ec, std::size_t bytes) {
-            self->on_read(gen, conn, ec, bytes);
-        });
+        conn->stream.async_read(
+            conn->buffer,
+            [self = shared_from_this(), gen, conn](const beast::error_code& ec, std::size_t bytes) {
+                self->on_read(gen, conn, ec, bytes);
+            });
     }
 
-    void on_read(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec,
+    void on_read(std::uint64_t gen,
+                 const std::shared_ptr<Conn>& conn,
+                 const beast::error_code& ec,
                  std::size_t bytes) {
         if (!current(gen, conn)) {
             return;
@@ -386,9 +352,6 @@ private:
             close_with(WsCloseReason::Transport);
             return;
         }
-        // Any inbound frame proves the peer is alive, not just a pong. Venues
-        // under load answer pings late but keep streaming book updates, and
-        // dropping those connections is self-inflicted downtime.
         awaiting_pong_ = false;
         if (bytes > cfg_.max_message_bytes) {
             close_with(WsCloseReason::ProtocolError);
@@ -396,9 +359,6 @@ private:
         }
         ++stats_.messages_received;
 
-        // flat_buffer is contiguous, so the handler gets one view with no
-        // copy. It is invalidated by the consume() below, which is exactly
-        // the contract on_message publishes.
         const auto data = conn->buffer.data();
         handler_.on_message(std::string_view{static_cast<const char*>(data.data()), data.size()},
                             clock_.wall());
@@ -406,9 +366,7 @@ private:
         do_read(gen, conn);
     }
 
-    // Beast forbids overlapping writes, and async_ping is a write. One flag
-    // serialises both, with the ping jumping the queue because liveness must
-    // not sit behind a backlog that is itself the symptom.
+    // Beast forbids overlapping writes, and async_ping is a write.
     void drain_writes() {
         if (dead_ || state_ != State::Open || writing_ || !conn_) {
             return;
@@ -418,31 +376,29 @@ private:
         if (ping_pending_) {
             ping_pending_ = false;
             writing_ = true;
-            conn->stream.async_ping(websock::ping_data{},
-                                    [self = shared_from_this(), gen, conn](const beast::error_code& ec) {
-                                        self->on_write(gen, conn, ec, true);
-                                    });
+            conn->stream.async_ping(
+                websock::ping_data{},
+                [self = shared_from_this(), gen, conn](const beast::error_code& ec) {
+                    self->on_write(gen, conn, ec, true);
+                });
             return;
         }
         if (send_queue_.empty()) {
             return;
         }
-        // The payload moves into the Conn so that a write left in flight on an
-        // abandoned socket cannot outlive the buffer it points at. The price
-        // is that a message in flight when a connection dies is lost, which is
-        // the right trade: on_open replays subscriptions anyway, and a stale
-        // request answered after a reconnect is worse than one never sent.
         conn->write_buf = std::move(send_queue_.front());
         send_queue_.pop_front();
         writing_ = true;
-        conn->stream.async_write(asio::buffer(conn->write_buf),
-                                 [self = shared_from_this(), gen, conn](const beast::error_code& ec,
-                                                                        std::size_t) {
-                                     self->on_write(gen, conn, ec, false);
-                                 });
+        conn->stream.async_write(
+            asio::buffer(conn->write_buf),
+            [self = shared_from_this(), gen, conn](const beast::error_code& ec, std::size_t) {
+                self->on_write(gen, conn, ec, false);
+            });
     }
 
-    void on_write(std::uint64_t gen, const std::shared_ptr<Conn>& conn, const beast::error_code& ec,
+    void on_write(std::uint64_t gen,
+                  const std::shared_ptr<Conn>& conn,
+                  const beast::error_code& ec,
                   bool was_ping) {
         if (!current(gen, conn)) {
             return;
@@ -458,10 +414,6 @@ private:
         drain_writes();
     }
 
-    // Two-phase on one timer: fire at ping_interval to send, fire again at
-    // pong_timeout to judge. A single interval timer would only notice a dead
-    // peer one full interval late, which for a 20s cadence is 20s of stale
-    // book being treated as live.
     void arm_ping_timer(bool awaiting) {
         const auto delay = awaiting ? cfg_.pong_timeout_ms : cfg_.ping_interval_ms;
         ping_timer_.expires_after(std::chrono::milliseconds{delay});
@@ -494,17 +446,14 @@ private:
         if (state_ == State::Idle) {
             return;
         }
-        const bool was_stable = state_ == State::Open &&
-                                clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
+        const bool was_stable =
+            state_ == State::Open && clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
         state_ = State::Idle;
         ++generation_;
         writing_ = false;
         ping_pending_ = false;
         ping_timer_.cancel();
         if (conn_) {
-            // Hard close, not a websocket close handshake: a peer that just
-            // failed us has no reason to answer one, and the graceful path
-            // would park the reconnect behind a timeout we already paid once.
             beast::get_lowest_layer(conn_->stream).close();
             conn_.reset();
         }
@@ -516,8 +465,6 @@ private:
             try {
                 handler_.on_close(reason);
             } catch (...) {
-                // A handler that throws out of on_close must not take the
-                // reconnect down with it.
             }
         }
         if (running_ && !dead_) {
@@ -532,15 +479,10 @@ private:
         const std::uint32_t base = backoff_ms_;
         backoff_ms_ = base >= cfg_.reconnect_max_ms / 2 ? cfg_.reconnect_max_ms : base * 2;
 
-        // Jitter over a quarter of the window. Eight adapters that lost the
-        // same venue must not come back in lockstep and hand it a thundering
-        // herd, but the cadence still has to be legible to an operator
-        // reading logs, which full jitter is not.
+        // Jitter over a quarter of the window.
         const std::uint32_t spread = base / 4 + 1;
         const auto jitter = static_cast<std::uint32_t>(rng_() % spread);
 
-        // Counted on the attempt, not the success: an adapter watching this
-        // number wants to see churn even while the venue is refusing us.
         ++stats_.reconnects;
         reconnect_timer_.expires_after(std::chrono::milliseconds{base + jitter});
         reconnect_timer_.async_wait(
@@ -587,8 +529,8 @@ struct WsClient::Impl {
 };
 
 WsClient::WsClient(IoContext& io, WsConfig config, WsHandler& handler)
-    : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()), std::move(config),
-                                   handler)} {}
+    : impl_{std::make_unique<Impl>(
+          *static_cast<asio::io_context*>(io.native()), std::move(config), handler)} {}
 
 WsClient::~WsClient() {
     impl_->session->shutdown();

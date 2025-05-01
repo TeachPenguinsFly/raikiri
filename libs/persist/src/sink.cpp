@@ -1,8 +1,7 @@
 #include <raikiri/persist/sink.hpp>
 
-#include <pqxx/pqxx>
-
 #include <fstream>
+#include <pqxx/pqxx>
 #include <sstream>
 
 namespace raikiri::persist {
@@ -51,33 +50,50 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 " exec_id, ts_event, ts_recorded)"
                 " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12)"
                 " ON CONFLICT (journal, journal_seq) DO NOTHING",
-                pqxx::params{journal, r.journal_seq, r.client_order_id, r.event_type,
-                             r.instrument_id, r.price_ticks, r.qty_lots, r.leaves_lots, r.fee_e9,
-                             r.exec_id, r.ts_event, r.ts_recorded});
+                pqxx::params{journal,
+                             r.journal_seq,
+                             r.client_order_id,
+                             r.event_type,
+                             r.instrument_id,
+                             r.price_ticks,
+                             r.qty_lots,
+                             r.leaves_lots,
+                             r.fee_e9,
+                             r.exec_id,
+                             r.ts_event,
+                             r.ts_recorded});
     }
 
     for (const auto& r : batch.order_upserts) {
-        // Later events win on ts; empty strings never clobber known ids and
-        // an empty status keeps the existing projection status.
-        tx.exec(
-            "INSERT INTO raikiri.orders (client_order_id, exchange_client_order_id,"
-            " exchange_order_id, instrument_id, side, order_type, tif, flags, price_ticks,"
-            " qty_lots, leaves_lots, status, ts_created, ts_updated)"
-            " VALUES ($1,NULLIF($2,''),NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,"
-            "         COALESCE(NULLIF($12,''),'initialized'),$13,$13)"
-            " ON CONFLICT (client_order_id) DO UPDATE SET"
-            "  exchange_client_order_id ="
-            "    COALESCE(raikiri.orders.exchange_client_order_id, EXCLUDED.exchange_client_order_id),"
-            "  exchange_order_id = COALESCE(NULLIF(EXCLUDED.exchange_order_id,''),"
-            "                               raikiri.orders.exchange_order_id),"
-            "  leaves_lots = EXCLUDED.leaves_lots,"
-            "  status = CASE WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = ''"
-            "                THEN raikiri.orders.status ELSE EXCLUDED.status END,"
-            "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated)"
-            " WHERE EXCLUDED.ts_updated >= raikiri.orders.ts_updated",
-            pqxx::params{r.client_order_id, r.exchange_client_order_id, r.exchange_order_id,
-                         r.instrument_id, r.side, r.order_type, r.tif, r.flags, r.price_ticks,
-                         r.qty_lots, r.leaves_lots, r.status, r.ts_event});
+        tx.exec("INSERT INTO raikiri.orders (client_order_id, exchange_client_order_id,"
+                " exchange_order_id, instrument_id, side, order_type, tif, flags, price_ticks,"
+                " qty_lots, leaves_lots, status, ts_created, ts_updated)"
+                " VALUES ($1,NULLIF($2,''),NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,"
+                "         COALESCE(NULLIF($12,''),'initialized'),$13,$13)"
+                " ON CONFLICT (client_order_id) DO UPDATE SET"
+                "  exchange_client_order_id ="
+                "    COALESCE(raikiri.orders.exchange_client_order_id, "
+                "EXCLUDED.exchange_client_order_id),"
+                "  exchange_order_id = COALESCE(NULLIF(EXCLUDED.exchange_order_id,''),"
+                "                               raikiri.orders.exchange_order_id),"
+                "  leaves_lots = EXCLUDED.leaves_lots,"
+                "  status = CASE WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = ''"
+                "                THEN raikiri.orders.status ELSE EXCLUDED.status END,"
+                "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated)"
+                " WHERE EXCLUDED.ts_updated >= raikiri.orders.ts_updated",
+                pqxx::params{r.client_order_id,
+                             r.exchange_client_order_id,
+                             r.exchange_order_id,
+                             r.instrument_id,
+                             r.side,
+                             r.order_type,
+                             r.tif,
+                             r.flags,
+                             r.price_ticks,
+                             r.qty_lots,
+                             r.leaves_lots,
+                             r.status,
+                             r.ts_event});
     }
 
     for (const auto& r : batch.executions) {
@@ -86,9 +102,17 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 " liquidity, ts_event)"
                 " VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11)"
                 " ON CONFLICT (venue, exec_id) DO NOTHING",
-                pqxx::params{r.venue, r.exec_id, r.exchange_order_id, r.client_order_id,
-                             r.instrument_id, r.side, r.price_ticks, r.qty_lots, r.fee_e9,
-                             r.liquidity, r.ts_event});
+                pqxx::params{r.venue,
+                             r.exec_id,
+                             r.exchange_order_id,
+                             r.client_order_id,
+                             r.instrument_id,
+                             r.side,
+                             r.price_ticks,
+                             r.qty_lots,
+                             r.fee_e9,
+                             r.liquidity,
+                             r.ts_event});
     }
 
     for (const auto& r : batch.funding) {
@@ -96,16 +120,20 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 " predicted_e9, mark_ticks, next_funding_ts, interval_s)"
                 " VALUES ($1,$2,$3,$4,$5,$6,$7)"
                 " ON CONFLICT (instrument_id, ts_event) DO NOTHING",
-                pqxx::params{r.instrument_id, r.ts_event, r.rate_e9, r.predicted_e9, r.mark_ticks,
-                             r.next_funding_ts, r.interval_s});
+                pqxx::params{r.instrument_id,
+                             r.ts_event,
+                             r.rate_e9,
+                             r.predicted_e9,
+                             r.mark_ticks,
+                             r.next_funding_ts,
+                             r.interval_s});
     }
 
     for (const auto& r : batch.connectivity) {
         tx.exec("INSERT INTO raikiri.connectivity_events (journal, journal_seq, venue, event,"
                 " stream_id, ts_recorded) VALUES ($1,$2,$3,$4,$5,$6)"
                 " ON CONFLICT (journal, journal_seq) DO NOTHING",
-                pqxx::params{journal, r.journal_seq, r.venue, r.event, r.stream_id,
-                             r.ts_recorded});
+                pqxx::params{journal, r.journal_seq, r.venue, r.event, r.stream_id, r.ts_recorded});
     }
 
     for (const auto& r : batch.latency) {
@@ -113,8 +141,16 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 " p50_ns, p99_ns, p999_ns, max_ns, sample_count, ts_recorded)"
                 " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"
                 " ON CONFLICT (journal, journal_seq) DO NOTHING",
-                pqxx::params{journal, r.journal_seq, r.venue, r.metric, r.p50_ns, r.p99_ns,
-                             r.p999_ns, r.max_ns, r.count, r.ts_recorded});
+                pqxx::params{journal,
+                             r.journal_seq,
+                             r.venue,
+                             r.metric,
+                             r.p50_ns,
+                             r.p99_ns,
+                             r.p999_ns,
+                             r.max_ns,
+                             r.count,
+                             r.ts_recorded});
     }
 
     tx.exec("INSERT INTO raikiri.persist_cursors (journal, last_seq) VALUES ($1,$2)"

@@ -30,8 +30,6 @@ public:
     // Cursor for `journal`; 0 when none exists yet.
     [[nodiscard]] std::uint64_t load_cursor(const std::string& journal);
 
-    // All rows + cursor advance, one transaction. Throws on SQL failure —
-    // the caller retries the whole batch (safe: everything is idempotent).
     void commit(const std::string& journal, const RowBatch& batch);
 
 private:

@@ -58,19 +58,12 @@ public:
     virtual void stop() = 0; // must be idempotent (teardown calls it twice)
     [[nodiscard]] virtual bool connected() const noexcept = 0;
 
-    // Hot path. noexcept: a throwing submit on the firing path is a bug we
-    // want as std::terminate, not as an unwound half-sent order.
     virtual void submit(const OrderCmd& cmd) noexcept = 0;
     virtual void cancel(const OrderCmd& cmd) noexcept = 0;
 
-    // Native price/qty modify. Callers MUST consult VenueCaps::amend_order
-    // first; the default is a no-op precisely so that an unchecked call on a
-    // non-amending venue does nothing rather than something surprising —
-    // the OMS treats "amend unsupported" as cancel+replace at a higher level.
+    // Native price/qty modify.
     virtual void amend(const OrderCmd& cmd) noexcept { (void)cmd; }
 
-    // Default: loop over cancel(). Venues with native batch endpoints
-    // override (see VenueCaps::batch_cancel).
     virtual void cancel_batch(std::span<const OrderCmd> cmds) noexcept {
         for (const auto& cmd : cmds) {
             cancel(cmd);
@@ -81,9 +74,6 @@ public:
     [[nodiscard]] virtual std::expected<std::vector<OrderStatusReport>, VenueError>
     open_order_reports(MarketType market) = 0;
 
-    // Targeted recovery of one in-doubt order (crash between journal intent
-    // and venue verdict). Pure virtual: every venue can query by client id,
-    // and recovery is not optional equipment.
     [[nodiscard]] virtual std::expected<OrderStatusReport, VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) = 0;
 

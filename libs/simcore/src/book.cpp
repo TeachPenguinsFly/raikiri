@@ -10,8 +10,12 @@ namespace {
 // aggressor pays what the book displays. Fully consumed makers leave both the
 // level queue and the id index so the two structures never diverge.
 template <typename SideMap, typename IndexMap, typename Crosses>
-[[nodiscard]] std::int64_t consume(SideMap& far, IndexMap& index, PriceTicks limit,
-                                   std::int64_t qty, std::vector<Fill>& fills, Crosses crosses) {
+[[nodiscard]] std::int64_t consume(SideMap& far,
+                                   IndexMap& index,
+                                   PriceTicks limit,
+                                   std::int64_t qty,
+                                   std::vector<Fill>& fills,
+                                   Crosses crosses) {
     std::int64_t left = qty;
     while (left > 0 && !far.empty()) {
         const auto level_it = far.begin();
@@ -41,8 +45,8 @@ template <typename SideMap, typename IndexMap, typename Crosses>
 // FOK pre-scan: how much could fill within the limit, capped at `cap` so the
 // walk stops as soon as the answer is "enough".
 template <typename SideMap, typename Crosses>
-[[nodiscard]] std::int64_t liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap,
-                                           Crosses crosses) {
+[[nodiscard]] std::int64_t
+liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap, Crosses crosses) {
     std::int64_t sum = 0;
     for (const auto& [price, queue] : far) {
         if (!crosses(price, limit)) {
@@ -111,25 +115,25 @@ constexpr auto k_any_price = [](PriceTicks, PriceTicks) noexcept { return true; 
 
 } // namespace
 
-MatchResult Book::submit_limit(std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price,
-                               QtyLots qty, bool post_only, TimeInForce tif) {
+MatchResult Book::submit_limit(std::uint64_t id,
+                               std::uint32_t owner,
+                               Side side,
+                               PriceTicks price,
+                               QtyLots qty,
+                               bool post_only,
+                               TimeInForce tif) {
     MatchResult out;
     out.remainder = qty;
 
-    const bool would_cross = side == Side::Buy
-                                 ? (!asks_.empty() && asks_.begin()->first <= price)
-                                 : (!bids_.empty() && bids_.begin()->first >= price);
+    const bool would_cross = side == Side::Buy ? (!asks_.empty() && asks_.begin()->first <= price)
+                                               : (!bids_.empty() && bids_.begin()->first >= price);
 
     if (post_only && would_cross) {
-        // Post-only exists to guarantee maker economics; venues refuse the
-        // order rather than let it take. Nothing fills, book is untouched.
         out.disposition = Disposition::RejectedPostOnly;
         return out;
     }
 
     if (tif == TimeInForce::Fok) {
-        // All-or-nothing: if the crossable liquidity cannot cover the full
-        // size, nothing trades at all (venue FOK semantics).
         const std::int64_t avail = side == Side::Buy
                                        ? liquidity_up_to(asks_, price, qty.raw, k_buy_crosses)
                                        : liquidity_up_to(bids_, price, qty.raw, k_sell_crosses);
@@ -139,10 +143,9 @@ MatchResult Book::submit_limit(std::uint64_t id, std::uint32_t owner, Side side,
         }
     }
 
-    const std::int64_t left = side == Side::Buy
-                                  ? consume(asks_, index_, price, qty.raw, out.fills, k_buy_crosses)
-                                  : consume(bids_, index_, price, qty.raw, out.fills,
-                                            k_sell_crosses);
+    const std::int64_t left =
+        side == Side::Buy ? consume(asks_, index_, price, qty.raw, out.fills, k_buy_crosses)
+                          : consume(bids_, index_, price, qty.raw, out.fills, k_sell_crosses);
     out.remainder = QtyLots::from_raw(left);
 
     if (left == 0) {
@@ -150,8 +153,6 @@ MatchResult Book::submit_limit(std::uint64_t id, std::uint32_t owner, Side side,
         return out;
     }
     if (tif != TimeInForce::Gtc) {
-        // IOC remainder never rests (FOK cannot reach here with left > 0 —
-        // the pre-scan guaranteed full coverage).
         out.disposition = Disposition::Expired;
         return out;
     }
@@ -163,11 +164,8 @@ MatchResult Book::submit_limit(std::uint64_t id, std::uint32_t owner, Side side,
     return out;
 }
 
-MatchResult Book::submit_market(std::uint64_t /*id*/, std::uint32_t /*owner*/, Side side,
-                                QtyLots qty) {
-    // Taker identity is accepted for signature symmetry but not stored: the
-    // sim does not model self-trade prevention, and a market order never
-    // rests, so there is nothing to index.
+MatchResult
+Book::submit_market(std::uint64_t /*id*/, std::uint32_t /*owner*/, Side side, QtyLots qty) {
     MatchResult out;
     const std::int64_t left =
         side == Side::Buy
@@ -189,8 +187,8 @@ bool Book::cancel(std::uint64_t id) {
                                  : erase_resting(asks_, loc.price, id);
 }
 
-std::expected<MatchResult, BookError> Book::amend(std::uint64_t id, PriceTicks new_price,
-                                                  QtyLots new_leaves) {
+std::expected<MatchResult, BookError>
+Book::amend(std::uint64_t id, PriceTicks new_price, QtyLots new_leaves) {
     if (new_price.is_undef() || new_price.raw <= 0 || new_leaves.is_undef() ||
         new_leaves.raw <= 0) {
         return std::unexpected{BookError::BadQty};
@@ -200,15 +198,13 @@ std::expected<MatchResult, BookError> Book::amend(std::uint64_t id, PriceTicks n
         return std::unexpected{BookError::UnknownOrder};
     }
     const Locator loc = it->second;
-    RestingOrder* order = loc.side == Side::Buy ? find_in(bids_, loc.price, id)
-                                                : find_in(asks_, loc.price, id);
+    RestingOrder* order =
+        loc.side == Side::Buy ? find_in(bids_, loc.price, id) : find_in(asks_, loc.price, id);
     if (order == nullptr) {
         return std::unexpected{BookError::UnknownOrder};
     }
 
     if (new_price == order->price && new_leaves <= order->leaves) {
-        // Venue-real: shrinking in place cannot disadvantage anyone queued
-        // behind you, so exchanges preserve time priority for pure size-downs.
         order->leaves = new_leaves;
         MatchResult out;
         out.disposition = Disposition::Rested;
@@ -216,14 +212,11 @@ std::expected<MatchResult, BookError> Book::amend(std::uint64_t id, PriceTicks n
         return out;
     }
 
-    // Venue-real: a price change (or size-up) is a replace — the order loses
-    // time priority and re-enters as a fresh arrival, which may cross and
-    // trade immediately, exactly like an aggressive amend on a live venue.
     const std::uint32_t owner = order->owner;
     const Side side = order->side;
     cancel(id);
-    return submit_limit(id, owner, side, new_price, new_leaves, /*post_only=*/false,
-                        TimeInForce::Gtc);
+    return submit_limit(
+        id, owner, side, new_price, new_leaves, /*post_only=*/false, TimeInForce::Gtc);
 }
 
 std::optional<Book::BboLevels> Book::bbo() const {

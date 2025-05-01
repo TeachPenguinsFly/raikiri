@@ -33,10 +33,6 @@ constexpr std::array<LabelClass, 12> k_table{{
 } // namespace
 
 exec::ErrorClass classify(std::string_view label) noexcept {
-    // Clock skew, not bad credentials: the same payload signed against a
-    // corrected offset succeeds, so retrying after a resync is right. Gate's
-    // own docs and ccxt both file this under authentication, which would halt
-    // a venue whose keys are fine.
     if (label == k_request_expired) {
         return exec::ErrorClass::Retryable;
     }
@@ -53,9 +49,6 @@ exec::ErrorClass classify_stream(std::int64_t code) noexcept {
     case k_ws_auth_failed:
     case k_ws_invalid_key:
         return exec::ErrorClass::AuthFailure;
-    // The session lapsed, not the credentials. Logging in again is the fix,
-    // and halting a venue over it would take down keys that are perfectly
-    // valid.
     case k_ws_not_logged_in:
     case k_ws_server_error:
         return exec::ErrorClass::Retryable;

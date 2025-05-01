@@ -82,9 +82,6 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
         return std::unexpected{TransitionError{status, event}};
     };
 
-    // Audit event: reconciliation noticed missed history. Valid from any
-    // status (a gap can be discovered after the order went terminal); the
-    // status itself does not move.
     if (event == E::ReconGap) {
         return status;
     }
@@ -206,7 +203,6 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
             return resume; // "too late to cancel" — usually means a fill is coming
         case E::Filled:
             // The classic race: the fill matched before the cancel landed.
-            // Partial: stay pending — the cancel is still in flight for the rest.
             return full_fill ? S::Filled : S::PendingCancel;
         case E::Accepted:
             return S::PendingCancel; // late ack of the original order; cancel still out
@@ -243,8 +239,6 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
     case S::Canceled:
         switch (event) {
         case E::Filled:
-            // Real venue behavior: cancel confirmed, then a fill that matched
-            // first arrives. Fills outrank cancels — money moved.
             return full_fill ? S::Filled : S::Canceled;
         default:
             return invalid();
@@ -262,7 +256,6 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
     case S::Rejected:
     case S::Filled:
         return invalid(); // hard-terminal: no event moves these
-
     }
     return invalid();
 }

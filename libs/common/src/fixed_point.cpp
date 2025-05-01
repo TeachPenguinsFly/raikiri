@@ -52,8 +52,6 @@ std::expected<FixedE9, ParseError> parse_decimal_e9(std::string_view text) noexc
                 frac_e9 = frac_e9 * 10 + (*p - '0');
                 ++digits;
             } else if (*p != '0') {
-                // More precision than the model holds. Silent rounding here
-                // would make two processes disagree about the same wire value.
                 return std::unexpected{ParseError::TooManyFracDigits};
             }
         }
@@ -155,8 +153,6 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
             return std::nullopt;
         }
         seen_digit = true;
-        // Leading zeros carry no significance and must not consume the digit
-        // budget: "0.000000000001" is twelve characters of nothing.
         if (out.mantissa != 0 || c != '0') {
             if (++digits > k_max_mantissa_digits) {
                 return std::nullopt;

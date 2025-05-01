@@ -60,8 +60,6 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
             return std::nullopt;
         }
         seen_digit = true;
-        // Leading zeros carry no significance and must not consume the digit
-        // budget: "0.000000000001" is twelve characters of nothing.
         if (out.mantissa != 0 || c != '0') {
             if (++digits > k_max_mantissa_digits) {
                 return std::nullopt;
@@ -198,8 +196,6 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // tick.ts, not the frame's own: the first is when the book changed and
-    // the second is when HTX got round to sending it.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -213,8 +209,6 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     }
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.price, base);
-    // `amount`, not `quantity`: bbo and depth quote contracts, and mixing the
-    // two units within one instrument's series is a silent factor error.
     const auto qty = to_lots(wire.amount, base);
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
@@ -247,9 +241,7 @@ map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNan
     if (const auto predicted = rate_e9(wire.estimated_rate); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    // settlement_time, not funding_time — see wire.hpp. Reading the two the
-    // way the REST endpoint names them puts the next settlement a few seconds
-    // from now, forever.
+    // settlement_time, not funding_time — see wire.hpp.
     out.next_funding_time = ms_to_unix(wire.settlement_ms, UnixNanos{0});
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
@@ -263,8 +255,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     if (wire.contract_status != k_contract_listed) {
         return std::nullopt;
     }
-    // /swap_contract_info serves USDT-margined swaps only; HTX puts its dated
-    // futures behind swap_api and its spot behind a different host entirely.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
@@ -272,10 +262,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         return std::nullopt;
     }
 
-    // KNOWN LIMIT, not a venue quirk: FixedE9 carries nine fractional digits
-    // and PEPE-USDT's tick is 1e-10. Refusing it is correct under the
-    // no-rounding rule; reaching it needs a wider scale across the domain. One
-    // instrument of 276 today.
     const auto tick = exact_e9(wire.price_tick);
     const auto size = exact_e9(wire.contract_size);
     if (!tick.has_value() || tick->raw <= 0 || !size.has_value() || size->raw <= 0) {
@@ -292,17 +278,8 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
     base.tick_size = *tick;
-    // One contract, exactly: HTX names an integer `volume` on an order and
-    // there is no finer quantity step to publish, which is why the catalogue
-    // has no field for one.
     base.lot_size = FixedE9::from_raw(k_e9);
-    // contract_size is what one contract is worth in base units (0.001 BTC on
-    // BTC-USDT). Every size on the wire counts contracts, so this is the only
-    // factor that turns one into a notional; pinning it to 1 the way a
-    // base-unit venue allows would misprice BTC-USDT by a thousand.
     base.contract_value = *size;
-    // min_notional stays undefined: this endpoint publishes no per-contract
-    // minimum, and a zero would read as "no minimum".
     std::uint32_t interval_s = 0;
     if (wire.settlement_period_h > 0) {
         interval_s = static_cast<std::uint32_t>(wire.settlement_period_h * k_seconds_per_hour);

@@ -20,8 +20,6 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (topic == "mark_price") {
         return EventKind::MarkPrice;
     }
-    // agg_ticker, ticker and index_price are live and unclaimed: see ws.hpp
-    // for why none of them can produce a BBO.
     return EventKind::Unknown;
 }
 
@@ -105,10 +103,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (topic->empty()) {
-            // Control frame: an accepted subscription and a refused one differ
-            // only by `code`, and XT sends no acknowledgement of any other
-            // kind, so a frame carrying neither topic nor code is a shape XT
-            // added since — unknown, not malformed.
             const auto code = detail::req_i64(*root, "code");
             info.kind = !code.has_value() ? EventKind::Unknown
                         : *code == k_ok   ? EventKind::Ack
@@ -136,8 +130,6 @@ std::expected<StreamAck, WireError> parse_stream_ack(std::string_view frame) {
         }
         const auto code = detail::req_i64(*root, "code");
         const auto msg = detail::opt_str(*root, "msg");
-        // `id` is echoed from the subscribe frame, but XT omits it when the
-        // frame's `method` itself was unreadable.
         const auto id = detail::opt_str(*root, "id");
         if (!code.has_value() || !msg.has_value() || !id.has_value()) {
             return std::unexpected(WireError::WrongType);
@@ -245,9 +237,6 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame) {
                                  !side.has_value()) {
                                  return std::unexpected(WireError::MissingField);
                              }
-                             // Anything other than the two known tokens is refused rather
-                             // than folded into "sold": a silent default here would bias
-                             // every flow imbalance built on this field.
                              if (*side != "BID" && *side != "ASK") {
                                  return std::unexpected(WireError::WrongType);
                              }

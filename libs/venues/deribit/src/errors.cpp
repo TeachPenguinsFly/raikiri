@@ -15,8 +15,6 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_matching_engine_queue_full:
         return exec::ErrorClass::RateLimited;
 
-    // The venue asked us to come back, or is mid-settlement, or is down for
-    // maintenance. All of these end on their own.
     case k_retry:
     case k_settlement_in_progress:
     case k_temporarily_unavailable:
@@ -24,15 +22,10 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_system_maintenance:
         return exec::ErrorClass::Retryable;
 
-    // The SESSION lapsed, not the credentials — authenticating again is the
-    // fix. Filing this under AuthFailure would halt a venue whose keys are
-    // fine, which is the same mistake as reading a clock-skew refusal as a
-    // bad signature.
     case k_authorization_required:
         return exec::ErrorClass::Retryable;
 
-    // A channel Deribit stopped serving. Resubscribing is exactly the
-    // reconnect path's job, so this must not be terminal.
+    // A channel Deribit stopped serving.
     case k_subscribe_error_unsubscribed:
         return exec::ErrorClass::Retryable;
 

@@ -70,9 +70,6 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // T, not E: the transaction time is when the book actually changed, while
-    // E is when binance got around to sending it. Using E would fold venue
-    // queueing delay into our own latency numbers.
     out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -116,9 +113,6 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = to_e9(wire.funding_rate);
-    // Mark price is exempt from the exact-step rule: binance computes it as an
-    // index-weighted average and does not round it to the trading tick, so
-    // demanding divisibility would drop every frame.
     if (const auto mark = parse_decimal_e9(wire.mark_price);
         mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
@@ -142,9 +136,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.status != "TRADING") {
         return std::nullopt; // SETTLING, PENDING_TRADING, CLOSE: not tradable now
     }
-    // contractType distinguishes the perpetual from quarterlies and from the
-    // tradfi-hours contracts that share the endpoint. Asking for perps and
-    // getting a dated future back is a whole category of position bug.
     if (market == MarketType::Perp && wire.contract_type != "PERPETUAL") {
         return std::nullopt;
     }
@@ -171,10 +162,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }
-    // exchangeInfo does not carry the funding interval; most USD-M contracts
-    // settle every 8h but a growing set settles every 4h, and the authority is
-    // /fapi/v1/fundingInfo. Until that pull lands this is the default, and the
-    // funding stream's own nextFundingTime is what the strategy should trust.
     return PerpInstrument{base, /*funding_interval_s=*/28'800};
 }
 
@@ -216,9 +203,6 @@ namespace {
     }
     const auto id = ExchangeClientOrderId::from(text);
     if (!id.has_value()) {
-        // Not ours: binance mints its own ids for liquidations and ADL, and
-        // they are longer than the field we reserve for our ULIDs. Dropping
-        // is right — the order store has no such order to update.
         return false;
     }
     out = *id;
@@ -241,8 +225,6 @@ namespace {
     if (exec_type == "AMENDMENT") {
         return OrderEventType::Updated;
     }
-    // CALCULATED is liquidation/ADL bookkeeping, not a transition of an order
-    // we submitted; the position pull is what reflects it.
     return std::nullopt;
 }
 
@@ -308,8 +290,6 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
     }
 
     if (*type == OrderEventType::Filled) {
-        // The fill's own price and quantity, not the order's: `L` and `l` are
-        // what moved, while `p` and `q` describe the resting order.
         const auto price = exact_steps(wire.last_filled_price, base.tick_size);
         const auto qty = exact_steps(wire.last_filled_qty, base.lot_size);
         const auto cum = exact_steps(wire.cum_filled_qty, base.lot_size);
@@ -440,8 +420,6 @@ std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
     exec::PositionReport out{};
     out.instrument = base.id;
     out.net_qty = QtyLots::from_raw(*qty);
-    // Entry price is an average and is not rounded to the tick, so the exact
-    // rule cannot apply here any more than it can to mark price.
     if (const auto entry = parse_decimal_e9(wire.entry_price);
         entry.has_value() && base.tick_size.raw > 0) {
         out.avg_entry = PriceTicks::from_raw(entry->raw / base.tick_size.raw);

@@ -78,16 +78,11 @@ std::string_view channel_name(ChannelKind kind) noexcept {
 ChannelKind kind_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // `ticker` carries BID/BID_SIZE/ASK/ASK_SIZE in its first four slots,
-        // so top of book needs no local book maintained to produce a BBO.
         return ChannelKind::Ticker;
     case exec::SubKind::Trades:
         return ChannelKind::Trades;
     case exec::SubKind::Depth:
         return ChannelKind::Book;
-    // Funding and mark ride the SAME deriv status payload — unlike okx, where
-    // they are two channels. Both intents resolve here, and the venue layer's
-    // subscription set collapses the duplicate.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return ChannelKind::DerivStatus;
@@ -106,9 +101,6 @@ std::string_view symbol_from_deriv_key(std::string_view key) noexcept {
 }
 
 std::string_view Protocol::conf_frame() noexcept {
-    // 32768 is the TIMESTAMP flag. It is sent as a bare decimal because
-    // Bitfinex sums flags numerically; naming it here rather than at the call
-    // site keeps the magic number in the file that owns the protocol.
     return R"({"event":"conf","flags":32768})";
 }
 
@@ -131,8 +123,6 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(const Sub
     put(R"({"event":"subscribe","channel":")");
     put(channel);
     if (sub.kind == ChannelKind::DerivStatus) {
-        // No `symbol` field on this channel at all; the instrument lives
-        // inside a composite key.
         put(R"(","key":")");
         put(k_deriv_prefix);
         put(sub.symbol);

@@ -30,14 +30,8 @@ exec::ErrorClass classify(std::string_view code) noexcept {
         if (number == k_signature_rejected) {
             return exec::ErrorClass::AuthFailure;
         }
-        // Everything else known lands on the default anyway: an absent
-        // contract, an illegal parameter and an empty one are all permanent
-        // for the request that caused them, and retrying reproduces them
-        // exactly.
         return exec::ErrorClass::Terminal;
     }
-    // A refused subscription never succeeds on a retry, and silence is
-    // exactly how it would otherwise present.
     return exec::ErrorClass::Terminal;
 }
 

@@ -28,20 +28,13 @@ public:
     DataClient& operator=(const DataClient&) = delete;
     virtual ~DataClient() = default;
 
-    // Cold lifecycle: connect sockets, authenticate where needed. Events
-    // (including ConnEvent transitions) flow through the GatewaySink handed
-    // to the adapter at construction.
     virtual std::expected<void, VenueError> start() = 0;
     virtual void stop() = 0;
     [[nodiscard]] virtual bool connected() const noexcept = 0;
 
-    // Called from the gateway hot loop every iteration: the adapter's chance
-    // to pump whatever drives it (asio io_context for live venues, the
-    // matching engine + MD generator for sim). Default: nothing to pump.
     virtual void poll(UnixNanos now) noexcept { (void)now; }
 
-    // Subscription intents. Defaults decline: a venue without funding
-    // streams (spot-only) simply never overrides subscribe_funding.
+    // Subscription intents.
     virtual std::expected<void, VenueError> subscribe(SubKind kind, InstrumentId instrument) {
         return unsupported(kind, instrument);
     }
@@ -53,8 +46,7 @@ public:
 private:
     [[nodiscard]] static std::expected<void, VenueError> unsupported(SubKind kind,
                                                                      InstrumentId) noexcept {
-        return std::unexpected{
-            VenueError::make(ErrorClass::Terminal, 0, to_string(kind))};
+        return std::unexpected{VenueError::make(ErrorClass::Terminal, 0, to_string(kind))};
     }
 };
 

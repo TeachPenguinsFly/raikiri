@@ -73,9 +73,6 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // `t` is the matching-engine time in milliseconds; the frame's outer
-    // `time_ms` is when the gateway sent it, and using that would fold Gate's
-    // own fan-out delay into every latency measurement.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -119,14 +116,6 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     const auto& base = base_of(*instrument);
     out.instrument = base.id;
     out.rate = *rate;
-    // predicted_rate stays undefined: funding_rate_indicative is the only
-    // candidate, Gate's SDK marks it deprecated in favour of funding_rate, and
-    // it equalled funding_rate on every observed frame.
-    //
-    // Mark is optional rather than required: Gate quotes it on
-    // mark_price_round, a finer grid than order_price_round on some contracts,
-    // so a mark off the order grid is normal rather than a schema event — and
-    // funding is the datum this update exists for.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
@@ -138,26 +127,13 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
-    // Every USDT-settled contract here is a perpetual; Gate keeps dated
-    // futures behind /delivery and spot behind a differently shaped catalogue,
-    // so neither can arrive on this path.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
-    // in_delisting stays true through the reduce-only window while the row
-    // still looks tradable, and `status` covers prelaunch and circuit_breaker.
-    // Both were uniformly benign in the 899-row capture; they are the venue's
-    // own liveness statements and refusing on them is cheaper than discovering
-    // at order time that a contract stopped accepting opens.
     if (wire.in_delisting || wire.status != "trading") {
         return std::nullopt;
     }
 
-    // KNOWN LIMIT, not a venue quirk: FixedE9 carries nine fractional digits
-    // and Gate lists CHEEMS_USDT, MOG_USDT and SATS_USDT at ticks down to
-    // 1e-11. Refusing them is correct under the no-rounding rule; reaching
-    // them means widening the fixed-point scale across the domain. Three of
-    // 899 today, and okx refuses SATS for the same reason.
     const auto tick = parse_decimal_e9(wire.order_price_round);
     if (!tick.has_value() || tick->raw <= 0) {
         return std::nullopt;
@@ -173,21 +149,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
     base.tick_size = *tick;
-    // One whole contract. Gate publishes no size step: `order_size_min` is a
-    // floor (0 on the 15 contracts flagged enable_decimal), not a step. Public
-    // market data quotes integer contract counts everywhere, enable_decimal
-    // included — verified live on ETH_USDT and SOL_USDT, which carry the flag.
-    // That flag governs what an ORDER may specify, so it becomes a real
-    // question when order entry lands, not before.
     base.lot_size = FixedE9::from_raw(k_e9);
-    // min_notional stays undefined: Gate's floor is a count of CONTRACTS, and
-    // converting it to a notional needs a price we do not have here. A zero
-    // would read as "no minimum", which is the wrong answer.
-    //
-    // One contract is quanto_multiplier of the base asset (0.0001 BTC on
-    // BTC_USDT). Binance's USD-M perps quote in base units and can pin this to
-    // 1; Gate cannot, and a hardcoded 1 would misprice every BTC_USDT notional
-    // by 10000x.
     const auto quanto = parse_decimal_e9(wire.quanto_multiplier);
     if (!quanto.has_value() || quanto->raw <= 0) {
         return std::nullopt;

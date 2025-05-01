@@ -162,8 +162,6 @@ struct WireContract {
     std::string_view multiplier;
     std::string_view index_tick_size;
     std::string_view max_order_qty;
-    // Milliseconds between settlements. Unlike okx's catalogue KuCoin states
-    // this, and it runs 1h, 4h and 8h contracts side by side.
     std::uint64_t funding_granularity_ms{0};
 };
 

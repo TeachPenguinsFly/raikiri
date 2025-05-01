@@ -54,8 +54,6 @@ net::RestRequest RequestBuilder::instruments() noexcept {
 net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
     writer.put(k_base);
-    // A PATH segment here, not a query parameter: plural /tickers takes no
-    // filter and returns all 298 rows.
     writer.put("/tickers/");
     writer.put(symbol);
     return writer.get();

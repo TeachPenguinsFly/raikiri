@@ -43,8 +43,6 @@ public:
 
     [[nodiscard]] const RiskConfig& config() const noexcept { return config_; }
 
-    // Checks run most-fundamental first: a command that fails several rules
-    // reports the one that makes the others meaningless.
     [[nodiscard]] std::expected<void, RiskReject> check(const OrderCmd& cmd,
                                                         std::size_t open_count) const noexcept {
         if (!cmd.instrument.valid()) {
@@ -60,8 +58,7 @@ public:
             return std::unexpected{RiskReject::BadPrice};
         }
         if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
-            // Post-only is a maker constraint; a market order is a taker by
-            // definition. Venues reject this combination — we refuse it first.
+            // Post-only is a maker constraint; a market order is a taker by definition.
             return std::unexpected{RiskReject::BadFlags};
         }
         if (open_count >= config_.max_open_orders) {

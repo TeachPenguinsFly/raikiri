@@ -17,15 +17,13 @@ namespace raikiri {
 
 enum class StrError : std::uint8_t { TooLong };
 
-template <std::size_t N>
-struct FixedString {
+template <std::size_t N> struct FixedString {
     static_assert(N > 0 && N <= 255, "length byte is uint8_t");
 
     std::array<char, N> data{};
     std::uint8_t len{0};
 
     // Total-copy factory; rejects oversize input instead of truncating.
-    // A truncated exchange order id silently matches the wrong order.
     [[nodiscard]] static std::expected<FixedString, StrError> from(std::string_view sv) noexcept {
         if (sv.size() > N) {
             return std::unexpected{StrError::TooLong};
@@ -51,8 +49,7 @@ struct FixedString {
 
 } // namespace raikiri
 
-template <std::size_t N>
-struct std::hash<raikiri::FixedString<N>> {
+template <std::size_t N> struct std::hash<raikiri::FixedString<N>> {
     [[nodiscard]] std::size_t operator()(const raikiri::FixedString<N>& s) const noexcept {
         return std::hash<std::string_view>{}(s.view());
     }

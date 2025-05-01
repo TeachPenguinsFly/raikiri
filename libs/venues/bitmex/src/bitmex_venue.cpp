@@ -48,16 +48,12 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Owned here rather than by the transport: the socket re-asserts this set on
-    // every open, so a reconnect and a cold start run the same path.
     std::vector<OwnedSubscription> desired;
 
     std::vector<SymbolState> symbols;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // A stream that was never established and one that is merely quiet look
-    // identical from the sink, so the refusal is counted rather than inferred.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_status{0};
 
@@ -70,8 +66,6 @@ struct VenueState {
         desired.emplace_back(std::string{table}, std::string{symbol});
     }
 
-    // Grows on first sight, so a catalogue reload cannot leave the two vectors
-    // disagreeing about what a slot means.
     [[nodiscard]] SymbolState& state_of(InstrumentId id) {
         const auto idx = id.symbol().raw;
         if (idx >= symbols.size()) {
@@ -142,12 +136,9 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case TableKind::OrderBook:
-        // Parsed and tested, but nothing consumes a book: the BBO comes from
-        // `quote`, so maintaining one would be state kept for its own sake.
         break;
     case TableKind::Error: {
-        // Terminal for the arg it names, and silence is how it would otherwise
-        // present. Nothing above the adapter can ask a socket what it refused.
+        // Terminal for the arg it names, and silence is how it would otherwise present.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_status = err->status;
             ++state.subscribe_refusals;
@@ -307,8 +298,6 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        // Empty rather than an error: this venue has no fills of ours to
-        // reconcile, and a failing pull would look like a broken connection.
         return std::vector<exec::FillReport>{};
     }
 
@@ -362,8 +351,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        // ONE request, whatever the market: /instrument/active is the whole
-        // venue in a single answer and the unauthenticated budget is per minute.
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
         if (!response.has_value()) {
             return std::unexpected{exec::VenueError::make(

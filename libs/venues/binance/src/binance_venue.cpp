@@ -36,33 +36,19 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder{signer};
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path.
     std::vector<std::string> desired_streams;
 
-    // Venue clock offset, measured against /fapi/v1/time. Unused until
-    // signing lands, but measured now because a wrong offset shows up as
-    // -1021 (INVALID_TIMESTAMP), which reads like a credentials problem.
+    // Venue clock offset, measured against /fapi/v1/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established
-    // and a stream that is merely quiet look identical from the sink, which
-    // is why the refusal is counted rather than inferred.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
-    // User-stream key. Valid 60 minutes and EXTENDED by a keepalive rather
-    // than reissued — reissuing hands back the same key but resets nothing if
-    // the old one already lapsed, so the timer matters more than the call.
     std::string listen_key;
     std::uint64_t listen_key_due_ns{0};
     bool listen_key_expired{false};
 
-    // The gateway pumps one poll(), and it reaches the data client. The
-    // execution client's listen-key clock has to advance on the same tick, so
-    // it hangs its own here rather than the gateway learning about a second
-    // thing to call.
     std::function<void(UnixNanos)> tick_hook;
 
     [[nodiscard]] UnixNanos venue_now() const {
@@ -123,15 +109,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::DepthUpdate:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // bookTicker, so maintaining one here would be state kept for its
-        // own sake. The chaining rule it needs is already pinned by tests.
         break;
     case EventKind::Error: {
-        // A refused subscription is terminal for the stream it names, and
-        // silence is exactly how it would otherwise present. Recorded here so
-        // the operator interface can report it; nothing above the adapter can
-        // ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -152,8 +131,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         std::vector<std::string_view> streams;
         streams.reserve(state_->desired_streams.size());
         for (const auto& stream : state_->desired_streams) {
@@ -229,8 +206,6 @@ public:
             return DataClient::subscribe(kind, instrument);
         }
         if (state_->desired_streams.size() >= k_max_streams_per_connection) {
-            // One socket takes 1024 streams. Failing here beats discovering
-            // it as silence on the 1025th subscription.
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "stream limit reached")};
         }
@@ -249,9 +224,6 @@ public:
             return;
         }
         state_->io.poll();
-        // No application-level ping: binance drives keepalive with websocket
-        // control frames, which the transport already answers. The user
-        // stream's listen key does need refreshing, and that rides here.
         if (state_->tick_hook) {
             state_->tick_hook(now);
         }
@@ -284,15 +256,9 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         break;
     }
     case EventKind::ListenKeyExpired:
-        // The key died before its hour was up, which happens when the account
-        // opens a second stream. Nothing here can fix it; the keepalive tick
-        // notices the flag and rebuilds the socket.
         state.listen_key_expired = true;
         break;
     case EventKind::AccountUpdate:
-        // Positions and balances are pulled on reconciliation rather than
-        // tracked incrementally: an incremental position that drifts is worse
-        // than one that is a few seconds old.
         break;
     default:
         break;
@@ -304,9 +270,6 @@ public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // Nothing to subscribe to: the listen key in the URL IS the
-        // subscription, which is why an expired key presents as silence
-        // rather than as an error frame.
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Connected, .stream_id = 1, .ts = state_->clock->wall()});
     }
@@ -347,8 +310,6 @@ public:
         rest_.start();
         started_ = true;
         if (!state_->signer.has_credentials()) {
-            // Read-only by construction: without keys there is no user stream
-            // to open, and every order path already refuses.
             return {};
         }
         return open_user_stream();
@@ -451,9 +412,6 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType) override {
-        // Binance requires a symbol on a single-order query, and the id alone
-        // does not carry one. The open-order sweep is what recovers an order
-        // whose instrument we no longer know.
         const auto* instrument = first_known_instrument();
         if (instrument == nullptr) {
             return std::unexpected{exec::VenueError::make(
@@ -542,8 +500,6 @@ public:
         return out;
     }
 
-    // Called from the gateway loop by the data client's poll, which owns the
-    // io context; this only advances the key's clock.
     void tick(UnixNanos now) noexcept {
         if (!started_ || !state_->signer.has_credentials()) {
             return;
@@ -576,9 +532,6 @@ private:
                                       to_string(err));
     }
 
-    // Turns a REST answer into a body, or into the classified failure the
-    // gateway acts on. A transport failure is Connectivity, not Terminal: the
-    // order may well have reached the venue, and reconciliation settles it.
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     usable_body(const std::optional<net::RestResponse>& response) const {
         if (!response.has_value()) {
@@ -628,11 +581,6 @@ private:
         return {};
     }
 
-    // A REST order path answers with either the venue's acceptance — which
-    // produces no event, because the user stream is authoritative — or a
-    // refusal, which must be synthesized locally. Binance does not send a
-    // user-stream frame for an order it never accepted, so silence here
-    // would leave the order open in the store forever.
     void send_order(const net::RestRequest& request,
                     const OrderCmd& cmd,
                     OrderEventType on_failure) noexcept {
@@ -648,9 +596,7 @@ private:
             }
             if (on_failure == OrderEventType::CancelRejected &&
                 is_benign_cancel_failure(err->code)) {
-                // The order already filled or was already gone. Reporting a
-                // CancelRejected here would alarm an operator about a race
-                // that resolved itself.
+                // The order already filled or was already gone.
                 return;
             }
             emit(captured, on_failure);
@@ -712,8 +658,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay; the offset
-    // only has to be good to a fraction of the recvWindow.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -765,8 +709,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;
@@ -781,9 +723,6 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
 
-    // Credentials resolve here and nowhere else. Market data needs none, so a
-    // gateway started without them still runs — read-only by construction
-    // rather than by configuration.
     config::DefaultSecretProvider provider;
     if (!config.api_key_env.empty()) {
         if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {

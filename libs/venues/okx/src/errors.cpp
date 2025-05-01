@@ -29,9 +29,6 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_internal_system_error:
         return exec::ErrorClass::Retryable;
 
-    // Clock skew, not bad credentials: the same payload signed against a
-    // corrected offset succeeds, so retrying after a resync is right. Filing
-    // these under AuthFailure would halt a venue whose keys are fine.
     case k_timestamp_expired:
     case k_invalid_timestamp:
     case k_ws_timestamp_expired:

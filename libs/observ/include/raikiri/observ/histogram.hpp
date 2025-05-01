@@ -43,8 +43,6 @@ public:
 
     [[nodiscard]] std::uint64_t count() const noexcept { return count_; }
 
-    // Percentiles report the upper bound of the containing bucket: latency
-    // numbers err pessimistic, never flattering.
     [[nodiscard]] HistogramSnapshot snapshot() const noexcept {
         HistogramSnapshot snap{};
         snap.count = count_;

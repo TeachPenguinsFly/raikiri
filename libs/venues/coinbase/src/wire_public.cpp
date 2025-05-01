@@ -11,9 +11,6 @@ EventKind kind_from_type(std::string_view type) noexcept {
     if (type == "ticker") {
         return EventKind::Ticker;
     }
-    // last_match is the single replay print Coinbase sends when a matches
-    // subscription opens; it carries the identical shape, so folding the two
-    // together is what keeps the first trade of a session from being lost.
     if (type == "match" || type == "last_match") {
         return EventKind::Match;
     }
@@ -40,8 +37,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         info.kind = kind_from_type(*type);
-        // Control frames carry no product; an error names its product only
-        // inside free-text `reason`, which is not something to key on.
         const auto product = detail::opt_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
@@ -151,9 +146,6 @@ std::expected<WireMatch, WireError> parse_match(std::string_view frame) {
         out.price = *price;
         out.size = *size;
         out.time = *time;
-        // Compared against "sell" rather than "buy" so an unexpected value
-        // lands on maker-bought, which the mapper reads as a taker SELL —
-        // arbitrary either way, but stated once rather than implied.
         out.maker_sold = *side == "sell";
         const auto sequence = detail::opt_i64(*root, "sequence");
         const auto trade_id = detail::opt_i64(*root, "trade_id");

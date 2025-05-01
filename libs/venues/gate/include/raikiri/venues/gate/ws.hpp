@@ -61,8 +61,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // Consumes the leading run of subscriptions sharing subscriptions[0]'s
-    // channel; the caller re-invokes until the span is empty.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s);
 
@@ -75,8 +73,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     op_frame(std::string_view op, std::span<const Subscription> subscriptions, std::uint64_t now_s);
 
-    // Sized so a full batch of the longest channel/contract pair still fits:
-    // BufferTooSmall costs a whole batch of subscriptions, silently.
     std::array<char, 8192> frame_{};
     std::array<char, 64> ping_{};
 };

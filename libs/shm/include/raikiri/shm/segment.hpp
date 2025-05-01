@@ -98,16 +98,11 @@ public:
     SegmentOwner& operator=(SegmentOwner&&) = delete;
     ~SegmentOwner();
 
-    // `generation` should be the owner's start MonoNanos; `now_ns` is used to
-    // judge a pre-existing owner's heartbeat.
     [[nodiscard]] static std::expected<SegmentOwner, SegError> create(const std::string& path,
                                                                       std::size_t total_size,
                                                                       std::uint64_t generation,
                                                                       std::uint64_t now_ns);
 
-    // Bump-allocates a named channel and placement-constructs T in it.
-    // Call between create() and publish(); returns nullptr when out of space
-    // or directory full (caller treats as fatal misconfiguration).
     template <typename T> [[nodiscard]] T* create_channel(std::string_view name) noexcept {
         void* p = place(name, sizeof(T), alignof(T));
         return p != nullptr ? ::new (p) T{} : nullptr;

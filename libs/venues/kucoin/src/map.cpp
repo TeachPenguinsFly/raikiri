@@ -74,8 +74,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
     }
     std::int32_t exponent = 0;
     if (const auto marker = text.find_first_of("eE"); marker != std::string_view::npos) {
-        // Trimmed by offset rather than substr, which throws and this is
-        // noexcept.
         auto digits = text;
         digits.remove_prefix(marker + 1);
         text.remove_suffix(text.size() - marker);
@@ -112,9 +110,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
     if (index >= k_pow10.size()) {
         return std::nullopt;
     }
-    // Inexact means more precision than FixedE9 models — PEPEUSDTM's 1.0E-10
-    // tick is one decade past it. Widening the domain scale is the only real
-    // fix, and that is not a per-venue decision.
     const auto divisor = k_pow10[index];
     if (mantissa->raw % divisor != 0) {
         return std::nullopt;
@@ -151,8 +146,6 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // tickerV2's `ts` is already nanoseconds; multiplying it as milliseconds
-    // would put every quote 31 million years into the future.
     out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -200,20 +193,11 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
     if (const auto predicted = to_e9(wire.predicted_rate); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    // mark_price stays undefined: KuCoin publishes mark under its own subject,
-    // and a zero here would read as a real price of zero.
-    //
-    // The interval comes from the catalogue, never from the frame's own
-    // `granularity`: the stream republishes once a minute and says 60000 there,
-    // which would report an 8 h contract as funding every minute.
     const auto* perp = std::get_if<PerpInstrument>(instrument);
     const std::uint64_t interval_ms =
         perp == nullptr ? 0 : static_cast<std::uint64_t>(perp->funding_interval_s) * 1000ULL;
     out.interval_s = perp == nullptr ? 0 : perp->funding_interval_s;
-    // Only the REST form states the next settlement. Settlements land on
-    // wall-clock multiples of the interval — deriving the next boundary that
-    // way reproduces the REST answer exactly (verified), and leaving it at
-    // zero would read as "funding never".
+    // Only the REST form states the next settlement.
     out.next_funding_time =
         wire.next_funding_ms != 0 ? ms_to_unix(wire.next_funding_ms, UnixNanos{0})
         : (interval_ms != 0 && wire.ts_ms != 0)
@@ -225,29 +209,18 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
-    // api-futures.kucoin.com serves derivatives only; spot lives behind a
-    // different host and a different catalogue shape entirely.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
     if (wire.status != "Open") {
         return std::nullopt;
     }
-    // FFWCSX is the perpetual; FFICSX is a dated future sharing this endpoint,
-    // and asking for perps and getting one back is a whole category of
-    // position bug.
     if (wire.type != "FFWCSX") {
         return std::nullopt;
     }
 
     const auto tick = parse_number_e9(wire.tick_size);
     const auto lot = parse_number_e9(wire.lot_size);
-    // One CONTRACT is `multiplier` of the base currency (0.001 XBT on
-    // XBTUSDTM), so every size on the wire needs it to become a notional; a
-    // hardcoded 1 would misprice XBTUSDTM by 1000x. It is negative on inverse
-    // contracts, where size is quoted in USD instead — that is a different
-    // instrument model, so those rows are refused here rather than stored with
-    // a negative size that later arithmetic would silently honour.
     const auto multiplier = parse_number_e9(wire.multiplier);
     if (!tick.has_value() || !lot.has_value() || !multiplier.has_value() || tick->raw <= 0 ||
         lot->raw <= 0 || multiplier->raw <= 0) {
@@ -266,13 +239,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *multiplier;
-    // min_notional stays undefined: KuCoin's floor is a contract count
-    // (maxOrderQty bounds the other end), and converting it to a notional
-    // needs a price we do not have here. A zero would read as "no minimum".
-    //
-    // Unlike okx, the catalogue does carry the funding interval, and KuCoin
-    // runs 1h, 4h and 8h contracts side by side — so this is read rather than
-    // guessed.
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
 }
 

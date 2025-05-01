@@ -29,8 +29,6 @@ namespace raikiri::oms {
 
 class Order {
 public:
-    // Default state exists only as slot storage inside OrderStore; a
-    // default-constructed Order is not a valid order.
     Order() noexcept = default;
 
     Order(const OrderCmd& cmd, const ExchangeClientOrderId& exchange_client_order_id) noexcept
@@ -52,8 +50,6 @@ public:
             leaves_ = event.leaves_qty;
             filled_ = qty_ - leaves_;
         }
-        // Bind the venue's id on first sight; a venue never renames an order,
-        // so a differing id on a later event is noise, not truth.
         if (exchange_order_id_.empty() && !event.exchange_order_id.empty()) {
             exchange_order_id_ = event.exchange_order_id;
         }
@@ -61,9 +57,6 @@ public:
             status_ == OrderStatus::Triggered) {
             prior_working_ = status_;
         } else if (event.type == OrderEventType::Filled && !full_fill) {
-            // Partial fill while pending (status did not become a working
-            // status, e.g. stayed PendingCancel): the resume target is now
-            // PartiallyFilled regardless of what it was before.
             prior_working_ = OrderStatus::PartiallyFilled;
         }
         ts_updated_ = event.ts_event.ns != 0 ? event.ts_event : event.ts_init;
@@ -115,9 +108,6 @@ private:
     TimeInForce tif_{TimeInForce::Gtc};
     OrderFlags flags_{OrderFlags::None};
     OrderStatus status_{OrderStatus::Initialized};
-    // Default Accepted: a CancelRejected on an order that never confirmed a
-    // working status still means the venue knows the order — Accepted is the
-    // only sane resume.
     OrderStatus prior_working_{OrderStatus::Accepted};
     PriceTicks price_{};
     QtyLots qty_{};

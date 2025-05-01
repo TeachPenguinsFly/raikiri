@@ -19,20 +19,14 @@ namespace raikiri::venues::okx {
 
 class RequestBuilder {
 public:
-    // /api/v5/public/instruments — one instType per call, roughly 450 KiB for
-    // SWAP. Unlike binance's exchangeInfo there is no all-markets variant.
     [[nodiscard]] net::RestRequest instruments(std::string_view inst_type) noexcept;
 
-    // /api/v5/public/time — used to measure the venue clock offset before
-    // anything is signed.
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
     [[nodiscard]] net::RestRequest mark_price(std::string_view inst_id) noexcept;
 
     [[nodiscard]] net::RestRequest funding_rate(std::string_view inst_id) noexcept;
 
-    // /api/v5/market/books — the snapshot a depth subscription would start
-    // from if anything consumed a book.
     [[nodiscard]] net::RestRequest books(std::string_view inst_id, std::uint32_t depth) noexcept;
 
 private:

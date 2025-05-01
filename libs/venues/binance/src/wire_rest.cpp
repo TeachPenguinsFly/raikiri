@@ -22,17 +22,12 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
     return guarded([&]() -> std::expected<RestError, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
-            // An array body (aggTrades, depth pages) is a success payload that
-            // simply is not an object — not an error, and not our business.
             return RestError{};
         }
         const auto code = detail::opt_i64(*root, "code");
         if (!code.has_value()) {
             return std::unexpected(code.error());
         }
-        // Binance signals failure with a negative code. Some success payloads
-        // legitimately carry a `code` field, so the sign is the test, not the
-        // presence of the key.
         if (*code >= 0) {
             return RestError{};
         }
@@ -84,9 +79,6 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             }
             out.delivery_ms = *delivery;
 
-            // Tick and lot live inside a filters array keyed by filterType,
-            // and the array order is not documented as stable — so it is
-            // scanned rather than indexed.
             auto filters = detail::req_array(obj, "filters");
             if (!filters.has_value()) {
                 return std::unexpected(filters.error());

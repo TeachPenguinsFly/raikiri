@@ -29,8 +29,6 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (suffix == "trade.detail") {
         return EventKind::Trade;
     }
-    // depth.size_20.high_freq and the aggregated steps carry a different
-    // shape; only the one ws.cpp subscribes to is claimed here.
     if (suffix == "depth.step0") {
         return EventKind::Depth;
     }
@@ -118,8 +116,6 @@ std::expected<detail::ondemand::object, WireError> first_data(detail::ondemand::
         }
         return obj;
     }
-    // An empty data array is how HTX answers a query it could not satisfy;
-    // reporting it as a datum would invent a zero-valued one.
     return std::unexpected(WireError::MissingField);
 }
 
@@ -133,8 +129,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
 
-        // The notification socket's dialect. Checked first because its frames
-        // carry neither `ch` nor `ping`.
         const auto op = detail::opt_str(*root, "op");
         if (!op.has_value()) {
             return std::unexpected(op.error());
@@ -158,9 +152,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 info.kind = kind_from_topic(*topic);
                 return info;
             }
-            // A sub answer is an acknowledgement or a refusal one field apart,
-            // and a refusal read as an acknowledgement looks exactly like a
-            // stream that is merely quiet.
             const auto code = detail::opt_raw(*root, "err-code");
             if (!code.has_value()) {
                 return std::unexpected(code.error());

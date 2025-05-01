@@ -39,8 +39,6 @@ std::string_view stream_path() noexcept {
 std::string_view topic_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Top of book without maintaining a local book — but one row per
-        // liquidity pool, which map.hpp's QuoteBook is what reconciles.
         return "quote";
     case exec::SubKind::Trades:
         return "trade";
@@ -48,8 +46,6 @@ std::string_view topic_for(exec::SubKind kind) noexcept {
         return "orderBookL2_25";
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        // One table carries both, unlike okx. The desired set is deduplicated
-        // by (table, symbol), so asking for each in turn opens one subscription.
         return "instrument";
     case exec::SubKind::Kline:
         return {}; // tradeBinNm — needs a bar size in the name; no consumer yet
@@ -64,9 +60,6 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     }
     const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means topic_for() declined the kind. An empty symbol would
-        // subscribe to every contract on the venue, which is worse than an
-        // error: it succeeds.
         if (subscriptions[i].table.empty() || subscriptions[i].symbol.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }

@@ -40,9 +40,6 @@ class Engine {
 public:
     Engine() = default;
 
-    // Registry payload for a resting client order; everything an OrderEvent
-    // (or a reconciliation report) needs. Public: the venue adapter builds
-    // its open_order_reports from exactly this view.
     struct ClientOrderMeta {
         InstrumentId instrument{};
         ClientOrderId client_order_id{};
@@ -67,25 +64,19 @@ public:
         return out;
     }
 
-    // Applies one client command at sim-time `now`. Event mapping: Accepted
-    // when a remainder rests, Rejected for validation and post-only-cross,
-    // Filled (taker and maker sides) per execution, Expired for IOC/FOK/
-    // market remainders, Canceled/Updated for cancel/amend, CancelRejected/
-    // ModifyRejected when the target is unknown.
     [[nodiscard]] SimResult handle(const OrderCmd& cmd, UnixNanos now);
 
-    // Background liquidity (owner 0). Returns the minted sim order id so the
-    // generator can manage its quotes. Client maker fills and TradeTicks are
-    // appended to `out`; the background order itself never emits events.
-    std::uint64_t place_background_limit(InstrumentId instrument, Side side, PriceTicks price,
-                                         QtyLots qty, UnixNanos now, SimResult& out);
-    void place_background_market(InstrumentId instrument, Side side, QtyLots qty, UnixNanos now,
-                                 SimResult& out);
+    // Background liquidity (owner 0).
+    std::uint64_t place_background_limit(InstrumentId instrument,
+                                         Side side,
+                                         PriceTicks price,
+                                         QtyLots qty,
+                                         UnixNanos now,
+                                         SimResult& out);
+    void place_background_market(
+        InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out);
 
-    // Refuses to touch client orders — background flow may only pull its own
-    // quotes. Optional `out` accumulates bbo movement.
-    bool cancel_background(InstrumentId instrument, std::uint64_t sim_id,
-                           SimResult* out = nullptr);
+    bool cancel_background(InstrumentId instrument, std::uint64_t sim_id, SimResult* out = nullptr);
 
     // nullptr / nullopt when the instrument has never traded here.
     [[nodiscard]] const Book* book(InstrumentId instrument) const noexcept;
@@ -94,17 +85,21 @@ public:
 private:
     Book& book_for(InstrumentId instrument);
     [[nodiscard]] ExecId next_exec_id() noexcept;
-    [[nodiscard]] OrderEvent make_event(const ClientOrderMeta& meta, OrderEventType type,
-                                        UnixNanos now) const;
-    [[nodiscard]] OrderEvent make_event_from_cmd(const OrderCmd& cmd, OrderEventType type,
-                                                 UnixNanos now) const;
+    [[nodiscard]] OrderEvent
+    make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const;
+    [[nodiscard]] OrderEvent
+    make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const;
     [[nodiscard]] std::optional<std::uint64_t> resolve_target(const OrderCmd& cmd) const;
     void handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_cancel(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     // taker == nullptr for background aggressors (no taker events emitted).
-    void emit_fills(const ClientOrderMeta* taker, QtyLots taker_leaves_start, Side taker_side,
-                    InstrumentId instrument, const MatchResult& match, UnixNanos now,
+    void emit_fills(const ClientOrderMeta* taker,
+                    QtyLots taker_leaves_start,
+                    Side taker_side,
+                    InstrumentId instrument,
+                    const MatchResult& match,
+                    UnixNanos now,
                     SimResult& out);
 
     std::unordered_map<InstrumentId, Book> books_;

@@ -19,8 +19,6 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
         if (!label.has_value()) {
             return std::unexpected(label.error());
         }
-        // Absent on CONTRACT_NOT_FOUND, present on most others. An empty
-        // message is not a reason to discard a label we can classify.
         const auto message = detail::opt_str(*root, "message");
         if (!message.has_value()) {
             return std::unexpected(message.error());
@@ -51,8 +49,6 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                 return std::unexpected(name.error());
             }
             out.name = *name;
-            // Optional at the wire layer: the mapper is what refuses a row,
-            // and reporting exactly what the venue said is this layer's job.
             const auto status = detail::opt_str(obj, "status");
             const auto tick = detail::opt_num(obj, "order_price_round");
             const auto size_min = detail::opt_num(obj, "order_size_min");

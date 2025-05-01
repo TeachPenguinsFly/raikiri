@@ -30,9 +30,6 @@ public:
     // The catalogue: {"universe":[{"name":"BTC","szDecimals":5,...},...]}.
     [[nodiscard]] static net::RestRequest meta() noexcept;
 
-    // Catalogue plus live per-asset context. Not used by the adapter — the
-    // activeAssetCtx channel pushes the identical objects, on change — but it
-    // is the only REST form of that data, and it feeds the same parser.
     [[nodiscard]] static net::RestRequest meta_and_asset_ctxs() noexcept;
 };
 

@@ -137,8 +137,6 @@ std::expected<std::string_view, InflateError> Inflater::inflate(std::string_view
         return std::unexpected{deflated.error()};
     }
 
-    // Each frame is an independent stream; reset() drops the last one's window
-    // without dropping the allocation.
     impl_->stream.reset();
 
     zlib::z_params params{};
@@ -157,8 +155,6 @@ std::expected<std::string_view, InflateError> Inflater::inflate(std::string_view
         if (ec && ec != zlib::error::need_buffers) {
             return std::unexpected{InflateError::Corrupt};
         }
-        // need_buffers with room left means the input ended mid-stream;
-        // growing again would spin forever.
         if (params.avail_out != 0) {
             return std::unexpected{InflateError::Corrupt};
         }
@@ -212,17 +208,11 @@ std::string_view notify_path() noexcept {
 std::string_view topic_suffix(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Top of book on its own topic, so no local book has to be maintained
-        // to produce a BBO.
         return "bbo";
     case exec::SubKind::Trades:
         return "trade.detail";
     case exec::SubKind::Depth:
-        // step0 is unaggregated; step1..step15 merge levels and would report a
-        // tick size the instrument does not have.
         return "depth.step0";
-    // Funding is a different socket and MarkPrice a kline-shaped series on a
-    // third one (/ws_index, VERIFIED); neither is named here.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
     case exec::SubKind::Kline:

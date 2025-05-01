@@ -90,8 +90,6 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     request(std::string_view req_type, std::string_view symbol, std::string_view suffix);
 
-    // One stream per message, so this is generous; BufferTooSmall costs a
-    // subscription silently.
     std::array<char, 256> frame_{};
     std::uint64_t next_id_{0};
 };

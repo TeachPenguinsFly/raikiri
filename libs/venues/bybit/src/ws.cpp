@@ -1,6 +1,5 @@
-#include <raikiri/venues/bybit/ws.hpp>
-
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bybit/ws.hpp>
 
 #include <charconv>
 #include <cstring>
@@ -50,15 +49,12 @@ std::string_view host(bool testnet) noexcept {
     return testnet ? "stream-testnet.bybit.com" : "stream.bybit.com";
 }
 
-std::string_view topic_name(exec::SubKind kind, std::string_view exchange_symbol,
-                            std::span<char> out) noexcept {
+std::string_view
+topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
     std::string_view prefix;
     switch (kind) {
     case exec::SubKind::Bbo:
     case exec::SubKind::Depth:
-        // One stream serves both: bybit's book feed IS the top of book, and
-        // subscribing twice for the same data would double the bandwidth for
-        // nothing. The gateway derives BBO from the synchronised book.
         prefix = "orderbook.";
         break;
     case exec::SubKind::Trades:
@@ -66,8 +62,6 @@ std::string_view topic_name(exec::SubKind kind, std::string_view exchange_symbol
         break;
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        // Both live on the tickers stream, which is also why a ticker delta
-        // has to be treated as partial rather than authoritative.
         prefix = "tickers.";
         break;
     case exec::SubKind::Kline:
@@ -100,15 +94,11 @@ Protocol::op_frame(std::string_view op, std::span<const std::string_view> topics
     }
     const auto batch = std::min(topics.size(), k_max_topics_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // An empty topic means topic_name() declined the kind. Sending it
-        // would subscribe to the literal string "" and get silence back.
         if (topics[i].empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
     }
 
-    // Written by hand rather than through JsonWriter: this frame is a bare
-    // array of strings, and JsonWriter models keyed values.
     std::size_t len = 0;
     bool overflow = false;
     const auto put = [&](std::string_view text) {
@@ -156,9 +146,7 @@ Protocol::auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t val
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::NotSigned};
     }
-    // The expiry must be ahead of bybit's clock when the frame lands. Signing
-    // the current instant yields a frame that is already stale on arrival and
-    // is refused in a way that looks like bad credentials.
+    // The expiry must be ahead of bybit's clock when the frame lands.
     const auto expires_ms = now.ns / 1'000'000ULL + validity_ms;
 
     std::array<char, 24> expires_text{};
@@ -178,8 +166,7 @@ Protocol::auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t val
     }
     auth_msg_len_ = len;
 
-    const auto signature =
-        signer.sign(last_auth_message(), net::Signer::Encoding::Hex, signature_);
+    const auto signature = signer.sign(last_auth_message(), net::Signer::Encoding::Hex, signature_);
     if (signature.empty()) {
         return std::unexpected{WsBuildError::NotSigned};
     }

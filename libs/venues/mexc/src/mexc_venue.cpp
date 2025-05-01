@@ -46,21 +46,14 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path.
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Venue clock offset, measured against /contract/ping. Unused until
-    // signing lands, but measured now because a wrong offset shows up as 603
-    // (request expired), which reads like a credentials problem.
+    // Venue clock offset, measured against /contract/ping.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established and
-    // a stream that is merely quiet look identical from the sink, which is why
-    // the refusal is counted rather than inferred.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
 
     void add_subscription(std::string_view channel, std::string_view symbol, std::uint32_t limit) {
@@ -96,8 +89,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose
-        // real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -118,15 +109,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Depth:
-        // Parsed and tested, but nothing consumes a book yet: the BBO comes
-        // from depth.full, so maintaining one here would be state kept for its
-        // own sake. The begin/end chain it needs is already pinned by tests.
         break;
     case EventKind::Error: {
-        // rs.error covers both a refused subscription and the idle-timeout
-        // notice, and carries no code to tell them apart. Either way the
-        // channel it names is dead and silence is exactly how that presents,
-        // so it is counted here for the operator interface.
         if (parse_stream_error(frame).has_value()) {
             ++state.subscribe_refusals;
         }
@@ -144,9 +128,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it. One
-        // message per subscription — MEXC's param names a single symbol.
         for (const auto& entry : state_->desired) {
             const std::array<Subscription, 1> one{Subscription{
                 .channel = entry.channel, .symbol = entry.symbol, .limit = entry.limit}};
@@ -338,8 +319,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay; the offset
-    // only has to be good to a fraction of MEXC's signing window.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -356,10 +335,6 @@ public:
         rest_.start();
         sync_clock(*state_, rest_);
 
-        // No market parameter reaches the wire: /contract/detail is the whole
-        // futures catalogue and MEXC serves spot from a different host, so a
-        // spot request is refused before it is sent rather than answered with
-        // futures rows.
         if (market != MarketType::Perp) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "mexc contract api serves perps only")};
@@ -403,8 +378,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the copy
-            // handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

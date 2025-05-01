@@ -37,8 +37,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) {
     std::int64_t exponent = 0;
     const auto* const end = exponent_text.data() + exponent_text.size();
     const auto [stop, ec] = std::from_chars(exponent_text.data(), end, exponent);
-    // 18 is where a power of ten stops fitting in the int64 these scale into;
-    // past it the answer is not representable rather than merely unusual.
     if (ec != std::errc{} || stop != end || exponent > 18) {
         return std::nullopt;
     }
@@ -49,8 +47,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) {
     if (!negative) {
         return mantissa->scaled_by(power);
     }
-    // An exponent that would push digits past the ninth is refused, not
-    // rounded: the same rule the tick-size division follows.
     if (mantissa->raw % power != 0) {
         return std::nullopt;
     }
@@ -220,8 +216,6 @@ std::optional<FixedE9> contract_value_of(const WireInstrument& wire, MarketType 
     if (!multiplier.has_value() || *multiplier == 0) {
         return std::nullopt;
     }
-    // A disagreement between the flag and the sign means the two columns
-    // describe different contracts; neither is safe to believe.
     if ((*multiplier < 0) != wire.inverse) {
         return std::nullopt;
     }
@@ -233,18 +227,12 @@ std::optional<FixedE9> contract_value_of(const WireInstrument& wire, MarketType 
         return exact_ratio(magnitude(*multiplier), magnitude(*scale));
     }
     if (market == MarketType::Spot) {
-        // A spot size is an integer count of the base currency's minor units —
-        // XBT_USDT trades in satoshis — so one unit is worth
-        // 1 / underlyingToPositionMultiplier of the base currency.
         const auto scale = whole_number(wire.underlying_to_position);
         if (!scale.has_value()) {
             return std::nullopt;
         }
         return exact_ratio(1, *scale);
     }
-    // `multiplier` counts the settlement currency's minor units per contract per
-    // price unit, and quoteToSettleMultiplier is how many minor units make one
-    // whole unit of it; the price units cancel and base currency is left.
     const auto scale = whole_number(wire.quote_to_settle);
     if (!scale.has_value()) {
         return std::nullopt;
@@ -268,12 +256,6 @@ UnixNanos iso8601_to_unix(std::string_view text, UnixNanos fallback) noexcept {
 }
 
 std::uint32_t funding_interval_seconds(std::string_view text) noexcept {
-    // "2000-01-01T08:00:00.000Z" means EIGHT HOURS. BitMEX encodes the funding
-    // period as a time-of-day offset from an arbitrary midnight, so the date
-    // half is noise and only the clock half carries the duration. Decoding it
-    // this way costs one catalogue row; the alternative — differencing
-    // consecutive fundingTimestamp values — costs a second REST pull against a
-    // per-minute budget, and gets the same 8h answer eight hours later.
     const auto parts = split_iso8601(text);
     if (!parts.has_value()) {
         return 0;
@@ -319,8 +301,6 @@ QuoteBook::apply(const WireQuote& wire, const InstrumentBase& base, UnixNanos ts
         }
     }
     if (slot == nullptr) {
-        // More pools than slots: the alternative is folding a new pool into an
-        // existing one's slot, which double-counts its size into the aggregate.
         const auto name = FixedString<16>::from(wire.pool);
         if (spare == nullptr || !name.has_value()) {
             return std::nullopt;
@@ -374,8 +354,6 @@ QuoteBook::apply(const WireQuote& wire, const InstrumentBase& base, UnixNanos ts
             }
         }
     }
-    // A fresh subscription is one-sided until the pool that owns the other side
-    // speaks; a half book is not a BBO.
     if (out.bid.is_undef() || out.ask.is_undef()) {
         return std::nullopt;
     }
@@ -401,10 +379,6 @@ std::optional<FundingUpdate> InstrumentState::apply(const WireInstrumentTick& wi
     if (const auto interval = funding_interval_seconds(wire.funding_interval); interval != 0) {
         interval_s_ = interval;
     }
-    // markPrice rides this table but never reaches FundingUpdate: BitMEX marks to
-    // a finer grid than it trades on (minTick 0.01 against tickSize 0.1 on
-    // XBTUSD), so it rarely divides by the instrument's tick and the no-rounding
-    // rule drops it. Publishing it needs a second scale InstrumentBase lacks.
     const bool carries_funding = !wire.funding_rate.empty() ||
                                  !wire.indicative_funding_rate.empty() ||
                                  !wire.funding_ts.empty() || !wire.funding_interval.empty();
@@ -424,16 +398,9 @@ std::optional<FundingUpdate> InstrumentState::apply(const WireInstrumentTick& wi
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // /instrument/active still lists Unlisted and Settled rows — 16 of 66 on
-    // capture day — and a settled contract keeps every numeric column a live one
-    // has, so nothing further down would notice. First because the rest pass.
     if (wire.state != "Open") {
         return std::nullopt;
     }
-    // A quanto's size is a cross-currency multiplier (satoshis per USD point of
-    // an ETH price), not an amount of any one currency, so no contract_value can
-    // express it: ETHUSD's own homeNotional24h / volume24h tracks the BTC/ETH
-    // ratio instead of holding still. Refused, not approximated — 12 of 66.
     if (wire.quanto) {
         return std::nullopt;
     }
@@ -441,13 +408,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!typ_market.has_value() || *typ_market != market) {
         return std::nullopt;
     }
-    // Perpetuals and dated futures share this endpoint under codes one letter
-    // apart, and being handed a dated contract when perps were asked for is a
-    // whole category of position bug. What separates them is FUNDING, not
-    // `expiry`: BitMEX puts an expiry on a perpetual it has scheduled for
-    // DELISTING, and twelve FFWCSX/FFSCSX rows grew one overnight — all set to
-    // the same noon, all still Open, all still funding. Keying on expiry
-    // dropped every one of them a day before they stopped trading.
     const bool funds = !wire.funding_interval.empty();
     if (market == MarketType::Perp && !funds) {
         return std::nullopt;
@@ -485,9 +445,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (const auto taker = to_e9(wire.taker_fee); taker.has_value()) {
         base.taker_fee = *taker;
     }
-    // min_notional stays undefined: BitMEX's floor is lotSize, a count of
-    // contracts, and turning that into a notional needs a price we do not have
-    // here. A zero would read as "no minimum", which is the wrong answer.
 
     switch (market) {
     case MarketType::Spot:

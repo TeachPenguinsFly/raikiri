@@ -17,8 +17,6 @@ TableKind table_from_name(std::string_view table) noexcept {
     if (table == "instrument") {
         return TableKind::Instrument;
     }
-    // orderBookL2 (full depth) and orderBook10 exist and carry different
-    // shapes; only the one ws.cpp subscribes to is claimed here.
     if (table == "orderBookL2_25") {
         return TableKind::OrderBook;
     }
@@ -70,9 +68,6 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
             info.action = action_from_name(*action);
             return info;
         }
-        // A control frame names itself by which key it carries: `error` on a
-        // refusal, `success` on an ack, `info` on the connection banner. Read
-        // raw so a JSON bool or number does not read as a type mismatch.
         const auto error = detail::opt_raw(*root, "error");
         const auto success = detail::opt_raw(*root, "success");
         const auto banner = detail::opt_raw(*root, "info");
@@ -158,8 +153,6 @@ std::expected<std::span<const WireQuote>, WireError> parse_quotes(std::string_vi
             if (!side_is_paired(*bid_price, *bid_qty) || !side_is_paired(*ask_price, *ask_qty)) {
                 return std::unexpected(WireError::MissingField);
             }
-            // A row that moved neither side is not a quote; letting it through
-            // would republish the book on an empty event.
             if (bid_price->empty() && ask_price->empty()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -198,8 +191,6 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
                 return std::unexpected(detail::map_error(ec));
             }
             WireTrade out{};
-            // A print is a completed fact, so unlike `quote` and `instrument`
-            // every column of it is required: BitMEX never sends a partial one.
             const auto symbol = detail::req_str(obj, "symbol");
             const auto side = detail::req_str(obj, "side");
             const auto ts = detail::req_str(obj, "timestamp");
@@ -292,8 +283,6 @@ std::expected<std::span<const WireLevel>, WireError> parse_book(std::string_view
             const auto side = detail::req_str(obj, "side");
             const auto id = detail::opt_i64(obj, "id");
             const auto price = detail::opt_num(obj, "price");
-            // Absent on `delete`, which names a level by id and says nothing
-            // about how big it used to be.
             const auto qty = detail::opt_num(obj, "size");
             if (!symbol.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);

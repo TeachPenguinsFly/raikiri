@@ -1,18 +1,16 @@
-#include <raikiri/journal/writer.hpp>
-
 #include <raikiri/common/platform.hpp>
 #include <raikiri/journal/detail.hpp>
-
-#include <new>
+#include <raikiri/journal/writer.hpp>
 
 #include <crc32c/crc32c.h>
-
-#include <cerrno>
-#include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cerrno>
+#include <cstring>
+#include <new>
 #include <utility>
 
 namespace raikiri::journal {
@@ -39,8 +37,8 @@ void JournalWriter::close_segment() noexcept {
     }
 }
 
-std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir, std::string prefix,
-                                                               std::size_t segment_bytes) {
+std::expected<JournalWriter, JournalError>
+JournalWriter::open(std::string dir, std::string prefix, std::size_t segment_bytes) {
     JournalWriter w;
     w.dir_ = std::move(dir);
     w.prefix_ = std::move(prefix);
@@ -101,10 +99,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
         if (header_->abi != k_file_abi) {
             return std::unexpected{JournalError::BadAbi};
         }
-        // Machine-crash rule: never trust committed_bytes on recovery —
-        // re-derive it by walking CRCs and truncate the torn tail.
-        const auto walk =
-            detail::walk_frames(base_, segment_bytes_, header_->base_record_seq);
+        const auto walk = detail::walk_frames(base_, segment_bytes_, header_->base_record_seq);
         write_off_ = walk.end_offset;
         next_seq_ = walk.next_seq;
         header_->committed_bytes.store(write_off_, std::memory_order_release);
@@ -121,9 +116,10 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     return {};
 }
 
-std::expected<std::uint64_t, JournalError>
-JournalWriter::append(std::uint16_t schema_id, std::uint16_t schema_version,
-                      std::span<const std::byte> payload, std::uint64_t ts_ns) noexcept {
+std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t schema_id,
+                                                                 std::uint16_t schema_version,
+                                                                 std::span<const std::byte> payload,
+                                                                 std::uint64_t ts_ns) noexcept {
     if (payload.size() > k_max_payload) {
         return std::unexpected{JournalError::PayloadTooLarge};
     }
@@ -147,8 +143,8 @@ JournalWriter::append(std::uint16_t schema_id, std::uint16_t schema_version,
     if (!payload.empty()) {
         std::memcpy(frame + k_frame_header_bytes, payload.data(), payload.size());
     }
-    const std::uint32_t crc = crc32c::Crc32c(reinterpret_cast<const char*>(frame),
-                                             k_frame_header_bytes + payload.size());
+    const std::uint32_t crc =
+        crc32c::Crc32c(reinterpret_cast<const char*>(frame), k_frame_header_bytes + payload.size());
     std::memcpy(frame + k_frame_header_bytes + payload.size(), &crc, 4);
 
     write_off_ += need;

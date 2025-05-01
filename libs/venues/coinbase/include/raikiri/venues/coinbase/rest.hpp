@@ -24,20 +24,12 @@ namespace raikiri::venues::coinbase {
 
 class RequestBuilder {
 public:
-    // /products — the whole catalogue, ~350 KiB for 832 rows. There is no
-    // filter parameter, so spot-only is a property of the venue rather than
-    // of the request.
     [[nodiscard]] net::RestRequest products() noexcept;
 
     [[nodiscard]] net::RestRequest product(std::string_view product_id) noexcept;
 
-    // /time — used to measure the venue clock offset. It answers with an
-    // ISO-8601 string beside a floating-point epoch; only the string is read.
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    // /products/{id}/book — level 1 is best bid/ask only, level 2 the
-    // aggregated book. The snapshot a depth subscription would start from, if
-    // anything consumed a book.
     [[nodiscard]] net::RestRequest book(std::string_view product_id, std::uint32_t level) noexcept;
 
 private:

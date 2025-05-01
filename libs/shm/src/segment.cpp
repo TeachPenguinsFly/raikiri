@@ -1,13 +1,13 @@
+#include <raikiri/common/platform.hpp>
 #include <raikiri/shm/segment.hpp>
 
-#include <raikiri/common/platform.hpp>
-
-#include <cerrno>
-#include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cerrno>
+#include <cstring>
 #include <utility>
 
 namespace raikiri::shm {
@@ -82,8 +82,6 @@ SegmentOwner::SegmentOwner(SegmentOwner&& other) noexcept
 SegmentOwner::~SegmentOwner() {
     if (base_ != nullptr) {
         ::munmap(base_, size_);
-        // Clean shutdown removes the file; a crash leaves it for the
-        // stale-takeover path (that asymmetry is what peers detect).
         ::unlink(path_.c_str());
     }
 }
@@ -154,8 +152,7 @@ std::expected<SegmentOwner, SegError> SegmentOwner::create(const std::string& pa
     return std::unexpected{SegError::CreateFailed};
 }
 
-void* SegmentOwner::place(std::string_view name, std::size_t size,
-                          std::size_t alignment) noexcept {
+void* SegmentOwner::place(std::string_view name, std::size_t size, std::size_t alignment) noexcept {
     if (header_ == nullptr || name.empty() || name.size() >= sizeof(ChannelDesc{}.name) ||
         header_->channel_count >= k_max_channels) {
         return nullptr;
@@ -270,8 +267,7 @@ std::expected<std::size_t, SegError> SegmentClient::register_reader(std::int32_t
         auto& slot = header_->readers[i];
         std::int32_t cur = slot.pid.load(std::memory_order_acquire);
         const bool reclaimable = cur == 0 || !platform::process_alive(cur);
-        if (reclaimable &&
-            slot.pid.compare_exchange_strong(cur, pid, std::memory_order_acq_rel)) {
+        if (reclaimable && slot.pid.compare_exchange_strong(cur, pid, std::memory_order_acq_rel)) {
             return i;
         }
     }

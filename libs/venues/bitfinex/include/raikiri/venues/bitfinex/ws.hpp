@@ -94,20 +94,11 @@ public:
 
     [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::int64_t chan_id);
 
-    // {"event":"conf","flags":32768} — asks Bitfinex to append its send
-    // timestamp to every data frame. Worth the request because the `ticker`
-    // channel's payload carries NO time of its own, so without it a BBO's
-    // ts_event can only be ingest time and every latency measurement over this
-    // venue collapses to zero. The flag appends at the TAIL of the envelope,
-    // which is the only place a positional format can grow without renaming
-    // anything.
     [[nodiscard]] static std::string_view conf_frame() noexcept;
 
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"event":"ping"})"; }
 
 private:
-    // Sized so the longest channel/symbol pair still fits: BufferTooSmall
-    // costs a whole subscription, silently.
     std::array<char, 256> frame_{};
 };
 

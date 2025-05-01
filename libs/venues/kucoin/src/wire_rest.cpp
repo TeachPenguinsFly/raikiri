@@ -16,14 +16,10 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             return std::unexpected(root.error());
         }
         const auto code = detail::req_str(*root, "code");
-        // `msg` appears only on failures and an error body carries no `data`,
-        // so the absence of either proves nothing.
         const auto msg = detail::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        // No KuCoin code is zero, so a code that will not parse cannot decay
-        // into one and be mistaken for success.
         const auto value = detail::digits_to_u64(*code);
         if (value == 0) {
             return std::unexpected(WireError::WrongType);
@@ -50,8 +46,6 @@ std::expected<WireBullet, WireError> parse_bullet(std::string_view body) {
                 if (!servers.has_value()) {
                     return std::unexpected(servers.error());
                 }
-                // Taking the first is the documented client behaviour; an
-                // empty list is a refusal, not a connectable default.
                 for (auto entry : *servers) {
                     detail::ondemand::object server;
                     if (const auto ec = entry.get_object().get(server); ec != simdjson::SUCCESS) {
@@ -103,8 +97,6 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.symbol = *symbol;
             out.status = *status;
             out.type = *type;
-            // The steps are bare JSON numbers in Java's formatting, so
-            // "1.0E-10" and "0.1" both appear; the mapper owns that.
             for (const auto& [key, field] : {std::pair{"tickSize", &out.tick_size},
                                              std::pair{"lotSize", &out.lot_size},
                                              std::pair{"multiplier", &out.multiplier},
@@ -137,8 +129,6 @@ std::expected<WireFundingRate, WireError> parse_funding_current(std::string_view
         return detail::with_data(
             *root, [](detail::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
                 WireFundingRate out{};
-                // `symbol` names the funding index, not the contract, so the
-                // caller pairs the result with the symbol it asked for.
                 const auto rate = detail::req_decimal(obj, "value");
                 const auto predicted = detail::opt_decimal(obj, "predictedValue");
                 if (!rate.has_value() || !predicted.has_value()) {
@@ -166,8 +156,6 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // `data` is a bare number on this endpoint, not the object every other
-        // read wraps its payload in.
         const auto ts = detail::opt_u64(*root, "data");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());

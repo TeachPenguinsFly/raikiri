@@ -14,8 +14,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "push.deal") {
         return EventKind::Trade;
     }
-    // Longest first: "push.depth" is a prefix of "push.depth.full" and the two
-    // carry opposite guarantees about ordering.
     if (channel == "push.depth.full") {
         return EventKind::DepthFull;
     }
@@ -28,8 +26,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "rs.error") {
         return EventKind::Error;
     }
-    // Every other rs.* is an acknowledgement — rs.sub.ticker, rs.unsub.deal —
-    // whose payload is the literal "success".
     if (channel.starts_with("rs.")) {
         return EventKind::SubscribeAck;
     }
@@ -123,8 +119,6 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // `data` is the reason text itself on this channel, where every other
-        // channel puts an object there.
         const auto msg = detail::req_scalar(*root, "data");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
@@ -163,8 +157,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.index_price = *index;
         out.bid_price = *bid;
         out.ask_price = *ask;
-        // Optional: a contract that quotes no funding omits it rather than
-        // sending a zero, and the mapper needs to tell those apart.
         const auto funding = detail::opt_scalar(*data, "fundingRate");
         const auto ts = detail::opt_ms(*data, "timestamp");
         if (!funding.has_value() || !ts.has_value()) {
@@ -215,8 +207,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (!side.has_value() || !ts.has_value() || !id.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
-            // 1 buy, 2 sell. Anything else would silently become a sell, so an
-            // unrecognised direction fails the frame instead.
+            // 1 buy, 2 sell.
             if (*side != 1 && *side != 2) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -258,8 +249,6 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         const auto begin = detail::opt_i64(*data, "begin", 0);
         const auto end = detail::opt_i64(*data, "end", 0);
         const auto version = detail::opt_i64(*data, "version", 0);
-        // `cts` is the matching-engine time and is null on the REST snapshot,
-        // where the envelope's own `timestamp` is the only clock available.
         const auto cts = detail::opt_ms(*data, "cts");
         if (!begin.has_value() || !end.has_value() || !version.has_value() || !cts.has_value()) {
             return std::unexpected(WireError::WrongType);
@@ -277,14 +266,10 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         out.bids = {storage.bids.data(), *bids};
         out.asks = {storage.asks.data(), *asks};
-        // Read last: the channel name follows `data` in the envelope, so this
-        // is the only field whose lookup wraps.
         const auto channel = detail::opt_scalar(*root, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
-        // A REST snapshot has no channel at all and is a snapshot by
-        // construction; on the socket only depth.full is one.
         out.snapshot = channel->empty() || *channel == "push.depth.full";
         return out;
     });

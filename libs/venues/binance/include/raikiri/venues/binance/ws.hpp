@@ -52,8 +52,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // {"method":"SUBSCRIBE","params":[...],"id":N}. The id increments per
-    // frame so a response can be matched to the request that caused it.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const std::string_view> streams);
 

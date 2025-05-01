@@ -68,8 +68,6 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
             return std::nullopt;
         }
         seen_digit = true;
-        // Leading zeros carry no significance and must not consume the digit
-        // budget: "0.00000001" is ten characters of nothing.
         if (out.mantissa != 0 || c != '0') {
             if (++digits > k_max_mantissa_digits) {
                 return std::nullopt;
@@ -223,12 +221,6 @@ std::optional<Bbo> map_bbo(const WireTicker& wire,
     if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
         return std::nullopt;
     }
-    // THIS is what catches positional drift, because the parser cannot: the
-    // wire has no field names, so reading BID_SIZE where ASK was meant yields
-    // a valid number and no error anywhere upstream. A one-slot shift puts a
-    // size (2.18) in a price slot next to a price (63947) and fails bid < ask
-    // on the first frame. A book that is genuinely locked or crossed is
-    // refused too — on a top-of-book feed that is the rarer explanation.
     if (bid->raw <= 0 || ask->raw <= 0 || bid_qty->raw <= 0 || ask_qty->raw <= 0 ||
         bid->raw >= ask->raw) {
         return std::nullopt;
@@ -240,9 +232,6 @@ std::optional<Bbo> map_bbo(const WireTicker& wire,
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // The ticker payload carries no time of its own. ts_event is the envelope
-    // timestamp the `conf` TIMESTAMP flag appends, and ingest time when the
-    // flag is off or the venue omitted it.
     out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
     out.ts_init = ts_init;
     return out;
@@ -268,9 +257,6 @@ std::optional<TradeTick> map_trade(const WireTrade& wire,
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // The SIGN IS THE ONLY AGGRESSOR SIGNAL Bitfinex sends — there is no side
-    // field to disagree with, so nothing here can catch this being backwards
-    // except the live check recorded in wire.hpp. Positive is a taker buy.
     out.aggressor = amount.negative ? Side::Sell : Side::Buy;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
@@ -294,17 +280,9 @@ std::optional<FundingUpdate> map_funding(const WireDerivStatus& wire,
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = *rate;
-    // NEXT_FUNDING_ACCRUED, not DERIV_PRICE's neighbour: the accrued figure is
-    // the venue's running estimate for the settlement named by
-    // next_funding_ms, which is exactly a predicted rate.
     if (const auto predicted = to_rate_e9(wire.next_funding_accrued); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    // MARK_PRICE (slot 14), never DERIV_PRICE (slot 2): the first tracks the
-    // index and drives liquidation, the second is the perpetual's own mid.
-    // They differed by 30 dollars on BTC in the capture this was written from,
-    // so the two are not interchangeable. Left undefined when it will not
-    // divide exactly — a rounded mark is worse than an absent one.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
@@ -319,9 +297,6 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
     if (wire.pair.starts_with(k_paper_prefix)) {
         return std::nullopt;
     }
-    // The two catalogues are separate endpoints, so this is belt and braces —
-    // but loading a perpetual as spot is a whole category of position bug and
-    // the symbol shape states the answer unambiguously.
     const bool futures = wire.pair.find(k_futures_marker) != std::string_view::npos;
     if (market == MarketType::Spot) {
         if (futures) {
@@ -334,18 +309,11 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
     } else {
         return std::nullopt; // dated futures and options are not listed here
     }
-    // MIN_ORDER_SIZE is the row's only readable number, and it is a floor
-    // rather than a step, so nothing downstream divides by it. It is parsed
-    // anyway: a row whose one number will not read is a row whose positional
-    // layout has moved, and that is the only warning this endpoint can give.
     const auto min_size = parse_number_e9(wire.min_order_size);
     if (!min_size.has_value() || min_size->raw <= 0) {
         return std::nullopt;
     }
 
-    // Allocating is fine here and nowhere else in the adapter: the catalogue
-    // loads 272 rows once at startup, and SymbolText::from already refuses
-    // anything too long to carry.
     std::string wire_symbol;
     wire_symbol.reserve(k_symbol_prefix.size() + wire.pair.size());
     wire_symbol.append(k_symbol_prefix).append(wire.pair);
@@ -358,18 +326,10 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Bitfinex, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // No canonical form is derivable: "tBTCF0:USTF0" needs a currency map to
-    // become "BTC/USDT", and inventing one here would put a guess in the field
-    // that names the instrument.
     base.local_symbol = *symbol;
     base.tick_size = FixedE9::from_raw(k_step_e9);
     base.lot_size = FixedE9::from_raw(k_step_e9);
-    // Sizes are BASE UNITS on both markets — a BTC perpetual trades in BTC,
-    // not in contracts — so there is no multiplier to load.
     base.contract_value = *parse_decimal_e9("1");
-    // min_notional stays undefined: Bitfinex's floor is MIN_ORDER_SIZE, a
-    // BASE-currency amount this quote-currency field cannot express. A zero
-    // would read as "no minimum", which is the wrong answer.
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }

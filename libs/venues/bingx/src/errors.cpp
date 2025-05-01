@@ -15,10 +15,6 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     if (code == k_bad_api_key) {
         return exec::ErrorClass::AuthFailure;
     }
-    // Everything else known lands on the default anyway: a refused
-    // subscription, an unlisted symbol, a rejected parameter and a missing path
-    // are all permanent for the request that caused them, and retrying
-    // reproduces them exactly.
     return exec::ErrorClass::Terminal;
 }
 

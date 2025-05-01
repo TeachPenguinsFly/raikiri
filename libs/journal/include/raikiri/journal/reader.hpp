@@ -30,13 +30,9 @@ public:
     [[nodiscard]] static std::expected<JournalReader, JournalError> open(std::string dir,
                                                                          std::string prefix);
 
-    // Cursor-restore variant: resume after `after_seq` (e.g. persisterd
-    // restarting from its Postgres cursor).
     [[nodiscard]] static std::expected<JournalReader, JournalError>
     open_after(std::string dir, std::string prefix, std::uint64_t after_seq);
 
-    // Advances one frame. The FrameView's payload points into the current
-    // mapping and is invalidated by the next segment switch.
     [[nodiscard]] ReadResult next(FrameView& out) noexcept;
 
     [[nodiscard]] std::uint64_t last_seq() const noexcept { return last_seq_; }

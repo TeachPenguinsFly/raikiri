@@ -31,8 +31,6 @@ class Session {
 public:
     [[nodiscard]] std::expected<ondemand::object, WireError> open_object(std::string_view frame);
 
-    // metaAndAssetCtxs has a two-element ARRAY at the root, which open_object
-    // would reject; same copy-and-index step, stopping one level earlier.
     [[nodiscard]] std::expected<ondemand::array, WireError> open_array(std::string_view frame);
 
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;

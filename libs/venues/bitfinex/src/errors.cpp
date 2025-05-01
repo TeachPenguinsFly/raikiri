@@ -14,15 +14,9 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_rate_limit:
         return exec::ErrorClass::RateLimited;
 
-    // The nonce ran backwards against what the venue has already seen — clock
-    // skew or a restarted counter, not bad credentials. The same key signs
-    // successfully on the next attempt, so filing this under AuthFailure would
-    // halt a venue whose keys are fine.
     case k_auth_nonce:
         return exec::ErrorClass::Retryable;
 
-    // Both maintenance notices and the stop notice reissue channel ids on the
-    // far side; the connection recovers, so the venue is not down for good.
     case k_server_stopping:
     case k_maintenance_start:
     case k_maintenance_end:

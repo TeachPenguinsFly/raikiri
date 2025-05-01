@@ -54,38 +54,18 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path. Bounded by the same ceiling subscribe() gates
-    // on, so the storage is fixed rather than grown.
     std::array<OwnedSubscription, k_max_subscriptions_per_connection> desired{};
     std::size_t desired_count{0};
 
     // THE MAP NO OTHER ADAPTER IN THIS REPO NEEDS.
-    //
-    // Bitfinex data frames name a numeric channel id and NOTHING ELSE — no
-    // symbol, no channel name. The id is minted by the venue at subscribe time
-    // and is meaningful only within one connection, so this is the only route
-    // from an inbound frame to an instrument, and it is rebuilt from the
-    // `subscribed` acknowledgements every time the socket opens.
-    //
-    // A flat array scanned linearly, not a hash map: it holds one entry per
-    // subscription and so never exceeds the ceiling above, at which size a
-    // handful of integer compares beats hashing — and, more to the point, it
-    // cannot allocate. That is what lets the whole inbound path be noexcept.
     std::array<ChannelBinding, k_max_subscriptions_per_connection> channels{};
     std::size_t bound_count{0};
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Subscriptions the venue refused. A stream that was never established and
-    // a stream that is merely quiet look identical from the sink, which is why
-    // the refusal is counted rather than inferred.
+    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
-    // Data frames for a channel id with no binding. Non-zero means an ack was
-    // missed or the registry was cleared late — the one failure mode this
-    // design has, made visible instead of guessed at.
     std::uint64_t unbound_frames{0};
 
     [[nodiscard]] std::span<const OwnedSubscription> subscriptions() const noexcept {
@@ -109,8 +89,6 @@ struct VenueState {
         if (desired_count == desired.size()) {
             return false;
         }
-        // Unchecked on purpose: the bound was just tested, and .at() would put
-        // a throw inside a path this adapter declares noexcept.
         desired[desired_count] = OwnedSubscription{.kind = kind, .symbol = symbol};
         ++desired_count;
         return true;
@@ -118,8 +96,6 @@ struct VenueState {
 
     void bind(std::int64_t chan_id, ChannelKind kind, SymbolText symbol) noexcept {
         const ChannelBinding entry{.chan_id = chan_id, .kind = kind, .symbol = symbol};
-        // Rebinding an id already held is the ordinary case after a resubscribe
-        // on a socket the venue kept open.
         for (auto& existing : bindings()) {
             if (existing.chan_id == chan_id) {
                 existing = entry;
@@ -133,16 +109,6 @@ struct VenueState {
         ++bound_count;
     }
 
-    // Called on every socket open, and on the coded `info` notices that
-    // reissue ids without closing the socket.
-    //
-    // Dropping every binding is not tidiness. Bitfinex mints fresh ids per
-    // connection, and the number space is small enough that an id from the
-    // previous connection can be reissued for a DIFFERENT instrument on this
-    // one. A surviving stale binding would publish that instrument's prices
-    // under the old symbol's id — silently, since nothing about the frame
-    // disagrees. Clearing before the resubscribe means the registry only ever
-    // holds bindings this connection acknowledged.
     void rebind_from_scratch() noexcept { bound_count = 0; }
 
     [[nodiscard]] const ChannelBinding* binding(std::int64_t chan_id) const noexcept {
@@ -161,14 +127,10 @@ void handle_subscribed(VenueState& state, std::string_view frame) noexcept {
         return;
     }
     const auto kind = channel_kind(ack->channel, ack->key);
-    // The status channel names its instrument inside `key` and carries no
-    // `symbol` field at all.
     const auto text =
         kind == ChannelKind::DerivStatus ? symbol_from_deriv_key(ack->key) : ack->symbol;
     const auto symbol = SymbolText::from(text);
     if (kind == ChannelKind::Unknown || !symbol.has_value() || symbol->empty()) {
-        // A symbol too long to carry could not have entered the instrument
-        // table either, so binding it would only produce unmappable frames.
         return;
     }
     state.bind(ack->chan_id, kind, *symbol);
@@ -203,12 +165,6 @@ void handle_data(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        // Only `te`. The snapshot is roughly four minutes of backfill served
-        // on subscribe, and `tu` restates a print `te` already delivered —
-        // publishing either turns the tape into something no consumer of
-        // on_trade expects, and publishing `tu` doubles every volume figure on
-        // the venue. Both are parsed and pinned by tests so the shapes are
-        // already proven when something wants backfill.
         if (wire->kind != TradeFrameKind::Executed) {
             return;
         }
@@ -233,9 +189,6 @@ void handle_data(VenueState& state,
         }
         break;
     }
-    // Book is parsed and tested, but nothing consumes one yet: BBO comes from
-    // the ticker channel, so maintaining a book here would be state kept for
-    // its own sake.
     case ChannelKind::Book:
     case ChannelKind::Unknown:
         break;
@@ -261,19 +214,11 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         handle_subscribed(state, frame);
         break;
     case FrameKind::Info:
-        // A reconnect request or the end of a maintenance window reissues
-        // every channel id, and neither necessarily closes the socket first —
-        // so the registry has to be dropped here on exactly the same reasoning
-        // as on_open, or the ids arriving next would land on stale bindings.
         if (info->code == k_info_reconnect || info->code == k_info_maintenance_end) {
             state.rebind_from_scratch();
         }
         break;
     case FrameKind::Error: {
-        // A refused subscription is terminal for the channel it names, and
-        // silence is exactly how it would otherwise present. Recorded here so
-        // the operator interface can report it; nothing above the adapter can
-        // ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -293,8 +238,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         state_->rebind_from_scratch();
         (void)client_->send(Protocol::conf_frame());
         for (const auto& entry : state_->subscriptions()) {
@@ -316,8 +259,6 @@ public:
     }
 
     void on_close(net::WsCloseReason) override {
-        // The bindings belong to the socket that issued them; a frame arriving
-        // on the next one must never resolve through the last one's ids.
         state_->rebind_from_scratch();
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
@@ -366,9 +307,6 @@ public:
         if (channel == ChannelKind::Unknown) {
             return DataClient::subscribe(kind, instrument);
         }
-        // Spot pairs have no derivative status. Asking anyway earns a 10300
-        // refusal per symbol, which is a lot of noise for a question whose
-        // answer the catalogue already holds.
         if (channel == ChannelKind::DerivStatus && instrument.market() != MarketType::Perp) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -500,9 +438,6 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
-        // The /conf endpoints keep answering during a maintenance window, so
-        // without this a gateway comes up with a full catalogue and a socket
-        // that will never deliver a tick.
         if (const auto status = platform_status(); !status.has_value()) {
             return std::unexpected{status.error()};
         }
@@ -540,16 +475,12 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;
     }
 
 private:
-    // Every REST answer here is an array, so an error is told from data by its
-    // first element rather than by a status envelope.
     static std::optional<exec::VenueError> as_venue_error(std::string_view body) {
         if (!is_rest_error(body)) {
             return std::nullopt;

@@ -20,15 +20,11 @@ namespace raikiri::venues::kraken {
 
 class RequestBuilder {
 public:
-    // Every market in one call, ~1 MiB and 298 rows live. Unlike okx there is
-    // no instType to narrow it, so the perp/dated split is the mapper's.
     [[nodiscard]] net::RestRequest instruments() noexcept;
 
     // /derivatives/api/v3/tickers/{symbol} — one row plus `serverTime`.
     [[nodiscard]] net::RestRequest ticker(std::string_view symbol) noexcept;
 
-    // The snapshot a depth subscription would start from, if anything
-    // consumed a book.
     [[nodiscard]] net::RestRequest orderbook(std::string_view symbol) noexcept;
 
 private:

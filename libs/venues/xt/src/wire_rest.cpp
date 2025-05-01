@@ -21,9 +21,6 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             return std::unexpected(WireError::WrongType);
         }
         RestEnvelope out{.return_code = *return_code, .code = {}, .msg = *msg};
-        // `error` is null on success and an object on failure; its `code` is
-        // the only machine-readable identity a failure has, and it is a string
-        // ("invalid_symbol", "400"), so classification works on text.
         if (auto error = detail::req_object(*root, "error"); error.has_value()) {
             const auto code = detail::opt_str(*error, "code");
             const auto detail_msg = detail::opt_str(*error, "msg");
@@ -105,9 +102,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                 }
                 *field = *value;
             }
-            // Required, not optional: these are what the mapper gates on, and
-            // a missing switch defaulting to false would drop the whole
-            // catalogue silently instead of reporting a schema change.
             const auto state = detail::req_i64(obj, "state");
             const auto precision = detail::req_i64(obj, "quantityPrecision");
             const auto trade_switch = detail::req_bool(obj, "tradeSwitch");

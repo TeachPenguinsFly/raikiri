@@ -71,28 +71,24 @@ void Engine::handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
 
     const std::uint64_t sim_id = next_sim_id_++;
     meta.exchange_order_id = format_sim_order_id(sim_id);
-    // Owner tag: 0 is reserved for background liquidity, so client owners are
-    // strategy_id + 1 — provenance survives into Book fills.
-    const std::uint32_t owner =
-        static_cast<std::uint32_t>(cmd.client_order_id.strategy_id()) + 1U;
+    const std::uint32_t owner = static_cast<std::uint32_t>(cmd.client_order_id.strategy_id()) + 1U;
 
-    const MatchResult match =
-        cmd.order_type == OrderType::Limit
-            ? bk.submit_limit(sim_id, owner, cmd.side, cmd.price, cmd.qty,
-                              has_flag(cmd.flags, OrderFlags::PostOnly), cmd.tif)
-            : bk.submit_market(sim_id, owner, cmd.side, cmd.qty);
+    const MatchResult match = cmd.order_type == OrderType::Limit
+                                  ? bk.submit_limit(sim_id,
+                                                    owner,
+                                                    cmd.side,
+                                                    cmd.price,
+                                                    cmd.qty,
+                                                    has_flag(cmd.flags, OrderFlags::PostOnly),
+                                                    cmd.tif)
+                                  : bk.submit_market(sim_id, owner, cmd.side, cmd.qty);
 
     if (match.disposition == Disposition::RejectedPostOnly) {
-        // Venue reality: a post-only order that would cross is refused
-        // outright (Binance -2010 style) rather than silently re-priced.
         out.events.push_back(make_event(meta, OrderEventType::Rejected, now));
         return;
     }
 
     if (match.disposition == Disposition::Rested) {
-        // Ack precedes prints on real venues, and the domain FSM requires
-        // Accepted before a partial fill that leaves a resting remainder.
-        // leaves at ack time is the full quantity.
         out.events.push_back(make_event(meta, OrderEventType::Accepted, now));
     }
 
@@ -106,8 +102,6 @@ void Engine::handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
         client_orders_.emplace(sim_id, meta);
         by_exch_client_.emplace(meta.exchange_client_order_id, sim_id);
     }
-    // Fully-filled takers need no registry entry: nothing rests, and the
-    // fill events already told the whole story.
 
     out.bbo_changed = out.bbo_changed || before != bk.bbo();
 }
@@ -123,8 +117,6 @@ void Engine::handle_cancel(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
     Book& bk = book_for(meta.instrument);
     const auto before = bk.bbo();
     if (!bk.cancel(*sim_id)) {
-        // Registry says it rests but the book disagrees — answer like a venue
-        // would ("too late to cancel") instead of crashing the sim.
         out.events.push_back(make_event(meta, OrderEventType::CancelRejected, now));
         return;
     }
@@ -165,8 +157,6 @@ void Engine::handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
     meta.price = new_price;
     meta.qty = new_qty;
     meta.leaves = QtyLots::from_raw(new_leaves);
-    // The Updated ack precedes any trades the re-priced order generates —
-    // same ordering a live venue uses for aggressive amends.
     out.events.push_back(make_event(meta, OrderEventType::Updated, now));
     emit_fills(&meta, meta.leaves, meta.side, meta.instrument, *match, now, out);
 
@@ -178,23 +168,24 @@ void Engine::handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out) {
     out.bbo_changed = out.bbo_changed || before != bk.bbo();
 }
 
-std::uint64_t Engine::place_background_limit(InstrumentId instrument, Side side, PriceTicks price,
-                                             QtyLots qty, UnixNanos now, SimResult& out) {
+std::uint64_t Engine::place_background_limit(InstrumentId instrument,
+                                             Side side,
+                                             PriceTicks price,
+                                             QtyLots qty,
+                                             UnixNanos now,
+                                             SimResult& out) {
     Book& bk = book_for(instrument);
     const auto before = bk.bbo();
     const std::uint64_t sim_id = next_sim_id_++;
-    const MatchResult match =
-        bk.submit_limit(sim_id, k_background_owner, side, price, qty, /*post_only=*/false,
-                        TimeInForce::Gtc);
-    // Background flow is scenery: no taker events, but crossing a resting
-    // CLIENT order still produces that client's maker fill and a TradeTick.
+    const MatchResult match = bk.submit_limit(
+        sim_id, k_background_owner, side, price, qty, /*post_only=*/false, TimeInForce::Gtc);
     emit_fills(nullptr, qty, side, instrument, match, now, out);
     out.bbo_changed = out.bbo_changed || before != bk.bbo();
     return sim_id;
 }
 
-void Engine::place_background_market(InstrumentId instrument, Side side, QtyLots qty,
-                                     UnixNanos now, SimResult& out) {
+void Engine::place_background_market(
+    InstrumentId instrument, Side side, QtyLots qty, UnixNanos now, SimResult& out) {
     Book& bk = book_for(instrument);
     const auto before = bk.bbo();
     const std::uint64_t sim_id = next_sim_id_++;
@@ -244,8 +235,8 @@ ExecId Engine::next_exec_id() noexcept {
     return *ExecId::from(text); // "S-" + <=20 digits always fits 40 chars
 }
 
-OrderEvent Engine::make_event(const ClientOrderMeta& meta, OrderEventType type,
-                              UnixNanos now) const {
+OrderEvent
+Engine::make_event(const ClientOrderMeta& meta, OrderEventType type, UnixNanos now) const {
     OrderEvent ev{};
     ev.type = type;
     ev.side = meta.side;
@@ -265,10 +256,8 @@ OrderEvent Engine::make_event(const ClientOrderMeta& meta, OrderEventType type,
     return ev;
 }
 
-OrderEvent Engine::make_event_from_cmd(const OrderCmd& cmd, OrderEventType type,
-                                       UnixNanos now) const {
-    // Reject path for commands that never matched a registry entry: echo back
-    // everything the caller gave us so the event is still attributable.
+OrderEvent
+Engine::make_event_from_cmd(const OrderCmd& cmd, OrderEventType type, UnixNanos now) const {
     ClientOrderMeta meta{};
     meta.instrument = cmd.instrument;
     meta.client_order_id = cmd.client_order_id;
@@ -296,8 +285,12 @@ std::optional<std::uint64_t> Engine::resolve_target(const OrderCmd& cmd) const {
     return it->second;
 }
 
-void Engine::emit_fills(const ClientOrderMeta* taker, QtyLots taker_leaves_start, Side taker_side,
-                        InstrumentId instrument, const MatchResult& match, UnixNanos now,
+void Engine::emit_fills(const ClientOrderMeta* taker,
+                        QtyLots taker_leaves_start,
+                        Side taker_side,
+                        InstrumentId instrument,
+                        const MatchResult& match,
+                        UnixNanos now,
                         SimResult& out) {
     std::int64_t taker_left = taker_leaves_start.raw;
     for (const Fill& fill : match.fills) {
@@ -305,7 +298,7 @@ void Engine::emit_fills(const ClientOrderMeta* taker, QtyLots taker_leaves_start
 
         if (taker != nullptr) {
             OrderEvent ev = make_event(*taker, OrderEventType::Filled, now);
-            ev.liquidity = 2; // taker
+            ev.liquidity = 2;      // taker
             ev.price = fill.price; // executions happen at RESTING prices
             ev.qty = fill.qty;
             ev.leaves_qty = QtyLots::from_raw(taker_left);

@@ -40,18 +40,10 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path.
     std::vector<OwnedSubscription> desired;
 
-    // Measured against /public/get_time. Nothing is signed here, but a skewed
-    // local clock turns ts_event - ts_init negative.
     std::int64_t clock_offset_ns{0};
 
-    // A declined channel is SILENTLY absent from the reply's accepted list, so
-    // a stream never established and one merely quiet look identical from the
-    // sink; the difference exists only here, as a count.
     std::uint64_t channels_requested{0};
     std::uint64_t channels_accepted{0};
     std::int64_t last_error_code{0};
@@ -91,8 +83,6 @@ void handle_frame(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        // One frame can carry several prints; dropping the tail would lose
-        // real volume on a busy contract.
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
                 trade.has_value()) {
@@ -114,8 +104,6 @@ void handle_frame(VenueState& state,
         break;
     }
     case EventKind::Book:
-        // Parsed and tested, but nothing consumes a book yet: BBO comes from
-        // the depth-1 grouped stream. Its change_id chain is pinned by tests.
         break;
     case EventKind::Heartbeat:
         // An unanswered test_request costs the connection.
@@ -148,8 +136,6 @@ public:
         // Re-armed per connection: set_heartbeat is a session property.
         (void)client_->send(state_->protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
 
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -233,8 +219,6 @@ public:
         }
         const auto before = state_->desired.size();
         state_->add_subscription(channel);
-        // Funding and mark resolve to the same ticker channel, so the second
-        // of the pair is already covered and must not be sent again.
         if (state_->desired.size() == before) {
             return {};
         }
@@ -299,8 +283,6 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        // Empty rather than an error: nothing of ours is here to reconcile,
-        // and a failing pull would look like a broken connection.
         return std::vector<exec::FillReport>{};
     }
 
@@ -370,8 +352,6 @@ public:
                 net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        // No "perpetual" kind exists (Invalid params, verified live), so both
-        // share one call and the mapper splits them on settlement_period.
         std::string_view kind;
         switch (market) {
         case MarketType::Perp:
@@ -390,10 +370,6 @@ public:
         sync_clock(*state_, rest_);
 
         std::vector<Instrument> loaded;
-        // One call per currency rather than currency=any: `any` drags in the
-        // USDC linear universe (4202 option rows against 1458 here) that the
-        // mapper refuses anyway, and makes the row ceiling track the whole
-        // listed universe instead of one strike ladder.
         for (const auto currency : k_currencies) {
             const auto response =
                 await_response(*state_, rest_, state_->builder.instruments(currency, kind), 20'000);

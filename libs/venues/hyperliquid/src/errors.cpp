@@ -30,18 +30,12 @@ exec::ErrorClass classify(int status, std::string_view body) noexcept {
         return exec::ErrorClass::Connectivity;
     }
     if (status >= 200 && status < 300) {
-        // `null` is the venue answering "no such thing" — definitive. Any
-        // other unreadable 2xx body is a truncated or corrupt response rather
-        // than a verdict, so it is worth repeating.
         return is_null_body(body) ? exec::ErrorClass::Terminal : exec::ErrorClass::Retryable;
     }
     if (status == 429) {
         return exec::ErrorClass::RateLimited;
     }
     if (status >= 500) {
-        // Includes the 500 an unknown `dex` earns, which no retry fixes — but
-        // the gateway backs off, and halting a venue that is merely restarting
-        // is the worse failure.
         return exec::ErrorClass::Retryable;
     }
     if (status == 401 || status == 403) {

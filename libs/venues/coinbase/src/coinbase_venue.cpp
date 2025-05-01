@@ -39,20 +39,10 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Desired subscriptions, owned here rather than by the transport: the
-    // socket re-asserts this set on every open, so a reconnect and a cold
-    // start run the same path.
     std::vector<OwnedSubscription> desired;
 
-    // Venue clock offset, measured against /time. Nothing signs anything on
-    // this adapter, but a large offset means the ISO timestamps arriving on
-    // every frame will not line up with other venues' epoch ones, and that is
-    // worth being able to see.
     std::int64_t clock_offset_ns{0};
 
-    // A stream that was never established and a stream that is merely quiet
-    // look identical from the sink, which is why both sides of the subscribe
-    // handshake are counted rather than inferred.
     std::uint64_t channels_confirmed{0};
     std::uint64_t subscribe_refusals{0};
     exec::VenueError last_error{};
@@ -94,9 +84,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Subscriptions: {
-        // Counted as channels, not as one event: the ack restates the whole
-        // live set every time, and an EMPTY set is how a connection whose
-        // every subscription was refused presents itself.
         static thread_local AckBuffer ack;
         if (const auto channels = parse_subscriptions(frame, ack); channels.has_value()) {
             state.channels_confirmed = channels->size();
@@ -104,14 +91,8 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Error: {
-        // A refused subscription is terminal for the channel it names, and
-        // silence is exactly how it would otherwise present. Recorded here so
-        // the operator interface can report it; nothing above the adapter can
-        // ask a socket what it failed to subscribe to.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             ++state.subscribe_refusals;
-            // `reason`, not `message`: the latter is "Failed to subscribe" on
-            // every refusal and says nothing about which one died.
             state.last_error =
                 exec::VenueError::make(classify_stream(err->message), 0, err->reason);
         }
@@ -127,8 +108,6 @@ public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        // The ONE resubscribe path: everything the gateway asked for is
-        // re-sent here, which is why the transport tracks none of it.
         std::vector<Subscription> views;
         views.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -200,9 +179,6 @@ public:
         }
         const auto channel = channel_for(kind);
         if (channel.empty()) {
-            // Funding, depth, mark and klines all land here, and the base
-            // class's refusal names the kind — which is the honest answer for
-            // a spot venue with no bounded depth channel.
             return DataClient::subscribe(kind, instrument);
         }
         if (state_->desired.size() >= k_max_subscriptions_per_connection) {
@@ -225,8 +201,6 @@ public:
         if (!started_) {
             return;
         }
-        // No application ping: Coinbase answers websocket protocol pings,
-        // which WsClient already sends on its own cadence.
         state_->io.poll();
     }
 
@@ -273,8 +247,6 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        // Empty rather than an error: this venue has no fills of ours to
-        // reconcile, and a failing pull would look like a broken connection.
         return std::vector<exec::FillReport>{};
     }
 
@@ -334,8 +306,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay. /time
-    // quotes milliseconds, so this offset is only ever good to that.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -349,9 +319,6 @@ public:
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        // Refused loudly rather than answered with an empty vector: Coinbase
-        // Exchange lists no derivatives at all, and "zero instruments" would
-        // read to a caller as a venue having a quiet day.
         if (market != MarketType::Spot) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "coinbase exchange lists spot only")};
@@ -369,8 +336,6 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
         if (response->status != 200) {
-            // The body is the only description there is; when even that is
-            // unreadable the status still classifies the failure.
             const auto message = parse_rest_error(response->body);
             return std::unexpected{exec::VenueError::make(
                 classify_http(response->status),
@@ -397,8 +362,6 @@ public:
             if (!id.has_value()) {
                 continue; // duplicate or table full: reported by count, not by throw
             }
-            // The table rewrote the id to the slot that indexes it, so the
-            // copy handed back carries the id every inbound frame will use.
             loaded.push_back(*state_->instruments.find(*id));
         }
         return loaded;

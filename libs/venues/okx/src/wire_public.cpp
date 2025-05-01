@@ -20,8 +20,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "mark-price") {
         return EventKind::MarkPrice;
     }
-    // books5 and books-l2-tbt exist and carry a different shape; only the one
-    // ws.cpp subscribes to is claimed here.
     if (channel == "books") {
         return EventKind::Books;
     }
@@ -132,9 +130,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (!event->empty()) {
-            // Control frame. "error" is a refused subscription, everything
-            // else (subscribe, unsubscribe, channel-conn-count) is an
-            // acknowledgement we count but do not act on.
             info.kind = *event == "error" ? EventKind::Error : EventKind::SubscribeAck;
             return info;
         }

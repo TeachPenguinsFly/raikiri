@@ -104,8 +104,6 @@ map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // The snapshot carries one timestamp and it is the venue's publish time;
-    // XT exposes no separate matching-engine clock to confuse it with.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -139,9 +137,6 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     if (base == nullptr) {
         return std::nullopt;
     }
-    // The token is a JSON number, not a quoted decimal, but its notation is
-    // ordinary; a rate finer than 1e-9 is refused rather than rounded to zero,
-    // which would report "no funding" for a contract that has some.
     const auto rate = parse_decimal_e9(wire.rate_token);
     if (!rate.has_value()) {
         return std::nullopt; // contract quotes no funding: not the same as zero
@@ -150,45 +145,26 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     FundingUpdate out{};
     out.instrument = base->id;
     out.rate = *rate;
-    // predicted_rate stays undefined: XT publishes only the rate in force, and
-    // reporting it twice would invent a forecast it never made.
     out.next_funding_time = ms_to_unix(wire.next_collection_ms, UnixNanos{0});
-    // collectionInternal — XT's spelling — counts HOURS, and contracts differ,
-    // so it is read rather than assumed to be eight.
     if (wire.interval_h > 0 && wire.interval_h <= 24) {
         out.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
     }
-    // The endpoint states no publish time, so ingest time is the only honest
-    // ts_event available.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // This is the FUTURES catalogue: XT serves spot from a different host
-    // entirely, so a spot request must not be answered with perp rows.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
-    // Asking for perps and getting a dated contract back is a whole category
-    // of position bug, and both share this endpoint.
     if (wire.product_type != "perpetual") {
         return std::nullopt;
     }
-    // `state` was 0 on all 1067 live rows, so it gates nothing on its own; the
-    // switches are what actually split the catalogue. isOpenApi is the
-    // decisive one here — a contract XT lists and prices but does not expose
-    // to the API cannot be traded by this system.
     if (wire.state != 0 || !wire.trade_switch || !wire.open_api) {
         return std::nullopt;
     }
 
-    // KNOWN LIMIT, not a venue quirk: FixedE9 carries nine fractional digits
-    // and XT lists 1000kishu_usdt at a step of 0.0000000001. No row that is
-    // both a perp and open to the API has a step that fine today, so this
-    // refuses nothing yet — but the venue does publish such steps, and the
-    // only way to accept one is to widen the fixed-point scale domain-wide.
     const auto tick = positive_e9(wire.tick_size);
     const auto lot = step_from_precision(wire.qty_precision);
     const auto contract_size = positive_e9(wire.contract_size);
@@ -207,21 +183,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // Unlike okx, XT states the notional floor directly and in quote currency,
-    // so it needs no price to be useful.
     if (const auto min_notional = positive_e9(wire.min_notional); min_notional.has_value()) {
         base.min_notional = *min_notional;
     }
-    // A quantity is a count of CONTRACTS worth contractSize of the base coin
-    // (0.0001 BTC on btc_usdt), so this cannot be pinned to 1 the way binance's
-    // USD-M perps allow.
     base.contract_value = *contract_size;
-    // maker/taker fee stay undefined although the catalogue publishes both:
-    // those are the default tier, not this account's, and a stale fee silently
-    // mispriced is worse than an absent one.
-    //
-    // funding_interval_s is left at zero for the same reason okx leaves it: the
-    // catalogue does not carry it, and the funding read states it exactly.
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

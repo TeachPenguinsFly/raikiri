@@ -17,8 +17,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "futures.tickers") {
         return EventKind::Ticker;
     }
-    // futures.order_book (whole-book snapshots) exists and carries a different
-    // shape; only the one ws.cpp subscribes to is claimed here.
     if (channel == "futures.order_book_update") {
         return EventKind::BookUpdate;
     }
@@ -110,8 +108,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return std::unexpected(channel.error());
         }
         EventInfo info{};
-        // The keepalive answer arrives as its own channel with an EMPTY event
-        // string, so the channel has to be consulted before the event.
         if (*channel == "futures.pong") {
             info.kind = EventKind::Pong;
             return info;
@@ -129,9 +125,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return std::unexpected(contract.error());
         }
         info.contract = *contract;
-        // A refusal keeps event:"subscribe" and merely adds an `error` object,
-        // so presence of that object is the only thing separating "the venue
-        // rejected this channel" from "this channel is quiet".
         detail::ondemand::object error;
         const auto ec = root->find_field_unordered("error").get_object().get(error);
         info.kind = ec == simdjson::SUCCESS ? EventKind::Error : EventKind::SubscribeAck;
@@ -154,8 +147,6 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
             ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
-        // Code 4 nests a whole REST-style {"label":...} body inside this text.
-        // It is surfaced verbatim for logs; classification works off the code.
         const auto message = detail::opt_str(*error, "message");
         if (!message.has_value()) {
             return std::unexpected(message.error());
@@ -284,8 +275,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             out.ts_ms = *ts;
             return out;
         }
-        // An empty result array carries no ticker; reporting it as one would
-        // invent a zero-valued funding rate.
         return std::unexpected(WireError::MissingField);
     });
 }
@@ -312,8 +301,6 @@ std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view fram
                 out.first_update_id = *first;
                 out.last_update_id = *last;
                 out.contract = *contract;
-                // `a` before `b`: the frame lists asks first and reading the
-                // object in wire order avoids a rewind per message.
                 const auto asks = read_levels(obj, "a", storage.asks);
                 if (!asks.has_value()) {
                     return std::unexpected(asks.error());

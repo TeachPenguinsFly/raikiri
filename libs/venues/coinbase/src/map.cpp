@@ -95,9 +95,6 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
     if (!year || !month || !day || !hour || !minute || !second) {
         return std::nullopt;
     }
-    // A leap second (:60) has no epoch representation and Coinbase has never
-    // sent one; refusing it costs ingest time on a frame, accepting it would
-    // silently place the frame one second early.
     if (*month < 1 || *month > 12 || *day < 1 || *day > 31 || *hour > 23 || *minute > 59 ||
         *second > 59) {
         return std::nullopt;
@@ -114,9 +111,6 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
                 frac_ns += static_cast<std::int64_t>(text[i] - '0') * scale;
                 scale /= 10;
             }
-            // Past nine digits the venue quotes finer than UnixNanos holds;
-            // the extra digits are consumed and dropped rather than failing
-            // a frame whose whole nanoseconds are perfectly good.
             ++i;
             ++seen;
         }
@@ -124,8 +118,7 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
             return std::nullopt;
         }
     }
-    // 'Z' is the only zone Coinbase sends. An offset like +01:00 would parse
-    // to the wrong instant here, so it is refused rather than assumed UTC.
+    // 'Z' is the only zone Coinbase sends.
     if (i != text.size() && !(text[i] == 'Z' && i + 1 == text.size())) {
         return std::nullopt;
     }
@@ -187,10 +180,7 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // THE FLIP. wire.maker_sold is the resting order's side, so a maker who
-    // sold was lifted by a taker who bought. Reading it straight through
-    // produces a signed-flow series that is exactly backwards, which is a bug
-    // no price check would catch.
+    // THE FLIP.
     out.aggressor = wire.maker_sold ? Side::Buy : Side::Sell;
     out.ts_event = iso_to_unix(wire.time, ts_init);
     out.ts_init = ts_init;
@@ -198,29 +188,13 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
 }
 
 std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market) {
-    // Coinbase Exchange lists spot only. Perps exist on the non-US entity
-    // behind a different API surface entirely, so answering a Perp request
-    // from these rows could only ever produce a mislabelled spot pair.
     if (market != MarketType::Spot) {
         return std::nullopt;
     }
-    // Both checks, though the live catalogue holds them in lockstep (517
-    // online rows, none trading_disabled; all 315 delisted rows disabled).
-    // Either alone would be an assumption about which one the venue moves
-    // first when it halts a product.
     if (wire.status != "online" || wire.trading_disabled) {
         return std::nullopt;
     }
-    // limit_only, post_only, cancel_only and auction_mode are deliberately
-    // NOT refused: they restrict order entry, which this adapter does not do,
-    // while the product still quotes and prints. Twenty-one online products
-    // are limit_only today and dropping their market data would be a real
-    // loss for no gain.
 
-    // quote_increment IS the tick and base_increment IS the size step —
-    // stated values, not precision digit counts, so neither needs
-    // exponentiating. The finest of either in the live catalogue is 1e-8,
-    // comfortably inside FixedE9's nine fractional digits.
     const auto tick = parse_decimal_e9(wire.quote_increment);
     const auto step = parse_decimal_e9(wire.base_increment);
     if (!tick.has_value() || !step.has_value() || tick->raw <= 0 || step->raw <= 0) {
@@ -238,15 +212,10 @@ std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType mar
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *step;
-    // min_market_funds is already a quote-currency amount, so it maps to
-    // min_notional directly — unlike okx's minSz, a contract count that needs
-    // a price to become a notional at all.
     if (const auto min_funds = parse_decimal_e9(wire.min_market_funds);
         min_funds.has_value() && min_funds->raw > 0) {
         base.min_notional = *min_funds;
     }
-    // Spot quotes in base units: one unit is one unit, so the multiplier is
-    // exactly 1 and there is no ctVal-style contract size to load.
     base.contract_value = *parse_decimal_e9("1");
     return SpotInstrument{base};
 }

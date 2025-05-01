@@ -10,8 +10,6 @@ constexpr std::size_t k_npos = static_cast<std::size_t>(-1);
 
 OrderStore::OrderStore(std::size_t capacity) : slots_(capacity) {
     free_.reserve(capacity);
-    // Descending so the free-list stack hands out slot 0 first — makes reuse
-    // deterministic and test-visible.
     for (std::size_t i = capacity; i > 0; --i) {
         free_.push_back(i - 1);
     }
@@ -97,9 +95,6 @@ std::expected<const Order*, ApplyError> OrderStore::apply_event(const OrderEvent
     if (const auto applied = order.apply(event); !applied) {
         return std::unexpected{ApplyError::BadTransition};
     }
-    // Bind before the terminal check so retire() always sees a consistent
-    // index (a fill-before-ack can both introduce the venue id and close the
-    // order in one event).
     if (!was_bound && !order.exchange_order_id().empty()) {
         by_exchange_.emplace(order.exchange_order_id(), slot);
     }
@@ -116,8 +111,6 @@ void OrderStore::retire(std::size_t slot) noexcept {
     if (!order.exchange_order_id().empty()) {
         by_exchange_.erase(order.exchange_order_id());
     }
-    // Slot contents stay intact until create() reuses it — that is the
-    // documented grace period for the pointer apply_event() just returned.
     free_.push_back(slot);
 }
 

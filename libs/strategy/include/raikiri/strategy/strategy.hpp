@@ -36,15 +36,9 @@ public:
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
 
-    // Fire an order. Success returns the ClientOrderId to correlate every
-    // later on_order_event; the Submitted/Accepted/... lifecycle arrives
-    // asynchronously. Denials also arrive as Denied events — the expected
-    // here is the synchronous fast-fail only.
     [[nodiscard]] virtual std::expected<ClientOrderId, RejectReason>
     submit(const NewOrder& order) noexcept = 0;
 
-    // True if the cancel was dispatched (not that it succeeded — watch for
-    // Canceled/CancelRejected events).
     virtual bool cancel(ClientOrderId id) noexcept = 0;
 
     virtual void cancel_all(InstrumentId instrument) noexcept = 0;
@@ -52,12 +46,8 @@ public:
     // Latest known state; nullopt before the first tick.
     [[nodiscard]] virtual std::optional<Bbo> bbo(InstrumentId instrument) const noexcept = 0;
 
-    // Borrowed from the engine's immutable instrument table; nullptr for
-    // unknown ids. Valid for the engine's lifetime.
     [[nodiscard]] virtual const Instrument* instrument(InstrumentId id) const noexcept = 0;
 
-    // One-shot timer; fires on_timer(timer_id) on the kernel thread.
-    // Re-arming an already-pending id replaces it.
     virtual void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept = 0;
 
     [[nodiscard]] virtual const Clock& clock() const noexcept = 0;
@@ -73,8 +63,6 @@ public:
     Strategy& operator=(const Strategy&) = delete;
     virtual ~Strategy() = default;
 
-    // Defaults are all no-ops: a strategy overrides exactly the events it
-    // trades on (same philosophy as DataClient's declining defaults).
     virtual void on_start(Context& ctx) { (void)ctx; }
 
     virtual void on_stop(Context& ctx) { (void)ctx; }

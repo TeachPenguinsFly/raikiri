@@ -85,9 +85,6 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // T, not E: the transaction time is when the book actually changed, while
-    // E is when BingX got around to sending it. Using E would fold venue
-    // queueing delay into our own latency numbers.
     out.ts_event = ms_to_unix(wire.transaction_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -132,38 +129,23 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = *rate;
-    // BingX rounds the mark to the contract's own pricePrecision, so the exact
-    // rule holds here where binance needs an exemption. A mark that fails to
-    // divide leaves the field undefined rather than discarding the rate.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    // predicted_rate stays undefined: BingX publishes no next-interval
-    // forecast, and echoing the current rate would fabricate one.
     out.next_funding_time = ms_to_unix(wire.next_funding_ms, UnixNanos{0});
     if (wire.funding_interval_hours > 0) {
-        // Stated per contract, unlike okx where it must be inferred from the
-        // gap between two settlement times.
         out.interval_s =
             static_cast<std::uint32_t>(wire.funding_interval_hours) * k_seconds_per_hour;
     }
-    // This arrives as a REST answer, and the body's only timestamp is
-    // updateTime — the settlement it last charged, not when it was published.
-    // Ingest time is the honest ts_event.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
-    // 1 is online; 25 covers listed-but-not-trading rows (165 of 1021 today,
-    // all synthetic NC-prefixed commodity contracts). They ship complete
-    // precisions, so only this check keeps them out.
     if (wire.status != 1) {
         return std::nullopt;
     }
-    // /quote/contracts is the perpetual catalogue and nothing else; spot lives
-    // under a different API family this adapter does not speak.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
@@ -186,14 +168,9 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *parse_decimal_e9("1");
-    // tradeMinUSDT is a genuine notional floor (2 on every row today), unlike
-    // okx's minSz, which counts contracts. Left undefined rather than zeroed
-    // when unparseable: zero reads as "no minimum".
     if (const auto min_notional = to_e9(wire.trade_min_usdt); min_notional.has_value()) {
         base.min_notional = *min_notional;
     }
-    // Zero on purpose: the catalogue does not carry the interval. The
-    // premiumIndex poll states it per contract and map_funding attaches it.
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

@@ -12,9 +12,6 @@ exec::ErrorClass classify(std::string_view code) noexcept {
     if (code == k_too_many_requests) {
         return exec::ErrorClass::RateLimited;
     }
-    // Clock skew, not bad credentials: the same payload signed against a
-    // corrected offset succeeds, so retrying after a resync is right. Filing
-    // this under AuthFailure would halt a venue whose keys are fine.
     if (code == k_timestamp_expired) {
         return exec::ErrorClass::Retryable;
     }

@@ -82,9 +82,6 @@ channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> int
     TextWriter writer{into};
     switch (kind) {
     case exec::SubKind::Bbo:
-        // A grouped, depth-limited book is a full snapshot every time, so it
-        // is a top-of-book stream with no local book to maintain — the shape
-        // okx's bbo-tbt gives. "none" is the grouping, "1" the depth.
         writer.put("book.");
         writer.put(instrument);
         writer.put(".none.1.");
@@ -102,8 +99,6 @@ channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> int
         writer.put(".");
         writer.put(k_interval);
         break;
-    // Funding and mark ride the SAME channel: one ticker frame carries both,
-    // so the two kinds resolve to one and the desired set dedupes them.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         writer.put("ticker.");
@@ -124,8 +119,6 @@ Protocol::channel_frame(std::string_view method, std::span<const Subscription> s
     }
     const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means channel_for() declined the kind or ran out of buffer;
-        // sending it would take every other channel in the batch down.
         if (subscriptions[i].channel.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }

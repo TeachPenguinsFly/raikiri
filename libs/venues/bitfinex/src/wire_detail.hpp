@@ -31,8 +31,6 @@ namespace ondemand = simdjson::ondemand;
 // into scratch memory the next frame overwrites.
 class Session {
 public:
-    // Control frames are objects and data frames are arrays, so unlike okx
-    // both entry points are load-bearing rather than one being a REST detail.
     [[nodiscard]] std::expected<ondemand::object, WireError> open_object(std::string_view frame);
     [[nodiscard]] std::expected<ondemand::array, WireError> open_array(std::string_view frame);
 

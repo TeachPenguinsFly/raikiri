@@ -23,10 +23,6 @@ constexpr std::string_view k_host_test = "fstream.binancefuture.com";
         return "@aggTrade";
     case exec::SubKind::Depth:
         return "@depth@100ms";
-    // One stream carries mark, index and funding, so both intents resolve to
-    // it. Subscribing twice would name the same stream twice, which binance
-    // accepts and then delivers once — the desired-set dedup upstream keeps
-    // it from happening at all.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         return "@markPrice@1s";
@@ -83,15 +79,11 @@ Protocol::method_frame(std::string_view method, std::span<const std::string_view
     }
     const auto batch = std::min(streams.size(), k_max_streams_per_frame);
     for (std::size_t i = 0; i < batch; ++i) {
-        // Empty means stream_name() declined the kind; sending it would
-        // subscribe to the literal "" and earn an error frame.
         if (streams[i].empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }
     }
 
-    // Hand-written rather than through JsonWriter: params is a bare array of
-    // strings and JsonWriter models keyed values.
     std::size_t len = 0;
     bool overflow = false;
     const auto put = [&](std::string_view text) {

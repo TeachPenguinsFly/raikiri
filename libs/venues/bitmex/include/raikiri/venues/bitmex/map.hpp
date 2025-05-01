@@ -44,8 +44,6 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 // alone understated the top bid 26-fold on the same capture.
 class QuoteBook {
 public:
-    // nullopt while a side is unseen (a fresh subscription starts one-sided) and
-    // on any value that does not divide exactly by the instrument's step.
     [[nodiscard]] std::optional<Bbo>
     apply(const WireQuote& wire, const InstrumentBase& base, UnixNanos ts_init);
 
@@ -59,8 +57,6 @@ private:
         bool used{false}; // an unnamed pool is legitimate, so occupancy is a flag
     };
 
-    // Two pools exist today. A fifth is refused rather than folded into another
-    // slot, which would double-count its size into the aggregate.
     std::array<PoolTop, 4> pools_{};
 };
 
@@ -72,8 +68,6 @@ private:
 // this table are not funding events and must not read as one.
 class InstrumentState {
 public:
-    // nullopt until a funding rate has been seen at all: a contract that quotes
-    // no funding must never be reported as one funding at zero.
     [[nodiscard]] std::optional<FundingUpdate>
     apply(const WireInstrumentTick& wire, const InstrumentBase& base, UnixNanos ts_init);
 

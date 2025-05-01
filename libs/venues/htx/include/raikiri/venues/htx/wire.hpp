@@ -40,9 +40,6 @@ struct EventInfo {
     EventKind kind{EventKind::Unknown};
     std::string_view contract_code; // empty on control frames and keepalives
 
-    // The keepalive timestamp exactly as HTX spelled it, quotes included.
-    // The market socket writes a number and the notification socket a string;
-    // echoing the token verbatim answers both without deciding which.
     std::string_view keepalive_ts;
 };
 

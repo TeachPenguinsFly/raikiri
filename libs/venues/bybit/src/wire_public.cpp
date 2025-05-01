@@ -45,8 +45,8 @@ TopicInfo classify_topic(std::string_view topic) noexcept {
 
 // Levels arrive as ["price", "size"] pairs. Anything else is a schema change
 // rather than a value we could interpret conservatively.
-std::expected<std::size_t, WireError> read_levels(ondemand::array levels, WireLevel* out,
-                                                  std::size_t capacity) {
+std::expected<std::size_t, WireError>
+read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
     std::size_t count = 0;
     for (auto entry : levels) {
         if (count == capacity) {
@@ -63,10 +63,6 @@ std::expected<std::size_t, WireError> read_levels(ondemand::array levels, WireLe
             if (item.get(value) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
-            // Through str_of rather than get_string(): On-Demand's string
-            // accessor hands back its own unescape buffer, which cannot be
-            // rebased onto the caller's frame and would silently yield empty
-            // views. The raw token is the only form that stays zero-copy.
             const auto text = detail::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected{text.error()};
@@ -97,9 +93,6 @@ std::expected<TopicInfo, WireError> parse_topic(std::string_view frame) {
         }
         auto obj = *root;
 
-        // Control frames answer "op" and carry no topic: bybit acknowledges
-        // subscribe/auth and answers ping on the same socket as market data,
-        // so they must be recognised before anything looks for a topic.
         if (detail::has_field(obj, "topic")) {
             auto topic = detail::req_str(obj, "topic");
             if (!topic.has_value()) {
@@ -157,8 +150,6 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
         data_obj.reset();
         out.seq = detail::opt_u64(data_obj, "seq").value_or(0);
 
-        // A side may legitimately be absent from a delta that only touched
-        // the other one.
         data_obj.reset();
         std::size_t bid_count = 0;
         if (auto bids = detail::req_array(data_obj, "b"); bids.has_value()) {
@@ -184,7 +175,7 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
 }
 
 std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                   TradeBuffer& storage) {
+                                                                  TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto& session = detail::session();
         auto root = session.open_object(frame);
@@ -218,9 +209,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             trade_obj.reset();
             trade.size = detail::opt_str(trade_obj, "v").value_or(std::string_view{});
             trade_obj.reset();
-            // "S" is the TAKER's side: "Buy" means the aggressor lifted the
-            // offer. Getting this backwards inverts every trade-flow signal
-            // built on top.
+            // "S" is the TAKER's side: "Buy" means the aggressor lifted the offer.
             trade.buyer_aggressor =
                 detail::opt_str(trade_obj, "S").value_or(std::string_view{}) == "Buy";
             trade_obj.reset();
@@ -261,10 +250,6 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.symbol = *symbol;
 
-        // Everything below is optional BY PROTOCOL, not by tolerance: a
-        // linear-perp ticker delta carries only the fields that changed, so
-        // an absent field means "unchanged". Reading it as zero would wipe a
-        // funding rate the strategy is pricing against.
         const auto field = [&](std::string_view key) {
             data_obj.reset();
             return detail::opt_str(data_obj, key).value_or(std::string_view{});

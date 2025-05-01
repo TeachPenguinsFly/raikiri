@@ -23,8 +23,6 @@ exec::ErrorClass classify(std::string_view error) noexcept {
         name == "insufficientPermissions") {
         return exec::ErrorClass::AuthFailure;
     }
-    // Clock/sequence skew, not bad credentials: the same payload re-signed
-    // succeeds, and AuthFailure would halt a venue whose keys are fine.
     if (name == "nonceBelowThreshold" || name == "nonceDuplicate") {
         return exec::ErrorClass::Retryable;
     }
