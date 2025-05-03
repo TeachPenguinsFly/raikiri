@@ -6,6 +6,8 @@
 // channel, which carries exactly one print per frame. There is no data[0] to
 // unwrap and no multi-trade buffer.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -14,14 +16,7 @@
 
 namespace raikiri::venues::xt {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Resolved from the frame's `topic` once, so downstream dispatch is an integer
 // compare rather than a string compare per message.

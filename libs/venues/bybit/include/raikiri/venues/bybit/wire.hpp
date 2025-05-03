@@ -10,6 +10,7 @@
 // struct with a plausible-looking zero in it.
 
 #include <raikiri/common/time.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <expected>
@@ -19,15 +20,7 @@
 
 namespace raikiri::venues::bybit {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    UnknownTopic,
-    TooManyEntries, // more array entries than the fixed capacity holds
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Which stream a public frame belongs to. Resolved from "topic" once, so the
 // dispatch that follows is an integer compare rather than a string compare

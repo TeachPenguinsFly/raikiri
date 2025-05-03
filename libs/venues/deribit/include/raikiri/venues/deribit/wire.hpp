@@ -2,6 +2,8 @@
 
 // Deribit v2 wire types and parsers.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -11,14 +13,7 @@
 
 namespace raikiri::venues::deribit {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Resolved from the channel prefix once, so dispatch is an integer compare.
 enum class EventKind : std::uint8_t {

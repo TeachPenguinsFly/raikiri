@@ -1,137 +1,8 @@
 #include "wire_detail.hpp"
 
 #include <charconv>
-#include <cstring>
 
-namespace raikiri::venues::bitfinex {
-
-std::string_view to_string(WireError err) noexcept {
-    switch (err) {
-    case WireError::NotJson:
-        return "NotJson";
-    case WireError::MissingField:
-        return "MissingField";
-    case WireError::WrongType:
-        return "WrongType";
-    case WireError::ShortArray:
-        return "ShortArray";
-    case WireError::TooManyEntries:
-        return "TooManyEntries";
-    }
-    return "Unknown";
-}
-
-namespace detail {
-
-namespace {
-
-constexpr std::size_t k_initial_scratch = 64 * 1024;
-
-// /v2/conf/pub:info:pair is roughly 15 KiB and the book snapshot under 2 KiB,
-// so the ceiling has real headroom; past it a frame is a venue incident or an
-// attempt to make us allocate.
-constexpr std::size_t k_max_frame = 64 * 1024 * 1024;
-
-[[nodiscard]] constexpr bool is_space(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
-} // namespace
-
-WireError map_error(simdjson::error_code ec) noexcept {
-    switch (ec) {
-    case simdjson::NO_SUCH_FIELD:
-        return WireError::MissingField;
-    case simdjson::INCORRECT_TYPE:
-    case simdjson::NUMBER_ERROR:
-    case simdjson::BIGINT_ERROR:
-    case simdjson::NUMBER_OUT_OF_RANGE:
-    case simdjson::SCALAR_DOCUMENT_AS_VALUE:
-        return WireError::WrongType;
-    default:
-        return WireError::NotJson;
-    }
-}
-
-std::expected<void, WireError> Session::start(std::string_view frame) {
-    if (frame.empty() || frame.size() > k_max_frame) {
-        return std::unexpected(WireError::NotJson);
-    }
-
-    if (scratch_.length() < frame.size()) {
-        std::size_t want = k_initial_scratch;
-        while (want < frame.size()) {
-            want *= 2;
-        }
-        simdjson::padded_string grown{want};
-        if (grown.data() == nullptr) {
-            return std::unexpected(WireError::NotJson);
-        }
-        scratch_ = std::move(grown);
-    }
-
-    std::memcpy(scratch_.data(), frame.data(), frame.size());
-    std::memset(scratch_.data() + frame.size(), 0, simdjson::SIMDJSON_PADDING);
-
-    origin_ = frame.data();
-    origin_size_ = frame.size();
-
-    const simdjson::padded_string_view view{
-        scratch_.data(), frame.size(), frame.size() + simdjson::SIMDJSON_PADDING};
-    if (const auto ec = parser_.iterate(view).get(doc_); ec != simdjson::SUCCESS) {
-        return std::unexpected(map_error(ec));
-    }
-    return {};
-}
-
-std::expected<ondemand::object, WireError> Session::open_object(std::string_view frame) {
-    if (const auto opened = start(frame); !opened.has_value()) {
-        return std::unexpected(opened.error());
-    }
-    ondemand::object root;
-    if (const auto ec = doc_.get_object().get(root); ec != simdjson::SUCCESS) {
-        return std::unexpected(map_error(ec));
-    }
-    return root;
-}
-
-std::expected<ondemand::array, WireError> Session::open_array(std::string_view frame) {
-    if (const auto opened = start(frame); !opened.has_value()) {
-        return std::unexpected(opened.error());
-    }
-    ondemand::array root;
-    if (const auto ec = doc_.get_array().get(root); ec != simdjson::SUCCESS) {
-        return std::unexpected(map_error(ec));
-    }
-    return root;
-}
-
-std::string_view Session::rebase(std::string_view scratch_view) const noexcept {
-    const char* base = scratch_.data();
-    if (base == nullptr || scratch_view.data() == nullptr) {
-        return {};
-    }
-    if (scratch_view.data() < base || scratch_view.data() > base + origin_size_ ||
-        static_cast<std::size_t>(scratch_view.data() - base) + scratch_view.size() > origin_size_) {
-        return {};
-    }
-    return {origin_ + (scratch_view.data() - base), scratch_view.size()};
-}
-
-Session& session() noexcept {
-    thread_local Session s;
-    return s;
-}
-
-std::string_view trim(std::string_view s) noexcept {
-    while (!s.empty() && is_space(s.front())) {
-        s.remove_prefix(1);
-    }
-    while (!s.empty() && is_space(s.back())) {
-        s.remove_suffix(1);
-    }
-    return s;
-}
+namespace raikiri::venues::bitfinex::detail {
 
 bool is_array_frame(std::string_view frame) noexcept {
     const auto text = trim(frame);
@@ -157,16 +28,6 @@ std::expected<std::string_view, WireError> token_of(ondemand::value value) {
     return session().rebase(raw);
 }
 
-std::uint64_t digits_to_u64(std::string_view s) noexcept {
-    if (s.empty()) {
-        return 0;
-    }
-    std::uint64_t out = 0;
-    const auto* const end = s.data() + s.size();
-    const auto [stop, ec] = std::from_chars(s.data(), end, out);
-    return (ec == std::errc{} && stop == end) ? out : 0;
-}
-
 bool token_to_i64(std::string_view s, std::int64_t& out) noexcept {
     if (s.empty()) {
         return false;
@@ -188,17 +49,4 @@ std::expected<std::string_view, WireError> opt_str(ondemand::object& obj, std::s
     return token_of(value);
 }
 
-std::expected<std::int64_t, WireError> opt_i64(ondemand::object& obj, std::string_view key) {
-    std::int64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_int64().get(out);
-    if (ec == simdjson::NO_SUCH_FIELD) {
-        return std::int64_t{0};
-    }
-    if (ec != simdjson::SUCCESS) {
-        return std::unexpected(map_error(ec));
-    }
-    return out;
-}
-
-} // namespace detail
-} // namespace raikiri::venues::bitfinex
+} // namespace raikiri::venues::bitfinex::detail

@@ -112,7 +112,7 @@ std::expected<TopicInfo, WireError> parse_topic(std::string_view frame) {
         if (!op_text.empty() || detail::has_field(obj, "success")) {
             return TopicInfo{.kind = TopicKind::OpResponse, .symbol = {}};
         }
-        return std::unexpected{WireError::UnknownTopic};
+        return std::unexpected{WireError::UnknownMessage};
     });
 }
 

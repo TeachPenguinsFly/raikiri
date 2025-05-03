@@ -2,6 +2,8 @@
 
 // Binance USD-M futures wire types and parsers.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -10,15 +12,7 @@
 
 namespace raikiri::venues::binance {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    UnknownStream,
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Resolved from the frame's event type once, so downstream dispatch is an
 // integer compare rather than a string compare per message.

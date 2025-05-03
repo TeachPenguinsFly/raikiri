@@ -13,6 +13,8 @@
 // silently dropped while the two malformed sub.ticker calls each drew an
 // rs.error), so silence is not evidence a channel was accepted.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -21,14 +23,7 @@
 
 namespace raikiri::venues::mexc {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Resolved from the envelope `channel` once, so downstream dispatch is an
 // integer compare rather than a string compare per message.

@@ -15,6 +15,8 @@
 //      (bid < ask, sizes positive) — those, not the parser, are what would
 //      catch an insertion.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -23,15 +25,7 @@
 
 namespace raikiri::venues::bitfinex {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    ShortArray, // positional schema: fewer elements than the layout declares
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // What a socket frame is, decided from its first two elements (data frames)
 // or its `event` field (control frames). A data frame names no instrument at

@@ -13,6 +13,8 @@
 // best price — verified against the Aggregated orderBookL2_25 top, where
 // 80200 + 2043500 is the 2123700 the venue reports at 64054.7.
 
+#include <raikiri/wire/json.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -21,14 +23,7 @@
 
 namespace raikiri::venues::bitmex {
 
-enum class WireError : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    TooManyEntries,
-};
-
-[[nodiscard]] std::string_view to_string(WireError err) noexcept;
+using WireError = wire::Error;
 
 // Resolved from `table` once so dispatch is an integer compare.
 enum class TableKind : std::uint8_t {
