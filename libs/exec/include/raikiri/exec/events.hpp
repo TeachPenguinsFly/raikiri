@@ -34,6 +34,11 @@ public:
 
     virtual void on_bbo(const Bbo& bbo) noexcept = 0;
     virtual void on_trade(const TradeTick& trade) noexcept = 0;
+
+    // Declining by default: most venues publish depth, but an adapter that
+    // does not maintain a book must not be forced to invent one.
+    virtual void on_depth(const BookSnapshot& book) noexcept { (void)book; }
+
     virtual void on_funding(const FundingUpdate& funding) noexcept = 0;
     virtual void on_order_event(const OrderEvent& event) noexcept = 0;
     virtual void on_connectivity(const ConnEvent& event) noexcept = 0;

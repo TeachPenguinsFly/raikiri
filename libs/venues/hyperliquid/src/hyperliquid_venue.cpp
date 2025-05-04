@@ -98,8 +98,17 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::Book:
+    case EventKind::Book: {
+        static thread_local LevelBuffer storage;
+        const auto wire = parse_book(frame, storage);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+            state.sink->on_depth(*book);
+        }
         break;
+    }
     case EventKind::Error: {
         if (parse_stream_error(frame).has_value()) {
             ++state.subscribe_refusals;

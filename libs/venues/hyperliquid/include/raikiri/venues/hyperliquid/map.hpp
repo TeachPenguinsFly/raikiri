@@ -38,6 +38,11 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// Depth is a full snapshot on this venue, so the mapper needs no book state:
+// the newest frame simply replaces what shm holds.
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // nullopt for a delisted asset and for any row whose derived steps are

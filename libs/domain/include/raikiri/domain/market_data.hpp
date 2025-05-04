@@ -9,6 +9,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 
+#include <array>
 #include <cstdint>
 #include <type_traits>
 
@@ -41,10 +42,35 @@ struct TradeTick {
 
 static_assert(std::is_trivially_copyable_v<TradeTick>);
 
+// Top of book to a fixed depth, as a SNAPSHOT rather than a delta.
+//
+// The venue's sequencing rules — bybit's update_id+1, binance's pu chain,
+// okx's seqId, bitfinex's per-channel ids — stay inside the adapter that
+// understands them. What crosses into shared memory is the book the adapter
+// currently believes in, so a consumer never has to replay a venue's deltas
+// or recover from a gap it cannot see.
+inline constexpr std::size_t k_book_levels = 10;
+
+struct BookLevel {
+    PriceTicks price{};
+    QtyLots qty{};
+};
+
+struct BookSnapshot {
+    InstrumentId instrument{};
+    std::uint32_t bid_count{0}; // levels actually filled; the rest are stale
+    std::uint32_t ask_count{0};
+    UnixNanos ts_event{};
+    UnixNanos ts_init{};
+    std::uint64_t venue_seq{0}; // the venue's own ordering token, for forensics
+    std::array<BookLevel, k_book_levels> bids{};
+    std::array<BookLevel, k_book_levels> asks{};
+};
+
 struct FundingUpdate {
     InstrumentId instrument{};
-    FixedE9 rate{};              // current interval rate
-    FixedE9 predicted_rate{};    // venue-published next-interval estimate
+    FixedE9 rate{};           // current interval rate
+    FixedE9 predicted_rate{}; // venue-published next-interval estimate
     PriceTicks mark_price{};
     UnixNanos next_funding_time{};
     std::uint32_t interval_s{0};

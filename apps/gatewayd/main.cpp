@@ -85,6 +85,14 @@ public:
         ch_.md_events->publish(event);
     }
 
+    void on_depth(const raikiri::BookSnapshot& book) noexcept override {
+        ++counts_.depth;
+        const auto idx = book.instrument.symbol().raw;
+        if (idx < raikiri::shm::k_depth_cells) {
+            ch_.depth->write(idx, book);
+        }
+    }
+
     void on_funding(const raikiri::FundingUpdate& funding) noexcept override {
         ++counts_.funding;
         const auto idx = funding.instrument.symbol().raw;
@@ -122,6 +130,7 @@ public:
     struct Counts {
         std::uint64_t bbo{0};
         std::uint64_t trades{0};
+        std::uint64_t depth{0};
         std::uint64_t funding{0};
         std::uint64_t order_events{0};
     };
@@ -357,6 +366,7 @@ int main(int argc, char** argv) {
         }
         (void)adapter->data->subscribe(exec::SubKind::Bbo, base.id);
         (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
+        (void)adapter->data->subscribe(exec::SubKind::Depth, base.id);
         if (venue != VenueId::Sim) {
             (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
         }
@@ -411,9 +421,10 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
-    fmt::print("gatewayd[{}]: down — bbo={} trades={} funding={} order-events={}\n",
+    fmt::print("gatewayd[{}]: down — bbo={} depth={} trades={} funding={} order-events={}\n",
                venue_name,
                counts.bbo,
+               counts.depth,
                counts.trades,
                counts.funding,
                counts.order_events);

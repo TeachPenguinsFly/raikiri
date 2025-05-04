@@ -8,6 +8,7 @@
 // Channel classes (fixed policy per channel, decided at design time):
 //   catalogue    CatalogueTable write-once before publish; the id agreement
 //   bbo/funding  SeqlockTable   state: overwrite-newest, stale ticks worthless
+//   depth        SeqlockTable   state: the adapter's current book, not deltas
 //   md_events    BroadcastRing  stream: lossy-with-gap-detect -> resync
 //   exec_events  BroadcastRing  critical: overrun => halt venue + reconcile
 //   cmd_*        SpscRing       command: lossless; Full = venue down
@@ -68,6 +69,7 @@ static_assert(std::is_trivially_copyable_v<OrderCmd>);
 
 inline constexpr std::size_t k_bbo_cells = 4096;
 inline constexpr std::size_t k_funding_cells = 4096;
+inline constexpr std::size_t k_depth_cells = 4096;
 inline constexpr std::size_t k_md_ring = 65536;
 inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
@@ -77,9 +79,11 @@ inline constexpr std::size_t k_gateway_segment_bytes = 32ULL << 20;
 // instruments than the BBO table has cells would mint ids with nowhere to
 // quote from.
 static_assert(k_catalogue_cells == k_bbo_cells);
+static_assert(k_depth_cells == k_bbo_cells);
 
 using BboTable = SeqlockTable<Bbo, k_bbo_cells>;
 using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
+using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
@@ -89,6 +93,7 @@ using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 struct GatewayChannels {
     CatalogueTable* catalogue{nullptr};
     BboTable* bbo{nullptr};
+    DepthTable* depth{nullptr};
     FundingTable* funding{nullptr};
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};

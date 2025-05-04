@@ -7,14 +7,15 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     GatewayChannels ch;
     ch.catalogue = owner.create_channel<CatalogueTable>("catalogue");
     ch.bbo = owner.create_channel<BboTable>("bbo");
+    ch.depth = owner.create_channel<DepthTable>("depth");
     ch.funding = owner.create_channel<FundingTable>("funding");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
-    if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.funding == nullptr ||
-        ch.md_events == nullptr || ch.exec_events == nullptr || ch.cmd_create == nullptr ||
-        ch.cmd_cancel == nullptr) {
+    if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
+        ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
+        ch.cmd_create == nullptr || ch.cmd_cancel == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
     return ch;
@@ -28,6 +29,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     const auto bbo = client.open_channel<BboTable>("bbo");
     if (!bbo) {
         return std::unexpected{bbo.error()};
+    }
+    const auto depth = client.open_channel<DepthTable>("depth");
+    if (!depth) {
+        return std::unexpected{depth.error()};
     }
     const auto funding = client.open_channel<FundingTable>("funding");
     if (!funding) {
@@ -49,7 +54,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!cancel) {
         return std::unexpected{cancel.error()};
     }
-    return GatewayChannels{*catalogue, *bbo, *funding, *md, *exec, *create, *cancel};
+    return GatewayChannels{*catalogue, *bbo, *depth, *funding, *md, *exec, *create, *cancel};
 }
 
 std::string gateway_segment_path(std::string_view venue_name) {

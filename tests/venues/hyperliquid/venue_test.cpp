@@ -562,5 +562,45 @@ TEST(HyperliquidErrors, NullBodyDetectionToleratesWhitespace) {
     EXPECT_FALSE(is_null_body(R"({"universe":[]})"));
 }
 
+TEST(HyperliquidMap, BookSnapshotCrossesIntoTheDomain) {
+    // The venue publishes full snapshots, so the mapper carries no book state:
+    // whatever the newest frame says replaces what shm holds.
+    const auto table = loaded_table();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_l2book_snapshot.json");
+    const auto wire = parse_book(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto book = map_book(*wire, table, UnixNanos{1'700'000'000'000'000'000ULL});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_GT(book->bid_count, 0U);
+    EXPECT_GT(book->ask_count, 0U);
+    EXPECT_LE(book->bid_count, k_book_levels);
+    EXPECT_LE(book->ask_count, k_book_levels);
+
+    // Bids descend, asks ascend, and the two never cross — a book that fails
+    // this is not a book, and publishing it would price every strategy off it.
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < book->bid_count; ++i) {
+        EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].price.raw, book->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < book->bid_count; ++i) {
+        EXPECT_GT(book->bids[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(HyperliquidMap, AnUnknownCoinYieldsNoBook) {
+    const auto table = loaded_table();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_l2book_snapshot.json");
+    auto wire = parse_book(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    wire->coin = "NOSUCHCOIN";
+    EXPECT_FALSE(map_book(*wire, table, UnixNanos{1}).has_value());
+}
+
 } // namespace
 } // namespace raikiri::venues::hyperliquid
