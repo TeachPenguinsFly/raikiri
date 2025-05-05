@@ -42,6 +42,11 @@ public:
     // Top of book, or nullopt while the book is empty or desynchronised.
     [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const;
 
+    // The top k_book_levels a side, under the same rule as bbo(): nothing at
+    // all while desynchronised, because a stale book is priced off as if it
+    // were current while silence is visibly missing data.
+    [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
+
     [[nodiscard]] bool synced() const noexcept { return synced_; }
 
     [[nodiscard]] std::uint64_t last_update_id() const noexcept { return last_update_id_; }

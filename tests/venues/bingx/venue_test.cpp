@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -437,6 +438,59 @@ TEST(BingxMap, MapsBbo) {
     // T, not E: when the book changed, not when BingX sent it.
     EXPECT_EQ(bbo->ts_event.ns, 1786394757655ULL * 1'000'000ULL);
     EXPECT_EQ(bbo->ts_init.ns, 99U);
+}
+
+TEST(BingxMap, BookSnapshotCrossesIntoTheDomain) {
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = load("ws_depth5.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto book = map_book(*wire, table, UnixNanos{99});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->instrument.packed, base_for(table, "BTC-USDT").id.packed);
+    EXPECT_EQ(book->bid_count, 5U);
+    EXPECT_EQ(book->ask_count, 5U);
+    EXPECT_LE(book->bid_count, k_book_levels);
+    EXPECT_LE(book->ask_count, k_book_levels);
+    EXPECT_EQ(book->venue_seq, 0U); // depth5 carries no sequence number
+    EXPECT_EQ(book->ts_event.ns, 1786394757698ULL * 1'000'000ULL);
+    EXPECT_EQ(book->ts_init.ns, 99U);
+
+    // Bids descend, asks ascend, and the two never cross — a book that fails
+    // this is not a book, and publishing it would misprice every strategy
+    // reading it.
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < book->bid_count; ++i) {
+        EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].price.raw, book->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < book->bid_count; ++i) {
+        EXPECT_GT(book->bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(BingxMap, ALevelOffTheStepTruncatesTheBookRatherThanRoundingIt) {
+    const auto table = catalogue();
+    const std::array<WireLevel, 3> bids{WireLevel{.price = "64120.1", .qty = "1.0"},
+                                        WireLevel{.price = "64119.95", .qty = "1.0"},
+                                        WireLevel{.price = "64119.8", .qty = "1.0"}};
+    WireDepth wire{};
+    wire.symbol = "BTC-USDT";
+    wire.bids = bids;
+    const auto book = map_book(wire, table, UnixNanos{1});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->bid_count, 1U); // the level below the bad one is unreachable
+    EXPECT_EQ(book->ask_count, 0U);
+
+    wire.symbol = "NCCOCOFFEE2USD-USDT"; // never loaded, so no step to divide by
+    EXPECT_FALSE(map_book(wire, table, UnixNanos{1}).has_value());
 }
 
 TEST(BingxMap, DropsAQuoteThatDoesNotDivideByTheStep) {

@@ -1,5 +1,6 @@
 add_library(raikiri_venue_binance STATIC
   src/binance_venue.cpp
+  src/book.cpp
   src/errors.cpp
   src/map.cpp
   src/rest.cpp

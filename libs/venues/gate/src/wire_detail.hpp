@@ -32,6 +32,11 @@ using namespace raikiri::wire;
 [[nodiscard]] std::expected<std::uint64_t, WireError> opt_u64(ondemand::object& obj,
                                                               std::string_view key);
 
+// A level is {"p":"64156.4","s":35680} on the websocket and in the REST
+// snapshot alike — same object either way, unlike okx's positional arrays.
+[[nodiscard]] std::expected<std::size_t, WireError>
+read_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> into);
+
 // Every websocket payload hangs off `result`. book_ticker and
 // order_book_update put an object there; trades and tickers put an array whose
 // elements are the objects.

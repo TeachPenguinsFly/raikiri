@@ -1,10 +1,30 @@
+#include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
 namespace raikiri::venues::binance {
 namespace {
+
+// Only the wire target carries RAIKIRI_BINANCE_FIXTURES, so the book tests
+// locate the directory from this file the way the gate target does.
+std::string fixture(std::string_view name) {
+    const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
+    std::ifstream in{path};
+    EXPECT_TRUE(in.good()) << "missing fixture " << path;
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    return buf.str();
+}
 
 // BTCUSDT as binance publishes it: 0.10 tick, 0.001 step.
 exec::InstrumentTable table_with_btc() {
@@ -340,6 +360,243 @@ TEST(BinanceMap, UserTradeBecomesAFillReport) {
     EXPECT_EQ(report->qty.raw, 4);
     EXPECT_EQ(report->liquidity, 1) << "maker";
     EXPECT_EQ(report->exec_id.view(), "698759");
+}
+
+// Order book -------------------------------------------------------------
+//
+// The three depth fixtures are one capture: `rest_depth_seed.json` is the
+// snapshot, `ws_depth_straddle.json` is the delta whose [U, u] contains its
+// `lastUpdateId`, and `ws_depth_straddle_next.json` is the frame after that.
+// A seed and a stream from different minutes would replay into a crossed
+// book, which is exactly the failure these tests exist to catch.
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire struct that came out of them.
+struct Frame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+DepthBook book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("BTCUSDT");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return DepthBook{base.id, base.tick_size, base.lot_size};
+}
+
+WireDepthUpdate delta_of(Frame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto data = unwrap(frame.text);
+    EXPECT_TRUE(data.has_value());
+    const auto wire = parse_depth_update(data.value_or(std::string_view{}), *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireDepthUpdate{});
+}
+
+WireDepthSnapshot seed_of(Frame& frame) {
+    frame.text = fixture("rest_depth_seed.json");
+    const auto wire = parse_depth_snapshot(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireDepthSnapshot{});
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(BinanceBook, AnUnseededBookPublishesNothing) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame first;
+    const auto delta = delta_of(first, "ws_depth_straddle.json");
+    EXPECT_TRUE(book.wants_seed());
+    EXPECT_EQ(book.apply(delta), BookResult::Buffered);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+}
+
+TEST(BinanceBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame seed_frame;
+    Frame first;
+    Frame second;
+    const auto snapshot = seed_of(seed_frame);
+    // Nothing is buffered yet, so the seed can only wait to be straddled.
+    EXPECT_EQ(book.seed(snapshot), BookResult::Waiting);
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+
+    const auto d1 = delta_of(first, "ws_depth_straddle.json");
+    ASSERT_LE(d1.first_id, snapshot.last_update_id);
+    ASSERT_GE(d1.last_id, snapshot.last_update_id);
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    const auto d2 = delta_of(second, "ws_depth_straddle_next.json");
+    EXPECT_EQ(d2.prev_id, d1.last_id) << "futures chain: pu is the previous u";
+    EXPECT_NE(d2.first_id, d1.last_id + 1) << "the spot rule would reject this frame";
+    EXPECT_EQ(book.apply(d2), BookResult::Applied);
+
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->venue_seq, d2.last_id) << "u is the forensic handle on this book";
+    EXPECT_EQ(out->ts_init.ns, k_ingest.ns);
+}
+
+TEST(BinanceBook, DeltasBufferedBehindTheSeedReplayIntoTheSameBook) {
+    // Which of the REST answer and the websocket frame lands first is a race,
+    // and the book it produces must not depend on who won.
+    const auto table = table_with_btc();
+    Frame seed_frame;
+    Frame first;
+    Frame second;
+    const auto snapshot = seed_of(seed_frame);
+    const auto d1 = delta_of(first, "ws_depth_straddle.json");
+    const auto d2 = delta_of(second, "ws_depth_straddle_next.json");
+
+    auto streamed = book_for(table);
+    EXPECT_EQ(streamed.seed(snapshot), BookResult::Waiting);
+    EXPECT_EQ(streamed.apply(d1), BookResult::Applied);
+    EXPECT_EQ(streamed.apply(d2), BookResult::Applied);
+
+    auto buffered = book_for(table);
+    EXPECT_EQ(buffered.apply(d1), BookResult::Buffered);
+    EXPECT_EQ(buffered.apply(d2), BookResult::Buffered);
+    EXPECT_EQ(buffered.seed(snapshot), BookResult::Applied);
+
+    const auto from_stream = streamed.snapshot(k_ingest, k_ingest);
+    const auto from_buffer = buffered.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(from_stream.has_value());
+    ASSERT_TRUE(from_buffer.has_value());
+    expect_coherent(*from_buffer);
+    EXPECT_EQ(from_buffer->venue_seq, from_stream->venue_seq);
+    for (std::uint32_t i = 0; i < k_book_levels; ++i) {
+        EXPECT_EQ(from_buffer->bids[i].price.raw, from_stream->bids[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->bids[i].qty.raw, from_stream->bids[i].qty.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].price.raw, from_stream->asks[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].qty.raw, from_stream->asks[i].qty.raw) << i;
+    }
+}
+
+TEST(BinanceBook, AGapInTheChainPublishesNothing) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame seed_frame;
+    Frame first;
+    Frame second;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    EXPECT_EQ(book.apply(delta_of(first, "ws_depth_straddle.json")), BookResult::Applied);
+
+    auto skipped = delta_of(second, "ws_depth_straddle_next.json");
+    skipped.prev_id += 1; // one event of the chain went missing
+
+    EXPECT_EQ(book.apply(skipped), BookResult::Gap);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+    EXPECT_TRUE(book.wants_seed()) << "a dropped book asks for a new seed";
+}
+
+TEST(BinanceBook, ZeroSizeDeletesTheLevel) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame seed_frame;
+    Frame first;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    const auto d1 = delta_of(first, "ws_depth_straddle.json");
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    const auto before = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(before.has_value());
+    ASSERT_EQ(before->bids[0].price.raw, 631'228) << "63122.80 over a 0.10 tick";
+    const auto next_down = before->bids[1].price.raw;
+
+    const std::array<WireLevel, 1> gone{WireLevel{.price = "63122.80", .qty = "0"}};
+    WireDepthUpdate delete_top{};
+    delete_top.symbol = "BTCUSDT";
+    delete_top.prev_id = d1.last_id;
+    delete_top.first_id = d1.last_id + 1;
+    delete_top.last_id = d1.last_id + 2;
+    delete_top.bids = gone;
+    EXPECT_EQ(book.apply(delete_top), BookResult::Applied);
+
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->bids[0].price.raw, next_down) << "a zero deletes, it does not rest at zero";
+    EXPECT_EQ(after->bids[0].qty.raw, before->bids[1].qty.raw);
+}
+
+TEST(BinanceBook, ALevelOffTheTickIsDroppedNotRounded) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame seed_frame;
+    Frame first;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    const auto d1 = delta_of(first, "ws_depth_straddle.json");
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+    const auto depth_before = book.bids().size();
+    const auto dropped_before = book.dropped_levels();
+    const auto before = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(before.has_value());
+
+    // 0.05 past a 0.10 tick: rounding it would invent a price binance never
+    // quoted, one tick from the one it meant.
+    const std::array<WireLevel, 1> off{WireLevel{.price = "63122.85", .qty = "1.000"}};
+    WireDepthUpdate bad{};
+    bad.symbol = "BTCUSDT";
+    bad.prev_id = d1.last_id;
+    bad.first_id = d1.last_id + 1;
+    bad.last_id = d1.last_id + 2;
+    bad.bids = off;
+    EXPECT_EQ(book.apply(bad), BookResult::Applied);
+
+    EXPECT_EQ(book.bids().size(), depth_before);
+    EXPECT_EQ(book.dropped_levels(), dropped_before + 1);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    for (std::uint32_t i = 0; i < k_book_levels; ++i) {
+        EXPECT_EQ(after->bids[i].price.raw, before->bids[i].price.raw) << i;
+        EXPECT_EQ(after->bids[i].qty.raw, before->bids[i].qty.raw) << i;
+    }
+}
+
+TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
+    // The ids are not dense per symbol, so a snapshot can land in the hole
+    // between two frames. Trusting it would splice two different books.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    Frame seed_frame;
+    Frame first;
+    auto snapshot = seed_of(seed_frame);
+    const auto d1 = delta_of(first, "ws_depth_straddle.json");
+    snapshot.last_update_id = d1.first_id - 1;
+
+    EXPECT_EQ(book.seed(snapshot), BookResult::Waiting);
+    EXPECT_EQ(book.apply(d1), BookResult::Reseed);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+    EXPECT_TRUE(book.wants_seed());
 }
 
 } // namespace

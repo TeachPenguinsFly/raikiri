@@ -146,6 +146,20 @@ struct WireBookUpdate {
 [[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
                                                                          LevelBuffer& storage);
 
+// From GET /futures/{settle}/order_book, and only usable as a seed when that
+// request carried `with_id=true`: without it the body has no `id`, and levels
+// with no id are a picture of no particular point in the update chain.
+// `update_s` is FRACTIONAL seconds (1786394534.46), truncated on the way in.
+struct WireOrderBook {
+    std::uint64_t update_id{0}; // `id`
+    std::uint64_t update_s{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
+                                                                       LevelBuffer& storage);
+
 // ------------------------------------------------------------- rest ----
 
 // `message` is absent on some refusals (CONTRACT_NOT_FOUND ships the label

@@ -93,8 +93,17 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         }
         break;
     }
-    case EventKind::Depth:
+    case EventKind::Depth: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_depth(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+            state.sink->on_depth(*book);
+        }
         break;
+    }
     case EventKind::Error: {
         if (const auto control = parse_control(frame); control.has_value()) {
             state.last_error_code = control->code;

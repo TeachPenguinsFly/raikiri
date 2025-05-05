@@ -122,4 +122,26 @@ std::optional<Bbo> BookSync::bbo(UnixNanos ts_event, UnixNanos ts_init) const {
     return out;
 }
 
+std::optional<BookSnapshot> BookSync::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!synced_ || bids_.empty() || asks_.empty()) {
+        return std::nullopt;
+    }
+    const auto fill = [](std::span<const Level> src, std::array<BookLevel, k_book_levels>& dst) {
+        const auto count = std::min(src.size(), k_book_levels);
+        for (std::size_t i = 0; i < count; ++i) {
+            dst[i] = {.price = src[i].price, .qty = src[i].size};
+        }
+        return static_cast<std::uint32_t>(count);
+    };
+
+    BookSnapshot out{};
+    out.instrument = instrument_;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    out.venue_seq = last_update_id_;
+    out.bid_count = fill(bids_, out.bids);
+    out.ask_count = fill(asks_, out.asks);
+    return out;
+}
+
 } // namespace raikiri::venues::bybit

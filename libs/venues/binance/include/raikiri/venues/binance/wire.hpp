@@ -121,6 +121,19 @@ struct WireDepthUpdate {
 [[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
                                                                            LevelBuffer& storage);
 
+// GET /fapi/v1/depth. `last_update_id` is the book state these levels
+// describe, and the seed is usable only while a delta still straddles it.
+struct WireDepthSnapshot {
+    std::uint64_t last_update_id{0};
+    std::uint64_t transaction_ms{0}; // T: when the book was that
+    std::uint64_t event_ms{0};       // E: when binance answered
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireDepthSnapshot, WireError>
+parse_depth_snapshot(std::string_view body, LevelBuffer& storage);
+
 // ------------------------------------------------------------ private ----
 
 // ORDER_TRADE_UPDATE carries lifecycle AND fills in one frame, which is the

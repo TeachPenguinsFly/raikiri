@@ -91,4 +91,30 @@ std::expected<std::uint64_t, WireError> opt_u64(ondemand::object& obj, std::stri
     return whole_u64(*text);
 }
 
+std::expected<std::size_t, WireError>
+read_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        ondemand::object level;
+        if (const auto ec = entry.get_object().get(level); ec != simdjson::SUCCESS) {
+            return std::unexpected(map_error(ec));
+        }
+        const auto price = req_num(level, "p");
+        const auto qty = req_num(level, "s");
+        if (!price.has_value() || !qty.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        into[count] = WireLevel{.price = *price, .qty = *qty};
+        ++count;
+    }
+    return count;
+}
+
 } // namespace raikiri::venues::gate::detail

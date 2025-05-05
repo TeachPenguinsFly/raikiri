@@ -178,53 +178,6 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
     });
 }
 
-namespace {
-
-// Each level is a two-element array of strings: ["64488.50","5.560"].
-std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(root, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
-    }
-    std::size_t count = 0;
-    for (auto entry : *array) {
-        if (count == k_max_levels) {
-            return std::unexpected(WireError::TooManyEntries);
-        }
-        detail::ondemand::array pair;
-        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
-        }
-        WireLevel level{};
-        std::size_t field = 0;
-        for (auto element : pair) {
-            detail::ondemand::value value;
-            if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
-            }
-            const auto text = detail::str_of(value);
-            if (!text.has_value()) {
-                return std::unexpected(text.error());
-            }
-            if (field == 0) {
-                level.price = *text;
-            } else if (field == 1) {
-                level.qty = *text;
-            }
-            ++field;
-        }
-        if (field < 2) {
-            return std::unexpected(WireError::MissingField);
-        }
-        into[count] = level;
-        ++count;
-    }
-    return count;
-}
-
-} // namespace
-
 std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
                                                              LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireDepthUpdate, WireError> {
@@ -250,11 +203,11 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
         out.prev_id = *prev;
         out.event_ms = *event;
 
-        const auto bids = read_levels(*root, "b", storage.bids);
+        const auto bids = detail::read_levels(*root, "b", storage.bids);
         if (!bids.has_value()) {
             return std::unexpected(bids.error());
         }
-        const auto asks = read_levels(*root, "a", storage.asks);
+        const auto asks = detail::read_levels(*root, "a", storage.asks);
         if (!asks.has_value()) {
             return std::unexpected(asks.error());
         }

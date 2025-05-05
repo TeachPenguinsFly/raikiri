@@ -469,6 +469,64 @@ TEST(BitgetMap, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
+TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_books5.json");
+    const auto wire = parse_books(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto book = map_book(*wire, table, k_ingest);
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->bid_count, 5U);
+    EXPECT_EQ(book->ask_count, 5U);
+    EXPECT_LE(book->bid_count, k_book_levels);
+    EXPECT_LE(book->ask_count, k_book_levels);
+    EXPECT_EQ(book->venue_seq, 817'639'541'481ULL);
+    EXPECT_EQ(book->ts_event.ns, 1'786'430'817'901ULL * 1'000'000ULL);
+    EXPECT_EQ(book->ts_init.ns, k_ingest.ns);
+
+    // Bids descend, asks ascend, and the two never cross — a book that fails
+    // this is not a book, and publishing it would misprice every strategy
+    // reading it.
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < book->bid_count; ++i) {
+        EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].price.raw, book->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < book->bid_count; ++i) {
+        EXPECT_GT(book->bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(BitgetMap, AnIncrementalFrameNeverBecomesABook) {
+    // The delta carries deletes as a zero quantity and only the levels that
+    // moved; published as a snapshot it would hand shm a book with a hole in
+    // it and a top of book 20 away from the real one.
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_books_update.json");
+    const auto wire = parse_books(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_FALSE(wire->snapshot);
+    EXPECT_FALSE(map_book(*wire, table, k_ingest).has_value());
+}
+
+TEST(BitgetMap, AnUnknownInstrumentYieldsNoBook) {
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_books5.json");
+    auto wire = parse_books(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    wire->inst_id = "NOSUCHUSDT";
+    EXPECT_FALSE(map_book(*wire, table, k_ingest).has_value());
+}
+
 TEST(BitgetMap, ValuesOffTheStepAreDroppedNotRounded) {
     const auto table = table_from_catalogue();
     WireTicker wire{};

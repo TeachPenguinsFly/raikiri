@@ -16,7 +16,8 @@ BookSync make_book() {
     return BookSync{k_instrument_id(), *parse_decimal_e9("0.1"), *parse_decimal_e9("0.001")};
 }
 
-WireOrderbook snapshot(std::span<const WireLevel> bids, std::span<const WireLevel> asks,
+WireOrderbook snapshot(std::span<const WireLevel> bids,
+                       std::span<const WireLevel> asks,
                        std::uint64_t update_id) {
     WireOrderbook ob{};
     ob.symbol = "BTCUSDT";
@@ -28,8 +29,8 @@ WireOrderbook snapshot(std::span<const WireLevel> bids, std::span<const WireLeve
     return ob;
 }
 
-WireOrderbook delta(std::span<const WireLevel> bids, std::span<const WireLevel> asks,
-                    std::uint64_t update_id) {
+WireOrderbook
+delta(std::span<const WireLevel> bids, std::span<const WireLevel> asks, std::uint64_t update_id) {
     auto ob = snapshot(bids, asks, update_id);
     ob.is_snapshot = false;
     return ob;
@@ -48,7 +49,7 @@ TEST(BookSync, SnapshotEstablishesTopOfBook) {
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->bid.raw, 164935); // 16493.5 / 0.1
     EXPECT_EQ(bbo->ask.raw, 166110);
-    EXPECT_EQ(bbo->bid_qty.raw, 6);  // 0.006 / 0.001
+    EXPECT_EQ(bbo->bid_qty.raw, 6); // 0.006 / 0.001
     EXPECT_EQ(bbo->ask_qty.raw, 29);
 }
 
@@ -147,6 +148,40 @@ TEST(BookSync, OneSidedBookPublishesNoBbo) {
     const std::array bids{WireLevel{"100.0", "1.000"}};
     ASSERT_EQ(book.apply(snapshot(bids, {}, 1)), SyncResult::Resynced);
     EXPECT_FALSE(book.bbo(UnixNanos{1}, UnixNanos{2}).has_value());
+}
+
+TEST(BookSync, SnapshotCarriesOnlyTheTopLevels) {
+    // The venue streams 50 levels a side; shm carries k_book_levels. The cut
+    // must come off the far end, never off the touch.
+    auto book = make_book();
+    std::vector<std::string> prices;
+    std::vector<WireLevel> bids;
+    std::vector<WireLevel> asks;
+    for (int i = 0; i < 30; ++i) {
+        prices.push_back(std::to_string(100 - i) + ".0");
+        prices.push_back(std::to_string(200 + i) + ".0");
+    }
+    for (std::size_t i = 0; i < prices.size(); i += 2) {
+        bids.push_back(WireLevel{prices[i], "1.000"});
+        asks.push_back(WireLevel{prices[i + 1], "1.000"});
+    }
+    ASSERT_EQ(book.apply(snapshot(bids, asks, 7)), SyncResult::Resynced);
+
+    const auto depth = book.snapshot(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_EQ(depth->bid_count, k_book_levels);
+    EXPECT_EQ(depth->ask_count, k_book_levels);
+    EXPECT_EQ(depth->bids[0].price.raw, 1000) << "100.0 / 0.1 is still the touch";
+    EXPECT_EQ(depth->asks[0].price.raw, 2000);
+    EXPECT_EQ(depth->venue_seq, 7U);
+}
+
+TEST(BookSync, OneSidedBookPublishesNoSnapshot) {
+    auto book = make_book();
+    const std::array bids{WireLevel{"100.0", "1.000"}};
+    ASSERT_EQ(book.apply(snapshot(bids, {}, 1)), SyncResult::Resynced);
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value())
+        << "half a book has no spread to price against";
 }
 
 TEST(BookSync, LevelsStaySortedAcrossManyUpdates) {

@@ -80,6 +80,10 @@ net::RestRequest RequestBuilder::order_book(std::string_view settle,
     writer.put(contract);
     writer.put("&limit=");
     writer.put(depth);
+    // with_id is what makes this a seed rather than a picture: without it the
+    // body has no `id` and there is no way to say where in the update chain
+    // these levels belong. Verified live — the field is absent by default.
+    writer.put("&with_id=true");
     return writer.get();
 }
 

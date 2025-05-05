@@ -18,6 +18,41 @@ struct FilterWanted {
 
 } // namespace
 
+std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
+                                                                 LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireDepthSnapshot, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireDepthSnapshot out{};
+        const auto last = detail::opt_u64(*root, "lastUpdateId");
+        const auto transaction = detail::opt_u64(*root, "T");
+        const auto event = detail::opt_u64(*root, "E");
+        if (!last.has_value() || !transaction.has_value() || !event.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        if (*last == 0) {
+            return std::unexpected(WireError::MissingField); // a seed with no id seeds nothing
+        }
+        out.last_update_id = *last;
+        out.transaction_ms = *transaction;
+        out.event_ms = *event;
+
+        const auto bids = detail::read_levels(*root, "bids", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        const auto asks = detail::read_levels(*root, "asks", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        out.bids = {storage.bids.data(), *bids};
+        out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
+
 std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
     return guarded([&]() -> std::expected<RestError, WireError> {
         auto root = session().open_object(body);

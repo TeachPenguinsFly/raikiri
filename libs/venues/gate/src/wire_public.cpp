@@ -40,44 +40,6 @@ std::expected<std::string_view, WireError> first_payload(detail::ondemand::objec
     return std::string_view{};
 }
 
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
-    detail::ondemand::object obj;
-    if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
-    }
-    const auto price = detail::req_num(obj, "p");
-    const auto qty = detail::req_num(obj, "s");
-    if (!price.has_value() || !qty.has_value()) {
-        return std::unexpected(WireError::MissingField);
-    }
-    return WireLevel{.price = *price, .qty = *qty};
-}
-
-std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
-    }
-    std::size_t count = 0;
-    for (auto entry : *array) {
-        if (count == k_max_levels) {
-            return std::unexpected(WireError::TooManyEntries);
-        }
-        detail::ondemand::value value;
-        if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
-        }
-        const auto level = read_level(value);
-        if (!level.has_value()) {
-            return std::unexpected(level.error());
-        }
-        into[count] = *level;
-        ++count;
-    }
-    return count;
-}
-
 // Gate signs the trade size instead of naming a side. The magnitude is the
 // quantity and the sign is the taker's direction, so both come out of one
 // token; the stripped view still points into the caller's buffer.
@@ -301,11 +263,11 @@ std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view fram
                 out.first_update_id = *first;
                 out.last_update_id = *last;
                 out.contract = *contract;
-                const auto asks = read_levels(obj, "a", storage.asks);
+                const auto asks = detail::read_levels(obj, "a", storage.asks);
                 if (!asks.has_value()) {
                     return std::unexpected(asks.error());
                 }
-                const auto bids = read_levels(obj, "b", storage.bids);
+                const auto bids = detail::read_levels(obj, "b", storage.bids);
                 if (!bids.has_value()) {
                     return std::unexpected(bids.error());
                 }

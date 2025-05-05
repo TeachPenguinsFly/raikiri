@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
 #include <raikiri/venues/gate/map.hpp>
@@ -10,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::gate {
@@ -46,6 +48,11 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
+    // The seed rides its own pool so a book resynchronising never queues
+    // behind the catalogue, which is over a megabyte.
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}}};
+    std::unordered_map<std::uint64_t, DepthBook> books;
+
     std::vector<OwnedSubscription> desired;
 
     std::uint64_t next_app_ping_ns{0};
@@ -76,6 +83,71 @@ struct VenueState {
         return clock->wall().ns / 1'000'000'000ULL;
     }
 };
+
+// Fires the REST read that seeds one book. The response lands on the gateway
+// thread through IoContext::poll, so nothing here synchronises; a send the pool
+// refuses is left alone, because the next delta asks again.
+void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
+    const auto id = base.id;
+    auto* owner = &state;
+    const auto handled = [owner, id](net::RestResponse&& response) {
+        const auto entry = owner->books.find(id.packed);
+        if (entry == owner->books.end()) {
+            return;
+        }
+        auto& target = entry->second;
+        if (response.transport_failed() || response.status < 200 || response.status >= 300) {
+            target.seed_failed();
+            return;
+        }
+        static thread_local LevelBuffer storage;
+        const auto wire = parse_order_book(response.body, storage);
+        if (!wire.has_value()) {
+            target.seed_failed();
+            return;
+        }
+        if (target.seed(*wire) != BookResult::Applied) {
+            return;
+        }
+        if (const auto book = target.snapshot(s_to_unix(wire->update_s), response.received);
+            book.has_value()) {
+            owner->sink->on_depth(*book);
+        }
+    };
+    if (state.depth_rest.send(
+            state.builder.order_book(k_settle_usdt, base.exchange_symbol.view(), k_depth_limit),
+            handled)) {
+        book.seed_requested();
+    }
+}
+
+void handle_book_update(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local LevelBuffer storage;
+    const auto wire = parse_book_update(frame, storage);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->contract);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    const auto entry =
+        state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
+    auto& book = entry->second;
+    // Asked before the delta is offered, so the frame that triggered the seed
+    // is itself buffered behind it.
+    if (book.wants_seed()) {
+        request_seed(state, book, base);
+    }
+    if (book.apply(*wire) != BookResult::Applied) {
+        return; // unseeded, stale or resynchronising: silence, never a guess
+    }
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
+        snapshot.has_value()) {
+        state.sink->on_depth(*snapshot);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -120,6 +192,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::BookUpdate:
+        handle_book_update(state, frame, received);
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
@@ -191,6 +264,7 @@ public:
     }
 
     std::expected<void, exec::VenueError> start() override {
+        state_->depth_rest.start();
         client_.start();
         started_ = true;
         return {};
@@ -198,6 +272,7 @@ public:
 
     void stop() override {
         client_.stop();
+        state_->depth_rest.stop();
         started_ = false;
     }
 

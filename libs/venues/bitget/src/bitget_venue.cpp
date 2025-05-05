@@ -99,8 +99,17 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::Books:
+    case EventKind::Books: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_books(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+            state.sink->on_depth(*book);
+        }
         break;
+    }
     case EventKind::Error: {
         // Terminal for the channel it names, and silence is how it would otherwise present.
         if (const auto err = parse_stream_error(frame); err.has_value()) {

@@ -79,6 +79,40 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
     });
 }
 
+std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
+                                                         LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireOrderBook, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireOrderBook out{};
+        const auto id = detail::opt_u64(*root, "id");
+        const auto update = detail::opt_u64(*root, "update");
+        if (!id.has_value() || !update.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        if (*id == 0) {
+            // The request went out without with_id=true. Levels with no place
+            // in the update chain cannot seed anything.
+            return std::unexpected(WireError::MissingField);
+        }
+        out.update_id = *id;
+        out.update_s = *update;
+        const auto asks = detail::read_levels(*root, "asks", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        const auto bids = detail::read_levels(*root, "bids", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        out.asks = {storage.asks.data(), *asks};
+        out.bids = {storage.bids.data(), *bids};
+        return out;
+    });
+}
+
 std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
     return guarded([&]() -> std::expected<std::uint64_t, WireError> {
         auto root = session().open_object(body);

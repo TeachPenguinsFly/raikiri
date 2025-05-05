@@ -13,6 +13,7 @@ required — all of these are public endpoints):
 | `rest_exchange_info.json` | `GET /fapi/v1/exchangeInfo`, trimmed from 858 symbols to four |
 | `rest_premium_index.json` | `GET /fapi/v1/premiumIndex?symbol=BTCUSDT` |
 | `rest_depth_snapshot.json` | `GET /fapi/v1/depth?symbol=BTCUSDT&limit=5` |
+| `rest_depth_seed.json`, `ws_depth_straddle.json`, `ws_depth_straddle_next.json` | one capture (2026-08), `limit=100` — see below |
 | `rest_server_time.json` | `GET /fapi/v1/time` |
 | `rest_error_bad_symbol.json` | `GET /fapi/v1/ticker/bookTicker?symbol=NOSUCHSYM` |
 | `rest_error_bad_apikey.json` | `GET /fapi/v1/order?symbol=NOPE` |
@@ -28,6 +29,24 @@ The assembled two are honest about their field values but were not observed on
 the socket, so they prove the parser reads the documented shape — not that the
 shape is what production sends. Replace them with captures when a recorder
 exists.
+
+## The seed triple
+
+`rest_depth_seed.json`, `ws_depth_straddle.json` and `ws_depth_straddle_next.json`
+are one capture, not three files that happen to be about depth: the socket was
+recorded first, `GET /fapi/v1/depth?symbol=BTCUSDT&limit=100` was issued two
+seconds in, and the two frames kept are the one whose `[U, u]` contains that
+snapshot's `lastUpdateId` and the one immediately after it. A seed and a stream
+taken minutes apart replay into a *crossed* book, which is exactly what the
+book tests exist to catch, so provenance here is the test.
+
+Two facts the capture pins down, both measured rather than read off the docs:
+
+- The chain is `pu == the previous frame's u`. Over 105 consecutive frames the
+  spot rule (`U == previous u + 1`) held **zero** times.
+- Ids are not dense per symbol — consecutive frames left holes of roughly a
+  hundred — so a snapshot can land where no frame straddles it. That seed is
+  unusable, and the book discards it instead of splicing two different books.
 
 `rest_exchange_info.json` keeps four symbols on purpose: BTCUSDT and ETHUSDT
 (`PERPETUAL`/`TRADING`, both loadable), XAUUSDT (`TRADIFI_PERPETUAL` — a

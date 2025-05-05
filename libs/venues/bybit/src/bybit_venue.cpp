@@ -102,9 +102,12 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         if (result == SyncResult::GapDetected || result == SyncResult::BadLevel) {
             return;
         }
-        if (const auto bbo = sync.bbo(ms_to_unix(book->ts_ms, received), received);
-            bbo.has_value()) {
+        const auto ts_event = ms_to_unix(book->ts_ms, received);
+        if (const auto bbo = sync.bbo(ts_event, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
+        }
+        if (const auto depth = sync.snapshot(ts_event, received); depth.has_value()) {
+            state.sink->on_depth(*depth);
         }
         break;
     }

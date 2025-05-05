@@ -126,6 +126,23 @@ TEST(BinanceWire, DepthUpdateSurfacesTheChainingIds) {
     EXPECT_EQ(next->prev_id, first_last);
 }
 
+TEST(BinanceWire, DepthSnapshotCarriesTheIdTheSeedIsAnchoredOn) {
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto body = fixture("rest_depth_snapshot.json");
+    const auto snapshot = parse_depth_snapshot(body, *storage);
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->last_update_id, 11'256'392'073'532ULL);
+    ASSERT_EQ(snapshot->bids.size(), 5U);
+    ASSERT_EQ(snapshot->asks.size(), 5U);
+    EXPECT_EQ(snapshot->bids[0].price, "64453.00");
+    EXPECT_EQ(snapshot->bids[0].qty, "7.616");
+    EXPECT_EQ(snapshot->asks[0].price, "64453.10");
+    // Without an id the levels are a picture of no particular moment, so a
+    // body missing it is refused rather than read as a book at id zero.
+    const std::string idless = R"({"bids":[["1.0","1.0"]],"asks":[["2.0","1.0"]]})";
+    EXPECT_FALSE(parse_depth_snapshot(idless, *storage).has_value());
+}
+
 TEST(BinanceWire, DepthLevelsKeepPriceAndQtyInOrder) {
     auto storage = std::make_unique<LevelBuffer>();
     const auto data = data_of("ws_depth_update.json");

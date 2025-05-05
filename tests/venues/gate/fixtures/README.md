@@ -20,6 +20,7 @@ file that is not is `rest_contracts.json`, and that is called out below.
 | `ws_tickers.json` | live — BTC_USDT, carries `funding_rate` **and** `mark_price` |
 | `ws_order_book_update.json` | live — BTC_USDT depth delta |
 | `ws_order_book_update_next.json` | live — the frame immediately after it; `U == previous u + 1`, and it contains `s: 0` deletes |
+| `ws_order_book_straddle.json`, `ws_order_book_straddle_next.json` | live — see "the seed triple" |
 
 The two `order_book_update` files were chosen as a consecutive pair off one
 socket so the update-id chain is a real observation and not an arrangement.
@@ -29,7 +30,8 @@ socket so the update-id chain is a real observation and not an arrangement.
 | File | Provenance |
 | --- | --- |
 | `rest_server_time.json` | live — `GET /api/v4/spot/time` |
-| `rest_order_book.json` | live — `GET /api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5` |
+| `rest_order_book.json` | live — `GET /api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5`, **without** `with_id` |
+| `rest_order_book_seed.json` | live — the same call with `limit=20&with_id=true`; see "the seed triple" |
 | `rest_error_contract_not_found.json` | live — HTTP 400 from `contract=NOPE_USDT`; ships the label **with no `message` field** |
 | `rest_error_invalid_param.json` | **assembled** — the label and message text are verbatim from a live HTTP 400 (`limit=abc`), re-typed here as a standalone file |
 | `rest_contracts.json` | **trimmed, and one row edited** — see below |
@@ -52,6 +54,36 @@ live rows had `in_delisting: true`** and all 899 had `status: "trading"`, so
 there was no real row to trim down to. The two edited fields are exactly the
 two the mapper refuses on, and both values come from Gate's own documented
 enumeration (`prelaunch, trading, delisting, delisted, circuit_breaker`).
+
+## The seed triple
+
+`rest_order_book_seed.json`, `ws_order_book_straddle.json` and
+`ws_order_book_straddle_next.json` are one capture, not three files that happen
+to be about depth: the socket was recorded first, the REST book was read three
+seconds in, and the two frames kept are the one whose `[U, u]` contains that
+snapshot's `id + 1` and the one immediately after it. A seed and a stream taken
+minutes apart replay into a *crossed* book, which is what the book tests exist
+to catch, so provenance here is the test.
+
+`rest_order_book.json` is kept alongside it precisely because it lacks `id`:
+the default call returns levels with no place in the update chain, and the
+parser has to refuse that body rather than seed a book at id zero.
+
+Three facts the capture pins down, all measured rather than read off the docs:
+
+- The chain is exactly contiguous: `U == the previous frame's u + 1` held on
+  **83 of 83** consecutive frames, no id repeated and none skipped. There is no
+  `pu` field and none is needed.
+- The frame that continues a seed is the one containing `id + 1`, not `id` —
+  `id` is the last update already folded into those levels.
+- **Gate maintains the window itself.** Subscribed at 20 levels and seeded at
+  20, the book stayed at exactly 20 a side across 150 applied frames: what
+  falls out of the window arrives as an `s: 0` delete. Nothing has to be pruned
+  and nothing erodes, which is the load-bearing difference from binance's
+  full-depth stream.
+- About a third of frames (27 of 84 in one sample) carry **no levels at all**.
+  They still advance the chain, so a reader that skips them breaks every later
+  contiguity check.
 
 ## Field notes worth not rediscovering
 

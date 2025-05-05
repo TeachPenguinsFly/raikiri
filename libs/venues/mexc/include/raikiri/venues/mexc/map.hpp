@@ -39,6 +39,12 @@ namespace raikiri::venues::mexc {
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// Snapshots only, for the same reason: depth.full is self-contained, so the
+// newest frame replaces what shm holds and the mapper carries no book state.
+// Reconstructing a book from push.depth would mean holding one here.
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

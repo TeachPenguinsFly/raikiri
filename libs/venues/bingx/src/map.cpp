@@ -114,6 +114,47 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
+std::optional<BookSnapshot>
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    BookSnapshot out{};
+    out.instrument = base.id;
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+
+    const auto fill = [&](std::span<const WireLevel> src,
+                          std::array<BookLevel, k_book_levels>& dst) {
+        std::uint32_t n = 0;
+        for (const auto& level : src) {
+            if (n == k_book_levels) {
+                break;
+            }
+            const auto price = to_ticks(level.price, base);
+            const auto qty = to_lots(level.qty, base);
+            // A level that does not divide by the instrument's step truncates
+            // the book here rather than being rounded into a price BingX never
+            // quoted.
+            if (!price.has_value() || !qty.has_value()) {
+                break;
+            }
+            dst[n] = {.price = *price, .qty = *qty};
+            ++n;
+        }
+        return n;
+    };
+    out.bid_count = fill(wire.bids, out.bids);
+    out.ask_count = fill(wire.asks, out.asks);
+    if (out.bid_count == 0 && out.ask_count == 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 std::optional<FundingUpdate>
 map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);

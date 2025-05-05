@@ -30,6 +30,11 @@ namespace raikiri::venues::xt {
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The same snapshot, kept whole. `depth` is self-contained, so the mapper
+// needs no book state: the newest frame replaces what shm holds.
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

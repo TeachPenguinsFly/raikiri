@@ -404,6 +404,61 @@ TEST(MexcMap, IncrementalDepthNeverBecomesABbo) {
     EXPECT_FALSE(map_bbo(*depth, table, k_ingest).has_value());
 }
 
+TEST(MexcMap, BookSnapshotCrossesIntoTheDomain) {
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = fixture("ws_depth_full.json");
+    const auto depth = parse_depth(frame, storage);
+    ASSERT_TRUE(depth.has_value());
+
+    const auto book = map_book(*depth, table, k_ingest);
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->bid_count, 5U);
+    EXPECT_EQ(book->ask_count, 5U);
+    EXPECT_LE(book->bid_count, k_book_levels);
+    EXPECT_LE(book->ask_count, k_book_levels);
+    EXPECT_EQ(book->venue_seq, 40'611'848'245ULL);
+    EXPECT_EQ(book->ts_event.ns, 1'786'394'698'994ULL * 1'000'000ULL);
+
+    // Bids descend, asks ascend, and the two never cross — a book that fails
+    // this is not a book, and publishing it would misprice every strategy
+    // reading it.
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < book->bid_count; ++i) {
+        EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].price.raw, book->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < book->bid_count; ++i) {
+        EXPECT_GT(book->bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(MexcMap, IncrementalDepthNeverBecomesABook) {
+    // The delta carries only what changed, so publishing it as a snapshot
+    // would hand shm a five-level book with a bid 1900 off the touch.
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = fixture("ws_depth_update.json");
+    const auto depth = parse_depth(frame, storage);
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_FALSE(map_book(*depth, table, k_ingest).has_value());
+}
+
+TEST(MexcMap, UnknownSymbolYieldsNoBook) {
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = fixture("ws_depth_full.json");
+    auto depth = parse_depth(frame, storage);
+    ASSERT_TRUE(depth.has_value());
+    depth->symbol = "SATS_USDT"; // refused at load, so no id exists for it
+    EXPECT_FALSE(map_book(*depth, table, k_ingest).has_value());
+}
+
 TEST(MexcMap, PriceOffTheTickIsDroppedNotRounded) {
     // A price that does not divide by the tick means MEXC changed an
     // instrument's precision under us. Rounding would put an order one tick

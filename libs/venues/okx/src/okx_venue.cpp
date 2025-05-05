@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/venues/okx/map.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
@@ -10,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::okx {
@@ -46,6 +48,7 @@ struct VenueState {
 
     std::vector<OwnedSubscription> desired;
 
+    std::unordered_map<InstrumentId, Book> books;
     std::uint64_t next_app_ping_ns{0};
 
     // Venue clock offset, measured against /api/v5/public/time.
@@ -62,6 +65,15 @@ struct VenueState {
             }
         }
         desired.emplace_back(std::string{channel}, std::string{inst_id});
+    }
+
+    Book& book_for(const Instrument& instrument) {
+        const auto& base = base_of(instrument);
+        const auto it = books.find(base.id);
+        if (it != books.end()) {
+            return it->second;
+        }
+        return books.emplace(base.id, Book{base.id, base.tick_size, base.lot_size}).first->second;
     }
 };
 
@@ -107,8 +119,27 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::Books:
+    case EventKind::Books: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_books(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto* instrument = state.instruments.find(wire->inst_id);
+        if (instrument == nullptr) {
+            return;
+        }
+        auto& book = state.book_for(*instrument);
+        const auto result = book.apply(*wire);
+        if (result == BookResult::GapDetected || result == BookResult::BadLevel) {
+            return; // the venue resends a snapshot; until then we publish nothing
+        }
+        if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
+            depth.has_value()) {
+            state.sink->on_depth(*depth);
+        }
         break;
+    }
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
@@ -144,6 +175,11 @@ public:
                 break; // wedged socket; the reconnect retries the whole set
             }
             sent += frame->consumed;
+        }
+        // Whatever the seqId chain said before the socket dropped says nothing
+        // about the snapshot OKX is about to send.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});

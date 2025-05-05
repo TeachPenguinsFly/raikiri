@@ -1,3 +1,4 @@
+#include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/wire.hpp>
 
 #include <gtest/gtest.h>
@@ -139,6 +140,134 @@ TEST(OkxWire, BooksSnapshotAndDeltasChainOnSeqId) {
     const auto second = parse_books(second_frame, *third_storage);
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->prev_seq_id, first->seq_id);
+}
+
+// BTC-USDT-SWAP as OKX lists it: 0.1 tick, 0.01 lot. The three books fixtures
+// are consecutive frames off one socket, so the book is driven the way the
+// venue actually delivers it rather than from invented deltas.
+Book btc_book() {
+    return Book{InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0}),
+                *parse_decimal_e9("0.1"),
+                *parse_decimal_e9("0.01")};
+}
+
+TEST(OkxBook, DepthSnapshotCrossesIntoTheDomain) {
+    auto book = btc_book();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto snapshot_frame = fixture("ws_books_snapshot.json");
+    const auto wire = parse_books(snapshot_frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(book.apply(*wire), BookResult::Resynced);
+
+    const auto depth = book.snapshot(UnixNanos{1'700'000'000'000'000'000ULL}, UnixNanos{2});
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_EQ(depth->bid_count, k_book_levels) << "400 levels a side, cut to what shm carries";
+    EXPECT_EQ(depth->ask_count, k_book_levels);
+    EXPECT_EQ(depth->venue_seq, 333'626'642'610ULL) << "seqId, so a wrong book is traceable";
+
+    // Bids descend, asks ascend, and the two never cross — a book failing this
+    // is not a book, and every strategy reading it would price off the fiction.
+    EXPECT_LT(depth->bids[0].price.raw, depth->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < depth->bid_count; ++i) {
+        EXPECT_LT(depth->bids[i].price.raw, depth->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < depth->ask_count; ++i) {
+        EXPECT_GT(depth->asks[i].price.raw, depth->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < depth->bid_count; ++i) {
+        EXPECT_GT(depth->bids[i].qty.raw, 0) << i;
+        EXPECT_GT(depth->asks[i].qty.raw, 0) << i;
+    }
+    EXPECT_EQ(depth->bids[0].price.raw, 640'435); // 64043.5 / 0.1
+    EXPECT_EQ(depth->bids[0].qty.raw, 29'867);    // 298.67 / 0.01
+    EXPECT_EQ(depth->asks[0].price.raw, 640'436);
+
+    auto delta_storage = std::make_unique<LevelBuffer>();
+    const auto delta_frame = fixture("ws_books_update.json");
+    const auto delta = parse_books(delta_frame, *delta_storage);
+    ASSERT_TRUE(delta.has_value());
+    ASSERT_EQ(book.apply(*delta), BookResult::Applied);
+
+    const auto after = book.snapshot(UnixNanos{3}, UnixNanos{4});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->venue_seq, 333'626'642'622ULL);
+    EXPECT_EQ(after->bids[0].price.raw, 640'435) << "the delta moved levels away from the touch";
+    EXPECT_LT(after->bids[0].price.raw, after->asks[0].price.raw);
+}
+
+TEST(OkxBook, ASeqIdGapPublishesNothing) {
+    // The middle frame never arrives: the third's prevSeqId names a message
+    // this book has not seen, so everything after it would be guesswork.
+    auto book = btc_book();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto snapshot_frame = fixture("ws_books_snapshot.json");
+    const auto wire = parse_books(snapshot_frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(book.apply(*wire), BookResult::Resynced);
+    ASSERT_TRUE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value());
+
+    auto skipped_storage = std::make_unique<LevelBuffer>();
+    const auto skipped_frame = fixture("ws_books_update_next.json");
+    const auto skipped = parse_books(skipped_frame, *skipped_storage);
+    ASSERT_TRUE(skipped.has_value());
+    EXPECT_EQ(book.apply(*skipped), BookResult::GapDetected);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{3}, UnixNanos{4}).has_value())
+        << "a book with an unseen hole in it must publish nothing";
+
+    // Recovery is the venue's next snapshot, which resubscribing asks for.
+    auto again = std::make_unique<LevelBuffer>();
+    const auto fresh = parse_books(snapshot_frame, *again);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_EQ(book.apply(*fresh), BookResult::Resynced);
+    EXPECT_TRUE(book.snapshot(UnixNanos{5}, UnixNanos{6}).has_value());
+}
+
+TEST(OkxBook, ARedeliveredDeltaIsNotMistakenForAGap) {
+    auto book = btc_book();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto snapshot_frame = fixture("ws_books_snapshot.json");
+    const auto wire = parse_books(snapshot_frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(book.apply(*wire), BookResult::Resynced);
+
+    auto delta_storage = std::make_unique<LevelBuffer>();
+    const auto delta_frame = fixture("ws_books_update.json");
+    const auto delta = parse_books(delta_frame, *delta_storage);
+    ASSERT_TRUE(delta.has_value());
+    ASSERT_EQ(book.apply(*delta), BookResult::Applied);
+
+    EXPECT_EQ(book.apply(*delta), BookResult::Ignored) << "already applied, not a hole";
+    EXPECT_EQ(book.gaps(), 0U);
+    EXPECT_TRUE(book.synced());
+}
+
+TEST(OkxBook, LevelsOffTheStepGridPublishNothing) {
+    // A book whose prices no longer divide by the instrument's tick means OKX
+    // moved a precision. Rounding into the grid would invent quotes the venue
+    // never published, so the book is dropped and awaits a fresh snapshot.
+    Book book{InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0}),
+              *parse_decimal_e9("1"),
+              *parse_decimal_e9("0.01")};
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto snapshot_frame = fixture("ws_books_snapshot.json");
+    const auto wire = parse_books(snapshot_frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+
+    EXPECT_EQ(book.apply(*wire), BookResult::BadLevel) << "64043.5 is half a tick";
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value());
+}
+
+TEST(OkxBook, ADeltaBeforeAnySnapshotIsIgnored) {
+    auto book = btc_book();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_books_update.json");
+    const auto delta = parse_books(frame, *storage);
+    ASSERT_TRUE(delta.has_value());
+    EXPECT_EQ(book.apply(*delta), BookResult::Ignored);
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value());
 }
 
 TEST(OkxWire, DeletedLevelsKeepTheirZeroQuantity) {

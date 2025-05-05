@@ -1,3 +1,4 @@
+#include <raikiri/venues/bybit/book_sync.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/wire.hpp>
 
@@ -29,6 +30,7 @@ TEST(BybitTopic, DispatchesEveryFixture) {
         TopicKind kind;
         const char* symbol;
     };
+
     const Case cases[] = {
         {"orderbook_snapshot.json", TopicKind::Orderbook, "BTCUSDT"},
         {"orderbook_delta.json", TopicKind::Orderbook, "BTCUSDT"},
@@ -89,6 +91,81 @@ TEST(BybitOrderbook, DeltaKeepsZeroSizeDeleteVerbatim) {
     // decides — interpreting it here would put venue semantics in the codec.
     EXPECT_EQ(book->bids[0].size, "0");
     EXPECT_EQ(book->bids[1].size, "0.200");
+}
+
+// The two orderbook fixtures are consecutive frames off one socket, so the
+// snapshot and the delta chained onto it are exercised the way the venue
+// actually delivers them.
+BookSync book_for_btcusdt() {
+    return BookSync{InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{0}),
+                    *parse_decimal_e9("0.1"),
+                    *parse_decimal_e9("0.001")};
+}
+
+TEST(BybitBook, DepthSnapshotCrossesIntoTheDomain) {
+    auto sync = book_for_btcusdt();
+    OrderbookBuffer storage;
+    const auto snapshot_frame = fixture("orderbook_snapshot.json");
+    const auto wire = parse_orderbook(snapshot_frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(sync.apply(*wire), SyncResult::Resynced);
+
+    const auto book = sync.snapshot(UnixNanos{1'700'000'000'000'000'000ULL}, UnixNanos{2});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->bid_count, 3U);
+    EXPECT_EQ(book->ask_count, 2U);
+    EXPECT_EQ(book->venue_seq, 18521288U) << "update_id, so a wrong book is traceable";
+
+    // Bids descend, asks ascend, and the two never cross — a book failing this
+    // is not a book, and every strategy reading it would price off the fiction.
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
+    for (std::uint32_t i = 1; i < book->bid_count; ++i) {
+        EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].price.raw, book->asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < book->bid_count; ++i) {
+        EXPECT_GT(book->bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < book->ask_count; ++i) {
+        EXPECT_GT(book->asks[i].qty.raw, 0) << i;
+    }
+    EXPECT_EQ(book->bids[0].price.raw, 164935); // 16493.50 / 0.1
+    EXPECT_EQ(book->bids[0].qty.raw, 6);        // 0.006 / 0.001
+
+    OrderbookBuffer delta_storage;
+    const auto delta_frame = fixture("orderbook_delta.json");
+    const auto delta = parse_orderbook(delta_frame, delta_storage);
+    ASSERT_TRUE(delta.has_value());
+    ASSERT_EQ(sync.apply(*delta), SyncResult::Applied);
+
+    const auto after = sync.snapshot(UnixNanos{3}, UnixNanos{4});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->bid_count, 2U) << "the top bid was deleted by size 0";
+    EXPECT_EQ(after->bids[0].price.raw, 164930);
+    EXPECT_EQ(after->bids[0].qty.raw, 200);
+    EXPECT_EQ(after->venue_seq, 18521289U);
+}
+
+TEST(BybitBook, AGapInTheUpdateChainPublishesNothing) {
+    auto sync = book_for_btcusdt();
+    OrderbookBuffer storage;
+    const auto snapshot_frame = fixture("orderbook_snapshot.json");
+    const auto wire = parse_orderbook(snapshot_frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(sync.apply(*wire), SyncResult::Resynced);
+    ASSERT_TRUE(sync.snapshot(UnixNanos{1}, UnixNanos{2}).has_value());
+
+    OrderbookBuffer delta_storage;
+    const auto delta_frame = fixture("orderbook_delta.json");
+    auto delta = parse_orderbook(delta_frame, delta_storage);
+    ASSERT_TRUE(delta.has_value());
+    delta->update_id += 1; // the frame that would have carried 18521289 never arrived
+
+    EXPECT_EQ(sync.apply(*delta), SyncResult::GapDetected);
+    EXPECT_FALSE(sync.snapshot(UnixNanos{3}, UnixNanos{4}).has_value())
+        << "a book with an unseen hole in it must publish nothing";
 }
 
 TEST(BybitTrades, BothAggressorSides) {
@@ -321,8 +398,11 @@ TEST(BybitWire, MalformedInputIsRefusedNotCrashed) {
 TEST(BybitWire, TruncationsOfEveryFixtureAreRefused) {
     // Byte-wise truncation is the cheapest fuzz there is and it catches the
     // "parser reads past the end of a half-frame" class outright.
-    for (const auto* name : {"orderbook_snapshot.json", "public_trade.json",
-                             "tickers_snapshot.json", "order_update.json", "execution.json"}) {
+    for (const auto* name : {"orderbook_snapshot.json",
+                             "public_trade.json",
+                             "tickers_snapshot.json",
+                             "order_update.json",
+                             "execution.json"}) {
         const auto full = fixture(name);
         OrderbookBuffer ob;
         TradeBuffer tb;

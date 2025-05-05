@@ -4,6 +4,7 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
+#include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
 #include <raikiri/venues/binance/rest.hpp>
@@ -13,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::binance {
@@ -35,6 +37,12 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
     RequestBuilder builder{signer};
+
+    // The depth seed rides its own pool: a book resynchronising must never
+    // queue behind an order, and an order must never queue behind a 40 kB
+    // snapshot body.
+    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}}};
+    std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
 
@@ -66,6 +74,75 @@ struct VenueState {
         desired_streams.emplace_back(stream);
     }
 };
+
+// Fires the REST read that seeds one book. The response lands on the gateway
+// thread through IoContext::poll, so nothing here synchronises; a send that
+// the pool refuses is left alone, because the next delta asks again.
+void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
+    const auto id = base.id;
+    auto* owner = &state;
+    const auto handled = [owner, id](net::RestResponse&& response) {
+        const auto entry = owner->books.find(id.packed);
+        if (entry == owner->books.end()) {
+            return;
+        }
+        auto& target = entry->second;
+        if (response.transport_failed()) {
+            target.seed_failed();
+            return;
+        }
+        if (const auto err = parse_rest_error(response.body);
+            err.has_value() && err->code != k_ok) {
+            target.seed_failed();
+            return;
+        }
+        static thread_local LevelBuffer storage;
+        const auto wire = parse_depth_snapshot(response.body, storage);
+        if (!wire.has_value()) {
+            target.seed_failed();
+            return;
+        }
+        if (target.seed(*wire) != BookResult::Applied) {
+            return;
+        }
+        const auto ts_event = ms_to_unix(wire->transaction_ms, response.received);
+        if (const auto book = target.snapshot(ts_event, response.received); book.has_value()) {
+            owner->sink->on_depth(*book);
+        }
+    };
+    if (state.depth_rest.send(
+            state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
+        book.seed_requested();
+    }
+}
+
+void handle_depth(VenueState& state, std::string_view data, UnixNanos received) {
+    static thread_local LevelBuffer storage;
+    const auto wire = parse_depth_update(data, storage);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->symbol);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    const auto entry =
+        state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
+    auto& book = entry->second;
+    // Asked before the delta is offered, so the frame that triggered the seed
+    // is itself buffered behind it.
+    if (book.wants_seed()) {
+        request_seed(state, book, base);
+    }
+    if (book.apply(*wire) != BookResult::Applied) {
+        return; // unseeded, stale or resynchronising: silence, never a guess
+    }
+    if (const auto snapshot = book.snapshot(ms_to_unix(wire->event_ms, received), received);
+        snapshot.has_value()) {
+        state.sink->on_depth(*snapshot);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -109,6 +186,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::DepthUpdate:
+        handle_depth(state, *data, received);
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
@@ -181,6 +259,7 @@ public:
     }
 
     std::expected<void, exec::VenueError> start() override {
+        state_->depth_rest.start();
         client_.start();
         started_ = true;
         return {};
@@ -188,6 +267,7 @@ public:
 
     void stop() override {
         client_.stop();
+        state_->depth_rest.stop();
         started_ = false;
     }
 

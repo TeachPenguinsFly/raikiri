@@ -87,6 +87,9 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
+        if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+            state.sink->on_depth(*book);
+        }
         break;
     }
     case EventKind::Trade: {

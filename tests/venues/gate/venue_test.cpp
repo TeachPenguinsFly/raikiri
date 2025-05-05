@@ -1,3 +1,4 @@
+#include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
 #include <raikiri/venues/gate/map.hpp>
@@ -241,6 +242,21 @@ TEST(GateWire, DeletedLevelsKeepTheirZeroQuantity) {
         saw_delete = saw_delete || level.qty == "0";
     }
     EXPECT_TRUE(saw_delete);
+}
+
+TEST(GateWire, OrderBookIsOnlyASeedWhenItCarriesAnId) {
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto seed = parse_order_book(fixture("rest_order_book_seed.json"), *storage);
+    ASSERT_TRUE(seed.has_value());
+    EXPECT_EQ(seed->update_id, 121'670'616'851ULL);
+    EXPECT_EQ(seed->update_s, 1'786'831'342ULL) << "fractional seconds, truncated";
+    EXPECT_EQ(seed->bids.size(), 20U);
+    EXPECT_EQ(seed->asks.size(), 20U);
+
+    // Same endpoint without with_id=true. The levels are fine and the body is
+    // useless: nothing says where in the chain they sit.
+    auto plain_storage = std::make_unique<LevelBuffer>();
+    EXPECT_FALSE(parse_order_book(fixture("rest_order_book.json"), *plain_storage).has_value());
 }
 
 TEST(GateWire, ContractsAreATopLevelArray) {
@@ -737,13 +753,257 @@ TEST(GateWs, UnsubscribeMirrorsSubscribe) {
     EXPECT_NE(frame->text.find(R"("event":"unsubscribe")"), std::string_view::npos);
 }
 
+// ------------------------------------------------------------- book ----
+//
+// The three seed fixtures are one capture: `rest_order_book_seed.json` is the
+// snapshot, `ws_order_book_straddle.json` is the frame whose [U, u] contains
+// its id + 1, and `ws_order_book_straddle_next.json` is the frame after it. A
+// seed and a stream from different minutes replay into a crossed book, which
+// is what these tests exist to catch.
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire struct that came out of them.
+struct BookFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+DepthBook book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("BTC_USDT");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return DepthBook{base.id, base.tick_size, base.lot_size};
+}
+
+WireBookUpdate delta_of(BookFrame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto wire = parse_book_update(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireBookUpdate{});
+}
+
+WireOrderBook seed_of(BookFrame& frame) {
+    frame.text = fixture("rest_order_book_seed.json");
+    const auto wire = parse_order_book(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireOrderBook{});
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(GateBook, AnUnseededBookPublishesNothing) {
+    // There is no snapshot on this channel at all, so an adapter that trusted
+    // the first delta would be quoting a book made of one frame's worth of
+    // changes.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame first;
+    EXPECT_TRUE(book.wants_seed());
+    EXPECT_EQ(book.apply(delta_of(first, "ws_order_book_straddle.json")), BookResult::Buffered);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+}
+
+TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame seed_frame;
+    BookFrame first;
+    BookFrame second;
+    const auto snapshot = seed_of(seed_frame);
+    EXPECT_EQ(book.seed(snapshot), BookResult::Waiting);
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+
+    const auto d1 = delta_of(first, "ws_order_book_straddle.json");
+    // The chain is contiguous, so the frame that continues the seed is the one
+    // holding id + 1 — not the one holding id, which is already in the levels.
+    ASSERT_LE(d1.first_update_id, snapshot.update_id + 1);
+    ASSERT_GE(d1.last_update_id, snapshot.update_id + 1);
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    const auto d2 = delta_of(second, "ws_order_book_straddle_next.json");
+    EXPECT_EQ(d2.first_update_id, d1.last_update_id + 1);
+    // A third of the frames carry no levels at all. They still advance the
+    // chain, so refusing them would break every later contiguity check.
+    EXPECT_TRUE(d2.bids.empty());
+    EXPECT_TRUE(d2.asks.empty());
+    EXPECT_EQ(book.apply(d2), BookResult::Applied);
+
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->venue_seq, d2.last_update_id) << "u is the forensic handle";
+    // Gate maintains the subscribed window itself, deleting what falls out of
+    // it, so the book neither grows nor erodes.
+    EXPECT_EQ(book.bids().size(), k_depth_limit);
+    EXPECT_EQ(book.asks().size(), k_depth_limit);
+}
+
+TEST(GateBook, DeltasBufferedBehindTheSeedReplayIntoTheSameBook) {
+    // Which of the REST answer and the websocket frame lands first is a race,
+    // and the book it produces must not depend on who won.
+    const auto table = table_with_btc();
+    BookFrame seed_frame;
+    BookFrame first;
+    BookFrame second;
+    const auto snapshot = seed_of(seed_frame);
+    const auto d1 = delta_of(first, "ws_order_book_straddle.json");
+    const auto d2 = delta_of(second, "ws_order_book_straddle_next.json");
+
+    auto streamed = book_for(table);
+    EXPECT_EQ(streamed.seed(snapshot), BookResult::Waiting);
+    EXPECT_EQ(streamed.apply(d1), BookResult::Applied);
+    EXPECT_EQ(streamed.apply(d2), BookResult::Applied);
+
+    auto buffered = book_for(table);
+    EXPECT_EQ(buffered.apply(d1), BookResult::Buffered);
+    EXPECT_EQ(buffered.apply(d2), BookResult::Buffered);
+    EXPECT_EQ(buffered.seed(snapshot), BookResult::Applied);
+
+    const auto from_stream = streamed.snapshot(k_ingest, k_ingest);
+    const auto from_buffer = buffered.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(from_stream.has_value());
+    ASSERT_TRUE(from_buffer.has_value());
+    expect_coherent(*from_buffer);
+    EXPECT_EQ(from_buffer->venue_seq, from_stream->venue_seq);
+    for (std::uint32_t i = 0; i < k_book_levels; ++i) {
+        EXPECT_EQ(from_buffer->bids[i].price.raw, from_stream->bids[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->bids[i].qty.raw, from_stream->bids[i].qty.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].price.raw, from_stream->asks[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].qty.raw, from_stream->asks[i].qty.raw) << i;
+    }
+}
+
+TEST(GateBook, AGapInTheChainPublishesNothing) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame seed_frame;
+    BookFrame first;
+    BookFrame second;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    EXPECT_EQ(book.apply(delta_of(first, "ws_order_book_straddle.json")), BookResult::Applied);
+
+    auto skipped = delta_of(second, "ws_order_book_straddle_next.json");
+    skipped.first_update_id += 1; // one id of the chain went missing
+
+    EXPECT_EQ(book.apply(skipped), BookResult::Gap);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+    EXPECT_TRUE(book.wants_seed()) << "a dropped book asks for a new seed";
+}
+
+TEST(GateBook, ZeroSizeDeletesTheLevel) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame seed_frame;
+    BookFrame first;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    const auto d1 = delta_of(first, "ws_order_book_straddle.json");
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    const auto before = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(before.has_value());
+    ASSERT_EQ(before->asks[0].price.raw, 631'327) << "63132.7 over a 0.1 tick";
+    const auto next_up = before->asks[1].price.raw;
+
+    const std::array<WireLevel, 1> gone{WireLevel{.price = "63132.7", .qty = "0"}};
+    WireBookUpdate lifted{};
+    lifted.contract = "BTC_USDT";
+    lifted.first_update_id = d1.last_update_id + 1;
+    lifted.last_update_id = d1.last_update_id + 2;
+    lifted.asks = gone;
+    EXPECT_EQ(book.apply(lifted), BookResult::Applied);
+
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->asks[0].price.raw, next_up) << "a zero deletes, it does not rest at zero";
+    EXPECT_EQ(after->asks[0].qty.raw, before->asks[1].qty.raw);
+}
+
+TEST(GateBook, ALevelOffTheTickIsDroppedNotRounded) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame seed_frame;
+    BookFrame first;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    const auto d1 = delta_of(first, "ws_order_book_straddle.json");
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+    const auto dropped_before = book.dropped_levels();
+    const auto before = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(before.has_value());
+
+    // 0.05 past a 0.1 tick, and a fractional contract count where sizes are
+    // whole contracts. Either one alone is enough to refuse the level.
+    const std::array<WireLevel, 2> bad_levels{WireLevel{.price = "63132.65", .qty = "100"},
+                                              WireLevel{.price = "63132.6", .qty = "0.5"}};
+    WireBookUpdate bad{};
+    bad.contract = "BTC_USDT";
+    bad.first_update_id = d1.last_update_id + 1;
+    bad.last_update_id = d1.last_update_id + 2;
+    bad.bids = bad_levels;
+    EXPECT_EQ(book.apply(bad), BookResult::Applied);
+
+    EXPECT_EQ(book.dropped_levels(), dropped_before + 2);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    for (std::uint32_t i = 0; i < k_book_levels; ++i) {
+        EXPECT_EQ(after->bids[i].price.raw, before->bids[i].price.raw) << i;
+        EXPECT_EQ(after->bids[i].qty.raw, before->bids[i].qty.raw) << i;
+    }
+}
+
+TEST(GateBook, ASeedTheStreamHasRunPastIsDiscarded) {
+    // The chain is contiguous, so a seed the stream has already overtaken can
+    // never be reached — the ids in between are gone. Splicing it in anyway
+    // would produce a book missing every change in that window.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame seed_frame;
+    BookFrame first;
+    auto snapshot = seed_of(seed_frame);
+    const auto d1 = delta_of(first, "ws_order_book_straddle.json");
+    snapshot.update_id = d1.first_update_id - 2;
+
+    EXPECT_EQ(book.seed(snapshot), BookResult::Waiting);
+    EXPECT_EQ(book.apply(d1), BookResult::Reseed);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+    EXPECT_TRUE(book.wants_seed());
+}
+
 // ------------------------------------------------------------- rest ----
 
 TEST(GateRest, TargetsCarryTheSettleCurrency) {
     RequestBuilder builder;
     EXPECT_EQ(builder.contracts(k_settle_usdt).target, "/api/v4/futures/usdt/contracts");
+    // with_id is not optional here: without it the body has no `id` and the
+    // levels cannot be placed in the update chain.
     EXPECT_EQ(builder.order_book(k_settle_usdt, "BTC_USDT", 5).target,
-              "/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5");
+              "/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5&with_id=true");
     // The only clock endpoint Gate publishes lives under spot, not futures.
     EXPECT_EQ(builder.server_time().target, "/api/v4/spot/time");
 }
