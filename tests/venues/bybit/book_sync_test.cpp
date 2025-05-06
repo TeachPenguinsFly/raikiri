@@ -157,7 +157,10 @@ TEST(BookSync, SnapshotCarriesOnlyTheTopLevels) {
     std::vector<std::string> prices;
     std::vector<WireLevel> bids;
     std::vector<WireLevel> asks;
-    for (int i = 0; i < 30; ++i) {
+    // More levels than the snapshot can carry, so the truncation is what is
+    // under test rather than an accident of the fixture.
+    constexpr int k_supplied = static_cast<int>(k_book_levels) + 20;
+    for (int i = 0; i < k_supplied; ++i) {
         prices.push_back(std::to_string(100 - i) + ".0");
         prices.push_back(std::to_string(200 + i) + ".0");
     }
@@ -169,7 +172,7 @@ TEST(BookSync, SnapshotCarriesOnlyTheTopLevels) {
 
     const auto depth = book.snapshot(UnixNanos{1}, UnixNanos{2});
     ASSERT_TRUE(depth.has_value());
-    EXPECT_EQ(depth->bid_count, k_book_levels);
+    EXPECT_EQ(depth->bid_count, k_book_levels) << "truncated at the far end";
     EXPECT_EQ(depth->ask_count, k_book_levels);
     EXPECT_EQ(depth->bids[0].price.raw, 1000) << "100.0 / 0.1 is still the touch";
     EXPECT_EQ(depth->asks[0].price.raw, 2000);

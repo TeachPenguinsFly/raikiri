@@ -49,7 +49,7 @@ static_assert(std::is_trivially_copyable_v<TradeTick>);
 // understands them. What crosses into shared memory is the book the adapter
 // currently believes in, so a consumer never has to replay a venue's deltas
 // or recover from a gap it cannot see.
-inline constexpr std::size_t k_book_levels = 10;
+inline constexpr std::size_t k_book_levels = 100;
 
 struct BookLevel {
     PriceTicks price{};

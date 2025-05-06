@@ -73,7 +73,10 @@ inline constexpr std::size_t k_depth_cells = 4096;
 inline constexpr std::size_t k_md_ring = 65536;
 inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
-inline constexpr std::size_t k_gateway_segment_bytes = 32ULL << 20;
+// 100 book levels a side put the depth table at 12.8 MiB, which no longer
+// fits alongside the rings in 32. The whole table is zeroed at creation, so
+// this is resident memory per gateway, not just address space.
+inline constexpr std::size_t k_gateway_segment_bytes = 64ULL << 20;
 
 // A SymbolId indexes both tables, so a catalogue that could hold more
 // instruments than the BBO table has cells would mint ids with nowhere to

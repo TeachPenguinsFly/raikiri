@@ -18,6 +18,9 @@
 namespace raikiri::venues::gate {
 namespace {
 
+// The depth the adapter subscribes at; gate deletes what falls out of it.
+constexpr std::uint32_t k_gate_window = 20;
+
 // There is no RAIKIRI_GATE_FIXTURES define: this target is the venue test, so
 // the fixture directory is located from this file rather than from CMake.
 std::string fixture(std::string_view name) {
@@ -853,8 +856,12 @@ TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
     const auto out = book.snapshot(k_ingest, k_ingest);
     ASSERT_TRUE(out.has_value());
     expect_coherent(*out);
-    EXPECT_EQ(out->bid_count, k_book_levels);
-    EXPECT_EQ(out->ask_count, k_book_levels);
+    // Gate maintains a fixed subscribed window, so the book holds exactly what
+    // the venue keeps — fewer than the snapshot could carry, and that is the
+    // point: nothing is invented to fill the array.
+    EXPECT_EQ(out->bid_count, k_gate_window);
+    EXPECT_EQ(out->ask_count, k_gate_window);
+    static_assert(k_gate_window <= k_book_levels);
     EXPECT_EQ(out->venue_seq, d2.last_update_id) << "u is the forensic handle";
     // Gate maintains the subscribed window itself, deleting what falls out of
     // it, so the book neither grows nor erodes.
