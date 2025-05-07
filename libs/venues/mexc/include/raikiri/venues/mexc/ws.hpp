@@ -36,9 +36,12 @@ enum class WsBuildError : std::uint8_t {
 // Returns the bare channel stem, empty for a kind MEXC does not stream.
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
 
-// depth.full is a limit-N snapshot and the depth is part of the subscription;
-// five levels is all the BBO needs and the smallest MEXC offers.
-inline constexpr std::uint32_t k_bbo_depth = 5;
+// depth.full is a limit-N snapshot and the depth is part of the subscription.
+// It is the only book this adapter publishes, so it carries the deepest tier
+// that fits the domain snapshot. MEXC takes fixed tiers only and answers
+// anything else with {"channel":"rs.error","data":"Not support limit"} —
+// verified live: 5, 10, 20, 50 and 200 stream, 60, 80, 99 and 100 are refused.
+inline constexpr std::uint32_t k_book_depth = 50;
 
 struct Subscription {
     std::string_view channel;

@@ -22,7 +22,7 @@ using WireError = wire::Error;
 enum class EventKind : std::uint8_t {
     BookTicker, // {sym}@bookTicker — top of book, one object
     Trade,      // {sym}@trade
-    Depth,      // {sym}@depth5@100ms — a 5-level snapshot, not a delta
+    Depth,      // {sym}@depth100@100ms — a 100-level snapshot, not a delta
     MarkPrice,  // {sym}@markPrice — mark only; BingX streams no funding
     Ping,       // the bare text "Ping"
     ControlAck, // a subscribe/unsubscribe answer with code 0

@@ -39,9 +39,11 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view host(bool testnet) noexcept;
 
-// Book depth to request. Bybit publishes fixed depths only; asking for an
-// unsupported one yields silence rather than an error, so the choice is
-// constrained here rather than left to configuration.
+// Book depth to request. Bybit publishes fixed depths only — 1, 50, 200 and
+// 500 on linear — and `orderbook.100` is answered with
+// `error:handler not found`, so the choice is constrained here rather than
+// left to configuration. 50 is the deepest tier that fits k_book_levels; the
+// next one up overflows it.
 inline constexpr std::uint32_t k_book_depth = 50;
 
 // Bybit caps the args array; oversized subscribe frames are rejected whole,

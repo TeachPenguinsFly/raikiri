@@ -1,1 +1,1 @@
-{"time":1786831343,"time_ms":1786831343014,"channel":"futures.order_book_update","event":"update","result":{"t":1786831343008,"U":121670616859,"u":121670616886,"s":"BTC_USDT","a":[],"b":[],"l":"20"}}
+{"time":1786984119,"time_ms":1786984119194,"channel":"futures.order_book_update","event":"update","result":{"t":1786984119167,"U":121737510364,"u":121737510374,"s":"BTC_USDT","a":[],"b":[],"l":"100"}}

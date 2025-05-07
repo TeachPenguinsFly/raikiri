@@ -31,7 +31,7 @@ socket so the update-id chain is a real observation and not an arrangement.
 | --- | --- |
 | `rest_server_time.json` | live — `GET /api/v4/spot/time` |
 | `rest_order_book.json` | live — `GET /api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5`, **without** `with_id` |
-| `rest_order_book_seed.json` | live — the same call with `limit=20&with_id=true`; see "the seed triple" |
+| `rest_order_book_seed.json` | live — the same call with `limit=100&with_id=true`, recaptured 2026-08-17; see "the seed triple" |
 | `rest_error_contract_not_found.json` | live — HTTP 400 from `contract=NOPE_USDT`; ships the label **with no `message` field** |
 | `rest_error_invalid_param.json` | **assembled** — the label and message text are verbatim from a live HTTP 400 (`limit=abc`), re-typed here as a standalone file |
 | `rest_contracts.json` | **trimmed, and one row edited** — see below |
@@ -76,11 +76,16 @@ Three facts the capture pins down, all measured rather than read off the docs:
   `pu` field and none is needed.
 - The frame that continues a seed is the one containing `id + 1`, not `id` —
   `id` is the last update already folded into those levels.
-- **Gate maintains the window itself.** Subscribed at 20 levels and seeded at
-  20, the book stayed at exactly 20 a side across 150 applied frames: what
+- **Gate maintains the window itself.** Subscribed at 100 levels and seeded at
+  100, the book stayed at exactly 100 a side across every applied frame: what
   falls out of the window arrives as an `s: 0` delete. Nothing has to be pruned
   and nothing erodes, which is the load-bearing difference from binance's
   full-depth stream.
+- **20, 50 and 100 are the whole tier list.** `200` and `400` are refused with
+  `{"code":2,"message":"provided level not supported: N"}`, so 100 is both the
+  deepest tier Gate offers and the most `k_book_levels` can hold. Re-measured
+  on the 2026-08-17 capture: 483 consecutive frames, 0 gaps, 49 of them
+  carrying no levels at all.
 - About a third of frames (27 of 84 in one sample) carry **no levels at all**.
   They still advance the chain, so a reader that skips them breaks every later
   contiguity check.

@@ -1,6 +1,7 @@
 #include <raikiri/venues/bybit/book_sync.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/wire.hpp>
+#include <raikiri/venues/bybit/ws.hpp>
 
 #include <gtest/gtest.h>
 
@@ -146,6 +147,27 @@ TEST(BybitBook, DepthSnapshotCrossesIntoTheDomain) {
     EXPECT_EQ(after->bids[0].price.raw, 164930);
     EXPECT_EQ(after->bids[0].qty.raw, 200);
     EXPECT_EQ(after->venue_seq, 18521289U);
+}
+
+TEST(BybitBook, EverySubscribedLevelReachesTheDomain) {
+    // A live orderbook.50 snapshot, so this fails if the venue quietly serves
+    // a shallower book than the topic asked for or the book layer drops the
+    // tail on its way into shm.
+    auto sync = book_for_btcusdt();
+    OrderbookBuffer storage;
+    const auto frame = fixture("orderbook_snapshot_50.json");
+    const auto wire = parse_orderbook(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->bids.size(), k_book_depth);
+    ASSERT_EQ(sync.apply(*wire), SyncResult::Resynced);
+
+    const auto book = sync.snapshot(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->bid_count, k_book_depth);
+    EXPECT_EQ(book->ask_count, k_book_depth);
+    static_assert(k_book_depth <= k_book_levels);
+    EXPECT_EQ(book->bids[0].price.raw, 640'607); // 64060.70 / 0.1
+    EXPECT_LT(book->bids[k_book_depth - 1].price.raw, book->bids[0].price.raw);
 }
 
 TEST(BybitBook, AGapInTheUpdateChainPublishesNothing) {

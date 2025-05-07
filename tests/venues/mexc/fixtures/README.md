@@ -23,11 +23,16 @@ one symbol per message.
 | `ws_subscribe_ack.json` | the `sub.ticker` acknowledgement |
 | `ws_ticker.json` | first `push.ticker` after it |
 | `ws_deal.json` | a `push.deal` carrying four prints, two directions |
-| `ws_depth_full.json` | first `push.depth.full` of a `limit:5` subscribe |
+| `ws_depth_full.json` | first `push.depth.full` of a `limit:50` subscribe, recaptured 2026-08-17 |
 | `ws_depth_update.json`, `ws_depth_update_next.json` | the first two `push.depth` deltas |
 | `ws_pong.json` | the answer to `{"method":"ping"}` |
 | `ws_error.json` | `sub.ticker` on `NOSUCH_USDT` |
 | `ws_idle_timeout.json` | see below |
+
+`depth.full` takes fixed tiers only, and the refusal is loud rather than a
+silent downgrade: 5, 10, 20, 50 and 200 all stream, while 60, 80, 99 and 100
+each drew `{"channel":"rs.error","data":"Not support limit"}` on a fresh
+socket. 50 is therefore the deepest tier that fits `k_book_levels`.
 
 The two `push.depth` files are **consecutive frames off one socket**, so the
 version chain across them is real rather than constructed:

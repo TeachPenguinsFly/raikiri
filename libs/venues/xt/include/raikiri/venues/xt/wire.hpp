@@ -21,7 +21,7 @@ using WireError = wire::Error;
 // Resolved from the frame's `topic` once, so downstream dispatch is an integer
 // compare rather than a string compare per message.
 enum class EventKind : std::uint8_t {
-    Depth,       // depth — top-N snapshot, the BBO source
+    Depth,       // depth — top-N snapshot, the BBO and book source
     DepthUpdate, // depth_update — incremental deltas
     Trade,       // trade
     MarkPrice,   // mark_price

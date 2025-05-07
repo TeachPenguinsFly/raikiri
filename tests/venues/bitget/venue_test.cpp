@@ -28,6 +28,10 @@ std::string fixture(std::string_view name) {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
+// The depth the adapter subscribes at, and Bitget's deepest self-contained
+// snapshot: books50 and books100 are both refused with 30016 "Param error".
+constexpr std::uint32_t k_bitget_depth = 15;
+
 // The four rows of rest_contracts.json, mapped. PEPEUSDT is expected to be
 // refused, so this table holds three.
 exec::InstrumentTable table_from_catalogue() {
@@ -54,7 +58,7 @@ const InstrumentBase* base_for(const exec::InstrumentTable& table, std::string_v
 TEST(BitgetWire, EventDispatchResolvesKindAndInstrument) {
     for (const auto& [file, kind] : {std::pair{"ws_ticker.json", EventKind::Ticker},
                                      std::pair{"ws_trade.json", EventKind::Trade},
-                                     std::pair{"ws_books5.json", EventKind::Books},
+                                     std::pair{"ws_books15.json", EventKind::Books},
                                      std::pair{"ws_books_update.json", EventKind::Books}}) {
         const auto frame = fixture(file);
         const auto event = parse_event(frame);
@@ -157,16 +161,16 @@ TEST(BitgetWire, TradesCarryTakerSideDirectly) {
 
 TEST(BitgetWire, BooksChannelsShareOneShapeAndChainOnSeq) {
     auto storage = std::make_unique<LevelBuffer>();
-    const auto snapshot_frame = fixture("ws_books5.json");
+    const auto snapshot_frame = fixture("ws_books15.json");
     const auto snapshot = parse_books(snapshot_frame, *storage);
     ASSERT_TRUE(snapshot.has_value());
     EXPECT_TRUE(snapshot->snapshot);
-    EXPECT_EQ(snapshot->bids.size(), 5U);
-    EXPECT_EQ(snapshot->asks.size(), 5U);
-    // books5 restates the whole top of book every frame and pins pseq to 0,
+    EXPECT_EQ(snapshot->bids.size(), k_bitget_depth);
+    EXPECT_EQ(snapshot->asks.size(), k_bitget_depth);
+    // books15 restates the whole top of book every frame and pins pseq to 0,
     // so there is nothing to chain onto — 0, where okx uses -1.
     EXPECT_EQ(snapshot->prev_seq_id, 0);
-    EXPECT_EQ(snapshot->seq_id, 817'639'541'481);
+    EXPECT_EQ(snapshot->seq_id, 830'988'172'443);
 
     // The incremental `books` channel ships the identical element, which is
     // why one parser reads both and Depth can be repointed in one line.
@@ -472,18 +476,19 @@ TEST(BitgetMap, TickerBecomesTopOfBook) {
 TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<LevelBuffer>();
-    const auto frame = fixture("ws_books5.json");
+    const auto frame = fixture("ws_books15.json");
     const auto wire = parse_books(frame, *storage);
     ASSERT_TRUE(wire.has_value());
 
     const auto book = map_book(*wire, table, k_ingest);
     ASSERT_TRUE(book.has_value());
-    EXPECT_EQ(book->bid_count, 5U);
-    EXPECT_EQ(book->ask_count, 5U);
-    EXPECT_LE(book->bid_count, k_book_levels);
-    EXPECT_LE(book->ask_count, k_book_levels);
-    EXPECT_EQ(book->venue_seq, 817'639'541'481ULL);
-    EXPECT_EQ(book->ts_event.ns, 1'786'430'817'901ULL * 1'000'000ULL);
+    // Every level the subscription asked for reaches the domain snapshot; a
+    // book that stops at five is the old tier still being served.
+    EXPECT_EQ(book->bid_count, k_bitget_depth);
+    EXPECT_EQ(book->ask_count, k_bitget_depth);
+    static_assert(k_bitget_depth <= k_book_levels);
+    EXPECT_EQ(book->venue_seq, 830'988'172'443ULL);
+    EXPECT_EQ(book->ts_event.ns, 1'786'983'217'049ULL * 1'000'000ULL);
     EXPECT_EQ(book->ts_init.ns, k_ingest.ns);
 
     // Bids descend, asks ascend, and the two never cross — a book that fails
@@ -520,7 +525,7 @@ TEST(BitgetMap, AnIncrementalFrameNeverBecomesABook) {
 TEST(BitgetMap, AnUnknownInstrumentYieldsNoBook) {
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<LevelBuffer>();
-    const auto frame = fixture("ws_books5.json");
+    const auto frame = fixture("ws_books15.json");
     auto wire = parse_books(frame, *storage);
     ASSERT_TRUE(wire.has_value());
     wire->inst_id = "NOSUCHUSDT";
@@ -711,7 +716,7 @@ TEST(BitgetWs, OneChannelServesThreeSubscriptionKinds) {
     EXPECT_EQ(channel_for(exec::SubKind::Funding), "ticker");
     EXPECT_EQ(channel_for(exec::SubKind::MarkPrice), "ticker");
     EXPECT_EQ(channel_for(exec::SubKind::Trades), "trade");
-    EXPECT_EQ(channel_for(exec::SubKind::Depth), "books5");
+    EXPECT_EQ(channel_for(exec::SubKind::Depth), "books15");
     EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
 
     EXPECT_EQ(inst_type(false), "USDT-FUTURES");

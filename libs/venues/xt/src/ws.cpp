@@ -39,7 +39,10 @@ std::string_view stream_path() noexcept {
 Topic topic_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        return {.channel = "depth", .params = ",5,100ms"};
+        // Also the book: `depth_update` is subscribed but not applied, so this
+        // snapshot is the only thing that reaches shm. 50 is XT's ceiling —
+        // 60, 80, 99, 100 and 200 are each refused with `levels error`.
+        return {.channel = "depth", .params = ",50,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
     case exec::SubKind::Depth:

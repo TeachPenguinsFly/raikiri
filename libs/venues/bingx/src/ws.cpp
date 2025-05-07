@@ -167,7 +167,9 @@ std::string_view data_type_suffix(exec::SubKind kind) noexcept {
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        return "depth5@100ms";
+        // 100 is BingX's deepest tier: depth200 is refused outright with
+        // 80015 "dataType not support" rather than downgraded.
+        return "depth100@100ms";
     case exec::SubKind::MarkPrice:
         return "markPrice";
     case exec::SubKind::Funding:

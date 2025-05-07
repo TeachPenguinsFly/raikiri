@@ -199,7 +199,7 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }
-        const std::uint32_t limit = kind == exec::SubKind::Bbo ? k_bbo_depth : 0;
+        const std::uint32_t limit = kind == exec::SubKind::Bbo ? k_book_depth : 0;
         state_->add_subscription(channel, symbol, limit);
         if (client_.connected()) {
             const std::array<Subscription, 1> one{

@@ -12,14 +12,14 @@ raw capture by text, so `0.0001` is still `0.0001` and not `1e-04`.
 ## Websocket — `wss://ws.bitget.com/v2/ws/public`
 
 One session subscribing `ticker`, `trade` and `books5` on `BTCUSDT`, read for
-14 s.
+14 s; `ws_books15.json` was recaptured 2026-08-17 on its own session.
 
 | file | source |
 |---|---|
 | `ws_subscribe_ack.json` | the `ticker` acknowledgement of that subscribe |
 | `ws_ticker.json` | one `ticker` push — bid/ask, mark, index and funding on one frame |
 | `ws_trade.json` | a `trade` push carrying four prints |
-| `ws_books5.json` | a `books5` push: five levels a side, `pseq` 0 |
+| `ws_books15.json` | a `books15` push: fifteen levels a side, `pseq` 0 |
 
 `books` (the incremental 500-level channel) came from a second session on
 `BTCUSDT`:
@@ -95,6 +95,12 @@ and impossible to notice until a row changes it.
 
 ## Not captured
 
-No `books15` fixture. The channel exists and `kind_from_channel` claims it,
-but it ships the identical element to `books5` and `books`, both of which are
+No `books5` fixture. The channel exists and `kind_from_channel` claims it, but
+it ships the identical element to `books15` and `books`, both of which are
 captured here.
+
+No `books50` or `books100`: neither exists. Both drew
+`{"event":"error","code":30016,"msg":"Param error"}` on a fresh socket, which
+is why 15 is the deepest snapshot tier this adapter can subscribe at. The
+incremental `books` channel does open with 500 levels a side, but reaching them
+means maintaining a local book across its `seq`/`pseq` chain.

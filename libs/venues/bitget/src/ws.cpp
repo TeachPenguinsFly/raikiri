@@ -50,7 +50,11 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        return "books5";
+        // The deepest self-contained snapshot Bitget offers: books1/5/15 are
+        // the whole tier list — books50 and books100 are refused with 30016
+        // "Param error". Going past 15 means maintaining a local book off the
+        // incremental `books` channel, which nothing here does yet.
+        return "books15";
     case exec::SubKind::Kline:
         return {}; // the bar size is part of the channel name; no consumer yet
     }

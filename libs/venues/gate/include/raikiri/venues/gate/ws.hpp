@@ -41,16 +41,19 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
 
 // futures.order_book_update needs both in its payload. Gate accepts 20ms and
-// 100ms (both verified live); 100 ms is chosen because the book is published
-// as a ten-level snapshot, so the finer cadence would buy bandwidth and no
-// signal.
+// 100ms (both verified live); 100 ms is chosen because a finer cadence would
+// buy bandwidth and no signal.
 inline constexpr std::string_view k_depth_interval = "100ms";
-inline constexpr std::string_view k_depth_level = "20";
+
+// 20, 50 and 100 are the whole tier list: 200 and 400 are refused with
+// `provided level not supported`, so 100 is both the deepest tier and the
+// most k_book_levels can carry.
+inline constexpr std::string_view k_depth_level = "100";
 
 // The same number the REST seed must ask for. Gate maintains exactly this many
 // levels and deletes what falls out of the window, so seeding at a different
 // depth gives a book whose edge the stream never corrects.
-inline constexpr std::uint32_t k_depth_limit = 20;
+inline constexpr std::uint32_t k_depth_limit = 100;
 
 struct Subscription {
     std::string_view channel;

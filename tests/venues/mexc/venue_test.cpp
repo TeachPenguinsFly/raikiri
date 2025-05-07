@@ -229,14 +229,14 @@ TEST(MexcWire, DepthFullIsASnapshotWithSizes) {
     const auto depth = parse_depth(frame, storage);
     ASSERT_TRUE(depth.has_value());
     EXPECT_TRUE(depth->snapshot);
-    ASSERT_EQ(depth->bids.size(), 5U);
-    ASSERT_EQ(depth->asks.size(), 5U);
+    ASSERT_EQ(depth->bids.size(), k_book_depth);
+    ASSERT_EQ(depth->asks.size(), k_book_depth);
     // [price, contracts, resting orders]; the third element is dropped.
-    EXPECT_EQ(depth->bids.front().price, "64142.4");
-    EXPECT_EQ(depth->bids.front().qty, "4379");
-    EXPECT_EQ(depth->asks.front().price, "64142.5");
+    EXPECT_EQ(depth->bids.front().price, "64124.8");
+    EXPECT_EQ(depth->bids.front().qty, "399964");
+    EXPECT_EQ(depth->asks.front().price, "64124.9");
     // `cts` is the matching-engine time, not the envelope's send time.
-    EXPECT_EQ(depth->ts_ms, 1'786'394'698'994ULL);
+    EXPECT_EQ(depth->ts_ms, 1'786'982'679'141ULL);
 }
 
 TEST(MexcWire, RestDepthHasNoChannelAndFallsBackToTheEnvelopeClock) {
@@ -383,11 +383,11 @@ TEST(MexcMap, BboComesFromTheSnapshotChannel) {
 
     const auto bbo = map_bbo(*depth, table, k_ingest);
     ASSERT_TRUE(bbo.has_value());
-    EXPECT_EQ(bbo->bid.raw, 641'424); // 64142.4 / 0.1
-    EXPECT_EQ(bbo->ask.raw, 641'425);
-    EXPECT_EQ(bbo->bid_qty.raw, 4'379); // contracts, lot step 1
-    EXPECT_EQ(bbo->ask_qty.raw, 136'594);
-    EXPECT_EQ(bbo->ts_event.ns, 1'786'394'698'994ULL * 1'000'000ULL);
+    EXPECT_EQ(bbo->bid.raw, 641'248); // 64124.8 / 0.1
+    EXPECT_EQ(bbo->ask.raw, 641'249);
+    EXPECT_EQ(bbo->bid_qty.raw, 399'964); // contracts, lot step 1
+    EXPECT_EQ(bbo->ask_qty.raw, 514'117);
+    EXPECT_EQ(bbo->ts_event.ns, 1'786'982'679'141ULL * 1'000'000ULL);
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
@@ -413,12 +413,13 @@ TEST(MexcMap, BookSnapshotCrossesIntoTheDomain) {
 
     const auto book = map_book(*depth, table, k_ingest);
     ASSERT_TRUE(book.has_value());
-    EXPECT_EQ(book->bid_count, 5U);
-    EXPECT_EQ(book->ask_count, 5U);
-    EXPECT_LE(book->bid_count, k_book_levels);
-    EXPECT_LE(book->ask_count, k_book_levels);
-    EXPECT_EQ(book->venue_seq, 40'611'848'245ULL);
-    EXPECT_EQ(book->ts_event.ns, 1'786'394'698'994ULL * 1'000'000ULL);
+    // Every level the subscription asked for reaches the domain snapshot; a
+    // book that stops at five is the old tier still being served.
+    EXPECT_EQ(book->bid_count, k_book_depth);
+    EXPECT_EQ(book->ask_count, k_book_depth);
+    static_assert(k_book_depth <= k_book_levels);
+    EXPECT_EQ(book->venue_seq, 40'789'901'950ULL);
+    EXPECT_EQ(book->ts_event.ns, 1'786'982'679'141ULL * 1'000'000ULL);
 
     // Bids descend, asks ascend, and the two never cross — a book that fails
     // this is not a book, and publishing it would misprice every strategy
@@ -578,11 +579,11 @@ TEST(MexcWs, SubscribeFrameNamesExactlyOneSymbol) {
 TEST(MexcWs, DepthFullCarriesItsLevelCountInTheSubscription) {
     Protocol protocol;
     const std::array<Subscription, 1> one{
-        Subscription{.channel = "depth.full", .symbol = "BTC_USDT", .limit = k_bbo_depth}};
+        Subscription{.channel = "depth.full", .symbol = "BTC_USDT", .limit = k_book_depth}};
     const auto frame = protocol.subscribe_frame(one);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->text,
-              R"({"method":"sub.depth.full","param":{"symbol":"BTC_USDT","limit":5}})");
+              R"({"method":"sub.depth.full","param":{"symbol":"BTC_USDT","limit":50}})");
 }
 
 TEST(MexcWs, UnsubscribeReusesTheChannelStem) {

@@ -14,7 +14,7 @@ using namespace raikiri::wire;
 [[nodiscard]] std::expected<std::int64_t, WireError> req_i64(ondemand::object& obj,
                                                              std::string_view key);
 
-// "BTC-USDT@depth5@100ms" -> "BTC-USDT". The channel suffix may itself contain
+// "BTC-USDT@depth100@100ms" -> "BTC-USDT". The channel suffix may itself contain
 // '@', so the split is on the FIRST one. Empty when there is no '@' at all.
 // Not noexcept only because substr is not; every caller is inside guarded().
 [[nodiscard]] std::string_view symbol_of(std::string_view data_type);

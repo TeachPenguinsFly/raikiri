@@ -19,7 +19,7 @@ namespace raikiri::venues::gate {
 namespace {
 
 // The depth the adapter subscribes at; gate deletes what falls out of it.
-constexpr std::uint32_t k_gate_window = 20;
+constexpr std::uint32_t k_gate_window = 100;
 
 // There is no RAIKIRI_GATE_FIXTURES define: this target is the venue test, so
 // the fixture directory is located from this file rather than from CMake.
@@ -251,10 +251,10 @@ TEST(GateWire, OrderBookIsOnlyASeedWhenItCarriesAnId) {
     auto storage = std::make_unique<LevelBuffer>();
     const auto seed = parse_order_book(fixture("rest_order_book_seed.json"), *storage);
     ASSERT_TRUE(seed.has_value());
-    EXPECT_EQ(seed->update_id, 121'670'616'851ULL);
-    EXPECT_EQ(seed->update_s, 1'786'831'342ULL) << "fractional seconds, truncated";
-    EXPECT_EQ(seed->bids.size(), 20U);
-    EXPECT_EQ(seed->asks.size(), 20U);
+    EXPECT_EQ(seed->update_id, 121'737'510'350ULL);
+    EXPECT_EQ(seed->update_s, 1'786'984'119ULL) << "fractional seconds, truncated";
+    EXPECT_EQ(seed->bids.size(), k_gate_window);
+    EXPECT_EQ(seed->asks.size(), k_gate_window);
 
     // Same endpoint without with_id=true. The levels are fine and the body is
     // useless: nothing says where in the chain they sit.
@@ -719,7 +719,7 @@ TEST(GateWs, DepthChannelSpendsItsPayloadOnIntervalAndLevel) {
     EXPECT_EQ(frame->consumed, 1U);
     EXPECT_EQ(frame->text,
               R"({"time":7,"channel":"futures.order_book_update","event":"subscribe",)"
-              R"("payload":["BTC_USDT","100ms","20"]})");
+              R"("payload":["BTC_USDT","100ms","100"]})");
 }
 
 TEST(GateWs, FundingAndMarkPriceShareOneChannel) {
@@ -847,7 +847,7 @@ TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
 
     const auto d2 = delta_of(second, "ws_order_book_straddle_next.json");
     EXPECT_EQ(d2.first_update_id, d1.last_update_id + 1);
-    // A third of the frames carry no levels at all. They still advance the
+    // A tenth of the frames carry no levels at all. They still advance the
     // chain, so refusing them would break every later contiguity check.
     EXPECT_TRUE(d2.bids.empty());
     EXPECT_TRUE(d2.asks.empty());
@@ -857,8 +857,8 @@ TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
     ASSERT_TRUE(out.has_value());
     expect_coherent(*out);
     // Gate maintains a fixed subscribed window, so the book holds exactly what
-    // the venue keeps — fewer than the snapshot could carry, and that is the
-    // point: nothing is invented to fill the array.
+    // the venue keeps — every subscribed level and not one invented to fill
+    // the array.
     EXPECT_EQ(out->bid_count, k_gate_window);
     EXPECT_EQ(out->ask_count, k_gate_window);
     static_assert(k_gate_window <= k_book_levels);
@@ -934,10 +934,10 @@ TEST(GateBook, ZeroSizeDeletesTheLevel) {
 
     const auto before = book.snapshot(k_ingest, k_ingest);
     ASSERT_TRUE(before.has_value());
-    ASSERT_EQ(before->asks[0].price.raw, 631'327) << "63132.7 over a 0.1 tick";
+    ASSERT_EQ(before->asks[0].price.raw, 640'616) << "64061.6 over a 0.1 tick";
     const auto next_up = before->asks[1].price.raw;
 
-    const std::array<WireLevel, 1> gone{WireLevel{.price = "63132.7", .qty = "0"}};
+    const std::array<WireLevel, 1> gone{WireLevel{.price = "64061.6", .qty = "0"}};
     WireBookUpdate lifted{};
     lifted.contract = "BTC_USDT";
     lifted.first_update_id = d1.last_update_id + 1;
@@ -965,8 +965,8 @@ TEST(GateBook, ALevelOffTheTickIsDroppedNotRounded) {
 
     // 0.05 past a 0.1 tick, and a fractional contract count where sizes are
     // whole contracts. Either one alone is enough to refuse the level.
-    const std::array<WireLevel, 2> bad_levels{WireLevel{.price = "63132.65", .qty = "100"},
-                                              WireLevel{.price = "63132.6", .qty = "0.5"}};
+    const std::array<WireLevel, 2> bad_levels{WireLevel{.price = "64061.55", .qty = "100"},
+                                              WireLevel{.price = "64061.5", .qty = "0.5"}};
     WireBookUpdate bad{};
     bad.contract = "BTC_USDT";
     bad.first_update_id = d1.last_update_id + 1;

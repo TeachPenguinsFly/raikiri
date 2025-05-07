@@ -13,10 +13,10 @@
 //   * the seed's `id` is the last update already in those levels, so the frame
 //     that carries them forward is the one containing id + 1. Testing for `id`
 //     instead would re-apply a frame at the boundary.
-//   * the window is maintained by the venue. Subscribed at 20 levels and
-//     seeded at 20, the book stayed at exactly 20 a side across 150 frames —
-//     Gate deletes what falls out of the window. Nothing here prunes, because
-//     there is nothing to prune.
+//   * the window is maintained by the venue. Subscribed at 100 levels and
+//     seeded at 100, the book stayed at exactly 100 a side across every frame
+//     applied — Gate deletes what falls out of the window. Nothing here
+//     prunes, because there is nothing to prune.
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>

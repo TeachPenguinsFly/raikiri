@@ -30,7 +30,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// Snapshots only. books5 restates the whole top of book on every push, so the
+// Snapshots only. books15 restates the whole top of book on every push, so the
 // mapper needs no book state; an `update` off the incremental `books` channel
 // lists changed levels alone and would have to be applied to one.
 [[nodiscard]] std::optional<BookSnapshot>

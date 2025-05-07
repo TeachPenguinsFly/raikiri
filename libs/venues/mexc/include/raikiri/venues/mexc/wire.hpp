@@ -102,7 +102,7 @@ struct WireLevel {
     std::string_view qty; // "0" means delete this level
 };
 
-// depth.full tops out at 20 a side and the widest incremental frame observed
+// depth.full offers 200 a side and the widest incremental frame observed
 // carried 33; the ceiling is headroom against a resync burst rather than a
 // measured maximum, and past it a frame is an attempt to make us allocate.
 inline constexpr std::size_t k_max_levels = 1024;

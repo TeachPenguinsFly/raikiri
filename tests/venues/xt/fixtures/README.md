@@ -49,7 +49,7 @@ currently tradable perp has a tick finer than 1e-9.
 
 | file | provenance |
 | --- | --- |
-| `ws_depth.json` | `depth@btc_usdt,5,100ms`. The BBO source: a self-contained top-N snapshot with sizes. |
+| `ws_depth.json` | `depth@btc_usdt,50,100ms`, recaptured 2026-08-17. The BBO **and** book source: a self-contained top-N snapshot with sizes. 50 is XT's deepest tier — `60`, `80`, `99`, `100` and `200` each drew `{"code":1,"msg":"levels error"}` on a fresh socket. |
 | `ws_depth_update.json`, `ws_depth_update_next.json` | `depth_update@btc_usdt`, two **consecutive** frames chosen so the second's `pu` equals the first's `u`. |
 | `ws_trade_buy.json` | `trade@btc_usdt` with `m: "BID"`. |
 | `ws_trade_sell.json` | `trade@btc_usdt` with `m: "ASK"`. |

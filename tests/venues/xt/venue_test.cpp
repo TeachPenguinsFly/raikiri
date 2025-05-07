@@ -15,6 +15,10 @@
 namespace raikiri::venues::xt {
 namespace {
 
+// The level count in `depth`'s topic name, and XT's deepest tier: anything
+// between it and 200 is refused with `levels error`.
+constexpr std::uint32_t k_xt_depth = 50;
+
 // Every fixture here was captured from production XT in 2026-08; see
 // fixtures/README.md for what came from where.
 std::string fixture(std::string_view name) {
@@ -184,8 +188,8 @@ TEST(XtWire, DepthSnapshotParsesTopOfBook) {
     const auto wire = parse_depth(body, levels);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "btc_usdt");
-    EXPECT_EQ(wire->bids.size(), 5U);
-    EXPECT_EQ(wire->asks.size(), 5U);
+    EXPECT_EQ(wire->bids.size(), k_xt_depth);
+    EXPECT_EQ(wire->asks.size(), k_xt_depth);
     EXPECT_GT(wire->update_id, 0U);
     EXPECT_GT(wire->ts_ms, 0U);
     // Bids descend and asks ascend, so element zero is the touch.
@@ -337,7 +341,7 @@ TEST(XtErrors, TextCodesSurviveAsZeroRatherThanGuessing) {
 TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
     // depth, not agg_ticker: agg_ticker publishes no sizes.
     EXPECT_EQ(topic_for(exec::SubKind::Bbo).channel, "depth");
-    EXPECT_EQ(topic_for(exec::SubKind::Bbo).params, ",5,100ms");
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo).params, ",50,100ms");
     EXPECT_EQ(topic_for(exec::SubKind::Trades).channel, "trade");
     EXPECT_EQ(topic_for(exec::SubKind::Depth).channel, "depth_update");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice).channel, "mark_price");
@@ -349,20 +353,20 @@ TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
 TEST(XtWs, SubscribeFrameJoinsTopicWithAtSign) {
     Protocol protocol;
     const std::array<Subscription, 2> subs{
-        Subscription{.channel = "depth", .symbol = "btc_usdt", .params = ",5,100ms"},
+        Subscription{.channel = "depth", .symbol = "btc_usdt", .params = ",50,100ms"},
         Subscription{.channel = "trade", .symbol = "eth_usdt", .params = {}}};
     const auto frame = protocol.subscribe_frame(subs);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 2U);
     EXPECT_EQ(
         frame->text,
-        R"({"method":"subscribe","params":["depth@btc_usdt,5,100ms","trade@eth_usdt"],"id":"1"})");
+        R"({"method":"subscribe","params":["depth@btc_usdt,50,100ms","trade@eth_usdt"],"id":"1"})");
 
     // The id advances per frame, which is all the correlation XT offers.
     const auto next = protocol.unsubscribe_frame(std::span{subs}.first(1));
     ASSERT_TRUE(next.has_value());
     EXPECT_EQ(next->text,
-              R"({"method":"unsubscribe","params":["depth@btc_usdt,5,100ms"],"id":"2"})");
+              R"({"method":"unsubscribe","params":["depth@btc_usdt,50,100ms"],"id":"2"})");
 }
 
 TEST(XtWs, DeclinedKindNeverReachesTheWire) {
@@ -468,10 +472,11 @@ TEST(XtMap, BookSnapshotCrossesIntoTheDomain) {
     const UnixNanos received{123'456'789ULL};
     const auto book = map_book(*wire, table, received);
     ASSERT_TRUE(book.has_value());
-    EXPECT_EQ(book->bid_count, 5U);
-    EXPECT_EQ(book->ask_count, 5U);
-    EXPECT_LE(book->bid_count, k_book_levels);
-    EXPECT_LE(book->ask_count, k_book_levels);
+    // Every level the subscription asked for reaches the domain snapshot; a
+    // book that stops at five is the old tier still being served.
+    EXPECT_EQ(book->bid_count, k_xt_depth);
+    EXPECT_EQ(book->ask_count, k_xt_depth);
+    static_assert(k_xt_depth <= k_book_levels);
     EXPECT_EQ(book->venue_seq, wire->update_id);
     EXPECT_EQ(book->ts_init, received);
 

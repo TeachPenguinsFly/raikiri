@@ -15,6 +15,10 @@
 namespace raikiri::venues::hyperliquid {
 namespace {
 
+// l2Book carries this many levels a side and there is no parameter that widens
+// it: nSigFigs only coarsens the price grid, and /info answers the same 20.
+constexpr std::uint32_t k_hyperliquid_levels = 20;
+
 // One test target covers this adapter, so the fixtures are located relative to
 // this file rather than through a compile definition.
 std::string fixture(std::string_view name) {
@@ -573,10 +577,9 @@ TEST(HyperliquidMap, BookSnapshotCrossesIntoTheDomain) {
 
     const auto book = map_book(*wire, table, UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(book.has_value());
-    EXPECT_GT(book->bid_count, 0U);
-    EXPECT_GT(book->ask_count, 0U);
-    EXPECT_LE(book->bid_count, k_book_levels);
-    EXPECT_LE(book->ask_count, k_book_levels);
+    EXPECT_EQ(book->bid_count, k_hyperliquid_levels) << "the whole side the venue sends";
+    EXPECT_EQ(book->ask_count, k_hyperliquid_levels);
+    static_assert(k_hyperliquid_levels <= k_book_levels);
 
     // Bids descend, asks ascend, and the two never cross — a book that fails
     // this is not a book, and publishing it would price every strategy off it.

@@ -15,6 +15,10 @@
 namespace raikiri::venues::bingx {
 namespace {
 
+// The level count in the depth channel's name, and BingX's deepest tier:
+// depth200 draws 80015 "dataType not support".
+constexpr std::uint32_t k_bingx_depth = 100;
+
 std::string load_bytes(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
     std::ifstream in{path, std::ios::binary};
@@ -124,9 +128,9 @@ TEST(BingxInflate, RestoresACompressedFrame) {
     // The whole venue rests on this: the socket delivers gzip, and this is the
     // only place it stops being gzip.
     Inflater inflater;
-    const auto frame = inflater.inflate(load_bytes("ws_depth5.frame.gz"));
+    const auto frame = inflater.inflate(load_bytes("ws_depth100.frame.gz"));
     ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
-    EXPECT_EQ(*frame, load("ws_depth5.json"));
+    EXPECT_EQ(*frame, load("ws_depth100.json"));
 }
 
 TEST(BingxInflate, RestoresTheKeepalive) {
@@ -140,12 +144,12 @@ TEST(BingxInflate, ReusesOneStreamAcrossFrames) {
     // reset() between frames, or the second one decodes against the first's
     // window and produces plausible garbage.
     Inflater inflater;
-    const auto depth = load_bytes("ws_depth5.frame.gz");
+    const auto depth = load_bytes("ws_depth100.frame.gz");
     const auto ping = load_bytes("ws_ping.frame.gz");
     for (int i = 0; i < 3; ++i) {
         const auto first = inflater.inflate(depth);
         ASSERT_TRUE(first.has_value());
-        EXPECT_EQ(*first, load("ws_depth5.json"));
+        EXPECT_EQ(*first, load("ws_depth100.json"));
         const auto second = inflater.inflate(ping);
         ASSERT_TRUE(second.has_value());
         EXPECT_EQ(*second, "Ping");
@@ -165,7 +169,7 @@ TEST(BingxInflate, RefusesWhatIsNotGzip) {
 
 TEST(BingxInflate, RefusesATruncatedFrame) {
     Inflater inflater;
-    const auto whole = load_bytes("ws_depth5.frame.gz");
+    const auto whole = load_bytes("ws_depth100.frame.gz");
     const auto header_only = inflater.inflate(std::string_view{whole}.substr(0, 12));
     ASSERT_FALSE(header_only.has_value());
     const auto half = inflater.inflate(std::string_view{whole}.substr(0, whole.size() / 2));
@@ -183,7 +187,7 @@ TEST(BingxWire, ClassifiesEveryChannelAndItsSymbol) {
 
     for (const auto& row : {Row{"ws_book_ticker.json", EventKind::BookTicker},
                             Row{"ws_trade.json", EventKind::Trade},
-                            Row{"ws_depth5.json", EventKind::Depth},
+                            Row{"ws_depth100.json", EventKind::Depth},
                             Row{"ws_mark_price.json", EventKind::MarkPrice}}) {
         const auto frame = load(row.fixture);
         const auto event = parse_event(frame);
@@ -273,25 +277,25 @@ TEST(BingxWire, ParsesTrades) {
 
 TEST(BingxWire, ParsesDepthSnapshot) {
     LevelBuffer storage;
-    const auto frame = load("ws_depth5.json");
+    const auto frame = load("ws_depth100.json");
     const auto wire = parse_depth(frame, storage);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "BTC-USDT");
-    EXPECT_EQ(wire->ts_ms, 1786394757698ULL); // beside `data`, not inside it
-    ASSERT_EQ(wire->bids.size(), 5U);
-    ASSERT_EQ(wire->asks.size(), 5U);
-    EXPECT_EQ(wire->bids[0].price, "64120.1");
-    EXPECT_EQ(wire->bids[4].price, "64119.4"); // descending
-    EXPECT_EQ(wire->asks[0].price, "64120.2");
-    EXPECT_EQ(wire->asks[4].price, "64121.3"); // ascending
-    EXPECT_EQ(wire->asks[0].qty, "136.1929");
+    EXPECT_EQ(wire->ts_ms, 1786983056064ULL); // beside `data`, not inside it
+    ASSERT_EQ(wire->bids.size(), k_bingx_depth);
+    ASSERT_EQ(wire->asks.size(), k_bingx_depth);
+    EXPECT_EQ(wire->bids[0].price, "64071.2");
+    EXPECT_EQ(wire->bids[k_bingx_depth - 1].price, "64005.6"); // descending
+    EXPECT_EQ(wire->asks[0].price, "64071.3");
+    EXPECT_EQ(wire->asks[k_bingx_depth - 1].price, "64162.1"); // ascending
+    EXPECT_EQ(wire->asks[0].qty, "78.6122");
 }
 
 TEST(BingxWire, RefusesAFrameOfTheWrongShape) {
     // A parser aimed at the wrong channel must fail, not fill a struct with
     // plausible zeros.
     EXPECT_FALSE(parse_book_ticker(load("ws_trade.json")).has_value());
-    EXPECT_FALSE(parse_mark_price(load("ws_depth5.json")).has_value());
+    EXPECT_FALSE(parse_mark_price(load("ws_depth100.json")).has_value());
     EXPECT_FALSE(parse_event("{\"dataType\"").has_value());
     EXPECT_FALSE(parse_event("").has_value());
 
@@ -443,19 +447,20 @@ TEST(BingxMap, MapsBbo) {
 TEST(BingxMap, BookSnapshotCrossesIntoTheDomain) {
     const auto table = catalogue();
     LevelBuffer storage;
-    const auto frame = load("ws_depth5.json");
+    const auto frame = load("ws_depth100.json");
     const auto wire = parse_depth(frame, storage);
     ASSERT_TRUE(wire.has_value());
 
     const auto book = map_book(*wire, table, UnixNanos{99});
     ASSERT_TRUE(book.has_value());
     EXPECT_EQ(book->instrument.packed, base_for(table, "BTC-USDT").id.packed);
-    EXPECT_EQ(book->bid_count, 5U);
-    EXPECT_EQ(book->ask_count, 5U);
-    EXPECT_LE(book->bid_count, k_book_levels);
-    EXPECT_LE(book->ask_count, k_book_levels);
-    EXPECT_EQ(book->venue_seq, 0U); // depth5 carries no sequence number
-    EXPECT_EQ(book->ts_event.ns, 1786394757698ULL * 1'000'000ULL);
+    // Every level the subscription asked for reaches the domain snapshot; a
+    // book that stops at five is the old tier still being served.
+    EXPECT_EQ(book->bid_count, k_bingx_depth);
+    EXPECT_EQ(book->ask_count, k_bingx_depth);
+    static_assert(k_bingx_depth <= k_book_levels);
+    EXPECT_EQ(book->venue_seq, 0U); // the depth channel carries no sequence number
+    EXPECT_EQ(book->ts_event.ns, 1786983056064ULL * 1'000'000ULL);
     EXPECT_EQ(book->ts_init.ns, 99U);
 
     // Bids descend, asks ascend, and the two never cross — a book that fails
@@ -574,7 +579,7 @@ TEST(BingxWs, BuildsSubscriptionFrames) {
 
     const auto depth = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Depth));
     ASSERT_TRUE(depth.has_value());
-    EXPECT_EQ(depth->text, R"({"id":"3","reqType":"sub","dataType":"BTC-USDT@depth5@100ms"})");
+    EXPECT_EQ(depth->text, R"({"id":"3","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
     const auto off = protocol.unsubscribe_frame("BTC-USDT", "bookTicker");
     ASSERT_TRUE(off.has_value());

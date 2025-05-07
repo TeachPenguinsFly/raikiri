@@ -107,7 +107,7 @@ struct LevelBuffer {
 };
 
 // Continuity is the seq chain: an update applies when its prev_seq_id equals
-// the previous message's seq_id. books5 restates the whole top of book and
+// the previous message's seq_id. books15 restates the whole top of book and
 // pins prev_seq_id to 0, so only the incremental `books` channel has a chain
 // worth checking — 0 for "no predecessor", where okx uses -1.
 struct WireBooks {

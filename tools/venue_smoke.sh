@@ -44,8 +44,8 @@ VENUES=(
   "bitfinex:tBTCF0:USTF0"
 )
 
-printf '%-13s %10s %8s %8s %9s  %s\n' venue instruments bbo trades funding verdict
-printf '%.0s-' {1..66}; echo
+printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict
+printf '%.0s-' {1..80}; echo
 
 fails=0
 for entry in "${VENUES[@]}"; do
@@ -54,8 +54,8 @@ for entry in "${VENUES[@]}"; do
   out=$("$BIN" --venue="$venue" --symbol="$symbol" --duration "$DURATION" 2>&1)
 
   instruments=$(sed -n 's/.*: \([0-9]*\) instruments loaded.*/\1/p' <<<"$out" | tail -1)
-  counters=$(sed -n 's/.*down — bbo=\([0-9]*\) trades=\([0-9]*\) funding=\([0-9]*\).*/\1 \2 \3/p' <<<"$out" | tail -1)
-  read -r bbo trades funding <<<"${counters:-0 0 0}"
+  counters=$(sed -n 's/.*down — bbo=\([0-9]*\) depth=\([0-9]*\)(\([0-9]*\) levels) trades=\([0-9]*\) funding=\([0-9]*\).*/\1 \2 \3 \4 \5/p' <<<"$out" | tail -1)
+  read -r bbo depth levels trades funding <<<"${counters:-0 0 0 0 0}"
   instruments="${instruments:-0}"
 
   if [[ "$instruments" -gt 0 && "$bbo" -gt 0 ]]; then
@@ -66,7 +66,7 @@ for entry in "${VENUES[@]}"; do
     verdict="FAIL — $(grep -m1 -iE 'failed|not implemented|does not list' <<<"$out" | tail -c 60)"
     fails=$((fails + 1))
   fi
-  printf '%-13s %10s %8s %8s %9s  %s\n' "$venue" "$instruments" "$bbo" "$trades" "$funding" "$verdict"
+  printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' "$venue" "$instruments" "$bbo" "$depth" "$levels" "$trades" "$funding" "$verdict"
 done
 
 echo

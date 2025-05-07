@@ -26,12 +26,12 @@ response carries 1021 rows and this keeps 4 (see below).
 | --- | --- | --- |
 | `ws_book_ticker.json` | `BTC-USDT@bookTicker` | `data` is an object; `T` is the book change, `E` the send |
 | `ws_trade.json` | `BTC-USDT@trade` | `data` is an array; `m` = buyer was the maker; no trade id |
-| `ws_depth5.json` | `BTC-USDT@depth5@100ms` | full 5-level snapshot; `ts` sits beside `data`, no sequence number |
+| `ws_depth100.json` | `BTC-USDT@depth100@100ms` | recaptured 2026-08-17: full 100-level snapshot; `ts` sits beside `data`, no sequence number. 100 is the deepest tier — `depth200` drew 80015 "dataType not support" |
 | `ws_mark_price.json` | `BTC-USDT@markPrice` | mark only — BingX streams no funding rate anywhere |
 | `ws_subscribe_ack.json` | any | `code` 0, `dataType` empty, echoing the `id` that asked |
 | `ws_error.json` | `NOSUCH-USDT@bookTicker` | code 80015, unknown symbol |
 | `ws_error_data_type.json` | `BTC-USDT@fundingRate` | code 80015 again, this time "dataType not support" — the probe that established funding has no channel |
-| `ws_depth5.frame.gz` | — | the raw gzip frame that inflates to `ws_depth5.json`; its deflate block is dynamic-Huffman, so it exercises real decompression |
+| `ws_depth100.frame.gz` | — | the raw gzip frame that inflates to `ws_depth100.json`; its deflate block is dynamic-Huffman, so it exercises real decompression |
 | `ws_ping.frame.gz` | — | the raw gzip frame carrying the four bytes `Ping`, stored uncompressed by the venue |
 
 ## REST (`https://open-api.bingx.com`)

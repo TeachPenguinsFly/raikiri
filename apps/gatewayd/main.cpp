@@ -87,6 +87,10 @@ public:
 
     void on_depth(const raikiri::BookSnapshot& book) noexcept override {
         ++counts_.depth;
+        // The frame count says nothing about how deep the book actually is,
+        // and a venue that silently ignores a deeper subscription looks
+        // identical to one that honoured it.
+        counts_.depth_levels = std::max({counts_.depth_levels, book.bid_count, book.ask_count});
         const auto idx = book.instrument.symbol().raw;
         if (idx < raikiri::shm::k_depth_cells) {
             ch_.depth->write(idx, book);
@@ -131,6 +135,7 @@ public:
         std::uint64_t bbo{0};
         std::uint64_t trades{0};
         std::uint64_t depth{0};
+        std::uint32_t depth_levels{0};
         std::uint64_t funding{0};
         std::uint64_t order_events{0};
     };
@@ -421,12 +426,14 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
-    fmt::print("gatewayd[{}]: down — bbo={} depth={} trades={} funding={} order-events={}\n",
-               venue_name,
-               counts.bbo,
-               counts.depth,
-               counts.trades,
-               counts.funding,
-               counts.order_events);
+    fmt::print(
+        "gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} order-events={}\n",
+        venue_name,
+        counts.bbo,
+        counts.depth,
+        counts.depth_levels,
+        counts.trades,
+        counts.funding,
+        counts.order_events);
     return 0;
 }
