@@ -27,6 +27,11 @@ namespace raikiri::venues::bitmex {
 // set to ingest time: a zero propagating into latency histograms poisons them.
 [[nodiscard]] UnixNanos iso8601_to_unix(std::string_view text, UnixNanos fallback) noexcept;
 
+// Exact numeric token -> 1e9 fixed point, reading both spellings BitMEX's two
+// serialisers use for one field ("0.0001" and "1.0E-4"). Exposed because the
+// book converts its own levels and must do it identically.
+[[nodiscard]] std::optional<FixedE9> parse_number_e9(std::string_view text);
+
 // `fundingInterval` is a DURATION written as a timestamp:
 // "2000-01-01T08:00:00.000Z" means eight hours. Zero when unreadable.
 [[nodiscard]] std::uint32_t funding_interval_seconds(std::string_view text) noexcept;

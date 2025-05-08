@@ -109,10 +109,16 @@ struct LevelBuffer {
 // A complete snapshot every time, with no delta chain and so no continuity to
 // validate. `version` equals tick.id on step0 and tick.mrid on the aggregated
 // levels, which is why it is carried rather than trusted as a sequence.
+//
+// RE-VERIFIED 2026-08-17 on BTC-USDT: 119 consecutive step0 frames, every one
+// of them 150 levels a side with no action field anywhere. `version` and `id`
+// are epoch SECONDS, so ten frames a second share one value; `mrid` is the
+// matching-engine id and is the only token here that orders frames.
 struct WireDepth {
     std::string_view contract_code;
     std::uint64_t ts_ms{0};
     std::uint64_t version{0};
+    std::uint64_t mrid{0};
     std::span<const WireLevel> bids; // descending
     std::span<const WireLevel> asks; // ascending
 };

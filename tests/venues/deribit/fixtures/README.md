@@ -37,6 +37,8 @@ The six catalogue rows, and why each is there:
 | `ws_book_bbo_option.json` | `book.BTC-11AUG26-64000-C.none.1.100ms`. Verbatim. Size `23.1` is not a multiple of `contract_size` 1.0. |
 | `ws_book_snapshot.json` | `book.BTC-PERPETUAL.100ms`, `type: "snapshot"`. **Trimmed**: the live frame was 43,942 bytes / 897 bids / 1,080 asks; the first 3 levels a side are kept unmodified and the rest deleted. `change_id` is the real one. |
 | `ws_book_change.json` | `book.BTC-PERPETUAL.100ms`, `type: "change"`. **Trimmed** the same way (5 bids, all 4 asks kept). Its `prev_change_id` really does chain to `ws_book_snapshot.json`'s `change_id` — asserted in the test. Carries `new`/`change`/`delete` actions and an exponent-form price `1.641e5`. |
+| `ws_book_snapshot_full.json` | `book.BTC-PERPETUAL.100ms`, `type: "snapshot"`, captured 2026-08-17. **Whole**: 904 bids / 1,063 asks, so the 100-level cut has something to cut. |
+| `ws_book_change_full.json` | the very next frame of that capture; its `prev_change_id` chains to the snapshot above and the ids are 398 apart, which is the evidence that `change_id` is not contiguous. Carries three `delete`s. |
 | `ws_trades.json` | `trades.BTC-PERPETUAL.100ms`. Verbatim. |
 | `ws_ticker_perpetual.json` | `ticker.BTC-PERPETUAL.100ms`. Verbatim. Has `current_funding` + `funding_8h`; `mark_price: 64111.95` is off the 0.5 tick grid; `interest_value` carries 18 fractional digits. |
 | `ws_ticker_future.json` | `ticker.BTC-25SEP26.100ms`. Verbatim. **No funding fields at all** — absence, not zero. |

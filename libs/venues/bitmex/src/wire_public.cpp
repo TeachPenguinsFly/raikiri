@@ -284,10 +284,11 @@ std::expected<std::span<const WireLevel>, WireError> parse_book(std::string_view
             const auto id = detail::opt_i64(obj, "id");
             const auto price = detail::opt_num(obj, "price");
             const auto qty = detail::opt_num(obj, "size");
+            const auto ts = detail::opt_str(obj, "timestamp");
             if (!symbol.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
-            if (!id.has_value() || !price.has_value() || !qty.has_value()) {
+            if (!id.has_value() || !price.has_value() || !qty.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.symbol = *symbol;
@@ -295,6 +296,7 @@ std::expected<std::span<const WireLevel>, WireError> parse_book(std::string_view
             out.bid = *side == "Buy";
             out.price = *price;
             out.qty = *qty;
+            out.ts = *ts;
             storage.levels[count] = out;
             ++count;
         }

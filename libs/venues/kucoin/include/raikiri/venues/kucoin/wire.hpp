@@ -169,6 +169,37 @@ struct ContractBuffer {
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError>
 parse_contracts(std::string_view body, ContractBuffer& storage);
 
+// GET /api/v1/level2/snapshot. The only place a KuCoin book can start: the
+// websocket carries no snapshot at all. Levels are [price, size] pairs of JSON
+// NUMBERS, so the comma-joined string of the stream has no counterpart here.
+// `sequence` is the last change already inside these levels, so the frame that
+// carries them forward is the one holding sequence + 1.
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty;
+};
+
+// 1000 a side measured on XBTUSDTM; the ceiling leaves room without letting a
+// body make us allocate.
+inline constexpr std::size_t k_max_levels = 2048;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// `ts` here is NANOSECONDS, where every other KuCoin timestamp is milliseconds.
+struct WireOrderBook {
+    std::string_view symbol;
+    std::int64_t sequence{0};
+    std::uint64_t ts_ns{0};
+    std::span<const WireLevel> bids; // descending
+    std::span<const WireLevel> asks; // ascending
+};
+
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
+                                                                            LevelBuffer& storage);
+
 // GET /api/v1/funding-rate/{symbol}/current. Seeds funding at subscribe time and
 // is the only source that states the venue's own next settlement.
 [[nodiscard]] std::expected<WireFundingRate, WireError>

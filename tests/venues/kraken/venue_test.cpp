@@ -1,3 +1,4 @@
+#include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kraken/map.hpp>
@@ -6,9 +7,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -498,6 +501,192 @@ TEST(KrakenMap, AbsentVenueTimeFallsBackToIngestTime) {
     // A zero propagating into latency histograms poisons them.
     EXPECT_EQ(ms_to_unix(0, UnixNanos{42}).ns, 42ULL);
     EXPECT_EQ(ms_to_unix(1786395177000ULL, UnixNanos{42}).ns, 1786395177000ULL * 1'000'000ULL);
+}
+
+// ------------------------------------------------------------- book ----
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire struct that came out of them.
+struct BookFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+WireBook book_of(BookFrame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto wire = parse_book(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireBook{});
+}
+
+Book book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("PF_XBTUSD");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return Book{base.id, base.tick_size, base.lot_size};
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(KrakenBook, ADeltaBeforeAnySnapshotPublishesNothing) {
+    // One delta is one level. A book built from it would be a two-level book
+    // presented to shm as the whole market.
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame delta;
+    EXPECT_EQ(book.apply(book_of(delta, "ws_book_delta.json")), BookResult::Ignored);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(KrakenBook, SnapshotAndDeltasMakeABookSharedMemoryCanTake) {
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame first;
+    BookFrame second;
+
+    const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot.json");
+    EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
+    const auto d1 = book_of(first, "ws_book_delta.json");
+    EXPECT_EQ(d1.seq, snapshot.seq + 1) << "seq steps by exactly one";
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+    const auto d2 = book_of(second, "ws_book_delta_next.json");
+    EXPECT_EQ(book.apply(d2), BookResult::Applied);
+
+    const auto out = book.snapshot(UnixNanos{7}, UnixNanos{9});
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    // Kraken pushes the whole book, so what shm takes is a cut of something
+    // far deeper — the held book keeps every level the deltas may name.
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(book.bids().size(), 1751U);
+    EXPECT_EQ(book.asks().size(), 1360U);
+    EXPECT_EQ(out->venue_seq, d2.seq) << "seq is the forensic handle";
+    EXPECT_EQ(out->ts_event.ns, 7ULL);
+    EXPECT_EQ(out->ts_init.ns, 9ULL);
+
+    // Both deltas landed, each as an absolute size at its price: 64133.0 at
+    // 2.8971 and 64100.0 at 0.2475, over a 1 tick and a 0.0001 step.
+    const auto at_ask = std::ranges::find_if(
+        book.asks(), [](const Book::Level& level) { return level.price.raw == 64'133; });
+    ASSERT_NE(at_ask, book.asks().end());
+    EXPECT_EQ(at_ask->qty.raw, 28'971);
+    const auto at_bid = std::ranges::find_if(
+        book.bids(), [](const Book::Level& level) { return level.price.raw == 64'100; });
+    ASSERT_NE(at_bid, book.bids().end());
+    EXPECT_EQ(at_bid->qty.raw, 2475);
+}
+
+TEST(KrakenBook, ASkippedSeqDropsTheBookUntilTheNextSnapshot) {
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame first;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+
+    auto skipped = book_of(first, "ws_book_delta.json");
+    skipped.seq += 1; // one frame of the chain went missing
+
+    EXPECT_EQ(book.apply(skipped), BookResult::GapDetected);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(KrakenBook, ARedeliveredFrameIsIgnoredRatherThanTreatedAsAGap) {
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame first;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+    const auto d1 = book_of(first, "ws_book_delta.json");
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    // Applying it twice would double a size that is an absolute, not a change,
+    // but dropping the book over it would cost a resync for nothing.
+    EXPECT_EQ(book.apply(d1), BookResult::Ignored);
+    EXPECT_EQ(book.gaps(), 0U);
+    EXPECT_TRUE(book.synced());
+    EXPECT_EQ(book.last_seq(), d1.seq);
+}
+
+TEST(KrakenBook, AQuantityOfZeroDeletesTheLevel) {
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot.json");
+    EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
+
+    const auto before = book.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(before.has_value());
+    ASSERT_EQ(before->asks[0].price.raw, 64'111);
+    const auto next_up = before->asks[1].price.raw;
+
+    const std::array<WireLevel, 1> gone{WireLevel{.price = "64111.0", .qty = "0"}};
+    WireBook lifted{};
+    lifted.product_id = "PF_XBTUSD";
+    lifted.seq = snapshot.seq + 1;
+    lifted.asks = gone;
+    EXPECT_EQ(book.apply(lifted), BookResult::Applied);
+
+    const auto after = book.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->asks[0].price.raw, next_up) << "a zero deletes, it does not rest at zero";
+    EXPECT_EQ(after->ask_count, before->ask_count);
+}
+
+TEST(KrakenBook, ALevelOffTheStepInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping
+    // one level here would leave a book that disagrees with Kraken's forever,
+    // with nothing downstream able to see the difference.
+    const auto table = catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot.json");
+    EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
+
+    const std::array<WireLevel, 1> bad{WireLevel{.price = "64110.5", .qty = "1.0"}};
+    WireBook off_tick{};
+    off_tick.product_id = "PF_XBTUSD";
+    off_tick.seq = snapshot.seq + 1;
+    off_tick.bids = bad;
+    EXPECT_EQ(book.apply(off_tick), BookResult::BadLevel);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+
+    // And a size finer than the 0.0001 step is refused the same way.
+    auto again = book_for(table);
+    EXPECT_EQ(again.apply(snapshot), BookResult::Resynced);
+    const std::array<WireLevel, 1> sub_lot{WireLevel{.price = "64110.0", .qty = "1.00005"}};
+    WireBook fine{};
+    fine.product_id = "PF_XBTUSD";
+    fine.seq = snapshot.seq + 1;
+    fine.bids = sub_lot;
+    EXPECT_EQ(again.apply(fine), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
 }
 
 // ----------------------------------------------------------- errors ----

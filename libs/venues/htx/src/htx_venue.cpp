@@ -96,8 +96,17 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         }
         break;
     }
-    case EventKind::Depth:
+    case EventKind::Depth: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_depth(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto depth = map_depth(*wire, state.instruments, received); depth.has_value()) {
+            state.sink->on_depth(*depth);
+        }
         break;
+    }
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
@@ -409,7 +418,14 @@ class HtxInstruments final : public exec::InstrumentSource {
 public:
     explicit HtxInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host()},
+                                .port = "443",
+                                // Measured 13.3 s on a cold endpoint against a
+                                // 5 s default, so the gateway refused to start
+                                // with a timeout that reads as the venue being
+                                // down. It warms to 0.2 s afterwards.
+                                .timeout_ms = 20'000}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();

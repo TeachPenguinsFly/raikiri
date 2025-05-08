@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -317,6 +318,22 @@ TEST(HtxWire, ParsesDepthSnapshot) {
     EXPECT_EQ(wire->asks[0].qty, "4485");
 }
 
+TEST(HtxWire, Step0IsAWholeBookAndNotAnIncrement) {
+    // The evidence for treating this venue as a snapshot venue: the live frame
+    // carries every level, not the ones that changed, and nothing on it names
+    // an action or a previous sequence.
+    LevelBuffer storage;
+    const auto frame = load("ws_depth_step0_full.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->bids.size(), 150U);
+    EXPECT_EQ(wire->asks.size(), 150U);
+    // `version` is epoch SECONDS and repeats across the ten frames HTX sends
+    // in one; mrid is what actually orders them.
+    EXPECT_EQ(wire->version, 1786982545ULL);
+    EXPECT_EQ(wire->mrid, 100126224898536ULL);
+}
+
 TEST(HtxWire, RefusesABookDeeperThanTheBuffer) {
     // step0 ships about 150 levels a side today; the ceiling exists so a
     // hostile frame cannot make the gateway allocate.
@@ -582,6 +599,106 @@ TEST(HtxMap, MapsFundingFromTheNotification) {
 }
 
 // ----------------------------------------------------------------- ws ----
+
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(HtxMap, MapsDepthToABookSharedMemoryCanTake) {
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = load("ws_depth_step0.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto book = map_depth(*wire, table, UnixNanos{99});
+    ASSERT_TRUE(book.has_value());
+    expect_coherent(*book);
+    EXPECT_EQ(book->instrument.packed, base_for(table, "BTC-USDT").id.packed);
+    EXPECT_EQ(book->bid_count, 5U);
+    EXPECT_EQ(book->ask_count, 5U);
+    EXPECT_EQ(book->bids[0].price.raw, 639'201); // 63920.1 over the 0.1 tick
+    EXPECT_EQ(book->asks[0].price.raw, 639'202);
+    EXPECT_EQ(book->asks[0].qty.raw, 4485); // contracts, as bbo quotes them
+    EXPECT_EQ(book->ts_event.ns, 1786431109503ULL * 1'000'000ULL);
+    EXPECT_EQ(book->ts_init.ns, 99U);
+    EXPECT_EQ(book->venue_seq, 100125839300207ULL) << "mrid is the forensic handle";
+}
+
+TEST(HtxMap, KeepsTheTopHundredOfADeeperBook) {
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = load("ws_depth_step0_full.json");
+    const auto wire = parse_depth(frame, storage);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto book = map_depth(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(book.has_value());
+    expect_coherent(*book);
+    EXPECT_EQ(book->bid_count, k_book_levels);
+    EXPECT_EQ(book->ask_count, k_book_levels);
+    // The hundredth level off the wire, so the cut is a cut and not a resort.
+    EXPECT_EQ(book->bids[99].price.raw, 641'162); // 64116.2
+    EXPECT_EQ(book->asks[99].price.raw, 641'793); // 64179.3
+}
+
+TEST(HtxMap, ALevelOffTheStepTruncatesTheBookRatherThanRoundingIt) {
+    // Safe here because the next frame is another whole book: a truncated
+    // snapshot heals in 100 ms, where a delta venue would diverge forever.
+    const auto table = catalogue();
+    const std::array<WireLevel, 3> bids{WireLevel{.price = "63920.1", .qty = "10"},
+                                        WireLevel{.price = "63920.05", .qty = "10"},
+                                        WireLevel{.price = "63919.9", .qty = "10"}};
+    const std::array<WireLevel, 2> asks{WireLevel{.price = "63920.2", .qty = "4"},
+                                        WireLevel{.price = "63920.3", .qty = "0.5"}};
+    WireDepth wire{};
+    wire.contract_code = "BTC-USDT";
+    wire.bids = bids;
+    wire.asks = asks;
+
+    const auto book = map_depth(wire, table, UnixNanos{1});
+    ASSERT_TRUE(book.has_value());
+    expect_coherent(*book);
+    EXPECT_EQ(book->bid_count, 1U) << "0.05 past a 0.1 tick stops the side";
+    EXPECT_EQ(book->ask_count, 1U) << "half a contract is not a size HTX means";
+}
+
+TEST(HtxMap, ASizeOfZeroIsNoLevelAndAnEmptySidePublishesNothing) {
+    const auto table = catalogue();
+    const std::array<WireLevel, 2> bids{WireLevel{.price = "63920.1", .qty = "0"},
+                                        WireLevel{.price = "63920", .qty = "7"}};
+    const std::array<WireLevel, 1> asks{WireLevel{.price = "63920.2", .qty = "4"}};
+    WireDepth wire{};
+    wire.contract_code = "BTC-USDT";
+    wire.bids = bids;
+    wire.asks = asks;
+
+    const auto book = map_depth(wire, table, UnixNanos{1});
+    ASSERT_TRUE(book.has_value());
+    ASSERT_EQ(book->bid_count, 1U);
+    EXPECT_EQ(book->bids[0].price.raw, 639'200) << "the zero is gone, not resting at zero";
+
+    // A book with nothing on one side is not a book, and half of one crossing
+    // into shm reads to a consumer as a market with no offer.
+    wire.asks = {};
+    EXPECT_FALSE(map_depth(wire, table, UnixNanos{1}).has_value());
+}
 
 TEST(HtxWs, BuildsSubscriptionFrames) {
     Protocol protocol;

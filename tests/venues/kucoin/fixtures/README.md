@@ -38,6 +38,19 @@ must survive.
 | `rest_error_unsupported.json` | `GET /api/v1/funding-rate/NOSUCHSYM/current` |
 | `rest_contracts_active.json` | `GET /api/v1/contracts/active`, trimmed from 677 rows to 4, each row byte-for-byte as served |
 
+Captured 2026-08-17 in one session, so that the seed and the changes belong to
+the same book. The websocket was subscribed first and the snapshot fetched six
+seconds later, which is the ONLY ordering that works: a snapshot taken
+alongside a fresh subscription came back 1555 sequences behind the first
+streamed frame, and the chain being contiguous, those changes are gone.
+
+| File | Source |
+| --- | --- |
+| `rest_level2_snapshot.json` | `GET /api/v1/level2/snapshot?symbol=XBTUSDTM`, whole — 1000 levels a side, `sequence` 1746606775926 |
+| `ws_level2_change.json` | the frame holding `sequence + 1`, a new bid at 62167.6 — 871 levels down but still inside the seed's own range |
+| `ws_level2_change_next.json` | `sequence + 2`, a bid at 0.1: real, and six thousand levels below anything the seed vouched for |
+| `ws_level2_delete.json` | `sequence + 8`, `"64093.2,sell,0"` — the size of zero that removes ask level 5 |
+
 The four kept contract rows are the ones the mapper has to disagree about:
 
 - `XBTUSDTM` — accepted. `multiplier` 0.001, so one contract is 0.001 XBT.

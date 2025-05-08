@@ -1,5 +1,6 @@
 add_library(raikiri_venue_bitmex STATIC
   src/bitmex_venue.cpp
+  src/book.cpp
   src/errors.cpp
   src/map.cpp
   src/rest.cpp

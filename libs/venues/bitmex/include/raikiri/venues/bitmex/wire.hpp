@@ -136,14 +136,21 @@ struct WireInstrumentTick {
 [[nodiscard]] std::expected<WireInstrumentTick, WireError>
 parse_instrument_tick(std::string_view frame);
 
-// `id` is the venue's level handle and the key a `delete` names; a delete
-// carries no size at all, hence qty optional like everything else.
+// `id` is the venue's level handle and the key a `delete` names — BitMEX
+// declares the row key as ["symbol","id","side"] in the partial's own `keys`
+// field. A delete carries no size, hence qty optional like everything else.
+// MEASURED 2026-08-17 on XBTUSD: a delete DOES also carry `price` today, but
+// the id is what the venue defines and so what the book keys on.
+//
+// There is no sequence anywhere on this table: a delta frame carries only
+// `table`, `action` and `data`, and the timestamp is per ROW.
 struct WireLevel {
     std::string_view symbol;
     std::int64_t id{0};
     bool bid{false};
     std::string_view price;
     std::string_view qty;
+    std::string_view ts;
 };
 
 // The snapshot is 25 a side; the ceiling leaves room without letting a hostile

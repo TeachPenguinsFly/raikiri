@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
@@ -10,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::deribit {
@@ -41,6 +43,7 @@ struct VenueState {
     RequestBuilder builder;
 
     std::vector<OwnedSubscription> desired;
+    std::unordered_map<std::uint64_t, Book> books;
 
     std::int64_t clock_offset_ns{0};
 
@@ -56,7 +59,34 @@ struct VenueState {
         }
         desired.emplace_back(std::string{channel});
     }
+
+    Book& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 };
+
+void handle_book(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local LevelBuffer levels;
+    const auto wire = parse_book(frame, levels);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->instrument);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    auto& book = state.book_for(base);
+    const auto result = book.apply(*wire);
+    if (result != BookResult::Applied && result != BookResult::Resynced) {
+        return; // unsynced, redelivered or dropped: silence, never a guess
+    }
+    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
+        depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
 
 void handle_frame(VenueState& state,
                   net::WsClient& client,
@@ -104,6 +134,7 @@ void handle_frame(VenueState& state,
         break;
     }
     case EventKind::Book:
+        handle_book(state, frame, received);
         break;
     case EventKind::Heartbeat:
         // An unanswered test_request costs the connection.
@@ -155,6 +186,11 @@ public:
             }
             sent += frame->consumed;
             state_->channels_requested += frame->consumed;
+        }
+        // Whatever the change_id chain said before the socket dropped says
+        // nothing about the snapshot Deribit is about to send.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});

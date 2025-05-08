@@ -320,6 +320,11 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         WireDepth out{};
         out.contract_code = detail::code_of(*ch);
+        const auto mrid = detail::opt_u64(*tick, "mrid");
+        if (!mrid.has_value()) {
+            return std::unexpected(mrid.error());
+        }
+        out.mrid = *mrid;
         const auto bids = read_levels(*tick, "bids", storage.bids);
         if (!bids.has_value()) {
             return std::unexpected(bids.error());

@@ -1,3 +1,4 @@
+#include <raikiri/venues/kucoin/book.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
@@ -10,6 +11,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -472,6 +474,269 @@ TEST(KucoinMap, FundingFromTheStreamIgnoresItsOwnGranularity) {
 }
 
 // --------------------------------------------------------------- ws ----
+
+// --------------------------------------------------------------- book ----
+
+// The parsed views point into the body text and into the level buffer, so both
+// have to outlive the wire struct that came out of them.
+struct SeedFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+WireOrderBook seed_of(SeedFrame& frame) {
+    frame.text = fixture("rest_level2_snapshot.json");
+    const auto wire = parse_level2_snapshot(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireOrderBook{});
+}
+
+// The change parser hands back views into the frame text alone, so the caller
+// only has to keep that alive.
+WireBookChange change_of(std::string& text, std::string_view name) {
+    text = fixture(name);
+    const auto wire = parse_book_change(text);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireBookChange{});
+}
+
+DepthBook book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("XBTUSDTM");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return DepthBook{base.id, base.tick_size, base.lot_size};
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(KucoinBook, AnUnseededBookPublishesNothing) {
+    // There is no snapshot on this topic at all, and one frame is one level, so
+    // an adapter that trusted the stream alone would quote a two-level market.
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    std::string text;
+    EXPECT_TRUE(book.wants_seed());
+    EXPECT_EQ(book.apply(change_of(text, "ws_level2_change.json")), BookResult::Buffered);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(KucoinBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    std::string first;
+
+    const auto seed = seed_of(seed_frame);
+    EXPECT_EQ(seed.bids.size(), 1000U);
+    EXPECT_EQ(seed.asks.size(), 1000U);
+    EXPECT_EQ(book.seed(seed), BookResult::Waiting);
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+
+    const auto d1 = change_of(first, "ws_level2_change.json");
+    // The chain is contiguous, so the frame that continues the seed is the one
+    // holding sequence + 1 — not the one holding sequence, already in the levels.
+    EXPECT_EQ(d1.sequence, seed.sequence + 1);
+    EXPECT_EQ(book.apply(d1), BookResult::Applied);
+
+    const auto out = book.snapshot(UnixNanos{7}, UnixNanos{9});
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->bids[0].price.raw, 640'903); // 64090.3 over the 0.1 tick
+    EXPECT_EQ(out->asks[0].price.raw, 640'904);
+    EXPECT_EQ(out->bids[0].qty.raw, 2); // contracts, over a lot step of 1
+    EXPECT_EQ(out->bids[99].price.raw, 640'504);
+    EXPECT_EQ(out->asks[99].price.raw, 641'244);
+    EXPECT_EQ(out->venue_seq, static_cast<std::uint64_t>(d1.sequence));
+    EXPECT_EQ(out->ts_event.ns, 7ULL);
+    EXPECT_EQ(out->ts_init.ns, 9ULL);
+    // The change was a new bid 871 levels down, far below what shm carries but
+    // still inside the book the seed vouched for.
+    EXPECT_EQ(book.bids().size(), 1001U);
+}
+
+TEST(KucoinBook, ChangesBufferedBehindTheSeedReplayIntoTheSameBook) {
+    // Which of the REST answer and the websocket frame lands first is a race,
+    // and the book it produces must not depend on who won.
+    const auto table = loaded_table();
+    SeedFrame seed_frame;
+    std::string first;
+    std::string second;
+    const auto seed = seed_of(seed_frame);
+    const auto d1 = change_of(first, "ws_level2_change.json");
+    const auto d2 = change_of(second, "ws_level2_change_next.json");
+
+    auto streamed = book_for(table);
+    EXPECT_EQ(streamed.seed(seed), BookResult::Waiting);
+    EXPECT_EQ(streamed.apply(d1), BookResult::Applied);
+    EXPECT_EQ(streamed.apply(d2), BookResult::Applied);
+
+    auto buffered = book_for(table);
+    EXPECT_EQ(buffered.apply(d1), BookResult::Buffered);
+    EXPECT_EQ(buffered.apply(d2), BookResult::Buffered);
+    EXPECT_EQ(buffered.seed(seed), BookResult::Applied);
+
+    const auto from_stream = streamed.snapshot(UnixNanos{1}, UnixNanos{1});
+    const auto from_buffer = buffered.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(from_stream.has_value());
+    ASSERT_TRUE(from_buffer.has_value());
+    expect_coherent(*from_buffer);
+    EXPECT_EQ(from_buffer->venue_seq, from_stream->venue_seq);
+    for (std::uint32_t i = 0; i < k_book_levels; ++i) {
+        EXPECT_EQ(from_buffer->bids[i].price.raw, from_stream->bids[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->bids[i].qty.raw, from_stream->bids[i].qty.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].price.raw, from_stream->asks[i].price.raw) << i;
+        EXPECT_EQ(from_buffer->asks[i].qty.raw, from_stream->asks[i].qty.raw) << i;
+    }
+}
+
+TEST(KucoinBook, ALevelOutsideTheSeedsBandIsNotCarried) {
+    // A real frame off the live socket: a bid at 0.1, six thousand levels below
+    // the deepest price the seed vouched for. Nothing confirms it is still
+    // there, so carrying it would make the book look deeper than it is known
+    // to be — and would put a bid of 0.1 in shm.
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    std::string first;
+    std::string second;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    EXPECT_EQ(book.apply(change_of(first, "ws_level2_change.json")), BookResult::Applied);
+    const auto held = book.bids().size();
+
+    const auto far = change_of(second, "ws_level2_change_next.json");
+    EXPECT_EQ(far.price, "0.1");
+    EXPECT_EQ(book.apply(far), BookResult::Applied);
+    EXPECT_EQ(book.bids().size(), held);
+    EXPECT_EQ(book.bids().back().price.raw, 617'388) << "61738.8, the seed's own floor";
+}
+
+TEST(KucoinBook, ASizeOfZeroDeletesTheLevel) {
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    std::string text;
+    const auto seed = seed_of(seed_frame);
+    EXPECT_EQ(book.seed(seed), BookResult::Waiting);
+
+    // A real delete off the same capture, moved to the seam so it is the frame
+    // that continues the seed; seven frames at prices outside the band sat
+    // between them live.
+    auto gone = change_of(text, "ws_level2_delete.json");
+    EXPECT_EQ(gone.qty, "0");
+    gone.sequence = seed.sequence + 1;
+
+    EXPECT_EQ(book.apply(gone), BookResult::Applied);
+    const auto out = book.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->asks[5].price.raw, 640'933) << "64093.3 stepped up into the slot";
+    EXPECT_EQ(book.asks().size(), 999U) << "a zero deletes, it does not rest at zero";
+}
+
+TEST(KucoinBook, AGapInTheChainPublishesNothing) {
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    std::string first;
+    std::string second;
+    EXPECT_EQ(book.seed(seed_of(seed_frame)), BookResult::Waiting);
+    EXPECT_EQ(book.apply(change_of(first, "ws_level2_change.json")), BookResult::Applied);
+
+    auto skipped = change_of(second, "ws_level2_change_next.json");
+    skipped.sequence += 1; // one frame of the chain went missing
+
+    EXPECT_EQ(book.apply(skipped), BookResult::Gap);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+    EXPECT_TRUE(book.wants_seed()) << "a dropped book asks for a new seed";
+}
+
+TEST(KucoinBook, ASeedTheStreamHasRunPastIsDiscarded) {
+    // Measured live: a snapshot fetched alongside a fresh subscription came
+    // back 1555 sequences behind the first streamed frame. The chain is
+    // contiguous, so those changes are gone — splicing the seed in anyway
+    // would produce a book missing every one of them.
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    std::string first;
+    auto seed = seed_of(seed_frame);
+    const auto d1 = change_of(first, "ws_level2_change.json");
+    seed.sequence = d1.sequence - 2;
+
+    EXPECT_EQ(book.seed(seed), BookResult::Waiting);
+    EXPECT_EQ(book.apply(d1), BookResult::Reseed);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+    EXPECT_TRUE(book.wants_seed());
+}
+
+TEST(KucoinBook, ALevelOffTheStepInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping one
+    // level here would leave a book that disagrees with KuCoin's forever, with
+    // nothing downstream able to see the difference.
+    const auto table = loaded_table();
+    auto book = book_for(table);
+    SeedFrame seed_frame;
+    const auto seed = seed_of(seed_frame);
+    EXPECT_EQ(book.seed(seed), BookResult::Waiting);
+
+    WireBookChange off_tick{};
+    off_tick.symbol = "XBTUSDTM";
+    off_tick.price = "64090.35"; // finer than the 0.1 tick KuCoin states
+    off_tick.qty = "1";
+    off_tick.bid = true;
+    off_tick.sequence = seed.sequence + 1;
+    EXPECT_EQ(book.apply(off_tick), BookResult::BadLevel);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+
+    // And a fraction of a contract is refused the same way.
+    auto again = book_for(table);
+    EXPECT_EQ(again.seed(seed), BookResult::Waiting);
+    WireBookChange sub_lot{};
+    sub_lot.symbol = "XBTUSDTM";
+    sub_lot.price = "64090.3";
+    sub_lot.qty = "0.5";
+    sub_lot.bid = true;
+    sub_lot.sequence = seed.sequence + 1;
+    EXPECT_EQ(again.apply(sub_lot), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
+    // Without it the levels cannot be placed in the change chain, and a book
+    // that cannot be continued is a photograph that will never move again.
+    auto storage = std::make_unique<LevelBuffer>();
+    const std::string body =
+        R"({"code":"200000","data":{"symbol":"XBTUSDTM","bids":[[1.0,1]],"asks":[[2.0,1]],"ts":1}})";
+    EXPECT_FALSE(parse_level2_snapshot(body, *storage).has_value());
+}
 
 TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
     EXPECT_EQ(topic_for(exec::SubKind::Bbo), "/contractMarket/tickerV2");

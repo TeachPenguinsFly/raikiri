@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/kucoin/book.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
@@ -15,6 +16,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::kucoin {
@@ -49,6 +51,12 @@ struct VenueState {
 
     std::vector<OwnedSubscription> desired;
 
+    // The seed rides its own pool so a book resynchronising never queues
+    // behind the bullet token or the catalogue.
+    net::RestClient depth_rest{io,
+                               net::RestConfig{.host = std::string{rest_host()}, .port = "443"}};
+    std::unordered_map<std::uint64_t, DepthBook> books;
+
     std::uint64_t app_ping_interval_ns{k_default_ping_ms * 1'000'000ULL};
     std::uint64_t next_app_ping_ns{0};
 
@@ -79,7 +87,73 @@ struct VenueState {
     [[nodiscard]] std::string next_connect_id() {
         return "raikiri" + std::to_string(clock->wall().ns + connect_seq++);
     }
+
+    DepthBook& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 };
+
+// Fires the REST read that seeds one book. The response lands on the gateway
+// thread through IoContext::poll, so nothing here synchronises; a send the pool
+// refuses is left alone, because the next change asks again.
+void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
+    const auto id = base.id;
+    auto* owner = &state;
+    const auto handled = [owner, id](net::RestResponse&& response) {
+        const auto entry = owner->books.find(id.packed);
+        if (entry == owner->books.end()) {
+            return;
+        }
+        auto& target = entry->second;
+        if (response.transport_failed() || response.status < 200 || response.status >= 300) {
+            target.seed_failed();
+            return;
+        }
+        static thread_local LevelBuffer storage;
+        const auto wire = parse_level2_snapshot(response.body, storage);
+        if (!wire.has_value()) {
+            target.seed_failed();
+            return;
+        }
+        if (target.seed(*wire) != BookResult::Applied) {
+            return;
+        }
+        if (const auto book = target.snapshot(UnixNanos{wire->ts_ns}, response.received);
+            book.has_value()) {
+            owner->sink->on_depth(*book);
+        }
+    };
+    if (state.depth_rest.send(state.builder.level2_snapshot(base.exchange_symbol.view()),
+                              handled)) {
+        book.seed_requested();
+    }
+}
+
+void handle_book_change(VenueState& state, std::string_view frame, UnixNanos received) {
+    const auto wire = parse_book_change(frame);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->symbol);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    auto& book = state.book_for(base);
+    // Asked before the change is offered, so the frame that triggered the seed
+    // is itself buffered behind it.
+    if (book.wants_seed()) {
+        request_seed(state, book, base);
+    }
+    if (book.apply(*wire) != BookResult::Applied) {
+        return; // unseeded, stale or resynchronising: silence, never a guess
+    }
+    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
+        depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -120,6 +194,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Depth:
+        handle_book_change(state, frame, received);
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
@@ -164,6 +239,11 @@ public:
                 break; // wedged socket; the reconnect retries the whole set
             }
             sent += frame->consumed;
+        }
+        // The sequence the old book stopped at says nothing about where this
+        // subscription resumes, so every book goes back to wanting a seed.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -238,6 +318,7 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         rest_.start();
+        state_->depth_rest.start();
         started_ = true;
         return open_stream();
     }
@@ -250,6 +331,7 @@ public:
         handler_.attach(nullptr);
         state_->reopen_due = false;
         rest_.stop();
+        state_->depth_rest.stop();
         started_ = false;
     }
 

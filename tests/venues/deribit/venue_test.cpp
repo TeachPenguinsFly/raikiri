@@ -1,3 +1,4 @@
+#include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
@@ -7,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -303,8 +306,10 @@ TEST(DeribitWire, IncrementalBookStatesTheActionPerLevel) {
     ASSERT_TRUE(change.has_value());
     EXPECT_FALSE(change->snapshot);
     EXPECT_EQ(change->prev_change_id, chain_from); // the continuity chain
-    // A removal carries its LAST size, not zero-as-delete the way OKX does,
-    // so reading the quantity alone would resurrect the level.
+    // The action is the removal, not the size. MEASURED 2026-08-17 across 904
+    // deletes on three perpetuals: every one also carried 0.0, so the two
+    // readings agree today — but the action is what Deribit defines, and the
+    // book keys on it rather than on a coincidence.
     ASSERT_GE(change->bids.size(), 2U);
     EXPECT_EQ(change->bids[1].action, LevelAction::Delete);
     ASSERT_GE(change->asks.size(), 3U);
@@ -446,6 +451,202 @@ TEST(DeribitMap, UnknownInstrumentIsDroppedRatherThanInvented) {
 }
 
 // ---------------------------------------------------------------- ws ----
+
+// -------------------------------------------------------------- book ----
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire struct that came out of them.
+struct BookFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+WireBook book_of(BookFrame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto wire = parse_book(frame.text, *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireBook{});
+}
+
+Book book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("BTC-PERPETUAL");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return Book{base.id, base.tick_size, base.lot_size};
+}
+
+exec::InstrumentTable perp_catalogue() {
+    exec::InstrumentTable table;
+    EXPECT_EQ(load_catalogue(table, MarketType::Perp, fixture("rest_get_instruments.json")), 1U);
+    return table;
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(DeribitBook, ADeltaBeforeAnySnapshotPublishesNothing) {
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame delta;
+    EXPECT_EQ(book.apply(book_of(delta, "ws_book_change_full.json")), BookResult::Ignored);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(DeribitBook, SnapshotAndChangeMakeABookSharedMemoryCanTake) {
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame change_frame;
+
+    const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot_full.json");
+    EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
+    EXPECT_EQ(book.bids().size(), 904U);
+    EXPECT_EQ(book.asks().size(), 1063U);
+
+    const auto change = book_of(change_frame, "ws_book_change_full.json");
+    EXPECT_EQ(change.prev_change_id, snapshot.change_id);
+    // Deribit's ids are NOT contiguous — this pair is 398 apart — so only the
+    // back-pointer decides, never arithmetic on the id itself.
+    EXPECT_GT(change.change_id - snapshot.change_id, 1);
+    EXPECT_EQ(book.apply(change), BookResult::Applied);
+
+    const auto out = book.snapshot(UnixNanos{7}, UnixNanos{9});
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    // Deribit pushes the whole book, so what shm takes is a cut of something
+    // far deeper.
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->bids[0].price.raw, 128'070); // 64035.0 over the 0.5 tick
+    EXPECT_EQ(out->asks[0].price.raw, 128'071);
+    EXPECT_EQ(out->bids[0].qty.raw, 8593); // 85930 USD over the 10 USD step
+    EXPECT_EQ(out->venue_seq, static_cast<std::uint64_t>(change.change_id));
+    EXPECT_EQ(out->ts_event.ns, 7ULL);
+    EXPECT_EQ(out->ts_init.ns, 9ULL);
+}
+
+TEST(DeribitBook, DeleteRemovesTheLevelAndNewAddsOne) {
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame change_frame;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
+              BookResult::Resynced);
+
+    const auto before = book.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(before.has_value());
+    ASSERT_EQ(before->asks[16].price.raw, 128'092) << "64046.0, the level the delta deletes";
+
+    EXPECT_EQ(book.apply(book_of(change_frame, "ws_book_change_full.json")), BookResult::Applied);
+    const auto after = book.snapshot(UnixNanos{1}, UnixNanos{1});
+    ASSERT_TRUE(after.has_value());
+
+    const auto gone =
+        std::find_if(after->asks.begin(),
+                     after->asks.begin() + after->ask_count,
+                     [](const BookLevel& level) { return level.price.raw == 128'092; });
+    EXPECT_EQ(gone, after->asks.begin() + after->ask_count) << "the delete removed it";
+    // 64045.0 was in no side of the snapshot; the `new` beside the delete put
+    // it there, so the side holds the same count for a different reason.
+    const auto added =
+        std::find_if(after->asks.begin(),
+                     after->asks.begin() + after->ask_count,
+                     [](const BookLevel& level) { return level.price.raw == 128'090; });
+    ASSERT_NE(added, after->asks.begin() + after->ask_count);
+    EXPECT_EQ(added->qty.raw, 1300); // 13000 USD over the 10 USD step
+    EXPECT_EQ(book.asks().size(), 1063U);
+    EXPECT_EQ(book.bids().size(), 905U); // three new, two deleted
+}
+
+TEST(DeribitBook, ABrokenBackPointerDropsTheBookUntilTheNextSnapshot) {
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame change_frame;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
+              BookResult::Resynced);
+
+    auto orphan = book_of(change_frame, "ws_book_change_full.json");
+    orphan.prev_change_id += 1; // a frame we never saw sits between them
+
+    EXPECT_EQ(book.apply(orphan), BookResult::GapDetected);
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
+
+TEST(DeribitBook, ARedeliveredFrameIsIgnoredRatherThanTreatedAsAGap) {
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame change_frame;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot_full.json")),
+              BookResult::Resynced);
+    const auto change = book_of(change_frame, "ws_book_change_full.json");
+    EXPECT_EQ(book.apply(change), BookResult::Applied);
+
+    EXPECT_EQ(book.apply(change), BookResult::Ignored);
+    EXPECT_EQ(book.gaps(), 0U);
+    EXPECT_TRUE(book.synced());
+    EXPECT_EQ(book.last_change_id(), change.change_id);
+}
+
+TEST(DeribitBook, ALevelOffTheStepInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping
+    // one level here would leave a book that disagrees with Deribit's forever,
+    // with nothing downstream able to see the difference.
+    const auto table = perp_catalogue();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    const auto snapshot = book_of(snapshot_frame, "ws_book_snapshot_full.json");
+    EXPECT_EQ(book.apply(snapshot), BookResult::Resynced);
+
+    const std::array<WireLevel, 1> bad{
+        WireLevel{.action = LevelAction::Change, .price = "64035.25", .qty = "1.0e3"}};
+    WireBook off_tick{};
+    off_tick.instrument = "BTC-PERPETUAL";
+    off_tick.change_id = snapshot.change_id + 1;
+    off_tick.prev_change_id = snapshot.change_id;
+    off_tick.bids = bad;
+    EXPECT_EQ(book.apply(off_tick), BookResult::BadLevel);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+
+    // A size finer than the 10 USD contract is refused the same way, and a
+    // delete is not exempt: its price still has to name a level we hold.
+    auto again = book_for(table);
+    EXPECT_EQ(again.apply(snapshot), BookResult::Resynced);
+    const std::array<WireLevel, 1> sub_lot{
+        WireLevel{.action = LevelAction::Delete, .price = "64035.25", .qty = "0.0"}};
+    WireBook fine{};
+    fine.instrument = "BTC-PERPETUAL";
+    fine.change_id = snapshot.change_id + 1;
+    fine.prev_change_id = snapshot.change_id;
+    fine.asks = sub_lot;
+    EXPECT_EQ(again.apply(fine), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
+}
 
 TEST(DeribitWs, ChannelNamesCarryTheInstrumentAndTheParameters) {
     std::array<char, k_max_channel_len> buffer{};

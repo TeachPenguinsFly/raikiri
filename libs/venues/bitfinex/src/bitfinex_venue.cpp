@@ -2,6 +2,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
+#include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
@@ -12,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::bitfinex {
@@ -61,6 +63,8 @@ struct VenueState {
     std::array<ChannelBinding, k_max_subscriptions_per_connection> channels{};
     std::size_t bound_count{0};
 
+    std::unordered_map<std::uint64_t, Book> books;
+
     std::uint64_t next_app_ping_ns{0};
 
     // Subscriptions the venue refused.
@@ -109,7 +113,19 @@ struct VenueState {
         ++bound_count;
     }
 
-    void rebind_from_scratch() noexcept { bound_count = 0; }
+    // Channel ids are reissued on a reconnect and on the coded `info` notices,
+    // and the book that stood behind the old ids describes nothing now.
+    void rebind_from_scratch() noexcept {
+        bound_count = 0;
+        for (auto& [id, book] : books) {
+            book.invalidate();
+        }
+    }
+
+    Book& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 
     [[nodiscard]] const ChannelBinding* binding(std::int64_t chan_id) const noexcept {
         for (const auto& existing : bindings()) {
@@ -189,7 +205,33 @@ void handle_data(VenueState& state,
         }
         break;
     }
-    case ChannelKind::Book:
+    case ChannelKind::Book: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_book(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto* instrument = state.instruments.find(binding->symbol.view());
+        if (instrument == nullptr) {
+            return;
+        }
+        const auto& base = base_of(*instrument);
+        auto& book = state.book_for(base);
+        const auto result = book.apply(*wire);
+        if (result != BookResult::Applied && result != BookResult::Resynced) {
+            return; // unsynced or dropped: silence, never a guess
+        }
+        // A book frame carries no timestamp of any kind, so ingest is the only
+        // honest ts_event this channel can offer.
+        if (const auto depth = book.snapshot(received, received); depth.has_value()) {
+            state.sink->on_depth(*depth);
+        }
+        // The fast top of book, beside the ticker's rather than instead of it.
+        if (const auto bbo = book.touch(received, received); bbo.has_value()) {
+            state.sink->on_bbo(*bbo);
+        }
+        break;
+    }
     case ChannelKind::Unknown:
         break;
     }

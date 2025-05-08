@@ -49,6 +49,7 @@ kept together deliberately so the test can assert it rather than assume it.
 | `ws_book_delete.json` | `[722232,[63951,0,1]]` — COUNT 0 removes the level, AMOUNT `+1` says it was a bid |
 | `ws_book_delete_ask.json` | `[722232,[63963,0,-1]]` — the same, on the ask side |
 | `ws_book_update.json` | an ordinary level update |
+| `ws_book_snapshot_len100.json` | tBTCF0:USTF0 at `len:"100"`, captured 2026-08-17 — 200 levels, 100 a side, which is what the adapter now subscribes at |
 
 ### Session 4 — `status` keyed `deriv:tBTCF0:USTF0` (chanId 782668)
 

@@ -1,4 +1,5 @@
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
+#include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
@@ -7,9 +8,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -377,6 +380,196 @@ TEST(BitfinexWire, BookAmountSignIsTheSideNotTheAggressor) {
     EXPECT_EQ(ask->levels[0].amount, "-1");
 }
 
+// The parsed levels point into this buffer, which therefore has to outlive
+// the wire struct that came out of it; the frame text is already cached for
+// the life of the process by fixture().
+struct BookFrame {
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+WireBook book_of(BookFrame& frame, std::string_view name) {
+    const auto wire = parse_book(fixture(name), *frame.storage);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireBook{});
+}
+
+Book book_for(const exec::InstrumentTable& table, std::string_view symbol) {
+    const auto* instrument = table.find(symbol);
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return Book{base.id, base.tick_size, base.lot_size};
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(BitfinexBook, ADeltaBeforeTheSnapshotPublishesNothing) {
+    // One level is one level. A book built from it would be a one-sided market
+    // presented to shm as the whole book.
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCUSD");
+    BookFrame update;
+    EXPECT_EQ(book.apply(book_of(update, "ws_book_update.json")), BookResult::Ignored);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+    EXPECT_FALSE(book.touch(k_ingest, k_ingest).has_value());
+}
+
+TEST(BitfinexBook, SnapshotAndUpdateMakeABookSharedMemoryCanTake) {
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCUSD");
+    BookFrame snapshot_frame;
+    BookFrame update;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    // The sign of AMOUNT split the one array into two sides.
+    EXPECT_EQ(out->bid_count, 25U);
+    EXPECT_EQ(out->ask_count, 25U);
+    EXPECT_EQ(out->bids[0].price.raw, 6'395'100'000'000); // 63951 over the 1e-8 grid
+    EXPECT_EQ(out->asks[0].price.raw, 6'395'300'000'000);
+    EXPECT_EQ(out->bids[0].qty.raw, 794'427); // 0.00794427, its sign dropped
+    EXPECT_EQ(out->asks[0].qty.raw, 554'122); // -0.00554122, likewise
+    // Nothing on this channel carries an ordering token, so inventing one
+    // would put a number in shm that Bitfinex never stood behind.
+    EXPECT_EQ(out->venue_seq, 0ULL);
+
+    // 63950 restated at 0.0002, replacing the 0.07838584 the snapshot showed.
+    EXPECT_EQ(book.apply(book_of(update, "ws_book_update.json")), BookResult::Applied);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    expect_coherent(*after);
+    EXPECT_EQ(after->bid_count, 25U) << "a restated level replaces, it does not add";
+    EXPECT_EQ(after->bids[1].price.raw, 6'395'000'000'000);
+    EXPECT_EQ(after->bids[1].qty.raw, 20'000);
+}
+
+TEST(BitfinexBook, ACountOfZeroDeletesOnTheSideItsSignNames) {
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCUSD");
+    BookFrame snapshot_frame;
+    BookFrame bid_delete;
+    BookFrame ask_delete;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+
+    // [63951,0,1]: the amount is a bare +1 that names the side and nothing
+    // else. Reading it as a size would rest 1 BTC on top of the book.
+    EXPECT_EQ(book.apply(book_of(bid_delete, "ws_book_delete.json")), BookResult::Applied);
+    const auto lifted = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(lifted.has_value());
+    expect_coherent(*lifted);
+    EXPECT_EQ(lifted->bid_count, 24U);
+    EXPECT_EQ(lifted->bids[0].price.raw, 6'395'000'000'000) << "63950 stepped up to the touch";
+    EXPECT_EQ(lifted->bids[0].qty.raw, 7'838'584);
+
+    // [63963,0,-1] on the other side, from the same capture.
+    EXPECT_EQ(book.apply(book_of(ask_delete, "ws_book_delete_ask.json")), BookResult::Applied);
+    const auto both = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(both.has_value());
+    expect_coherent(*both);
+    EXPECT_EQ(both->ask_count, 24U);
+    const auto gone =
+        std::find_if(both->asks.begin(),
+                     both->asks.begin() + both->ask_count,
+                     [](const BookLevel& level) { return level.price.raw == 6'396'300'000'000; });
+    EXPECT_EQ(gone, both->asks.begin() + both->ask_count);
+}
+
+TEST(BitfinexBook, TheHundredLevelSubscriptionFillsWhatSharedMemoryCarries) {
+    // len takes 1, 25, 100 or 250 and nothing between, so 100 is the deepest
+    // tier that fits — and the venue maintains the window itself.
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCF0:USTF0");
+    BookFrame snapshot_frame;
+    const auto wire = book_of(snapshot_frame, "ws_book_snapshot_len100.json");
+    EXPECT_EQ(wire.levels.size(), 200U);
+    EXPECT_EQ(book.apply(wire), BookResult::Resynced);
+
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->bids[0].price.raw, 6'418'000'000'000);  // 64180
+    EXPECT_EQ(out->asks[0].price.raw, 6'418'600'000'000);  // 64186
+    EXPECT_EQ(out->bids[99].price.raw, 6'327'300'000'000); // the hundredth bid
+    EXPECT_EQ(out->asks[99].price.raw, 6'558'300'000'000);
+}
+
+TEST(BitfinexBook, TheBookIsTheFastTopOfBookTheTickerIsNot) {
+    // Measured: `ticker` pushed 5 frames a minute on tBTCUSD against this
+    // channel's 1261, both describing the same touch. The ticker keeps
+    // publishing; this is the source beside it.
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCUSD");
+    BookFrame snapshot_frame;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+
+    const auto out = book.snapshot(k_ingest, UnixNanos{9});
+    const auto top = book.touch(k_ingest, UnixNanos{9});
+    ASSERT_TRUE(out.has_value());
+    ASSERT_TRUE(top.has_value());
+    EXPECT_EQ(top->instrument.packed, out->instrument.packed);
+    EXPECT_EQ(top->bid.raw, out->bids[0].price.raw);
+    EXPECT_EQ(top->ask.raw, out->asks[0].price.raw);
+    EXPECT_EQ(top->bid_qty.raw, out->bids[0].qty.raw);
+    EXPECT_EQ(top->ask_qty.raw, out->asks[0].qty.raw);
+    EXPECT_LT(top->bid.raw, top->ask.raw);
+    EXPECT_EQ(top->ts_init.ns, 9ULL);
+}
+
+TEST(BitfinexBook, ALevelOffTheGridInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping one
+    // level here would leave a book that disagrees with Bitfinex's forever, and
+    // this channel has no sequence that would ever say so.
+    const auto table = table_with_btc();
+    auto book = book_for(table, "tBTCUSD");
+    BookFrame snapshot_frame;
+    EXPECT_EQ(book.apply(book_of(snapshot_frame, "ws_book_snapshot.json")), BookResult::Resynced);
+
+    // A ninth decimal place: finer than the 1e-8 grid every live token holds to.
+    const std::array<WireLevel, 1> off_grid{
+        WireLevel{.price = "63950.000000005", .amount = "0.0002", .count = 1}};
+    WireBook bad{};
+    bad.levels = off_grid;
+    EXPECT_EQ(book.apply(bad), BookResult::BadLevel);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+
+    // A live level whose count is positive but whose amount is zero is not a
+    // level either; it would publish a resting size of nothing.
+    auto again = book_for(table, "tBTCUSD");
+    BookFrame again_snapshot;
+    EXPECT_EQ(again.apply(book_of(again_snapshot, "ws_book_snapshot.json")), BookResult::Resynced);
+    const std::array<WireLevel, 1> empty{WireLevel{.price = "63950", .amount = "0", .count = 1}};
+    WireBook hollow{};
+    hollow.levels = empty;
+    EXPECT_EQ(again.apply(hollow), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(k_ingest, k_ingest).has_value());
+}
+
 // ------------------------------------------------------ deriv status ----
 
 TEST(BitfinexWire, DerivStatusReadsPastFifteenNullPlaceholders) {
@@ -715,7 +908,7 @@ TEST(BitfinexWs, EachChannelTakesItsOwnKeys) {
     ASSERT_TRUE(book.has_value());
     EXPECT_EQ(
         book->text,
-        R"({"event":"subscribe","channel":"book","symbol":"tBTCUSD","prec":"P0","freq":"F0","len":"25"})");
+        R"({"event":"subscribe","channel":"book","symbol":"tBTCUSD","prec":"P0","freq":"F0","len":"100"})");
 
     // No `symbol` field at all on this one.
     const auto status =

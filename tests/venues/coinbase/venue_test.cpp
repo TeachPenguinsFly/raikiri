@@ -1,3 +1,4 @@
+#include <raikiri/venues/coinbase/book.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
@@ -10,6 +11,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -128,9 +130,8 @@ TEST(CoinbaseWire, EventDispatchResolvesKindAndProduct) {
                                      std::pair{"ws_last_match.json", EventKind::Match},
                                      std::pair{"ws_subscriptions.json", EventKind::Subscriptions},
                                      std::pair{"ws_error.json", EventKind::Error},
-                                     // A depth frame is not subscribed to and must fall through to
-                                     // Unknown rather than reaching a parser that would refuse it.
-                                     std::pair{"ws_l2update.json", EventKind::Unknown}}) {
+                                     std::pair{"ws_l2_snapshot.json", EventKind::Snapshot},
+                                     std::pair{"ws_l2update.json", EventKind::L2Update}}) {
         const auto frame = fixture(file);
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << file;
@@ -518,6 +519,181 @@ TEST(CoinbaseMap, UnusableIncrementsKeepAnInstrumentOutOfTheTable) {
     }
 }
 
+// -------------------------------------------------------------- book ----
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire struct that came out of them.
+struct BookFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> levels{std::make_unique<LevelBuffer>()};
+    std::unique_ptr<ChangeBuffer> changes{std::make_unique<ChangeBuffer>()};
+};
+
+WireL2Snapshot snapshot_of(BookFrame& frame) {
+    frame.text = fixture("ws_l2_snapshot.json");
+    const auto wire = parse_l2_snapshot(frame.text, *frame.levels);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireL2Snapshot{});
+}
+
+WireL2Update update_of(BookFrame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto wire = parse_l2_update(frame.text, *frame.changes);
+    EXPECT_TRUE(wire.has_value());
+    return wire.value_or(WireL2Update{});
+}
+
+Book book_for(const exec::InstrumentTable& table) {
+    const auto* instrument = table.find("BTC-USD");
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    return Book{base.id, base.tick_size, base.lot_size};
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(CoinbaseBook, ChangesBeforeTheSnapshotPublishNothing) {
+    // level2_batch sends changes, not state. A book built from one would be a
+    // handful of levels presented to shm as the whole market.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame update;
+    EXPECT_EQ(book.apply(update_of(update, "ws_l2update.json")), BookResult::Ignored);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+}
+
+TEST(CoinbaseBook, SnapshotAndChangesMakeABookSharedMemoryCanTake) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame update;
+
+    const auto wire = snapshot_of(snapshot_frame);
+    EXPECT_EQ(wire.bids.size(), 150U);
+    EXPECT_EQ(wire.asks.size(), 150U);
+    EXPECT_EQ(book.reset(wire), BookResult::Resynced);
+
+    const auto out = book.snapshot(UnixNanos{7}, UnixNanos{9});
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, k_book_levels);
+    EXPECT_EQ(out->ask_count, k_book_levels);
+    EXPECT_EQ(out->bids[0].price.raw, 6'401'728); // 64017.28 over the 0.01 tick
+    EXPECT_EQ(out->asks[0].price.raw, 6'401'729);
+    EXPECT_EQ(out->bids[0].qty.raw, 9'994'431); // 0.09994431 over the 1e-8 step
+    EXPECT_EQ(out->bids[99].price.raw, 6'398'370);
+    EXPECT_EQ(out->asks[99].price.raw, 6'404'224);
+    // Nothing on this channel carries an ordering token; Coinbase's sequence
+    // numbers live on the `full` channel, which is a different subscription.
+    EXPECT_EQ(out->venue_seq, 0ULL);
+    EXPECT_EQ(out->ts_event.ns, 7ULL);
+
+    const auto changes = update_of(update, "ws_l2update_chained.json");
+    EXPECT_EQ(changes.changes.size(), 16U);
+    EXPECT_EQ(book.apply(changes), BookResult::Applied);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    expect_coherent(*after);
+}
+
+TEST(CoinbaseBook, AChangeOutsideTheSnapshotsBandIsNotCarried) {
+    // The fixture keeps 150 levels a side of a book that was 45,805 deep, so
+    // its floor is 63962.57 — and one real change in the frame that followed
+    // it names a bid at 56015.12. Nothing in the snapshot vouched for that
+    // price, so inserting it would make the book look deeper than it is known
+    // to be. binance's seeded book bands itself for the same reason.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    BookFrame update;
+    EXPECT_EQ(book.reset(snapshot_of(snapshot_frame)), BookResult::Resynced);
+    const auto held = book.bids().size();
+
+    EXPECT_EQ(book.apply(update_of(update, "ws_l2update_chained.json")), BookResult::Applied);
+    EXPECT_EQ(book.outside_band(), 1U);
+    EXPECT_EQ(book.bids().size(), held);
+    EXPECT_EQ(book.bids().back().price.raw, 6'396'257) << "63962.57, the snapshot's own floor";
+}
+
+TEST(CoinbaseBook, ASizeOfZeroDeletesTheLevel) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    EXPECT_EQ(book.reset(snapshot_of(snapshot_frame)), BookResult::Resynced);
+
+    const auto before = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(before.has_value());
+    const auto next_down = before->bids[1].price.raw;
+
+    // The touch, lifted. A book that read the zero as a size would leave the
+    // best bid resting at nothing.
+    const std::array<WireChange, 1> gone{
+        WireChange{.price = "64017.28", .qty = "0.00000000", .bid = true}};
+    WireL2Update lift{};
+    lift.product_id = "BTC-USD";
+    lift.changes = gone;
+    EXPECT_EQ(book.apply(lift), BookResult::Applied);
+
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    expect_coherent(*after);
+    EXPECT_EQ(after->bids[0].price.raw, next_down);
+    EXPECT_EQ(book.bids().size(), 149U);
+}
+
+TEST(CoinbaseBook, ALevelOffTheIncrementInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping
+    // one level here would leave a book that disagrees with Coinbase's until
+    // the next reconnect, and this channel has no sequence that would say so.
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    BookFrame snapshot_frame;
+    EXPECT_EQ(book.reset(snapshot_of(snapshot_frame)), BookResult::Resynced);
+
+    const std::array<WireChange, 1> off_tick{
+        WireChange{.price = "64017.285", .qty = "1.0", .bid = true}};
+    WireL2Update bad{};
+    bad.product_id = "BTC-USD";
+    bad.changes = off_tick;
+    EXPECT_EQ(book.apply(bad), BookResult::BadLevel);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+
+    // A size finer than the 1e-8 base increment is refused the same way.
+    auto again = book_for(table);
+    BookFrame again_snapshot;
+    EXPECT_EQ(again.reset(snapshot_of(again_snapshot)), BookResult::Resynced);
+    const std::array<WireChange, 1> sub_lot{
+        WireChange{.price = "64017.28", .qty = "0.000000005", .bid = true}};
+    WireL2Update fine{};
+    fine.product_id = "BTC-USD";
+    fine.changes = sub_lot;
+    EXPECT_EQ(again.apply(fine), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(k_ingest, k_ingest).has_value());
+}
+
 // ---------------------------------------------------------------- ws ----
 
 TEST(CoinbaseWs, ChannelsCoverExactlyWhatThisVenueStreams) {
@@ -527,9 +703,9 @@ TEST(CoinbaseWs, ChannelsCoverExactlyWhatThisVenueStreams) {
     // then declines, which is the honest answer rather than a faked zero.
     EXPECT_TRUE(channel_for(exec::SubKind::Funding).empty());
     EXPECT_TRUE(channel_for(exec::SubKind::MarkPrice).empty());
-    // Depth: the only level-2 channel opens with the whole book, over the
-    // transport's frame ceiling. See ws.hpp.
-    EXPECT_TRUE(channel_for(exec::SubKind::Depth).empty());
+    // level2 proper needs credentials; level2_batch does not, and the ack
+    // renames it "level2_50" while delivering the whole book anyway.
+    EXPECT_EQ(channel_for(exec::SubKind::Depth), "level2_batch");
     EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
 }
 

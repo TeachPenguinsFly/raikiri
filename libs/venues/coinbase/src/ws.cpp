@@ -41,8 +41,11 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
         return "ticker";
     case exec::SubKind::Trades:
         return "matches";
-    // Everything below declines, each for a reason that will not change.
+    // The batched book: level2 proper needs credentials, level2_batch does
+    // not. The ack renames it "level2_50" and delivers the whole book anyway.
     case exec::SubKind::Depth:
+        return "level2_batch";
+    // Everything below declines, each for a reason that will not change.
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice: // no derivatives here, so no mark
     case exec::SubKind::Kline:     // no websocket candles on this API

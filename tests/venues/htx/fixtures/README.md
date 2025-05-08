@@ -38,6 +38,7 @@ Subscribed with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and friends.
 | `ws_trade.json` | `market.BTC-USDT.trade.detail`, one print |
 | `ws_trades_batch.json` | `market.ETH-USDT.trade.detail`, four prints off one match |
 | `ws_depth_step0.json` | `market.BTC-USDT.depth.step0`, **trimmed** (see below) |
+| `ws_depth_step0_full.json` | `market.BTC-USDT.depth.step0`, whole, 150 levels a side (2026-08-17) |
 | `ws_subscribe_ack.json` | the answer to the bbo subscribe |
 | `ws_error.json` | the answer to `{"sub":"market.BTC-USDT.NOSUCH"}` |
 | `ws_ping.json` | the server's keepalive; the client answers `{"pong":1786431113951}` |
@@ -45,6 +46,12 @@ Subscribed with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and friends.
 `ws_depth_step0.json` is the only edited file. The live frame carried about
 150 levels a side; each side was cut to its first five by splicing at the
 bracket boundaries, so every number is still spelled the way HTX spelled it.
+
+`ws_depth_step0_full.json` is the first frame of a 15 s capture taken
+2026-08-17 with the same subscribe, kept whole so the 100-level cut has
+something to cut. All 119 depth frames in that capture carried 150 levels a
+side and none carried an action or a previous-sequence field, which is the
+measurement behind calling step0 a snapshot rather than an increment.
 
 ## Notification socket — `wss://api.hbdm.com/linear-swap-notification`
 

@@ -7,6 +7,57 @@ namespace {
 using detail::guarded;
 using detail::session;
 
+// A level is [price, size] with both members written as JSON numbers.
+std::expected<void, WireError>
+read_pair(detail::ondemand::value entry, std::string_view& price, std::string_view& qty) {
+    detail::ondemand::array pair;
+    if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
+    }
+    std::size_t field = 0;
+    for (auto element : pair) {
+        detail::ondemand::value value;
+        if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (field < 2) {
+            const auto raw = detail::raw_of(value);
+            if (!raw.has_value()) {
+                return std::unexpected(raw.error());
+            }
+            (field == 0 ? price : qty) = *raw;
+        }
+        ++field;
+    }
+    if (field < 2) {
+        return std::unexpected(WireError::MissingField);
+    }
+    return {};
+}
+
+std::expected<std::size_t, WireError>
+read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = detail::req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::value value;
+        if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (const auto ok = read_pair(value, into[count].price, into[count].qty); !ok.has_value()) {
+            return std::unexpected(ok.error());
+        }
+        ++count;
+    }
+    return count;
+}
+
 } // namespace
 
 std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body) {
@@ -145,6 +196,45 @@ std::expected<WireFundingRate, WireError> parse_funding_current(std::string_view
                 out.granularity_ms = *granularity;
                 out.next_funding_ms = *funding;
                 out.ts_ms = *ts;
+                return out;
+            });
+    });
+}
+
+std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
+                                                              LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireOrderBook, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return detail::with_data(
+            *root, [&](detail::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
+                WireOrderBook out{};
+                const auto symbol = detail::req_str(obj, "symbol");
+                const auto sequence = detail::opt_i64(obj, "sequence");
+                const auto ts = detail::opt_u64(obj, "ts");
+                if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                // Without a sequence the levels cannot be placed in the change
+                // chain, and a book that cannot be continued is not a seed.
+                if (*sequence <= 0) {
+                    return std::unexpected(WireError::MissingField);
+                }
+                out.symbol = *symbol;
+                out.sequence = *sequence;
+                out.ts_ns = *ts;
+                const auto bids = read_levels(obj, "bids", storage.bids);
+                if (!bids.has_value()) {
+                    return std::unexpected(bids.error());
+                }
+                const auto asks = read_levels(obj, "asks", storage.asks);
+                if (!asks.has_value()) {
+                    return std::unexpected(asks.error());
+                }
+                out.bids = {storage.bids.data(), *bids};
+                out.asks = {storage.asks.data(), *asks};
                 return out;
             });
     });

@@ -1,4 +1,5 @@
 #include <raikiri/venues/bitmex/bitmex_venue.hpp>
+#include <raikiri/venues/bitmex/book.hpp>
 #include <raikiri/venues/bitmex/errors.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
 #include <raikiri/venues/bitmex/rest.hpp>
@@ -7,9 +8,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 
 namespace raikiri::venues::bitmex {
@@ -629,6 +633,228 @@ TEST(BitmexMap, DropsAPriceOffTheTickGrid) {
     const auto rows = parse_trades(frame, storage);
     ASSERT_TRUE(rows.has_value());
     EXPECT_FALSE(map_trade((*rows)[0], table, k_ingest).has_value());
+}
+
+// --------------------------------------------------------------- book ----
+
+// The parsed views point into the frame text and into the level buffer, so
+// both have to outlive the wire span that came out of them.
+struct BookFrame {
+    std::string text;
+    std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
+};
+
+std::span<const WireLevel> rows_of(BookFrame& frame, std::string_view name) {
+    frame.text = fixture(name);
+    const auto rows = parse_book(frame.text, *frame.storage);
+    EXPECT_TRUE(rows.has_value());
+    return rows.has_value() ? *rows : std::span<const WireLevel>{};
+}
+
+Book book_for(const InstrumentBase& base) {
+    return Book{base.id, base.tick_size, base.lot_size};
+}
+
+// Bids descend, asks ascend, the two never cross and every quantity is real.
+// A book that fails this is not a book, and publishing it would price every
+// strategy reading shared memory.
+void expect_coherent(const BookSnapshot& out) {
+    ASSERT_GT(out.bid_count, 0U);
+    ASSERT_GT(out.ask_count, 0U);
+    EXPECT_LE(out.bid_count, k_book_levels);
+    EXPECT_LE(out.ask_count, k_book_levels);
+    EXPECT_LT(out.bids[0].price.raw, out.asks[0].price.raw);
+    for (std::uint32_t i = 1; i < out.bid_count; ++i) {
+        EXPECT_LT(out.bids[i].price.raw, out.bids[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 1; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].price.raw, out.asks[i - 1].price.raw) << i;
+    }
+    for (std::uint32_t i = 0; i < out.bid_count; ++i) {
+        EXPECT_GT(out.bids[i].qty.raw, 0) << i;
+    }
+    for (std::uint32_t i = 0; i < out.ask_count; ++i) {
+        EXPECT_GT(out.asks[i].qty.raw, 0) << i;
+    }
+}
+
+TEST(BitmexBook, RowsBeforeAnyPartialPublishNothing) {
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame update;
+    EXPECT_EQ(book.apply(FrameAction::Update, rows_of(update, "ws_book_update.json")),
+              BookResult::Ignored);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+}
+
+TEST(BitmexBook, PartialThenUpdateAndDeleteMakeABookSharedMemoryCanTake) {
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame partial;
+    BookFrame update;
+    BookFrame remove;
+
+    const auto rows = rows_of(partial, "ws_book_partial.json");
+    ASSERT_EQ(rows.size(), 50U);
+    EXPECT_EQ(book.apply(FrameAction::Partial, rows), BookResult::Resynced);
+
+    const auto out = book.snapshot(iso8601_to_unix(rows.front().ts, k_ingest), k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    // BitMEX maintains the 25-level window itself, so the book holds exactly
+    // what the venue keeps — a quarter of what shm could carry, and nothing is
+    // invented to fill the rest.
+    EXPECT_EQ(out->bid_count, 25U);
+    EXPECT_EQ(out->ask_count, 25U);
+    EXPECT_EQ(out->bids[0].price.raw, 640'547); // 64054.7 over the 0.1 tick
+    EXPECT_EQ(out->asks[0].price.raw, 640'890);
+    EXPECT_EQ(out->bids[0].qty.raw, 21'237); // 2123700 over the 100 lot
+    EXPECT_EQ(out->ts_event.ns, 1'786'395'210'303'000'000ULL);
+    // This table has no sequence of any kind, so there is nothing honest to
+    // put here — an invented number would read as one BitMEX stood behind.
+    EXPECT_EQ(out->venue_seq, 0ULL);
+
+    EXPECT_EQ(book.apply(FrameAction::Update, rows_of(update, "ws_book_update.json")),
+              BookResult::Applied);
+    const auto amended = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(amended.has_value());
+    expect_coherent(*amended);
+    // 64000.1 at 59500 contracts, the first of the two rows the update carried.
+    const auto at = std::find_if(amended->bids.begin(),
+                                 amended->bids.begin() + amended->bid_count,
+                                 [](const BookLevel& level) { return level.price.raw == 640'001; });
+    ASSERT_NE(at, amended->bids.begin() + amended->bid_count);
+    EXPECT_EQ(at->qty.raw, 595);
+
+    EXPECT_EQ(book.apply(FrameAction::Delete, rows_of(remove, "ws_book_delete.json")),
+              BookResult::Applied);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    expect_coherent(*after);
+    EXPECT_EQ(after->ask_count, 24U) << "the delete removed a level, it did not zero one";
+    const auto gone = std::find_if(
+        after->asks.begin(), after->asks.begin() + after->ask_count, [](const BookLevel& level) {
+            return level.price.raw == 640'910; // 64091.0
+        });
+    EXPECT_EQ(gone, after->asks.begin() + after->ask_count);
+}
+
+TEST(BitmexBook, ADeleteIsFoundByItsIdAndNotByItsPrice) {
+    // The whole reason this book is keyed by id: BitMEX declares the row key
+    // as ["symbol","id","side"], and the price on a delete row is a courtesy
+    // the venue is free to stop paying.
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame partial;
+    BookFrame remove;
+    EXPECT_EQ(book.apply(FrameAction::Partial, rows_of(partial, "ws_book_partial.json")),
+              BookResult::Resynced);
+
+    auto rows = rows_of(remove, "ws_book_delete.json");
+    ASSERT_EQ(rows.size(), 1U);
+    WireLevel lying = rows.front();
+    lying.price = "64200.1"; // a real level of the book, but not this id's
+
+    const std::array<WireLevel, 1> one{lying};
+    EXPECT_EQ(book.apply(FrameAction::Delete, one), BookResult::Applied);
+    const auto after = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->ask_count, 24U);
+    // The id's level went; the price the row named is untouched.
+    const auto gone =
+        std::find_if(after->asks.begin(),
+                     after->asks.begin() + after->ask_count,
+                     [](const BookLevel& level) { return level.price.raw == 640'910; });
+    EXPECT_EQ(gone, after->asks.begin() + after->ask_count);
+    EXPECT_EQ(after->asks[after->ask_count - 1].price.raw, 642'001);
+    EXPECT_EQ(book.stale_deletes(), 0U);
+}
+
+TEST(BitmexBook, AnInsertAddsALevelUnderItsOwnId) {
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame partial;
+    EXPECT_EQ(book.apply(FrameAction::Partial, rows_of(partial, "ws_book_partial.json")),
+              BookResult::Resynced);
+
+    // A new best bid inside the spread, which is where BitMEX's inserts land.
+    const std::array<WireLevel, 1> arrival{WireLevel{.symbol = "XBTUSD",
+                                                     .id = 233187800999,
+                                                     .bid = true,
+                                                     .price = "64060.0",
+                                                     .qty = "1000",
+                                                     .ts = "2026-08-10T20:53:30.500Z"}};
+    EXPECT_EQ(book.apply(FrameAction::Insert, arrival), BookResult::Applied);
+    const auto out = book.snapshot(k_ingest, k_ingest);
+    ASSERT_TRUE(out.has_value());
+    expect_coherent(*out);
+    EXPECT_EQ(out->bid_count, 26U) << "BitMEX pairs this with a delete; the book does not prune";
+    EXPECT_EQ(out->bids[0].price.raw, 640'600);
+    EXPECT_EQ(out->bids[0].qty.raw, 10);
+}
+
+TEST(BitmexBook, AnUpdateForAnIdWeDoNotHoldDropsTheBook) {
+    // This table has no sequence, so a lost frame is invisible everywhere
+    // except here: an update can only name a row BitMEX believes we hold.
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame partial;
+    BookFrame update;
+    EXPECT_EQ(book.apply(FrameAction::Partial, rows_of(partial, "ws_book_partial.json")),
+              BookResult::Resynced);
+
+    auto rows = rows_of(update, "ws_book_update.json");
+    WireLevel orphan = rows.front();
+    orphan.id += 1; // the insert that created this id never reached us
+
+    const std::array<WireLevel, 1> one{orphan};
+    EXPECT_EQ(book.apply(FrameAction::Update, one), BookResult::Diverged);
+    EXPECT_EQ(book.divergences(), 1U);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+}
+
+TEST(BitmexBook, ALevelOffTheStepInvalidatesTheWholeBook) {
+    // The rule that separates a delta venue from a snapshot venue. Dropping
+    // one level here would leave a book that disagrees with BitMEX's until the
+    // next reconnect, with nothing downstream able to see the difference.
+    const auto base = perp_base("XBTUSD");
+    ASSERT_TRUE(base.has_value());
+    auto book = book_for(*base);
+    BookFrame partial;
+    EXPECT_EQ(book.apply(FrameAction::Partial, rows_of(partial, "ws_book_partial.json")),
+              BookResult::Resynced);
+
+    const std::array<WireLevel, 1> off_tick{
+        WireLevel{.symbol = "XBTUSD",
+                  .id = 233187800998,
+                  .bid = true,
+                  .price = "64060.05", // finer than the 0.1 tick
+                  .qty = "1000",
+                  .ts = "2026-08-10T20:53:30.500Z"}};
+    EXPECT_EQ(book.apply(FrameAction::Insert, off_tick), BookResult::BadLevel);
+    EXPECT_FALSE(book.synced());
+    EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
+
+    // A size that is not a whole lot of 100 contracts is refused the same way.
+    auto again = book_for(*base);
+    BookFrame again_partial;
+    EXPECT_EQ(again.apply(FrameAction::Partial, rows_of(again_partial, "ws_book_partial.json")),
+              BookResult::Resynced);
+    const std::array<WireLevel, 1> sub_lot{WireLevel{.symbol = "XBTUSD",
+                                                     .id = 233187800997,
+                                                     .bid = true,
+                                                     .price = "64060.0",
+                                                     .qty = "150",
+                                                     .ts = "2026-08-10T20:53:30.500Z"}};
+    EXPECT_EQ(again.apply(FrameAction::Insert, sub_lot), BookResult::BadLevel);
+    EXPECT_FALSE(again.snapshot(k_ingest, k_ingest).has_value());
 }
 
 // ------------------------------------------------------------- errors ----

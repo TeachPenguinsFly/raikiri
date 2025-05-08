@@ -41,6 +41,12 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// step0 is a whole book every frame, so no state is carried between them and
+// there is no chain to break: the newest frame simply replaces what shm holds.
+// venue_seq takes tick.mrid, the only field on this payload that orders frames.
+[[nodiscard]] std::optional<BookSnapshot>
+map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Builds a domain instrument from a /swap_contract_info row. Returns nullopt

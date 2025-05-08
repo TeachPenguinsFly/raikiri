@@ -24,9 +24,11 @@ using WireError = wire::Error;
 enum class EventKind : std::uint8_t {
     Ticker,        // ticker — best bid/ask, republished on every match
     Match,         // match, and the last_match replay sent on subscribe
+    Snapshot,      // level2_batch's opening book, whole
+    L2Update,      // level2_batch's changes
     Subscriptions, // the subscribe confirmation
     Error,
-    Unknown, // heartbeat, status, l2update, snapshot — parsed by nobody here
+    Unknown, // heartbeat and status — parsed by nobody here
 };
 
 struct EventInfo {
@@ -96,6 +98,65 @@ struct WireMatch {
 };
 
 [[nodiscard]] std::expected<WireMatch, WireError> parse_match(std::string_view frame);
+
+// level2_batch levels are ["price","size"] pairs of decimal STRINGS. A size of
+// zero deletes the level; it appears only on the updates.
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty;
+};
+
+// THE OPENING SNAPSHOT IS THE WHOLE BOOK. Measured on BTC-USD 2026-08-17:
+// 18,427 bids and 27,378 asks in one 1,203,894-byte frame, which is why this
+// venue raises the transport's max_message_bytes.
+//
+// Both arrays arrive sorted best-first, so reading stops at k_max_levels
+// rather than failing: what is dropped is the far tail of a book nothing
+// downstream carries. The book class bands itself at the last level kept, so
+// a later change out there is dropped rather than believed.
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+struct WireL2Snapshot {
+    std::string_view product_id;
+    std::string_view time; // ISO-8601; absent on the snapshot in some captures
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame,
+                                                                         LevelBuffer& storage);
+
+// A change is ["buy"|"sell","price","size"] — the SIDE is a word here, not the
+// sign of the size the way bitfinex writes it, and the size is absolute.
+struct WireChange {
+    std::string_view price;
+    std::string_view qty;
+    bool bid{false};
+};
+
+// The largest observed batch is a few dozen; the ceiling leaves room without
+// letting a frame make us allocate.
+inline constexpr std::size_t k_max_changes = 4096;
+
+struct ChangeBuffer {
+    std::array<WireChange, k_max_changes> changes{};
+};
+
+// There is NO sequence on this channel — a frame carries type, product_id,
+// changes and time, and nothing else.
+struct WireL2Update {
+    std::string_view product_id;
+    std::string_view time; // ISO-8601
+    std::span<const WireChange> changes;
+};
+
+[[nodiscard]] std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
+                                                                     ChangeBuffer& storage);
 
 // ------------------------------------------------------------- rest ----
 

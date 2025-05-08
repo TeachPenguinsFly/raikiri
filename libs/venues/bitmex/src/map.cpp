@@ -8,8 +8,6 @@
 
 namespace raikiri::venues::bitmex {
 
-namespace {
-
 // BitMEX's two serialisers disagree about small numbers: REST writes
 // "fundingRate":0.0001, the websocket writes 1.0E-4 for the identical field.
 // parse_decimal_e9 speaks only the plain form, so the exponent is applied here
@@ -52,6 +50,8 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) {
     }
     return FixedE9::from_raw(mantissa->raw / power);
 }
+
+namespace {
 
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means BitMEX changed a precision, so the message is dropped

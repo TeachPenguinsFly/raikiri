@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kraken/map.hpp>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::kraken {
@@ -45,11 +47,17 @@ struct VenueState {
     RequestBuilder builder;
 
     std::vector<OwnedSubscription> desired;
+    std::unordered_map<std::uint64_t, Book> books;
 
     std::int64_t clock_offset_ns{0};
 
     // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
+
+    Book& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 
     void add_subscription(std::string_view feed, std::string_view product_id) {
         for (const auto& existing : desired) {
@@ -64,6 +72,28 @@ struct VenueState {
             OwnedSubscription{.feed = std::string{feed}, .product_id = std::string{product_id}});
     }
 };
+
+void handle_book(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local LevelBuffer levels;
+    const auto wire = parse_book(frame, levels);
+    if (!wire.has_value()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->product_id);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    auto& book = state.book_for(base);
+    const auto result = book.apply(*wire);
+    if (result != BookResult::Applied && result != BookResult::Resynced) {
+        return; // unsynced, redelivered or dropped: silence, never a guess
+    }
+    if (const auto depth = book.snapshot(ms_to_unix(wire->timestamp_ms, received), received);
+        depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -101,6 +131,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Book:
+        handle_book(state, frame, received);
         break;
     case EventKind::Alert:
         if (parse_stream_alert(frame).has_value()) {
@@ -135,6 +166,11 @@ public:
                 break; // wedged socket; the reconnect retries the whole set
             }
             sent += frame->consumed;
+        }
+        // Whatever the seq chain said before the socket dropped says nothing
+        // about the book_snapshot Kraken is about to send.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});

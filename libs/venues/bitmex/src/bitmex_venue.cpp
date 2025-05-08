@@ -2,6 +2,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitmex/bitmex_venue.hpp>
+#include <raikiri/venues/bitmex/book.hpp>
 #include <raikiri/venues/bitmex/errors.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
 #include <raikiri/venues/bitmex/rest.hpp>
@@ -10,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::bitmex {
@@ -51,6 +53,7 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
 
     std::vector<SymbolState> symbols;
+    std::unordered_map<std::uint64_t, Book> books;
 
     std::uint64_t next_app_ping_ns{0};
 
@@ -73,7 +76,41 @@ struct VenueState {
         }
         return symbols[idx];
     }
+
+    Book& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 };
+
+// Rows in one frame always share a symbol: the subscription is symbol-scoped,
+// which is why the instrument is resolved from the first row the way the
+// instrument stream reads data[0].
+void handle_book(VenueState& state,
+                 FrameAction action,
+                 std::string_view frame,
+                 UnixNanos received) {
+    static thread_local LevelBuffer levels;
+    const auto wire = parse_book(frame, levels);
+    if (!wire.has_value() || wire->empty()) {
+        return;
+    }
+    const auto* instrument = state.instruments.find(wire->front().symbol);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    auto& book = state.book_for(base);
+    const auto result = book.apply(action, *wire);
+    if (result != BookResult::Applied && result != BookResult::Resynced) {
+        return; // unsynced or diverged: silence, never a guess
+    }
+    // The frame root carries no time on this table; the rows each carry one.
+    if (const auto depth = book.snapshot(iso8601_to_unix(wire->front().ts, received), received);
+        depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
 
 void handle_quotes(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local QuoteBuffer quotes;
@@ -136,6 +173,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case TableKind::OrderBook:
+        handle_book(state, info->action, frame, received);
         break;
     case TableKind::Error: {
         // Terminal for the arg it names, and silence is how it would otherwise present.
@@ -174,6 +212,11 @@ public:
                 break; // wedged socket; the reconnect retries the whole set
             }
             sent += frame->consumed;
+        }
+        // The ids in the old book name levels of a subscription that no longer
+        // exists; the fresh `partial` is the only thing that may repopulate it.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});

@@ -1,6 +1,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/coinbase/book.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
@@ -11,11 +12,18 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace raikiri::venues::coinbase {
 
 namespace {
+
+// level2_batch's opening snapshot for BTC-USD measured 1,203,894 bytes —
+// 45,805 levels in one frame — so the transport's 1 MiB default drops the
+// only frame that can start a book. Sized for a book several times that
+// rather than for the one measured; the value is a ceiling, not a buffer.
+constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
 
 // A subscription the gateway asked for, owned as strings because the
 // instrument table's views outlive nothing in particular.
@@ -40,6 +48,7 @@ struct VenueState {
     RequestBuilder builder;
 
     std::vector<OwnedSubscription> desired;
+    std::unordered_map<std::uint64_t, Book> books;
 
     std::int64_t clock_offset_ns{0};
 
@@ -55,7 +64,25 @@ struct VenueState {
         }
         desired.emplace_back(std::string{channel}, std::string{product_id});
     }
+
+    Book& book_for(const InstrumentBase& base) {
+        return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
+    }
 };
+
+// The book's own ts_event: every Coinbase timestamp is ISO-8601 text, and an
+// unreadable one falls back to ingest rather than to zero.
+UnixNanos book_time(std::string_view text, UnixNanos fallback) {
+    const auto parsed = parse_iso8601(text);
+    return parsed.has_value() ? *parsed : fallback;
+}
+
+void publish(VenueState& state, Book& book, std::string_view time, UnixNanos received) {
+    if (const auto depth = book.snapshot(book_time(time, received), received); depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -81,6 +108,42 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto trade = map_trade(*wire, state.instruments, received); trade.has_value()) {
             state.sink->on_trade(*trade);
         }
+        break;
+    }
+    case EventKind::Snapshot: {
+        static thread_local LevelBuffer levels;
+        const auto wire = parse_l2_snapshot(frame, levels);
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto* instrument = state.instruments.find(wire->product_id);
+        if (instrument == nullptr) {
+            return;
+        }
+        const auto& base = base_of(*instrument);
+        auto& book = state.book_for(base);
+        if (book.reset(*wire) != BookResult::Resynced) {
+            return;
+        }
+        publish(state, book, wire->time, received);
+        break;
+    }
+    case EventKind::L2Update: {
+        static thread_local ChangeBuffer changes;
+        const auto wire = parse_l2_update(frame, changes);
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto* instrument = state.instruments.find(wire->product_id);
+        if (instrument == nullptr) {
+            return;
+        }
+        const auto& base = base_of(*instrument);
+        auto& book = state.book_for(base);
+        if (book.apply(*wire) != BookResult::Applied) {
+            return; // unsynced or dropped: silence, never a guess
+        }
+        publish(state, book, wire->time, received);
         break;
     }
     case EventKind::Subscriptions: {
@@ -125,6 +188,11 @@ public:
             }
             sent += frame->consumed;
         }
+        // A fresh snapshot is coming and it replaces the book wholesale; what
+        // is held now describes a subscription that no longer exists.
+        for (auto& [id, book] : state_->books) {
+            book.invalidate();
+        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -152,7 +220,8 @@ public:
           client_{state_->io,
                   net::WsConfig{.host = std::string{stream_host()},
                                 .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
+                                .target = std::string{stream_path()},
+                                .max_message_bytes = k_max_message_bytes},
                   handler_} {
         handler_.attach(client_);
     }
