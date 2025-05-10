@@ -1,11 +1,16 @@
 #include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
 
-#include <algorithm>
-
 namespace raikiri::venues::bitfinex {
 
 namespace {
+
+// The venue's own reader: parse_decimal_e9 refuses the exponents this venue
+// writes. The exact-or-refuse rule itself is book::exact_steps.
+std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
+    const auto value = parse_number_e9(text);
+    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+}
 
 // The sign is the side here, never part of the quantity, so it comes off
 // before anything is scaled. A negative reaching QtyLots would be a size no
@@ -24,75 +29,43 @@ SignedToken split_sign(std::string_view text) noexcept {
     return out;
 }
 
-// The same exactness rule the mappers apply, through the same reader:
-// Bitfinex spells small amounts `1e-8` on the live socket, which
-// parse_decimal_e9 refuses outright. A remainder means a token finer than the
-// eight-decimal grid the venue is measured to hold to, and rounding it would
-// quote a price the venue never published.
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
-    if (text.empty() || step.raw <= 0) {
-        return std::nullopt;
-    }
-    const auto value = parse_number_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
-}
-
 } // namespace
 
 Book::Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}
 
 void Book::invalidate() noexcept {
-    bids_.clear();
-    asks_.clear();
+    ladders_.clear();
     synced_ = false;
 }
 
 bool Book::apply_level(const WireLevel& wire) {
-    const auto price = exact_steps(wire.price, tick_size_);
+    const auto price = steps_of(wire.price, tick_size_);
     if (!price.has_value()) {
         return false;
     }
     const auto amount = split_sign(wire.amount);
-    auto& side = amount.negative ? asks_ : bids_;
-    const auto descending = !amount.negative;
-
-    const auto cmp = [descending](const Level& a, const Level& b) {
-        return descending ? a.price.raw > b.price.raw : a.price.raw < b.price.raw;
-    };
-    const Level probe{PriceTicks::from_raw(*price), QtyLots{}};
-    const auto pos = std::lower_bound(side.begin(), side.end(), probe, cmp);
-    const bool exists = pos != side.end() && pos->price.raw == probe.price.raw;
+    auto& side = amount.negative ? ladders_.asks() : ladders_.bids();
+    const auto price_ticks = PriceTicks::from_raw(*price);
 
     if (wire.count == 0) {
         // COUNT zero is the delete, and the amount beside it is a bare +1/-1
         // that says only which side to look on — never a size to rest here.
-        if (exists) {
-            side.erase(pos);
-        }
+        side.remove(price_ticks);
         return true;
     }
 
-    const auto qty = exact_steps(amount.magnitude, lot_size_);
+    const auto qty = steps_of(amount.magnitude, lot_size_);
     if (!qty.has_value() || *qty == 0) {
         return false;
     }
-    const Level level{probe.price, QtyLots::from_raw(*qty)};
-    if (exists) {
-        *pos = level;
-    } else {
-        side.insert(pos, level);
-    }
+    side.upsert(book::Level{price_ticks, QtyLots::from_raw(*qty)});
     return true;
 }
 
 BookResult Book::apply(const WireBook& update) {
     if (update.snapshot) {
-        bids_.clear();
-        asks_.clear();
+        ladders_.clear();
         for (const auto& wire : update.levels) {
             if (!apply_level(wire)) {
                 invalidate();
@@ -117,39 +90,27 @@ BookResult Book::apply(const WireBook& update) {
 }
 
 std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (!synced_ || bids_.empty() || asks_.empty()) {
+    if (!synced_) {
         return std::nullopt;
     }
-    const auto fill = [](std::span<const Level> src, std::array<BookLevel, k_book_levels>& dst) {
-        const auto count = std::min(src.size(), k_book_levels);
-        for (std::size_t i = 0; i < count; ++i) {
-            dst[i] = {.price = src[i].price, .qty = src[i].qty};
-        }
-        return static_cast<std::uint32_t>(count);
-    };
-
-    BookSnapshot out{};
-    out.instrument = instrument_;
-    out.ts_event = ts_event;
-    out.ts_init = ts_init;
-    // Left at zero on purpose: this channel publishes no ordering token at
-    // all, and a number we invented would read as one Bitfinex stood behind.
-    out.venue_seq = 0;
-    out.bid_count = fill(bids_, out.bids);
-    out.ask_count = fill(asks_, out.asks);
-    return out;
+    // venue_seq left at zero on purpose: this channel publishes no ordering
+    // token at all, and a number we invented would read as one Bitfinex stood
+    // behind.
+    return ladders_.snapshot(instrument_, /*venue_seq=*/0, ts_event, ts_init);
 }
 
 std::optional<Bbo> Book::touch(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (!synced_ || bids_.empty() || asks_.empty()) {
+    if (!synced_ || ladders_.bids().empty() || ladders_.asks().empty()) {
         return std::nullopt;
     }
+    const auto& bid = ladders_.bids().levels().front();
+    const auto& ask = ladders_.asks().levels().front();
     Bbo out{};
     out.instrument = instrument_;
-    out.bid = bids_.front().price;
-    out.ask = asks_.front().price;
-    out.bid_qty = bids_.front().qty;
-    out.ask_qty = asks_.front().qty;
+    out.bid = bid.price;
+    out.ask = ask.price;
+    out.bid_qty = bid.qty;
+    out.ask_qty = ask.qty;
     out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;

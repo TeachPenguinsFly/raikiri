@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace raikiri::book {
@@ -41,6 +43,10 @@ public:
     void remove(PriceTicks price);
 
     void clear() noexcept { levels_.clear(); }
+
+    // A book's depth is known at construction, and a venue that pushes the
+    // whole book reallocates its way up to it on every resync otherwise.
+    void reserve(std::size_t capacity) { levels_.reserve(capacity); }
 
     [[nodiscard]] bool empty() const noexcept { return levels_.empty(); }
 
@@ -86,6 +92,11 @@ public:
         asks_.clear();
     }
 
+    // Best bid and ask, or nullopt while either side is empty — the same
+    // one-sided rule snapshot() applies, so a venue deriving a BBO from its
+    // book does not restate it.
+    [[nodiscard]] std::optional<std::pair<Level, Level>> touch() const noexcept;
+
     // The top k_book_levels a side. Nullopt while either side is empty.
     [[nodiscard]] std::optional<BookSnapshot> snapshot(InstrumentId instrument,
                                                        std::uint64_t venue_seq,
@@ -97,11 +108,23 @@ private:
     Ladder asks_;
 };
 
-// Exact conversion against the instrument's own step. A venue value that does
-// not divide evenly means the venue changed a filter, so the caller drops the
-// message rather than rounding — for a DELTA book it must invalidate the whole
-// book, because one skipped level makes our copy diverge from the venue's
-// silently and permanently.
-[[nodiscard]] std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step);
+// Exact conversion against the instrument's own step. A value that does not
+// divide evenly means the venue changed a filter, so the caller drops the
+// message rather than rounding — and for a DELTA book it must invalidate the
+// whole book, because one skipped level makes our copy diverge from the
+// venue's silently and permanently.
+//
+// The value arrives already parsed because WHICH parser is the venue's
+// business: half the venues spell numbers plainly and half use exponents,
+// which parse_decimal_e9 refuses outright. Fusing the two decisions cost four
+// adapters a byte-identical local copy of this function that differed only in
+// the parse call.
+[[nodiscard]] constexpr std::optional<std::int64_t> exact_steps(FixedE9 value,
+                                                                FixedE9 step) noexcept {
+    if (step.raw <= 0 || value.raw % step.raw != 0) {
+        return std::nullopt;
+    }
+    return value.raw / step.raw;
+}
 
 } // namespace raikiri::book

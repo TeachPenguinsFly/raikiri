@@ -1,5 +1,4 @@
 #include <raikiri/book/ladder.hpp>
-#include <raikiri/common/fixed_point.hpp>
 
 #include <algorithm>
 
@@ -45,6 +44,13 @@ void Ladder::drop_beyond(PriceTicks worst) {
     levels_.erase(keep, levels_.end());
 }
 
+std::optional<std::pair<Level, Level>> Ladders::touch() const noexcept {
+    if (bids_.empty() || asks_.empty()) {
+        return std::nullopt;
+    }
+    return std::pair{bids_.levels().front(), asks_.levels().front()};
+}
+
 std::optional<BookSnapshot> Ladders::snapshot(InstrumentId instrument,
                                               std::uint64_t venue_seq,
                                               UnixNanos ts_event,
@@ -68,17 +74,6 @@ std::optional<BookSnapshot> Ladders::snapshot(InstrumentId instrument,
     out.bid_count = fill(bids_.levels(), out.bids);
     out.ask_count = fill(asks_.levels(), out.asks);
     return out;
-}
-
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
-    if (text.empty() || step.raw <= 0) {
-        return std::nullopt;
-    }
-    const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
 }
 
 } // namespace raikiri::book

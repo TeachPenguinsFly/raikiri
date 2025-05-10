@@ -1,4 +1,5 @@
 #include <raikiri/book/ladder.hpp>
+#include <raikiri/common/fixed_point.hpp>
 
 #include <gtest/gtest.h>
 
@@ -120,11 +121,18 @@ TEST(Ladders, SnapshotCarriesAtMostTheDomainDepth) {
 
 TEST(ExactSteps, RefusesWhatDoesNotDivideRatherThanRounding) {
     const auto tick = FixedE9::from_raw(100'000'000); // 0.1
-    EXPECT_EQ(exact_steps("64488.5", tick).value(), 644'885);
-    EXPECT_FALSE(exact_steps("64488.55", tick).has_value())
+    EXPECT_EQ(exact_steps(*parse_decimal_e9("64488.5"), tick).value(), 644'885);
+    EXPECT_FALSE(exact_steps(*parse_decimal_e9("64488.55"), tick).has_value())
         << "rounding here is how an order lands one tick from where it was meant";
-    EXPECT_FALSE(exact_steps("", tick).has_value());
-    EXPECT_FALSE(exact_steps("1.0", FixedE9::from_raw(0)).has_value());
+    EXPECT_FALSE(exact_steps(FixedE9::from_raw(1), FixedE9::from_raw(0)).has_value());
+}
+
+TEST(ExactSteps, TakesTheValueFromWhicheverParserTheVenueNeeds) {
+    // Half the venues spell numbers with exponents, which parse_decimal_e9
+    // refuses; taking a parsed value keeps that choice with the venue instead
+    // of forcing four adapters to copy this function to change one call.
+    const auto tick = FixedE9::from_raw(1); // 1e-9
+    EXPECT_EQ(exact_steps(*parse_number_e9("1e-8"), tick).value(), 10);
 }
 
 } // namespace

@@ -1,80 +1,52 @@
+#include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/bybit/book_sync.hpp>
-
-#include <algorithm>
 
 namespace raikiri::venues::bybit {
 
 namespace {
 
-// Venue strings convert through the decimal parser and then divide exactly
-// by the instrument's step. A remainder means bybit changed a filter under
-// us — dropping the level is right, silently rounding is not.
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
+// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || step.raw <= 0) {
-        return std::nullopt;
-    }
-    if (value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
 }
 
 } // namespace
 
 BookSync::BookSync(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
-    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {
-    bids_.reserve(k_max_levels);
-    asks_.reserve(k_max_levels);
-}
+    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}
 
 void BookSync::invalidate() noexcept {
-    bids_.clear();
-    asks_.clear();
+    ladders_.clear();
     synced_ = false;
     last_update_id_ = 0;
     last_seq_ = 0;
 }
 
-bool BookSync::apply_side(std::span<const WireLevel> levels,
-                          std::vector<Level>& side,
-                          bool descending) {
+bool BookSync::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
     for (const auto& wire : levels) {
-        const auto price = exact_steps(wire.price, tick_size_);
-        const auto size = exact_steps(wire.size, lot_size_);
+        const auto price = steps_of(wire.price, tick_size_);
+        const auto size = steps_of(wire.size, lot_size_);
         if (!price.has_value() || !size.has_value()) {
             return false;
         }
-        const Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*size)};
+        const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*size)};
 
-        const auto cmp = [descending](const Level& a, const Level& b) {
-            return descending ? a.price.raw > b.price.raw : a.price.raw < b.price.raw;
-        };
-        const auto pos = std::lower_bound(side.begin(), side.end(), level, cmp);
-        const bool exists = pos != side.end() && pos->price.raw == level.price.raw;
-
-        if (level.size.raw == 0) {
+        if (level.qty.raw == 0) {
             // Size zero is bybit's delete.
-            if (exists) {
-                side.erase(pos);
-            }
+            side.remove(level.price);
             continue;
         }
-        if (exists) {
-            pos->size = level.size;
-        } else {
-            side.insert(pos, level);
-        }
+        side.upsert(level);
     }
     return true;
 }
 
 SyncResult BookSync::apply(const WireOrderbook& update) {
     if (update.is_snapshot) {
-        bids_.clear();
-        asks_.clear();
-        if (!apply_side(update.bids, bids_, /*descending=*/true) ||
-            !apply_side(update.asks, asks_, /*descending=*/false)) {
+        ladders_.clear();
+        if (!apply_side(update.bids, ladders_.bids()) ||
+            !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return SyncResult::BadLevel;
         }
@@ -97,8 +69,7 @@ SyncResult BookSync::apply(const WireOrderbook& update) {
         return SyncResult::GapDetected;
     }
 
-    if (!apply_side(update.bids, bids_, /*descending=*/true) ||
-        !apply_side(update.asks, asks_, /*descending=*/false)) {
+    if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
         invalidate();
         return SyncResult::BadLevel;
     }
@@ -108,40 +79,27 @@ SyncResult BookSync::apply(const WireOrderbook& update) {
 }
 
 std::optional<Bbo> BookSync::bbo(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (!synced_ || bids_.empty() || asks_.empty()) {
+    if (!synced_ || ladders_.bids().empty() || ladders_.asks().empty()) {
         return std::nullopt;
     }
+    const auto& bid = ladders_.bids().levels().front();
+    const auto& ask = ladders_.asks().levels().front();
     Bbo out{};
     out.instrument = instrument_;
-    out.bid = bids_.front().price;
-    out.bid_qty = bids_.front().size;
-    out.ask = asks_.front().price;
-    out.ask_qty = asks_.front().size;
+    out.bid = bid.price;
+    out.bid_qty = bid.qty;
+    out.ask = ask.price;
+    out.ask_qty = ask.qty;
     out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;
 }
 
 std::optional<BookSnapshot> BookSync::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (!synced_ || bids_.empty() || asks_.empty()) {
+    if (!synced_) {
         return std::nullopt;
     }
-    const auto fill = [](std::span<const Level> src, std::array<BookLevel, k_book_levels>& dst) {
-        const auto count = std::min(src.size(), k_book_levels);
-        for (std::size_t i = 0; i < count; ++i) {
-            dst[i] = {.price = src[i].price, .qty = src[i].size};
-        }
-        return static_cast<std::uint32_t>(count);
-    };
-
-    BookSnapshot out{};
-    out.instrument = instrument_;
-    out.ts_event = ts_event;
-    out.ts_init = ts_init;
-    out.venue_seq = last_update_id_;
-    out.bid_count = fill(bids_, out.bids);
-    out.ask_count = fill(asks_, out.asks);
-    return out;
+    return ladders_.snapshot(instrument_, last_update_id_, ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::bybit

@@ -1,79 +1,51 @@
+#include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/okx/book.hpp>
-
-#include <algorithm>
 
 namespace raikiri::venues::okx {
 
 namespace {
 
-// Same exactness rule the mappers apply: a value that does not divide by the
-// instrument's step means OKX moved a precision under us, and rounding it
-// would quote a price the venue never published.
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
-    if (text.empty() || step.raw <= 0) {
-        return std::nullopt;
-    }
+// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
 }
 
 } // namespace
 
 Book::Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
-    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {
-    bids_.reserve(k_max_levels);
-    asks_.reserve(k_max_levels);
-}
+    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}
 
 void Book::invalidate() noexcept {
-    bids_.clear();
-    asks_.clear();
+    ladders_.clear();
     synced_ = false;
     last_seq_id_ = -1;
 }
 
-bool Book::apply_side(std::span<const WireLevel> levels,
-                      std::vector<Level>& side,
-                      bool descending) {
+bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
     for (const auto& wire : levels) {
-        const auto price = exact_steps(wire.price, tick_size_);
-        const auto qty = exact_steps(wire.qty, lot_size_);
+        const auto price = steps_of(wire.price, tick_size_);
+        const auto qty = steps_of(wire.qty, lot_size_);
         if (!price.has_value() || !qty.has_value()) {
             return false;
         }
-        const Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)};
-
-        const auto cmp = [descending](const Level& a, const Level& b) {
-            return descending ? a.price.raw > b.price.raw : a.price.raw < b.price.raw;
-        };
-        const auto pos = std::lower_bound(side.begin(), side.end(), level, cmp);
-        const bool exists = pos != side.end() && pos->price.raw == level.price.raw;
+        const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)};
 
         if (level.qty.raw == 0) {
             // Quantity zero is OKX's delete.
-            if (exists) {
-                side.erase(pos);
-            }
+            side.remove(level.price);
             continue;
         }
-        if (exists) {
-            pos->qty = level.qty;
-        } else {
-            side.insert(pos, level);
-        }
+        side.upsert(level);
     }
     return true;
 }
 
 BookResult Book::apply(const WireBooks& update) {
     if (update.snapshot) {
-        bids_.clear();
-        asks_.clear();
-        if (!apply_side(update.bids, bids_, /*descending=*/true) ||
-            !apply_side(update.asks, asks_, /*descending=*/false)) {
+        ladders_.clear();
+        if (!apply_side(update.bids, ladders_.bids()) ||
+            !apply_side(update.asks, ladders_.asks())) {
             invalidate();
             return BookResult::BadLevel;
         }
@@ -95,8 +67,7 @@ BookResult Book::apply(const WireBooks& update) {
         return BookResult::GapDetected;
     }
 
-    if (!apply_side(update.bids, bids_, /*descending=*/true) ||
-        !apply_side(update.asks, asks_, /*descending=*/false)) {
+    if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
         invalidate();
         return BookResult::BadLevel;
     }
@@ -105,25 +76,11 @@ BookResult Book::apply(const WireBooks& update) {
 }
 
 std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (!synced_ || bids_.empty() || asks_.empty()) {
+    if (!synced_) {
         return std::nullopt;
     }
-    const auto fill = [](std::span<const Level> src, std::array<BookLevel, k_book_levels>& dst) {
-        const auto count = std::min(src.size(), k_book_levels);
-        for (std::size_t i = 0; i < count; ++i) {
-            dst[i] = {.price = src[i].price, .qty = src[i].qty};
-        }
-        return static_cast<std::uint32_t>(count);
-    };
-
-    BookSnapshot out{};
-    out.instrument = instrument_;
-    out.ts_event = ts_event;
-    out.ts_init = ts_init;
-    out.venue_seq = static_cast<std::uint64_t>(last_seq_id_);
-    out.bid_count = fill(bids_, out.bids);
-    out.ask_count = fill(asks_, out.asks);
-    return out;
+    return ladders_.snapshot(
+        instrument_, static_cast<std::uint64_t>(last_seq_id_), ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::okx

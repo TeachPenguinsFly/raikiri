@@ -7,6 +7,7 @@
 // inventing a checksum over a book the venue never checksummed would only
 // produce false alarms.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -14,7 +15,7 @@
 
 #include <cstdint>
 #include <optional>
-#include <vector>
+#include <span>
 
 namespace raikiri::venues::bybit {
 
@@ -30,10 +31,7 @@ enum class SyncResult : std::uint8_t {
 // integers at ingest, so nothing downstream ever sees a venue string.
 class BookSync {
 public:
-    struct Level {
-        PriceTicks price{};
-        QtyLots size{};
-    };
+    using Level = book::Level;
 
     BookSync(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -55,19 +53,17 @@ public:
 
     void invalidate() noexcept;
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
-    [[nodiscard]] bool
-    apply_side(std::span<const WireLevel> levels, std::vector<Level>& side, bool descending);
+    [[nodiscard]] bool apply_side(std::span<const WireLevel> levels, book::Ladder& side);
 
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
+    book::Ladders ladders_;
     std::uint64_t last_update_id_{0};
     std::uint64_t last_seq_{0};
     std::uint64_t gaps_{0};

@@ -7,10 +7,11 @@
 // is the only continuity guarantee here — the checksum field was deprecated on
 // 2026-06-23 and is pinned to 0, so it is not surfaced at all (see wire.hpp).
 //
-// Nothing about this book is shared with another venue's: the sequencing rules
-// are OKX's, and what leaves the class is a snapshot the gateway can publish
-// without the consumer knowing any of them.
+// The ladder underneath is raikiri::book's. What is not shared with another
+// venue is the sequencing, which is OKX's, and what leaves the class is a
+// snapshot the gateway can publish without the consumer knowing any of it.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -19,7 +20,6 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <vector>
 
 namespace raikiri::venues::okx {
 
@@ -35,10 +35,7 @@ enum class BookResult : std::uint8_t {
 // ingest, so nothing downstream ever sees a decimal from OKX.
 class Book {
 public:
-    struct Level {
-        PriceTicks price{};
-        QtyLots qty{};
-    };
+    using Level = book::Level;
 
     Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -57,19 +54,17 @@ public:
 
     void invalidate() noexcept;
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
-    [[nodiscard]] bool
-    apply_side(std::span<const WireLevel> levels, std::vector<Level>& side, bool descending);
+    [[nodiscard]] bool apply_side(std::span<const WireLevel> levels, book::Ladder& side);
 
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
+    book::Ladders ladders_;
     std::int64_t last_seq_id_{-1};
     std::uint64_t gaps_{0};
     bool synced_{false};
