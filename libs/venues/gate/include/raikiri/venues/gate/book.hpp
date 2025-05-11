@@ -18,6 +18,7 @@
 //     applied — Gate deletes what falls out of the window. Nothing here
 //     prunes, because there is nothing to prune.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -48,10 +49,7 @@ inline constexpr std::size_t k_max_buffered_deltas = 64;
 // ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
 public:
-    struct Level {
-        PriceTicks price{};
-        QtyLots qty{};
-    };
+    using Level = book::Level;
 
     DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -81,9 +79,9 @@ public:
 
     [[nodiscard]] std::uint64_t last_update_id() const noexcept { return last_id_; }
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
     enum class State : std::uint8_t {
@@ -100,11 +98,10 @@ private:
     };
 
     [[nodiscard]] std::optional<Level> convert(const WireLevel& wire) const;
-    static void upsert(std::vector<Level>& side, bool descending, const Level& level);
+    static void upsert(book::Ladder& side, const Level& level);
 
-    void apply_wire(std::span<const WireLevel> levels, std::vector<Level>& side, bool descending);
-    static void
-    apply_levels(std::span<const Level> levels, std::vector<Level>& side, bool descending);
+    void apply_wire(std::span<const WireLevel> levels, book::Ladder& side);
+    static void apply_levels(std::span<const Level> levels, book::Ladder& side);
 
     BookResult buffer(const WireBookUpdate& delta);
     BookResult bridge(const WireBookUpdate& delta);
@@ -118,11 +115,9 @@ private:
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
+    book::Ladders ladders_;
     std::vector<Buffered> pending_;
-    std::vector<Level> held_bids_;
-    std::vector<Level> held_asks_;
+    book::Ladders held_;
     std::uint64_t held_id_{0};
     std::uint64_t last_id_{0};
     std::uint64_t gaps_{0};

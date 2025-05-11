@@ -21,10 +21,12 @@
 //   * `update` carries only the columns that changed, so an absent `size` is
 //     "unchanged", never zero. A `delete` carries no size at all.
 //
-// Nothing about this book is shared with another venue's: the row rules are
-// BitMEX's, and what leaves the class is a snapshot the gateway can publish
-// without the consumer knowing any of them.
+// The sorted sides underneath are raikiri::book's ladder, but the id keying is
+// not something a price ladder can hold, so the id-to-price index below sits
+// beside it. What leaves the class is a snapshot the gateway can publish
+// without the consumer knowing any of it.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -49,11 +51,7 @@ enum class BookResult : std::uint8_t {
 // ingest, so nothing downstream ever sees a decimal from BitMEX.
 class Book {
 public:
-    struct Level {
-        std::int64_t id{0};
-        PriceTicks price{};
-        QtyLots qty{};
-    };
+    using Level = book::Level;
 
     Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -74,12 +72,21 @@ public:
 
     void invalidate() noexcept;
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
-    [[nodiscard]] std::vector<Level>& side_of(const WireLevel& row) noexcept;
+    // An `update` or a `delete` names a row id and no price at all, which is
+    // the one thing a price ladder cannot answer. This is the index that turns
+    // an id into the price to key the ladder with; the sizes live there.
+    struct Row {
+        std::int64_t id{0};
+        PriceTicks price{};
+    };
+
+    [[nodiscard]] book::Ladder& side_of(const WireLevel& row) noexcept;
+    [[nodiscard]] std::vector<Row>& rows_of(const WireLevel& row) noexcept;
 
     [[nodiscard]] bool upsert(const WireLevel& row);
     [[nodiscard]] BookResult amend(const WireLevel& row);
@@ -88,8 +95,9 @@ private:
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
+    book::Ladders ladders_;
+    std::vector<Row> bid_rows_;
+    std::vector<Row> ask_rows_;
     std::uint64_t divergences_{0};
     std::uint64_t stale_deletes_{0};
     bool synced_{false};

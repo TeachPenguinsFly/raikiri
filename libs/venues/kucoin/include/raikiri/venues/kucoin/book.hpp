@@ -21,10 +21,11 @@
 //     than spliced, and levels outside the band the seed vouched for are
 //     dropped the way binance's are — nothing else can confirm them.
 //
-// Nothing about this book is shared with another venue's: the sequencing rules
-// are KuCoin's, and what leaves the class is a snapshot the gateway can publish
-// without the consumer knowing any of them.
+// The ladder underneath is raikiri::book's. What is not shared with another
+// venue is the sequencing, which is KuCoin's, and what leaves the class is a
+// snapshot the gateway can publish without the consumer knowing any of it.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -56,10 +57,7 @@ inline constexpr std::size_t k_max_buffered_changes = 1024;
 // ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
 public:
-    struct Level {
-        PriceTicks price{};
-        QtyLots qty{};
-    };
+    using Level = book::Level;
 
     DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -87,9 +85,9 @@ public:
 
     [[nodiscard]] std::int64_t last_sequence() const noexcept { return last_sequence_; }
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
     enum class State : std::uint8_t {
@@ -105,7 +103,7 @@ private:
     };
 
     [[nodiscard]] std::optional<Level> convert(std::string_view price, std::string_view qty) const;
-    static void upsert(std::vector<Level>& side, bool descending, const Level& level);
+    static void upsert(book::Ladder& side, const Level& level);
 
     void place(const Level& level, bool bid);
 
@@ -121,11 +119,9 @@ private:
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
+    book::Ladders ladders_;
     std::vector<Buffered> pending_;
-    std::vector<Level> held_bids_;
-    std::vector<Level> held_asks_;
+    book::Ladders held_;
     std::int64_t held_sequence_{0};
     std::int64_t last_sequence_{0};
     PriceTicks band_low_{};  // the deepest bid the seed vouched for

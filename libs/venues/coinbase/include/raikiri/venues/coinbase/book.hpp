@@ -21,10 +21,11 @@
 //
 // A change is ["buy"|"sell", price, size] with an ABSOLUTE size; zero deletes.
 //
-// Nothing about this book is shared with another venue's, and what leaves the
-// class is a snapshot the gateway can publish without the consumer knowing any
-// of it.
+// The ladder underneath is raikiri::book's. What is not shared with another
+// venue is the banding above it, and what leaves the class is a snapshot the
+// gateway can publish without the consumer knowing any of it.
 
+#include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -33,7 +34,6 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <vector>
 
 namespace raikiri::venues::coinbase {
 
@@ -48,10 +48,7 @@ enum class BookResult : std::uint8_t {
 // ingest, so nothing downstream ever sees a decimal from Coinbase.
 class Book {
 public:
-    struct Level {
-        PriceTicks price{};
-        QtyLots qty{};
-    };
+    using Level = book::Level;
 
     Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
@@ -71,21 +68,20 @@ public:
 
     void invalidate() noexcept;
 
-    [[nodiscard]] std::span<const Level> bids() const noexcept { return bids_; }
+    [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
-    [[nodiscard]] std::span<const Level> asks() const noexcept { return asks_; }
+    [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
 
 private:
     [[nodiscard]] std::optional<Level> convert(const WireLevel& wire) const;
-    static void upsert(std::vector<Level>& side, bool descending, const Level& level);
+    static void upsert(book::Ladder& side, const Level& level);
 
     InstrumentId instrument_{};
     FixedE9 tick_size_{};
     FixedE9 lot_size_{};
-    std::vector<Level> bids_; // descending by price
-    std::vector<Level> asks_; // ascending by price
-    PriceTicks band_low_{};   // the deepest bid the snapshot vouched for
-    PriceTicks band_high_{};  // and the highest ask
+    book::Ladders ladders_;
+    PriceTicks band_low_{};  // the deepest bid the snapshot vouched for
+    PriceTicks band_high_{}; // and the highest ask
     std::uint64_t outside_band_{0};
     bool synced_{false};
 };

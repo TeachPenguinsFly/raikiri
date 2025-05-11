@@ -1,25 +1,16 @@
+#include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/gate/book.hpp>
 
-#include <algorithm>
 #include <utility>
 
 namespace raikiri::venues::gate {
 
 namespace {
 
-// Venue tokens convert through the decimal parser and then divide exactly by
-// the instrument's step. A remainder means Gate changed a contract's precision,
-// so the level is dropped rather than rounded — rounding is how a book ends up
-// quoting a price the venue never showed.
-std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
-    if (text.empty() || step.raw <= 0) {
-        return std::nullopt;
-    }
+// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
-    if (!value.has_value() || value->raw % step.raw != 0) {
-        return std::nullopt;
-    }
-    return value->raw / step.raw;
+    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
 }
 
 } // namespace
@@ -32,11 +23,9 @@ bool DepthBook::wants_seed() const noexcept {
 }
 
 void DepthBook::invalidate() noexcept {
-    bids_.clear();
-    asks_.clear();
+    ladders_.clear();
     pending_.clear();
-    held_bids_.clear();
-    held_asks_.clear();
+    held_.clear();
     held_id_ = 0;
     last_id_ = 0;
     state_ = State::Cold;
@@ -44,54 +33,38 @@ void DepthBook::invalidate() noexcept {
 }
 
 std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const {
-    const auto price = exact_steps(wire.price, tick_size_);
-    const auto qty = exact_steps(wire.qty, lot_size_);
+    const auto price = steps_of(wire.price, tick_size_);
+    const auto qty = steps_of(wire.qty, lot_size_);
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
     }
     return Level{.price = PriceTicks::from_raw(*price), .qty = QtyLots::from_raw(*qty)};
 }
 
-void DepthBook::upsert(std::vector<Level>& side, bool descending, const Level& level) {
-    const auto cmp = [descending](const Level& a, const Level& b) {
-        return descending ? a.price.raw > b.price.raw : a.price.raw < b.price.raw;
-    };
-    const auto pos = std::lower_bound(side.begin(), side.end(), level, cmp);
-    const bool exists = pos != side.end() && pos->price.raw == level.price.raw;
-
+void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
         // Size zero is Gate's delete, and it is also how a level leaving the
         // subscribed window is retired — half the frames carry nothing else.
-        if (exists) {
-            side.erase(pos);
-        }
+        side.remove(level.price);
         return;
     }
-    if (exists) {
-        pos->qty = level.qty;
-    } else {
-        side.insert(pos, level);
-    }
+    side.upsert(level);
 }
 
-void DepthBook::apply_wire(std::span<const WireLevel> levels,
-                           std::vector<Level>& side,
-                           bool descending) {
+void DepthBook::apply_wire(std::span<const WireLevel> levels, book::Ladder& side) {
     for (const auto& wire : levels) {
         const auto level = convert(wire);
         if (!level.has_value()) {
             ++dropped_levels_;
             continue;
         }
-        upsert(side, descending, *level);
+        upsert(side, *level);
     }
 }
 
-void DepthBook::apply_levels(std::span<const Level> levels,
-                             std::vector<Level>& side,
-                             bool descending) {
+void DepthBook::apply_levels(std::span<const Level> levels, book::Ladder& side) {
     for (const auto& level : levels) {
-        upsert(side, descending, level);
+        upsert(side, level);
     }
 }
 
@@ -144,8 +117,8 @@ BookResult DepthBook::bridge(const WireBookUpdate& delta) {
         return BookResult::Reseed;
     }
     install_held();
-    apply_wire(delta.bids, bids_, /*descending=*/true);
-    apply_wire(delta.asks, asks_, /*descending=*/false);
+    apply_wire(delta.bids, ladders_.bids());
+    apply_wire(delta.asks, ladders_.asks());
     last_id_ = delta.last_update_id;
     return settle();
 }
@@ -159,8 +132,8 @@ BookResult DepthBook::advance(const WireBookUpdate& delta) {
         invalidate();
         return BookResult::Gap;
     }
-    apply_wire(delta.bids, bids_, /*descending=*/true);
-    apply_wire(delta.asks, asks_, /*descending=*/false);
+    apply_wire(delta.bids, ladders_.bids());
+    apply_wire(delta.asks, ladders_.asks());
     last_id_ = delta.last_update_id;
     return settle();
 }
@@ -170,11 +143,10 @@ BookResult DepthBook::seed(const WireOrderBook& wire) {
     if (state_ == State::Live) {
         return BookResult::Stale; // a seed outlived the book it was meant for
     }
-    held_bids_.clear();
-    held_asks_.clear();
-    apply_wire(wire.bids, held_bids_, /*descending=*/true);
-    apply_wire(wire.asks, held_asks_, /*descending=*/false);
-    if (held_bids_.empty() || held_asks_.empty()) {
+    held_.clear();
+    apply_wire(wire.bids, held_.bids());
+    apply_wire(wire.asks, held_.asks());
+    if (held_.bids().empty() || held_.asks().empty()) {
         discard_held();
         return BookResult::Reseed;
     }
@@ -202,8 +174,8 @@ BookResult DepthBook::replay() {
     // buffer() already enforced contiguity across pending_, so the replay only
     // has to find where the seed sits inside it.
     for (; i < pending_.size(); ++i) {
-        apply_levels(pending_[i].bids, bids_, /*descending=*/true);
-        apply_levels(pending_[i].asks, asks_, /*descending=*/false);
+        apply_levels(pending_[i].bids, ladders_.bids());
+        apply_levels(pending_[i].asks, ladders_.asks());
         last_id_ = pending_[i].last_id;
     }
     pending_.clear();
@@ -211,7 +183,7 @@ BookResult DepthBook::replay() {
 }
 
 BookResult DepthBook::settle() {
-    if (bids_.empty() || asks_.empty()) {
+    if (ladders_.bids().empty() || ladders_.asks().empty()) {
         // Gate maintains the window, so a side emptying means what is held no
         // longer describes the venue's book; a fresh read is the way back.
         invalidate();
@@ -221,41 +193,24 @@ BookResult DepthBook::settle() {
 }
 
 void DepthBook::install_held() {
-    bids_ = std::move(held_bids_);
-    asks_ = std::move(held_asks_);
-    held_bids_.clear();
-    held_asks_.clear();
+    ladders_ = std::move(held_);
+    held_.clear();
     last_id_ = held_id_;
     state_ = State::Live;
 }
 
 void DepthBook::discard_held() {
-    held_bids_.clear();
-    held_asks_.clear();
+    held_.clear();
     held_id_ = 0;
     state_ = State::Cold;
     ++reseeds_;
 }
 
 std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
-    if (state_ != State::Live || bids_.empty() || asks_.empty()) {
+    if (state_ != State::Live) {
         return std::nullopt;
     }
-    BookSnapshot out{};
-    out.instrument = instrument_;
-    out.ts_event = ts_event;
-    out.ts_init = ts_init;
-    out.venue_seq = last_id_;
-    const auto fill = [](std::span<const Level> src, std::array<BookLevel, k_book_levels>& dst) {
-        const auto n = std::min(src.size(), k_book_levels);
-        for (std::size_t i = 0; i < n; ++i) {
-            dst[i] = {.price = src[i].price, .qty = src[i].qty};
-        }
-        return static_cast<std::uint32_t>(n);
-    };
-    out.bid_count = fill(bids_, out.bids);
-    out.ask_count = fill(asks_, out.asks);
-    return out;
+    return ladders_.snapshot(instrument_, last_id_, ts_event, ts_init);
 }
 
 } // namespace raikiri::venues::gate
