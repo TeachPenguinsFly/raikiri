@@ -12,6 +12,7 @@
 // demo just runs it unpinned for a few seconds.
 
 #include <raikiri/common/platform.hpp>
+#include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/venue.hpp>
@@ -221,6 +222,21 @@ int main(int argc, char** argv) {
             return false;
         }
         fmt::print("gatewayd: {} from {}\n", what, config::to_string(ref->scheme));
+        if (ref->scheme == config::SecretRef::Scheme::OnePassword) {
+            // Reading the secret would say whether it worked, but only after
+            // the adapter has already decided to run read-only. The probe
+            // touches no secret and answers the question before that.
+            const auto status = config::probe_one_password();
+            if (!status.usable()) {
+                fmt::print(stderr, "gatewayd: 1password unusable — {}\n", status.diagnostic);
+                fmt::print(stderr,
+                           "gatewayd: on a server set OP_SERVICE_ACCOUNT_TOKEN; on a laptop "
+                           "run `eval $(op signin)`\n");
+                return false;
+            }
+            fmt::print(
+                "gatewayd: 1password {} as {}\n", config::to_string(status.auth), status.account);
+        }
         if (config::is_plaintext(ref->scheme)) {
             // Deliberately available and deliberately loud: it is the one
             // scheme that puts key material into a file that gets committed,
