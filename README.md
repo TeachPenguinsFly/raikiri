@@ -71,4 +71,10 @@ make bench         # Release benchmarks
 
 ## License
 
-Apache-2.0 (placeholder pending final project name).
+LGPL-3.0. The full text is in `LICENSE`; `COPYING` holds the GPL-3.0 text that
+LGPL-3.0 incorporates by reference.
+
+Chosen deliberately over a permissive licence: a strategy or application that
+links raikiri stays closed if its author wants it closed, while a fork of the
+framework itself has to publish its changes. LGPL carries no network clause, so
+running raikiri as a hosted service triggers no obligation either way.

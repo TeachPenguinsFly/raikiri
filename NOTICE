@@ -1,5 +1,11 @@
 raikiri (working name) — C++23 low-latency trading framework
-Copyright (c) 2026 the raikiri authors. Licensed under Apache-2.0.
+Copyright (c) 2026 the raikiri authors.
+
+Licensed under the GNU Lesser General Public License v3.0 (LICENSE), which
+incorporates the GNU General Public License v3.0 (COPYING) by reference.
+
+A strategy that links this library stays yours: LGPL obligations attach to
+modifications of raikiri itself, not to the code that uses it.
 
 Attributions:
 
