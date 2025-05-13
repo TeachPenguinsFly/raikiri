@@ -63,11 +63,8 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from an exchangeInfo row. Returns nullopt for
-// anything not currently trading, anything that is not the requested market,
-// and any row whose filters failed to parse — an instrument with an unusable
-// tick size must never enter the table, because every later price conversion
-// divides by it.
+// Returns nullopt for anything not currently trading, anything that is not the
+// requested market, and any row whose filters failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 

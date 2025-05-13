@@ -51,10 +51,8 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /quote/contracts row. Returns nullopt for
-// anything not online, anything that is not the requested market, and any row
-// whose precisions yield no usable step — every later price conversion divides
-// by that step.
+// Returns nullopt for anything not online, anything that is not the requested
+// market, and any row whose precisions yield no usable step.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 } // namespace raikiri::venues::bingx

@@ -290,7 +290,8 @@ int main(int argc, char** argv) {
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
-        // 1) Venue verdicts — the highest-priority input.
+        // Verdicts drain before market data: a strategy must never act on a price
+        // tick while its own order state is a poll behind.
         shm::ExecEventRec rec{};
         for (;;) {
             const auto poll = exec_reader.poll(rec);
@@ -316,7 +317,6 @@ int main(int argc, char** argv) {
             }
             active.on_order_event(ctx, event);
         }
-        // 2) Trades.
         shm::MdEvent md{};
         while (md_reader.poll(md) == shm::PollResult::Item) {
             TradeTick trade{};
@@ -328,7 +328,6 @@ int main(int argc, char** argv) {
             trade.ts_init = md.ts_init;
             active.on_trade(ctx, trade);
         }
-        // 3) BBO change-gates.
         for (std::uint32_t sym = 0; sym < bbo_seen.size(); ++sym) {
             const auto version = channels->bbo->cells[sym].version_now();
             if (version == bbo_seen[sym] || (version & 1U) != 0) {
@@ -341,7 +340,6 @@ int main(int argc, char** argv) {
                 active.on_bbo(ctx, bbo);
             }
         }
-        // 4) Timers.
         const auto now_ns = clock.mono().ns;
         for (auto& timer : ctx.timers) {
             if (timer.deadline_ns != 0 && now_ns >= timer.deadline_ns) {

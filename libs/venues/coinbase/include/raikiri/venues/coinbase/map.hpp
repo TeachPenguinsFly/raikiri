@@ -34,11 +34,8 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /products row. Returns nullopt for any
-// market other than Spot, anything not "online", anything trading_disabled,
-// and any row whose increments failed to parse — an instrument with an
-// unusable tick size must never enter the table, because every later price
-// conversion divides by it.
+// Returns nullopt for any market other than Spot, anything not "online",
+// anything trading_disabled, and any row whose increments failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market);
 
 } // namespace raikiri::venues::coinbase

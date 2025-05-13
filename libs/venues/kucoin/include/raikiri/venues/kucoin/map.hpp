@@ -41,11 +41,8 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from an /api/v1/contracts/active row. Returns
-// nullopt for anything not Open, anything that is not a perpetual, anything
-// inverse, and any row whose steps failed to parse — an instrument with an
-// unusable tick size must never enter the table, because every later price
-// conversion divides by it.
+// Returns nullopt for anything not Open, anything that is not a perpetual,
+// anything inverse, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 } // namespace raikiri::venues::kucoin

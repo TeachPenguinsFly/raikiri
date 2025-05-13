@@ -62,11 +62,8 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /contract/detail row. Returns nullopt for
-// anything not enabled, for any market this endpoint does not serve, and for
-// any row whose scales cannot become steps — an instrument with an unusable
-// tick size must never enter the table, because every later price conversion
-// divides by it.
+// Returns nullopt for anything not enabled, for any market this endpoint does
+// not serve, and for any row whose scales cannot become steps.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 

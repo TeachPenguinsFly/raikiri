@@ -39,9 +39,7 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything not tradable, anything that is not the
-// requested market, and any row whose steps failed to parse: an instrument
-// with an unusable tick must never enter the table, because every later price
-// conversion divides by it.
+// requested market, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 } // namespace raikiri::venues::bitget

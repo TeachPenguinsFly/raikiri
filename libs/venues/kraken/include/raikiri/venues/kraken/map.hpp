@@ -49,10 +49,8 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a GET /instruments row. nullopt for
-// anything not tradeable, not the requested market, or whose steps failed to
-// parse — an unusable tick size must never enter the table, because every
-// later price conversion divides by it.
+// Nullopt for anything not tradeable, not the requested market, or whose steps
+// failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 

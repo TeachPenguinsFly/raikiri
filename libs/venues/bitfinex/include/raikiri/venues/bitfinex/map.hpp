@@ -80,9 +80,8 @@ inline constexpr std::uint32_t k_funding_interval_s = 28800;
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /conf/pub:info:pair row. Returns nullopt
-// for a row that is not the requested market, for Bitfinex's paper-trading
-// pairs, and for a row whose only number will not parse.
+// Returns nullopt for a row that is not the requested market, for Bitfinex's
+// paper-trading pairs, and for a row whose only number will not parse.
 //
 // The endpoint states no symbol prefix: rows read "BTCUSD" while every socket
 // and REST path wants "tBTCUSD", so the prefix is added here rather than at

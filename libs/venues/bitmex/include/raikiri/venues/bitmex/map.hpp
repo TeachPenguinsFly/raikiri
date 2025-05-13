@@ -86,8 +86,7 @@ private:
 // Catalogue ---------------------------------------------------------------
 
 // nullopt for anything not Open, not the requested market, quanto, or whose
-// steps failed to convert exactly — an instrument with an unusable tick size
-// must never enter the table, because every later conversion divides by it.
+// steps failed to convert exactly.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 

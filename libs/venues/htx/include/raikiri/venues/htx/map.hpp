@@ -49,9 +49,8 @@ map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos t
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /swap_contract_info row. Returns nullopt
-// for anything not listed, anything that is not a USDT-M swap, and any row
-// whose tick or contract size failed to parse.
+// Returns nullopt for anything not listed, anything that is not a USDT-M swap,
+// and any row whose tick or contract size failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 } // namespace raikiri::venues::htx

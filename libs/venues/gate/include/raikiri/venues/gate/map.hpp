@@ -42,11 +42,8 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 
 // Catalogue ---------------------------------------------------------------
 
-// Builds a domain instrument from a /futures/{settle}/contracts row. Returns
-// nullopt for anything delisting or not trading, anything that is not a perp,
-// and any row whose steps failed to parse — an instrument with an unusable
-// tick size must never enter the table, because every later price conversion
-// divides by it.
+// Returns nullopt for anything delisting or not trading, anything that is not
+// a perp, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 } // namespace raikiri::venues::gate

@@ -46,7 +46,7 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
 // Catalogue ---------------------------------------------------------------
 
 // nullopt for a delisted asset and for any row whose derived steps are
-// unusable: every later price conversion divides by the tick size.
+// unusable.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType market);
 
 } // namespace raikiri::venues::hyperliquid
