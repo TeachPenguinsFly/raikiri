@@ -17,6 +17,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <variant>
@@ -31,14 +32,29 @@ enum class ConvError : std::uint8_t {
     ZeroStep,     // instrument carries no tick/lot size (bad load)
 };
 
+// Which PnL formula an instrument obeys, and therefore what `contract_value`
+// below actually means. Nothing else distinguishes them: three venues express
+// the same perpetual three ways and a BTC-USD-SWAP priced as if it were
+// BTC-USDT-SWAP is wrong by the price, not by a rounding.
+//
+// Unknown is 0 so a zero-initialised InstrumentBase fails validate() instead of
+// defaulting to something plausible. An adapter that cannot tell from the
+// catalogue row refuses the row.
+enum class ContractKind : std::uint8_t {
+    Unknown = 0,
+    Linear,  // contract_value is BASE units per contract; PnL settles in quote
+    Inverse, // contract_value is QUOTE units per contract; PnL settles in BASE
+};
+
 struct InstrumentBase {
     InstrumentId id{};
     SymbolText local_symbol{};    // canonical, venue-neutral: "BTC/USDT"
     SymbolText exchange_symbol{}; // venue wire form: "BTCUSDT"
-    FixedE9 tick_size{};          // price step, decimal e9
+    ContractKind kind{ContractKind::Unknown}; // rides padding; see the asserts below
+    FixedE9 tick_size{};                      // price step, decimal e9
     FixedE9 lot_size{};           // qty step, decimal e9
     FixedE9 min_notional{};
-    FixedE9 contract_value{}; // qty multiplier for derivatives; 1.0 for spot
+    FixedE9 contract_value{}; // units per contract; `kind` says WHICH units
     FixedE9 maker_fee{};
     FixedE9 taker_fee{};
     UnixNanos ts_loaded{};
@@ -48,6 +64,13 @@ struct InstrumentBase {
     [[nodiscard]] FixedE9 ticks_to_price(PriceTicks ticks) const noexcept;
     [[nodiscard]] FixedE9 lots_to_qty(QtyLots lots) const noexcept;
 };
+
+// `kind` fits in padding that already existed, so sizeof does NOT change — and
+// the shm per-channel size check therefore cannot catch a mixed-build pair.
+// k_abi_version (shm/segment.hpp) is the only thing that does. Any future field
+// that trips these asserts is an ABI decision, to be made deliberately.
+static_assert(sizeof(InstrumentBase) == 120);
+static_assert(offsetof(InstrumentBase, kind) == 58);
 
 struct SpotInstrument {
     InstrumentBase base{};

@@ -324,6 +324,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);
     base.contract_value = *size;
+    // Unconditional because the catalogue comes from /linear-swap-api. HTX's
+    // coin-margined swaps live under /swap-api and are inverse; reaching for
+    // them means deciding this per row.
+    base.kind = ContractKind::Linear;
     std::uint32_t interval_s = 0;
     if (wire.settlement_period_h > 0) {
         interval_s = static_cast<std::uint32_t>(wire.settlement_period_h * k_seconds_per_hour);

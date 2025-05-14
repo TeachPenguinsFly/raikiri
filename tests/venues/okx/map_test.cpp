@@ -18,6 +18,7 @@ exec::InstrumentTable table_with_btc() {
     wire.min_size = "0.01";
     wire.ct_val = "0.01";
     wire.ct_mult = "1";
+    wire.ct_type = "linear";
     const auto instrument = map_instrument(wire, MarketType::Perp);
     EXPECT_TRUE(instrument.has_value());
     EXPECT_TRUE(table.add(*instrument).has_value());
@@ -172,17 +173,23 @@ TEST(OkxMap, ContractValueComesFromTheCatalogueNotFromOne) {
     wire.lot_size = "0.01";
     wire.ct_val = "0.01";
     wire.ct_mult = "1";
+    wire.ct_type = "linear";
     auto instrument = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(instrument.has_value());
     EXPECT_EQ(base_of(*instrument).contract_value.raw, 10'000'000); // 0.01 * 1e9
+    EXPECT_EQ(base_of(*instrument).kind, ContractKind::Linear);
 
-    // The inverse contract is worth 100 USD, and ctMult multiplies it.
+    // The inverse contract is worth 100 USD, and ctMult multiplies it. Same
+    // shape of number as above, opposite currency and opposite PnL formula —
+    // ctType is the only thing that separates them.
     wire.inst_id = "BTC-USD-SWAP";
     wire.ct_val = "100";
     wire.ct_mult = "2";
+    wire.ct_type = "inverse";
     instrument = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(instrument.has_value());
     EXPECT_EQ(base_of(*instrument).contract_value.raw, 200 * k_e9);
+    EXPECT_EQ(base_of(*instrument).kind, ContractKind::Inverse);
 
     // A fractional multiplier has no defined meaning, so the row is refused
     // rather than approximated.
@@ -208,7 +215,29 @@ TEST(OkxMap, NonLiveAndWrongMarketRowsAreRefused) {
     wire.lot_size = "0.1";
     wire.ct_val = "100";
     wire.ct_mult = "1";
+    wire.ct_type = "inverse";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+}
+
+TEST(OkxMap, SwapThatWillNotSayItsDirectionIsRefused) {
+    // OKX ships ctType on every SWAP row. A row that does not is a row we
+    // cannot price: ctVal 100 is 100 USD on an inverse contract and 100 BTC
+    // on a linear one, and both parse. Refuse rather than assume.
+    WireInstrument wire{};
+    wire.inst_id = "BTC-USD-SWAP";
+    wire.inst_type = "SWAP";
+    wire.state = "live";
+    wire.tick_size = "0.1";
+    wire.lot_size = "0.1";
+    wire.ct_val = "100";
+    wire.ct_mult = "1";
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.ct_type = "futures"; // a value we do not know how to price
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.ct_type = "inverse";
+    EXPECT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
 }
 
 TEST(OkxMap, InstrumentWithoutUsableStepsIsRefused) {
@@ -222,6 +251,7 @@ TEST(OkxMap, InstrumentWithoutUsableStepsIsRefused) {
     wire.lot_size = "0.01";
     wire.ct_val = "0.01";
     wire.ct_mult = "1";
+    wire.ct_type = "linear";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
     wire.tick_size = "0.1";

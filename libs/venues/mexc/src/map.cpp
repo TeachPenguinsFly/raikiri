@@ -245,6 +245,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract_size;
+    base.kind = ContractKind::Linear;
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

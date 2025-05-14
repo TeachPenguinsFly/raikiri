@@ -310,6 +310,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract;
+    // PF_ settles in the quote currency, PI_ in the base one. The prefix is the
+    // only thing that says so — Kraken's row carries no explicit flag.
+    base.kind = linear ? ContractKind::Linear : ContractKind::Inverse;
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

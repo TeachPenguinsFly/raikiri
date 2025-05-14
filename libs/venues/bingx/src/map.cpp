@@ -209,6 +209,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     if (const auto min_notional = to_e9(wire.trade_min_usdt); min_notional.has_value()) {
         base.min_notional = *min_notional;
     }

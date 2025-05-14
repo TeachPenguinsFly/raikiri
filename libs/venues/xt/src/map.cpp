@@ -228,6 +228,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         base.min_notional = *min_notional;
     }
     base.contract_value = *contract_size;
+    base.kind = ContractKind::Linear;
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

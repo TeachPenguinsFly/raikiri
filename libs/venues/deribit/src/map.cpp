@@ -295,6 +295,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract;
+    // Deribit states the direction itself and the guard above already refused
+    // anything but "reversed", so every row reaching here is the venue's own
+    // word for inverse: contract_size is USD, settlement is in the base coin.
+    base.kind = ContractKind::Inverse;
 
     if (market == MarketType::Option) {
         const auto strike = exact_steps(wire.strike, base.tick_size);

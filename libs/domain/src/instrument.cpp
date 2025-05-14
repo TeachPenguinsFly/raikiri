@@ -43,8 +43,9 @@ FixedE9 InstrumentBase::lots_to_qty(QtyLots lots) const noexcept {
 
 bool validate(const InstrumentBase& base) noexcept {
     return base.id.valid() && !base.local_symbol.empty() && !base.exchange_symbol.empty() &&
-           !base.tick_size.is_undef() && base.tick_size.raw > 0 && !base.lot_size.is_undef() &&
-           base.lot_size.raw > 0 && !base.contract_value.is_undef() && base.contract_value.raw > 0;
+           base.kind != ContractKind::Unknown && !base.tick_size.is_undef() &&
+           base.tick_size.raw > 0 && !base.lot_size.is_undef() && base.lot_size.raw > 0 &&
+           !base.contract_value.is_undef() && base.contract_value.raw > 0;
 }
 
 } // namespace raikiri

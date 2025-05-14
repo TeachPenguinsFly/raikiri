@@ -24,6 +24,7 @@ inline std::vector<Instrument> sim_instruments() {
         base.lot_size = *parse_decimal_e9(lot);
         base.min_notional = *parse_decimal_e9("5");
         base.contract_value = *parse_decimal_e9("1");
+        base.kind = ContractKind::Linear;
         return base;
     };
     std::vector<Instrument> out;

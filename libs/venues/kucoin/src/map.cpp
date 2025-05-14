@@ -239,6 +239,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *multiplier;
+    // Unconditional because the FFWCSX guard above already dropped every
+    // inverse row; KuCoin spells those FFICSX. Widening that guard means
+    // deciding this per row.
+    base.kind = ContractKind::Linear;
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
 }
 

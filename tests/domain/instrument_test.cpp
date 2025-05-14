@@ -14,6 +14,7 @@ InstrumentBase btc_perp_base() {
     base.lot_size = *parse_decimal_e9("0.001");
     base.min_notional = *parse_decimal_e9("5");
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     return base;
 }
 
@@ -56,6 +57,12 @@ TEST(Instrument, ValidateCatchesBadLoads) {
     auto no_id = btc_perp_base();
     no_id.id = {};
     EXPECT_FALSE(validate(no_id));
+
+    // A zero-initialised kind is the shape of an adapter that forgot to set it,
+    // and it must not load as a plausible-looking linear contract.
+    auto no_kind = btc_perp_base();
+    no_kind.kind = ContractKind::Unknown;
+    EXPECT_FALSE(validate(no_kind));
 }
 
 TEST(Instrument, VariantForcesOptionHandling) {

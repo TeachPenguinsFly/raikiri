@@ -61,7 +61,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                                              std::pair{"lotSz", &out.lot_size},
                                              std::pair{"minSz", &out.min_size},
                                              std::pair{"ctVal", &out.ct_val},
-                                             std::pair{"ctMult", &out.ct_mult}}) {
+                                             std::pair{"ctMult", &out.ct_mult},
+                                             std::pair{"ctType", &out.ct_type}}) {
                 const auto value = detail::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

@@ -241,6 +241,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         base.min_notional = *min_notional;
     }
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     std::uint32_t interval_s = 0;
     if (const auto hours = whole_number(wire.fund_interval); hours.has_value()) {
         interval_s = static_cast<std::uint32_t>(*hours * 3600);

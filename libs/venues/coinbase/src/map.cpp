@@ -217,6 +217,7 @@ std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType mar
         base.min_notional = *min_funds;
     }
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     return SpotInstrument{base};
 }
 

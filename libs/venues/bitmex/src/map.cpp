@@ -211,7 +211,14 @@ std::optional<MarketType> market_of_typ(std::string_view typ) noexcept {
 // homeNotional24h / volume24h is 1.55e-5 — that is 1/price, not a constant of
 // the contract. XBTUSDT gives 1e-6 BTC per contract the other way, and a live
 // spot print of size 70000 carried homeNotional 0.0007 BTC: 1e-8 per unit.
-std::optional<FixedE9> contract_value_of(const WireInstrument& wire, MarketType market) {
+// Value and kind leave together so the two cannot drift apart: every branch
+// below decides both, and there is no path that sets one without the other.
+struct ContractSpec {
+    FixedE9 value{};
+    ContractKind kind{ContractKind::Unknown};
+};
+
+std::optional<ContractSpec> contract_value_of(const WireInstrument& wire, MarketType market) {
     const auto multiplier = whole_number(wire.multiplier);
     if (!multiplier.has_value() || *multiplier == 0) {
         return std::nullopt;
@@ -224,20 +231,35 @@ std::optional<FixedE9> contract_value_of(const WireInstrument& wire, MarketType 
         if (!scale.has_value()) {
             return std::nullopt;
         }
-        return exact_ratio(magnitude(*multiplier), magnitude(*scale));
+        const auto value = exact_ratio(magnitude(*multiplier), magnitude(*scale));
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+        return ContractSpec{*value, ContractKind::Inverse};
     }
     if (market == MarketType::Spot) {
         const auto scale = whole_number(wire.underlying_to_position);
         if (!scale.has_value()) {
             return std::nullopt;
         }
-        return exact_ratio(1, *scale);
+        // Spot is Linear but NOT a pinned 1.0: the row states a real
+        // per-unit multiplier (1e-8 on SOL_USDT), and treating it as one
+        // would be wrong by eight decades.
+        const auto value = exact_ratio(1, *scale);
+        if (!value.has_value()) {
+            return std::nullopt;
+        }
+        return ContractSpec{*value, ContractKind::Linear};
     }
     const auto scale = whole_number(wire.quote_to_settle);
     if (!scale.has_value()) {
         return std::nullopt;
     }
-    return exact_ratio(*multiplier, *scale);
+    const auto value = exact_ratio(*multiplier, *scale);
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    return ContractSpec{*value, ContractKind::Linear};
 }
 
 } // namespace
@@ -421,8 +443,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
         return std::nullopt;
     }
-    const auto value = contract_value_of(wire, market);
-    if (!value.has_value()) {
+    const auto spec = contract_value_of(wire, market);
+    if (!spec.has_value()) {
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.symbol);
@@ -437,7 +459,8 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    base.contract_value = *value;
+    base.contract_value = spec->value;
+    base.kind = spec->kind;
     // Stated per row, so no hardcoded pair is needed here.
     if (const auto maker = to_e9(wire.maker_fee); maker.has_value()) {
         base.maker_fee = *maker;

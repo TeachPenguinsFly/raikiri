@@ -166,6 +166,7 @@ struct WireInstrument {
     std::string_view min_size;
     std::string_view ct_val;
     std::string_view ct_mult;
+    std::string_view ct_type; // linear | inverse; empty on SPOT and OPTION rows
 };
 
 inline constexpr std::size_t k_max_instruments = 1024;

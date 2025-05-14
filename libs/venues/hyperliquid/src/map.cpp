@@ -166,6 +166,7 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     base.lot_size = *lot;
     // Size is the coin itself, so there is no contract multiplier to load.
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     return PerpInstrument{base, k_funding_interval_s};
 }
 

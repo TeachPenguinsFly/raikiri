@@ -330,6 +330,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.lot_size = *lot;
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // linear perps quote in base units
+    base.kind = ContractKind::Linear;
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }

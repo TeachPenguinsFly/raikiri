@@ -330,6 +330,7 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
     base.tick_size = FixedE9::from_raw(k_step_e9);
     base.lot_size = FixedE9::from_raw(k_step_e9);
     base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }

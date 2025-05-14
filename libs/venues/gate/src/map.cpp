@@ -155,6 +155,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         return std::nullopt;
     }
     base.contract_value = *quanto;
+    // Unconditional because gate_venue only ever requests settle=usdt.
+    // /futures/btc/contracts returns inverse contracts against this same
+    // parser, so a new settle currency means deciding this per row.
+    base.kind = ContractKind::Linear;
     return PerpInstrument{base, wire.funding_interval_s};
 }
 

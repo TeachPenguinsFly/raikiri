@@ -170,11 +170,22 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.lot_size = *lot;
     if (market == MarketType::Spot) {
         base.contract_value = *parse_decimal_e9("1");
+        base.kind = ContractKind::Linear;
         return SpotInstrument{base};
     }
     const auto ct_val = parse_decimal_e9(wire.ct_val);
     const auto ct_mult = whole_number(wire.ct_mult);
     if (!ct_val.has_value() || ct_val->raw <= 0 || !ct_mult.has_value()) {
+        return std::nullopt;
+    }
+    // BTC-USDT-SWAP and BTC-USD-SWAP differ ONLY here: ctVal is BTC on the
+    // first and USD on the second, and the numbers look equally plausible.
+    // A row that will not say which is refused rather than assumed linear.
+    if (wire.ct_type == "linear") {
+        base.kind = ContractKind::Linear;
+    } else if (wire.ct_type == "inverse") {
+        base.kind = ContractKind::Inverse;
+    } else {
         return std::nullopt;
     }
     base.contract_value = ct_val->scaled_by(*ct_mult);
