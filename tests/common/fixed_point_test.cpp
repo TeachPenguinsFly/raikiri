@@ -140,5 +140,40 @@ TEST(ParseNumberE9, RefusesWhatWouldOverflowTheRepresentation) {
     EXPECT_FALSE(parse_number_e9("1e-40").has_value());
 }
 
+TEST(MulDiv, HoldsAProductThatDoesNotFitI64) {
+    // 0.5 BTC at 50 000, both e9-scaled: 5e8 * 5e13 = 2.5e22, well past i64,
+    // while the answer 2.5e13 has six decades of headroom. Computing this in
+    // i64 does not merely round — it wraps.
+    EXPECT_EQ(mul_div(500'000'000LL, 50'000'000'000'000LL, k_e9), 25'000'000'000'000LL);
+
+    std::int64_t wrapped = 0;
+    EXPECT_TRUE(__builtin_mul_overflow(500'000'000LL, 50'000'000'000'000LL, &wrapped));
+}
+
+TEST(MulDiv, AgreesWithA128BitReference) {
+    constexpr std::int64_t cases[][3] = {
+        {500'000'000, 50'000'000'000'000, k_e9},      // half a BTC at 50k
+        {100'000'000'000, 100'000, k_e9},             // gate: 100 contracts x 0.0001
+        {100'000'000'000, 10'000'000'000, 50'000'000'000'000}, // deribit inverse
+        {7, 3, 2},
+        {-7, 3, 2},
+        {7, -3, 2},
+        {1, 1, k_e9}, // rounds to zero, and that is the correct answer
+    };
+    for (const auto& c : cases) {
+        const int128_t reference =
+            (static_cast<int128_t>(c[0]) * static_cast<int128_t>(c[1])) / c[2];
+        EXPECT_EQ(mul_div(c[0], c[1], c[2]), static_cast<std::int64_t>(reference))
+            << c[0] << " * " << c[1] << " / " << c[2];
+    }
+}
+
+TEST(MulDiv, TruncatesTowardZeroOnBothSigns) {
+    // Symmetric truncation keeps a long and a short of the same size rounding
+    // by the same magnitude; flooring would bias one of them.
+    EXPECT_EQ(mul_div(7, 1, 2), 3);
+    EXPECT_EQ(mul_div(-7, 1, 2), -3);
+}
+
 } // namespace
 } // namespace raikiri

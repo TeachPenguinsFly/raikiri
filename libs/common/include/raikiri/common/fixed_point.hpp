@@ -113,6 +113,28 @@ struct Notional128 {
     return {static_cast<int128_t>(a) * static_cast<int128_t>(b)};
 }
 
+// a*b/d with the product held in 128 bits and narrowed once, truncating toward
+// zero. Aborts on a zero divisor or a quotient that does not fit i64.
+//
+// The intermediate is what needs the width, not the answer: 0.5 BTC at 50 000
+// is 5e8 * 5e13 = 2.5e22 in e9 operands, past i64, while the result 2.5e13 has
+// six decades of headroom. Folding the scale factors into one precomputed
+// multiplier instead is the trap it exists to avoid — for a sub-unit contract
+// value that multiplier truncates to zero and every product with it is
+// silently zero rather than loudly wrong.
+[[nodiscard]] constexpr std::int64_t
+mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
+    if (d == 0) [[unlikely]] {
+        std::abort();
+    }
+    const int128_t quotient = (static_cast<int128_t>(a) * static_cast<int128_t>(b)) / d;
+    if (quotient > static_cast<int128_t>(std::numeric_limits<std::int64_t>::max()) ||
+        quotient < static_cast<int128_t>(std::numeric_limits<std::int64_t>::min())) [[unlikely]] {
+        std::abort();
+    }
+    return static_cast<std::int64_t>(quotient);
+}
+
 enum class ParseError : std::uint8_t {
     Empty,
     BadChar,
