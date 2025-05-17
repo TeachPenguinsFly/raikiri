@@ -73,6 +73,7 @@ raikiri_add_test(oms_risk_test SRCS oms/risk_test.cpp LIBS raikiri::oms)
 
 raikiri_add_test(pnl_test SRCS portfolio/pnl_test.cpp LIBS raikiri::portfolio)
 raikiri_add_test(position_test SRCS portfolio/position_test.cpp LIBS raikiri::portfolio)
+raikiri_add_test(position_book_test SRCS portfolio/position_book_test.cpp LIBS raikiri::portfolio)
 
 raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)

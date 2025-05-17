@@ -1,6 +1,7 @@
 add_library(raikiri_portfolio STATIC
   src/pnl.cpp
   src/position.cpp
+  src/position_book.cpp
 )
 add_library(raikiri::portfolio ALIAS raikiri_portfolio)
 
