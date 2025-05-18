@@ -175,7 +175,7 @@ public:
 private:
     VenueState* state_;
     net::WsClient* client_{nullptr};
-    Inflater inflater_;
+    net::Inflater inflater_;
 };
 
 // The notification socket: same host and gzip, a different dialect and a
@@ -227,7 +227,7 @@ public:
 private:
     VenueState* state_;
     net::WsClient* client_{nullptr};
-    Inflater inflater_;
+    net::Inflater inflater_;
 };
 
 net::WsConfig socket_config(std::string_view path) {

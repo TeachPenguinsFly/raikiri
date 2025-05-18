@@ -3,7 +3,7 @@
 // BingX swap-market websocket protocol: frame decompression, channel naming
 // and subscription messages.
 //
-// THE quirk, and why this header carries an Inflater: BingX sends every frame
+// THE quirk, and why this venue needs net::Inflater: BingX sends every frame
 // gzip-compressed under a BINARY opcode. libs/net hands the bytes of a binary
 // message to on_message unchanged — it never inspects the opcode — and
 // decompresses nothing, so inflation belongs to the adapter. Past this class a
@@ -16,6 +16,7 @@
 // acknowledged), so a counter stands in for the uuid the examples show.
 
 #include <raikiri/exec/data_client.hpp>
+#include <raikiri/net/inflater.hpp>
 
 #include <array>
 #include <cstdint>
@@ -32,15 +33,6 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-enum class InflateError : std::uint8_t {
-    NotGzip,   // no 1f 8b magic, or a compression method that is not deflate
-    Truncated, // the gzip header runs past the end of the frame
-    TooLarge,  // expands past the ceiling: a decompression bomb, not a quote
-    Corrupt,   // the deflate stream itself does not decode
-};
-
-[[nodiscard]] std::string_view to_string(InflateError err) noexcept;
-
 // BingX serves market data from one host and one path; the config's testnet
 // flag has nothing to select, so it is not consulted.
 [[nodiscard]] std::string_view stream_host() noexcept;
@@ -52,23 +44,6 @@ enum class InflateError : std::uint8_t {
 // @fundingRate, @premiumIndex and @markPriceAndFundingRate are each refused
 // with 80015), and which the adapter serves by polling REST instead.
 [[nodiscard]] std::string_view data_type_suffix(exec::SubKind kind) noexcept;
-
-// Gzip -> the JSON the wire parsers read. The returned view points into this
-// object's buffer and lives only until the next call — on_message's own
-// contract exactly.
-class Inflater {
-public:
-    Inflater();
-    ~Inflater();
-    Inflater(const Inflater&) = delete;
-    Inflater& operator=(const Inflater&) = delete;
-
-    [[nodiscard]] std::expected<std::string_view, InflateError> inflate(std::string_view frame);
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
 
 class Protocol {
 public:

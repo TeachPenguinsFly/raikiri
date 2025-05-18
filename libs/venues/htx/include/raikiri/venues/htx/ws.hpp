@@ -3,7 +3,7 @@
 // HTX USDT-M swap websocket protocol: frame decompression, topic naming and
 // subscription messages.
 //
-// THE quirk, and why this header carries an Inflater: HTX sends every frame
+// THE quirk, and why this venue needs net::Inflater: HTX sends every frame
 // gzip-compressed under a BINARY opcode, on both endpoints and in both
 // directions of the keepalive. libs/net hands the bytes of a binary message
 // to on_message unchanged — it never inspects the opcode — and decompresses
@@ -18,6 +18,7 @@
 // push HTX has.
 
 #include <raikiri/exec/data_client.hpp>
+#include <raikiri/net/inflater.hpp>
 
 #include <array>
 #include <cstdint>
@@ -34,15 +35,6 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-enum class InflateError : std::uint8_t {
-    NotGzip,   // no 1f 8b magic, or a compression method that is not deflate
-    Truncated, // the gzip header runs past the end of the frame
-    TooLarge,  // expands past the ceiling: a decompression bomb, not a quote
-    Corrupt,   // the deflate stream itself does not decode
-};
-
-[[nodiscard]] std::string_view to_string(InflateError err) noexcept;
-
 // HTX serves both sockets from one host; the config's testnet flag has
 // nothing to select, so it is not consulted.
 [[nodiscard]] std::string_view stream_host() noexcept;
@@ -54,24 +46,6 @@ enum class InflateError : std::uint8_t {
 // under these names — including Funding, which lives on the other socket and
 // so goes through funding_subscribe_frame instead.
 [[nodiscard]] std::string_view topic_suffix(exec::SubKind kind) noexcept;
-
-// Gzip -> the JSON the wire parsers read. The returned view points into this
-// object's buffer and lives until the next call, which is exactly on_message's
-// own contract — and makes this the buffer every string_view the parsers hand
-// out points into.
-class Inflater {
-public:
-    Inflater();
-    ~Inflater();
-    Inflater(const Inflater&) = delete;
-    Inflater& operator=(const Inflater&) = delete;
-
-    [[nodiscard]] std::expected<std::string_view, InflateError> inflate(std::string_view frame);
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
 
 class Protocol {
 public:

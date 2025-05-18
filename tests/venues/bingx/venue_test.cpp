@@ -127,14 +127,14 @@ TEST(BingxVenue, PullsThatCannotBeAnsweredReportTerminal) {
 TEST(BingxInflate, RestoresACompressedFrame) {
     // The whole venue rests on this: the socket delivers gzip, and this is the
     // only place it stops being gzip.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto frame = inflater.inflate(load_bytes("ws_depth100.frame.gz"));
     ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
     EXPECT_EQ(*frame, load("ws_depth100.json"));
 }
 
 TEST(BingxInflate, RestoresTheKeepalive) {
-    Inflater inflater;
+    net::Inflater inflater;
     const auto frame = inflater.inflate(load_bytes("ws_ping.frame.gz"));
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(*frame, "Ping");
@@ -143,7 +143,7 @@ TEST(BingxInflate, RestoresTheKeepalive) {
 TEST(BingxInflate, ReusesOneStreamAcrossFrames) {
     // reset() between frames, or the second one decodes against the first's
     // window and produces plausible garbage.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto depth = load_bytes("ws_depth100.frame.gz");
     const auto ping = load_bytes("ws_ping.frame.gz");
     for (int i = 0; i < 3; ++i) {
@@ -160,21 +160,21 @@ TEST(BingxInflate, RefusesWhatIsNotGzip) {
     // If BingX ever sent plain text, silently treating it as a frame would be
     // worse than refusing: the parsers would see nothing and the venue would
     // look quiet rather than broken.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto plain = inflater.inflate(load("ws_book_ticker.json"));
     ASSERT_FALSE(plain.has_value());
-    EXPECT_EQ(plain.error(), InflateError::NotGzip);
-    EXPECT_EQ(inflater.inflate("").error(), InflateError::Truncated);
+    EXPECT_EQ(plain.error(), net::InflateError::NotGzip);
+    EXPECT_EQ(inflater.inflate("").error(), net::InflateError::Truncated);
 }
 
 TEST(BingxInflate, RefusesATruncatedFrame) {
-    Inflater inflater;
+    net::Inflater inflater;
     const auto whole = load_bytes("ws_depth100.frame.gz");
     const auto header_only = inflater.inflate(std::string_view{whole}.substr(0, 12));
     ASSERT_FALSE(header_only.has_value());
     const auto half = inflater.inflate(std::string_view{whole}.substr(0, whole.size() / 2));
     ASSERT_FALSE(half.has_value());
-    EXPECT_EQ(half.error(), InflateError::Corrupt);
+    EXPECT_EQ(half.error(), net::InflateError::Corrupt);
 }
 
 // ------------------------------------------------------------ ws wire ----

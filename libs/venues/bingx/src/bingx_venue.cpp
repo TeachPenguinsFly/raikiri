@@ -168,7 +168,7 @@ public:
 private:
     VenueState* state_;
     net::WsClient* client_{nullptr};
-    Inflater inflater_;
+    net::Inflater inflater_;
 };
 
 class BingxData final : public exec::DataClient {

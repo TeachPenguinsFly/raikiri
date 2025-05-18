@@ -123,7 +123,7 @@ TEST(HtxInflate, RestoresACompressedFrame) {
     // The whole venue rests on this: the socket delivers gzip, and this is the
     // only place it stops being gzip. The fixture is a dynamic-Huffman block,
     // which is what a frame carrying real quotes actually compresses to.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto frame = inflater.inflate(load_bytes("ws_bbo.frame.gz"));
     ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
     EXPECT_EQ(*frame, load("ws_bbo.json"));
@@ -132,7 +132,7 @@ TEST(HtxInflate, RestoresACompressedFrame) {
 TEST(HtxInflate, RestoresTheKeepalive) {
     // Twenty-two bytes compress to a FIXED-Huffman block, so the two gz
     // fixtures between them cover both block types HTX emits.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto frame = inflater.inflate(load_bytes("ws_ping.frame.gz"));
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(*frame, load("ws_ping.json"));
@@ -141,7 +141,7 @@ TEST(HtxInflate, RestoresTheKeepalive) {
 TEST(HtxInflate, ReusesOneStreamAcrossFrames) {
     // reset() between frames, or the second one decodes against the first's
     // window and produces plausible garbage.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto bbo = load_bytes("ws_bbo.frame.gz");
     const auto ping = load_bytes("ws_ping.frame.gz");
     for (int i = 0; i < 3; ++i) {
@@ -158,20 +158,20 @@ TEST(HtxInflate, RefusesWhatIsNotGzip) {
     // If HTX ever sent plain text, treating it as a frame silently would be
     // worse than refusing: the parsers would see nothing and the venue would
     // look quiet rather than broken.
-    Inflater inflater;
+    net::Inflater inflater;
     const auto plain = inflater.inflate(load("ws_bbo.json"));
     ASSERT_FALSE(plain.has_value());
-    EXPECT_EQ(plain.error(), InflateError::NotGzip);
-    EXPECT_EQ(inflater.inflate("").error(), InflateError::Truncated);
+    EXPECT_EQ(plain.error(), net::InflateError::NotGzip);
+    EXPECT_EQ(inflater.inflate("").error(), net::InflateError::Truncated);
 }
 
 TEST(HtxInflate, RefusesATruncatedFrame) {
-    Inflater inflater;
+    net::Inflater inflater;
     const auto whole = load_bytes("ws_bbo.frame.gz");
     ASSERT_FALSE(inflater.inflate(std::string_view{whole}.substr(0, 8)).has_value());
     const auto half = inflater.inflate(std::string_view{whole}.substr(0, whole.size() / 2));
     ASSERT_FALSE(half.has_value());
-    EXPECT_EQ(half.error(), InflateError::Corrupt);
+    EXPECT_EQ(half.error(), net::InflateError::Corrupt);
 }
 
 // ------------------------------------------------------------ ws wire ----
