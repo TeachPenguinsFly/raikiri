@@ -61,7 +61,6 @@ public:
     virtual void submit(const OrderCmd& cmd) noexcept = 0;
     virtual void cancel(const OrderCmd& cmd) noexcept = 0;
 
-    // Native price/qty modify.
     virtual void amend(const OrderCmd& cmd) noexcept { (void)cmd; }
 
     virtual void cancel_batch(std::span<const OrderCmd> cmds) noexcept {

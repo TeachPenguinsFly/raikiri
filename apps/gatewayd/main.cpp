@@ -276,7 +276,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Journal.
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
     auto journal_writer =

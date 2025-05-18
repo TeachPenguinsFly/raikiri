@@ -43,7 +43,6 @@ public:
     RequestBuilder(const RequestBuilder&) = delete;
     RequestBuilder& operator=(const RequestBuilder&) = delete;
 
-    // Order entry.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
@@ -57,7 +56,6 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_all(MarketType market,
                                                                          UnixNanos now);
 
-    // Reconciliation pulls.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(MarketType market,
                                                                           UnixNanos now);
 

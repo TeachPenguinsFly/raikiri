@@ -34,7 +34,6 @@ public:
 
     virtual void poll(UnixNanos now) noexcept { (void)now; }
 
-    // Subscription intents.
     virtual std::expected<void, VenueError> subscribe(SubKind kind, InstrumentId instrument) {
         return unsupported(kind, instrument);
     }

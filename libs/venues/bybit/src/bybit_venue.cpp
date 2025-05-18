@@ -50,7 +50,6 @@ struct VenueState {
     std::unordered_map<InstrumentId, BookSync> books;
     std::uint64_t next_app_ping_ns{0};
 
-    // Venue clock offset.
     std::int64_t clock_offset_ns{0};
 
     [[nodiscard]] UnixNanos venue_now() const {
@@ -207,7 +206,6 @@ std::optional<net::RestResponse> await_response(VenueState& state,
 // Defined below, next to the catalogue loader it shares a transport with.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-// Public market-data socket.
 class PublicHandler final : public net::WsHandler {
 public:
     PublicHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
