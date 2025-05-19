@@ -253,12 +253,12 @@ TEST(BybitMapExecution, FillCarriesEverythingTheFsmNeeds) {
     EXPECT_EQ(event->qty.raw, 12);
     EXPECT_EQ(event->leaves_qty.raw, 0) << "zero leaves is what makes the FSM call it full";
     EXPECT_EQ(event->fee.raw, 5'061'000);
-    EXPECT_EQ(event->liquidity, 1) << "maker";
+    EXPECT_EQ(event->liquidity, Liquidity::Maker);
     EXPECT_EQ(event->exec_id.view(), "7e2ae69c-4edf");
     EXPECT_EQ(event->ts_event.ns, 1'672'364'174'443'000'000ULL);
 
     wire.is_maker = false;
-    EXPECT_EQ(map_execution(wire, table, k_ingest)->liquidity, 2) << "taker";
+    EXPECT_EQ(map_execution(wire, table, k_ingest)->liquidity, Liquidity::Taker);
 }
 
 TEST(BybitMapExecution, InexactFillIsDroppedRatherThanApproximated) {

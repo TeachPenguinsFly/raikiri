@@ -34,6 +34,10 @@ std::string_view side_name(std::uint8_t v) {
     return to_string(static_cast<Side>(v));
 }
 
+std::string_view liquidity_name(std::uint8_t v) {
+    return to_string(static_cast<Liquidity>(v));
+}
+
 // Event → projection status. Deliberately partial: events that need FSM
 // context (Updated, ModifyRejected, CancelRejected, ReconGap) leave the
 // projection status untouched; the event log carries the full story.
@@ -123,10 +127,8 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
             .price_ticks = m.price().value(),
             .qty_lots = m.qty().value(),
             .fee_e9 = m.fee().value(),
-            .liquidity = m.liquidity() == raikiri_journal::types::liquidityEnum::Maker ? "maker"
-                         : m.liquidity() == raikiri_journal::types::liquidityEnum::Taker
-                             ? "taker"
-                             : "unknown",
+            .liquidity = enum_name(
+                m.liquidity(), +[](std::uint8_t v) { return liquidity_name(v); }),
             .ts_event = m.tsEvent().value(),
         });
     }

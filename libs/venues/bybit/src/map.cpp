@@ -218,7 +218,7 @@ map_execution(const WireExecution& wire, const exec::InstrumentTable& table, Uni
     out.type = OrderEventType::Filled;
     out.instrument = base.id;
     out.side = side_from(wire.side);
-    out.liquidity = wire.is_maker ? 1 : 2;
+    out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
     if (!copy_client_id(wire.order_link_id, out.exchange_client_order_id) ||
         !copy_id(wire.order_id, out.exchange_order_id)) {
         return std::nullopt;

@@ -303,7 +303,7 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
         out.leaves_qty =
             QtyLots::from_raw(cum.has_value() && total.has_value() ? *total - *cum : 0);
         out.fee = to_e9(wire.commission);
-        out.liquidity = wire.is_maker ? 1 : 2;
+        out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
         std::array<char, 24> exec_text{};
         if (const auto [stop, ec] =
                 std::to_chars(exec_text.data(), exec_text.data() + exec_text.size(), wire.trade_id);
@@ -383,7 +383,7 @@ std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
     out.price = PriceTicks::from_raw(*price);
     out.qty = QtyLots::from_raw(*qty);
     out.fee = to_e9(wire.commission);
-    out.liquidity = wire.maker ? 1 : 2;
+    out.liquidity = wire.maker ? Liquidity::Maker : Liquidity::Taker;
     std::array<char, 24> text{};
     if (const auto [stop, ec] =
             std::to_chars(text.data(), text.data() + text.size(), wire.trade_id);

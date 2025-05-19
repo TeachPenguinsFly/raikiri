@@ -32,6 +32,18 @@ std::string_view to_string(OrderStatus status) noexcept {
     return "unknown";
 }
 
+std::string_view to_string(Liquidity liquidity) noexcept {
+    switch (liquidity) {
+    case Liquidity::Unknown:
+        return "unknown";
+    case Liquidity::Maker:
+        return "maker";
+    case Liquidity::Taker:
+        return "taker";
+    }
+    return "unknown";
+}
+
 std::string_view to_string(OrderEventType type) noexcept {
     switch (type) {
     case OrderEventType::Initialized:

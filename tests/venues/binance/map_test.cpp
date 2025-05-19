@@ -278,7 +278,7 @@ TEST(BinanceMap, ExecutionTypeDecidesTheEventNotOrderStatus) {
     EXPECT_EQ(event->price.raw, 644'886);
     EXPECT_EQ(event->qty.raw, 4);
     EXPECT_EQ(event->leaves_qty.raw, 0);
-    EXPECT_EQ(event->liquidity, 2) << "m == false means we took liquidity";
+    EXPECT_EQ(event->liquidity, Liquidity::Taker) << "m == false means we took liquidity";
     EXPECT_GT(event->fee.raw, 0);
 }
 
@@ -358,7 +358,7 @@ TEST(BinanceMap, UserTradeBecomesAFillReport) {
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->side, Side::Sell);
     EXPECT_EQ(report->qty.raw, 4);
-    EXPECT_EQ(report->liquidity, 1) << "maker";
+    EXPECT_EQ(report->liquidity, Liquidity::Maker);
     EXPECT_EQ(report->exec_id.view(), "698759");
 }
 

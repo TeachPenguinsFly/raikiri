@@ -6,6 +6,7 @@
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/error.hpp>
 
 #include <expected>
@@ -35,7 +36,7 @@ struct FillReport {
     PriceTicks price{};
     QtyLots qty{};
     FixedE9 fee{};
-    std::uint8_t liquidity{0}; // 0 unknown, 1 maker, 2 taker
+    Liquidity liquidity{Liquidity::Unknown};
     UnixNanos ts_venue{};
 };
 

@@ -115,7 +115,7 @@ TEST(Engine, ClientLimitCrossesBackgroundLiquidity) {
     ASSERT_EQ(r.events.size(), 2U);
     const OrderEvent& e0 = r.events[0];
     EXPECT_EQ(e0.type, OrderEventType::Filled);
-    EXPECT_EQ(e0.liquidity, 2U);
+    EXPECT_EQ(e0.liquidity, Liquidity::Taker);
     EXPECT_EQ(e0.side, Side::Buy);
     EXPECT_EQ(e0.instrument, k_inst);
     EXPECT_EQ(e0.client_order_id, ClientOrderId::make(1, 1));
@@ -183,7 +183,7 @@ TEST(Engine, RestingClientHitByBackgroundMarketGetsMakerFill) {
     ASSERT_EQ(bg.events.size(), 1U);
     const OrderEvent& maker = bg.events[0];
     EXPECT_EQ(maker.type, OrderEventType::Filled);
-    EXPECT_EQ(maker.liquidity, 1U); // maker side
+    EXPECT_EQ(maker.liquidity, Liquidity::Maker);
     EXPECT_EQ(maker.side, Side::Sell);
     EXPECT_EQ(maker.client_order_id, ClientOrderId::make(1, 1));
     EXPECT_EQ(maker.exchange_client_order_id, test_ulid(1));
@@ -319,7 +319,7 @@ TEST(Engine, AmendToCrossingPriceFills) {
     EXPECT_EQ(ra.events[0].type, OrderEventType::Updated);
     EXPECT_EQ(ra.events[0].price, px(102));
     EXPECT_EQ(ra.events[1].type, OrderEventType::Filled);
-    EXPECT_EQ(ra.events[1].liquidity, 2U); // the amended order took liquidity
+    EXPECT_EQ(ra.events[1].liquidity, Liquidity::Taker); // the amend took liquidity
     EXPECT_EQ(ra.events[1].price, px(101));
     EXPECT_EQ(ra.events[1].qty, lots(3));
     EXPECT_EQ(ra.events[1].leaves_qty, lots(2));

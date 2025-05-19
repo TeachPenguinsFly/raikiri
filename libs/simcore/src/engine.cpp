@@ -298,7 +298,7 @@ void Engine::emit_fills(const ClientOrderMeta* taker,
 
         if (taker != nullptr) {
             OrderEvent ev = make_event(*taker, OrderEventType::Filled, now);
-            ev.liquidity = 2;      // taker
+            ev.liquidity = Liquidity::Taker;
             ev.price = fill.price; // executions happen at RESTING prices
             ev.qty = fill.qty;
             ev.leaves_qty = QtyLots::from_raw(taker_left);
@@ -312,7 +312,7 @@ void Engine::emit_fills(const ClientOrderMeta* taker,
                 ClientOrderMeta& maker = maker_it->second;
                 maker.leaves = fill.maker_leaves;
                 OrderEvent ev = make_event(maker, OrderEventType::Filled, now);
-                ev.liquidity = 1; // maker
+                ev.liquidity = Liquidity::Maker;
                 ev.price = fill.price;
                 ev.qty = fill.qty;
                 ev.leaves_qty = fill.maker_leaves;

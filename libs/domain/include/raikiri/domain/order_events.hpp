@@ -42,6 +42,16 @@ enum class OrderEventType : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(OrderEventType type) noexcept;
 
+// Which side of the trade we were on. Fee tiers differ by it, and for a maker
+// strategy it is the metric: a fill tagged Taker is a quote that got lifted.
+enum class Liquidity : std::uint8_t {
+    Unknown = 0, // the venue did not say
+    Maker,
+    Taker,
+};
+
+[[nodiscard]] std::string_view to_string(Liquidity liquidity) noexcept;
+
 struct TransitionError {
     OrderStatus from{};
     OrderEventType event{};
@@ -69,7 +79,7 @@ struct OrderEvent {
     OrderType order_type{OrderType::Limit};
     TimeInForce tif{TimeInForce::Gtc};
     OrderFlags flags{OrderFlags::None};
-    std::uint8_t liquidity{0}; // 0 unknown, 1 maker, 2 taker
+    Liquidity liquidity{Liquidity::Unknown};
     std::uint8_t pad_[2]{};
 
     InstrumentId instrument{};
