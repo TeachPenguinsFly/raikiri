@@ -2,11 +2,11 @@
 
 // Market-data side of a venue adapter.
 //
-// nautilus-derived pattern: one method per subscription kind with a default
-// body that reports "unsupported" — an adapter implements exactly the kinds
-// its venue offers and inherits honest failure for the rest. The gateway
-// core (not the adapter) owns refcounting and resubscribe-on-reconnect;
-// adapters only translate subscribe intents into venue wire messages.
+// One method per subscription kind, each defaulting to a body that reports
+// "unsupported" — an adapter implements exactly the kinds its venue offers and
+// inherits honest failure for the rest. The gateway core (not the adapter)
+// owns refcounting and resubscribe-on-reconnect; adapters only translate
+// subscribe intents into venue wire messages.
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>

@@ -90,9 +90,8 @@ not exist. macOS covers arm64 but only under ASan, which says nothing about
 ordering.
 
 **2. Instruction counts, not wall clock.** `bench/` numbers are wall-clock and
-therefore ungateable on shared runners — nautilus_trader's own performance
-workflow runs its benchmarks on a nightly push and asserts nothing, for this
-reason. Cachegrind instruction counts are deterministic to a fraction of a
+therefore ungateable on shared runners: a CI machine's neighbours move the
+number more than a real regression would. Cachegrind instruction counts are deterministic to a fraction of a
 percent on any machine, so a small set of named hot paths (seqlock read, ring
 push/pop, `parse_decimal_e9`, one FSM transition) can be gated at ±2% and will
 report a real regression instead of runner noise.
