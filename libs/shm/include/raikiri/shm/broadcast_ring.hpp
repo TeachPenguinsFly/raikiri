@@ -8,7 +8,7 @@
 //   exec_events -> trading halt for the venue + REST reconciliation (sized so
 //                  this never fires; the policy exists so overflow is loud)
 //
-// Per-slot versioning (Disruptor-style): item with 1-based sequence s lives
+// A seqlock per slot: item with 1-based sequence s lives
 // in slot (s-1) & mask with version 2s when complete, 2s-1 while being
 // written. A reader validates the version, word-copies the payload with
 // relaxed atomics (see seqlock_table.hpp for why), and re-validates. Any

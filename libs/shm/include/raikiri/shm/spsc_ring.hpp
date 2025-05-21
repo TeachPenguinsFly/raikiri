@@ -2,12 +2,22 @@
 
 // Bounded lossless SPSC ring for shared memory.
 //
-// Layout derives from rigtorp::SPSCQueue (MIT, credited in NOTICE): head and
-// tail on separate padded lines, and each side keeps a *cached* copy of the
-// other side's index to avoid touching its cache line on every operation.
-// The twist for shared memory: those caches are process-private state, so
-// they live in the Producer/Consumer handles, not in the shared struct —
-// two processes must never share a "private" cache.
+// Two standard defences against cache-line traffic, and one consequence of
+// living in shared memory:
+//
+// - head and tail sit on separate padded lines, so the producer's store never
+//   invalidates the line the consumer is reading;
+// - each side keeps a cached copy of the other's index and only re-reads the
+//   real one when the cache says the ring is full or empty, which takes the
+//   other side's line out of the common path entirely;
+// - those caches are process-private, so they live in the Producer/Consumer
+//   handles and NOT in the shared struct. A "private" field inside a segment
+//   two processes map is not private, and one that both sides write is a
+//   correctness bug, not a slow path.
+//
+// Counters are monotonic and never wrap; the slot is (counter & mask), which
+// needs N to be a power of two and makes "full" a subtraction rather than a
+// comparison against a wrapped index.
 
 #include <raikiri/common/cacheline.hpp>
 
