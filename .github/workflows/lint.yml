@@ -63,7 +63,11 @@ jobs:
 
       - name: Strategies see domain + strategy API only
         run: |
-          allowed='raikiri/(domain|strategy|strategies|common)/'
+          # portfolio is on the list because it links domain alone: it holds no
+          # transport and no venue knowledge, so it cannot leak either into a
+          # strategy. The rule being protected is that a strategy must not know
+          # which venue it trades or that events crossed a process boundary.
+          allowed='raikiri/(domain|strategy|strategies|common|portfolio)/'
           bad=$(grep -rnE '#[[:space:]]*include[[:space:]]*[<"]raikiri/' \
                   libs/strategy libs/strategies | grep -vE "$allowed" || true)
           if [ -n "$bad" ]; then

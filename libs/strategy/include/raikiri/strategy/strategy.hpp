@@ -7,6 +7,7 @@
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/portfolio/position.hpp>
 
 #include <cstdint>
 #include <expected>
@@ -47,6 +48,17 @@ public:
     [[nodiscard]] virtual std::optional<Bbo> bbo(InstrumentId instrument) const noexcept = 0;
 
     [[nodiscard]] virtual const Instrument* instrument(InstrumentId id) const noexcept = 0;
+
+    // The caller's own position, null before its first fill. The kernel
+    // supplies the strategy_id, so a strategy cannot read another's book.
+    [[nodiscard]] virtual const portfolio::Position*
+    position(InstrumentId instrument) const noexcept = 0;
+
+    // Deliberately takes an explicit mark rather than defaulting to the mid:
+    // which price marks a position is a strategy decision, and a stored
+    // unrealized number can only answer "as of when?" wrongly.
+    [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument,
+                                             PriceTicks mark) const noexcept = 0;
 
     virtual void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept = 0;
 

@@ -1,6 +1,6 @@
 // strategyd — the strategy kernel (demo wiring).
 //
-//   strategyd [--venue=<name>] [--duration <sec>]   (default sim, 10s)
+//   strategyd [--venue=<name>] [--duration <sec>] [--strategy-id=<n>]
 //
 // Attaches a gateway's segment, adopts the instrument numbering it published,
 // runs a strategy through the OMS and prints the latency table at exit — the
@@ -17,6 +17,7 @@
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
+#include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
@@ -152,6 +153,19 @@ public:
         return ch_.catalogue->find(id);
     }
 
+    const portfolio::Position* position(InstrumentId id) const noexcept override {
+        return positions.find({ids_->strategy_id(), id});
+    }
+
+    FixedE9 unrealized(InstrumentId id, PriceTicks mark) const noexcept override {
+        const auto* held = position(id);
+        const auto* listed = instrument(id);
+        if (held == nullptr || listed == nullptr) {
+            return FixedE9::from_raw(0);
+        }
+        return portfolio::unrealized_pnl(base_of(*listed), *held, mark);
+    }
+
     void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept override {
         const auto deadline = clock_->mono().ns + delay_ns;
         for (auto& timer : timers) {
@@ -172,6 +186,7 @@ public:
     };
 
     std::vector<Timer> timers;
+    portfolio::PositionBook positions;
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
     observ::Histogram submit_hist;
 
@@ -209,12 +224,18 @@ private:
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
     std::string venue_name = "sim";
+    // Names this strategy's book and rides in the top 16 bits of every
+    // ClientOrderId, so it reaches the ledger without extra plumbing. Two
+    // strategies that share it net into one position; distinct ones do not.
+    std::uint16_t strategy_id = 1;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
         } else if (arg.starts_with("--venue=")) {
             venue_name = arg.substr(8);
+        } else if (arg.starts_with("--strategy-id=")) {
+            strategy_id = static_cast<std::uint16_t>(std::atoi(arg.substr(14).data()));
         }
     }
     std::signal(SIGINT, on_signal);
@@ -255,7 +276,7 @@ int main(int argc, char** argv) {
 
     oms::OrderStore store{4096};
     oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000)}};
-    oms::IdGen ids{1, /*seed=*/0x7A10ULL};
+    oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
     KernelContext ctx{*channels, store, risk, ids, *journal_writer, clock};
 
     const auto instrument_count = channels->catalogue->size();
@@ -286,7 +307,8 @@ int main(int argc, char** argv) {
     observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
     std::uint64_t fills = 0;
-    std::uint64_t bad_transitions = 0; // FSM refusals: must stay 0
+    std::uint64_t bad_transitions = 0;    // FSM refusals: must stay 0
+    std::uint64_t position_refusals = 0;  // position book full: must stay 0
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
@@ -308,12 +330,29 @@ int main(int argc, char** argv) {
                 rt_hist.record(clock.mono().ns - it->second);
                 ctx.inflight_.erase(it);
             }
-            if (event.type == OrderEventType::Filled) {
-                ++fills;
+            // Read leaves BEFORE the FSM moves it: the fill quantity is the
+            // drop in leaves, never the event's own qty. A venue that resends
+            // a fill notification then derives zero and moves no money.
+            QtyLots prev_leaves = QtyLots::from_raw(0);
+            if (const auto* order = store.find(event.client_order_id); order != nullptr) {
+                prev_leaves = order->leaves();
             }
             if (const auto applied = store.apply_event(event);
                 !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
                 ++bad_transitions;
+            }
+            if (event.type == OrderEventType::Filled) {
+                ++fills;
+                const auto delta =
+                    QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
+                const auto* listed = ctx.instrument(event.instrument);
+                if (listed != nullptr && delta.raw > 0) {
+                    if (const auto applied =
+                            ctx.positions.on_fill(base_of(*listed), event, delta);
+                        !applied.has_value()) {
+                        ++position_refusals;
+                    }
+                }
             }
             active.on_order_event(ctx, event);
         }
@@ -375,10 +414,46 @@ int main(int argc, char** argv) {
     row("tick-to-callback", tick);
     row("submit-call", submit);
     row("order-round-trip", rt);
-    fmt::print("fills={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}\n",
+    fmt::print("fills={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}  "
+               "position-refusals={}\n",
                fills,
                store.open_count(),
                exec_overruns,
-               bad_transitions);
+               bad_transitions,
+               position_refusals);
+
+    if (ctx.positions.size() > 0) {
+        fmt::print("\n{:<16}{:>12}{:>16}{:>16}{:>16}\n",
+                   "instrument",
+                   "net (lots)",
+                   "avg entry",
+                   "realized",
+                   "unrealized");
+        char buf[32]{};
+        for (const auto& position : ctx.positions.all()) {
+            const auto* listed = ctx.instrument(position.key().instrument);
+            if (listed == nullptr) {
+                continue;
+            }
+            const auto& base = base_of(*listed);
+            // Marked at the last BBO mid; an unrealized number is only ever as
+            // good as the price the caller marks it against.
+            auto mark = PriceTicks::from_raw(0);
+            if (const auto bbo = ctx.bbo(position.key().instrument); bbo.has_value()) {
+                mark = PriceTicks::from_raw((bbo->bid.raw + bbo->ask.raw) / 2);
+            }
+            const auto fixed = [&buf](FixedE9 v) -> std::string {
+                return v.is_undef() ? std::string{"-"}
+                                    : std::string{format_e9(v, buf, sizeof(buf))};
+            };
+            fmt::print("{:<16}{:>12}{:>16}{:>16}{:>16}\n",
+                       base.exchange_symbol.view(),
+                       position.qty().raw,
+                       fixed(position.avg_entry_price(base)),
+                       fixed(position.net_realized()),
+                       mark.raw == 0 ? std::string{"-"}
+                                     : fixed(portfolio::unrealized_pnl(base, position, mark)));
+        }
+    }
     return 0;
 }
