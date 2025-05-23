@@ -78,4 +78,19 @@ private:
     std::unordered_map<ExchangeOrderId, std::size_t> by_exchange_;
 };
 
+// Quantity still working on one instrument, split by side. Scanned rather than
+// counted incrementally: an incremental counter needs six call sites to stay in
+// step and a rebuild path for when one is missed, while a scan over at most
+// max_open_orders entries costs ~100ns and cannot drift.
+//
+// The store retires terminal orders on arrival, so everything it holds is
+// working — including Submitted orders the venue has not acknowledged, which
+// is the point: an order on the wire can still fill.
+struct WorkingLots {
+    QtyLots buy{QtyLots::from_raw(0)};
+    QtyLots sell{QtyLots::from_raw(0)};
+};
+
+[[nodiscard]] WorkingLots working_lots(const OrderStore& store, InstrumentId instrument) noexcept;
+
 } // namespace raikiri::oms

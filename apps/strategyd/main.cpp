@@ -79,7 +79,14 @@ public:
         cmd.qty = order.qty;
         cmd.ts_created = clock_->wall();
 
-        if (!risk_->check(cmd, store_->open_count()).has_value()) {
+        oms::Exposure exposure{.open_orders = store_->open_count()};
+        if (const auto* held = position(order.instrument); held != nullptr) {
+            exposure.position_lots = held->qty();
+        }
+        const auto working = oms::working_lots(*store_, order.instrument);
+        exposure.working_buy_lots = working.buy;
+        exposure.working_sell_lots = working.sell;
+        if (!risk_->check(cmd, exposure).has_value()) {
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {

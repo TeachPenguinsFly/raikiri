@@ -114,4 +114,16 @@ void OrderStore::retire(std::size_t slot) noexcept {
     free_.push_back(slot);
 }
 
+WorkingLots working_lots(const OrderStore& store, InstrumentId instrument) noexcept {
+    WorkingLots out{};
+    store.for_each_open([&](const Order& order) {
+        if (order.instrument() != instrument) {
+            return;
+        }
+        auto& side = order.side() == Side::Buy ? out.buy : out.sell;
+        side = QtyLots::from_raw(detail::checked_add(side.raw, order.leaves().raw));
+    });
+    return out;
+}
+
 } // namespace raikiri::oms

@@ -449,5 +449,74 @@ TEST(IdGen, EntropySeededCtorProducesValidIds) {
     EXPECT_EQ(gen.next_client_id().strategy_id(), 5);
 }
 
+
+TEST(WorkingLots, SplitsBySideAndSkipsOtherInstruments) {
+    constexpr auto other = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
+    OrderStore store{16};
+    IdGen gen{1};
+
+    auto buy = make_cmd(gen.next_client_id(), 10);
+    ASSERT_TRUE(store.create(buy, gen.next_exchange_client_id(UnixNanos{1})).has_value());
+
+    auto sell = make_cmd(gen.next_client_id(), 4);
+    sell.side = Side::Sell;
+    ASSERT_TRUE(store.create(sell, gen.next_exchange_client_id(UnixNanos{1})).has_value());
+
+    auto elsewhere = make_cmd(gen.next_client_id(), 99);
+    elsewhere.instrument = other;
+    ASSERT_TRUE(store.create(elsewhere, gen.next_exchange_client_id(UnixNanos{1})).has_value());
+
+    const auto lots = working_lots(store, k_instrument);
+    EXPECT_EQ(lots.buy.raw, 10);
+    EXPECT_EQ(lots.sell.raw, 4);
+    EXPECT_EQ(working_lots(store, other).buy.raw, 99);
+}
+
+TEST(WorkingLots, CountsWhatIsLeftAfterAPartialFill) {
+    // The risk gate needs the quantity that can still fill, not the original.
+    OrderStore store{16};
+    IdGen gen{1};
+    const auto cid = gen.next_client_id();
+    const auto ecoid = gen.next_exchange_client_id(UnixNanos{1});
+    ASSERT_TRUE(store.create(make_cmd(cid, 10), ecoid).has_value());
+
+    // Initialized has no Accepted arm: the local Submitted transition comes
+    // first, exactly as the kernel applies it when the command hits the ring.
+    for (const auto type : {OrderEventType::Submitted, OrderEventType::Accepted}) {
+        OrderEvent event{};
+        event.type = type;
+        event.client_order_id = cid;
+        event.exchange_client_order_id = ecoid;
+        event.leaves_qty = QtyLots::from_raw(10);
+        ASSERT_TRUE(store.apply_event(event).has_value());
+    }
+
+    OrderEvent partial{};
+    partial.type = OrderEventType::Filled;
+    partial.client_order_id = cid;
+    partial.exchange_client_order_id = ecoid;
+    partial.qty = QtyLots::from_raw(4);
+    partial.leaves_qty = QtyLots::from_raw(6);
+    ASSERT_TRUE(store.apply_event(partial).has_value());
+
+    EXPECT_EQ(working_lots(store, k_instrument).buy.raw, 6);
+}
+
+TEST(WorkingLots, TerminalOrdersAreGoneFromTheCount) {
+    OrderStore store{16};
+    IdGen gen{1};
+    const auto cid = gen.next_client_id();
+    const auto ecoid = gen.next_exchange_client_id(UnixNanos{1});
+    ASSERT_TRUE(store.create(make_cmd(cid, 10), ecoid).has_value());
+
+    OrderEvent canceled{};
+    canceled.type = OrderEventType::Canceled;
+    canceled.client_order_id = cid;
+    canceled.exchange_client_order_id = ecoid;
+    ASSERT_TRUE(store.apply_event(canceled).has_value());
+
+    EXPECT_EQ(working_lots(store, k_instrument).buy.raw, 0);
+}
+
 } // namespace
 } // namespace raikiri::oms
