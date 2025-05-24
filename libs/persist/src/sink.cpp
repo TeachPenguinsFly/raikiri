@@ -115,6 +115,29 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.ts_event});
     }
 
+    for (const auto& r : batch.pnl_increments) {
+        // DO NOTHING, never DO UPDATE: the venue's own (venue, exec_id) already
+        // decided this increment, so a replay that sees it twice must be a
+        // no-op rather than a recomputation from whatever the instrument table
+        // says today.
+        tx.exec("INSERT INTO raikiri.pnl_increments (source_id, account_id, kind, amount_e9,"
+                " ts_event, strategy_id, venue, exchange_symbol, instrument_id, client_order_id,"
+                " settle_side)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"
+                " ON CONFLICT (source_id) DO NOTHING",
+                pqxx::params{r.source_id,
+                             r.venue,
+                             r.kind,
+                             r.amount_e9,
+                             r.ts_event,
+                             static_cast<std::int16_t>(r.strategy_id),
+                             r.venue,
+                             r.exchange_symbol,
+                             r.instrument_id,
+                             r.client_order_id,
+                             r.settle_side});
+    }
+
     for (const auto& r : batch.funding) {
         tx.exec("INSERT INTO raikiri.funding_observations (instrument_id, ts_event, rate_e9,"
                 " predicted_e9, mark_ticks, next_funding_ts, interval_s)"

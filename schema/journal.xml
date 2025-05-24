@@ -32,6 +32,7 @@
     <type name="clientOrderId" primitiveType="uint64" description="packed strategy|seq"/>
     <type name="exchangeClientOrderId" primitiveType="char" length="26" description="ULID"/>
     <type name="venueText" primitiveType="char" length="40" description="venue-minted id, space-padded"/>
+    <type name="symbolText" primitiveType="char" length="24" description="venue wire symbol, space-padded"/>
 
     <enum name="venueIdEnum" encodingType="uint8">
       <validValue name="Binance">1</validValue>
@@ -90,6 +91,17 @@
       <validValue name="Disconnected">1</validValue>
       <validValue name="AuthFailed">2</validValue>
       <validValue name="Resubscribed">3</validValue>
+    </enum>
+
+    <enum name="pnlKindEnum" encodingType="uint8">
+      <validValue name="Realized">0</validValue>
+      <validValue name="Fee">1</validValue>
+      <validValue name="Funding">2</validValue>
+    </enum>
+
+    <enum name="settleSideEnum" encodingType="uint8">
+      <validValue name="Quote">0</validValue>
+      <validValue name="Base">1</validValue>
     </enum>
 
     <enum name="liquidityEnum" encodingType="uint8">
@@ -180,5 +192,25 @@
     <field name="maxNs" id="6" type="uint64"/>
     <field name="count" id="7" type="uint64"/>
     <field name="tsInit" id="8" type="timestampNs"/>
+  </sbe:message>
+  <!-- One increment of realized money. Appended by strategyd as fills realize,
+       NOT re-derived downstream: a re-derivation depends on instrument data
+       that can change under it, and the ledger has to record what the trading
+       process actually computed.
+
+       symbol travels as text beside the packed instrument id on purpose. The
+       symbol half of that id is a catalogue load-order index, so it means a
+       different instrument after a delisting shifts the list; the venue's own
+       spelling does not move. -->
+  <sbe:message name="PnlIncrementMsg" id="8" description="Append-only money increment">
+    <field name="kind" id="1" type="pnlKindEnum"/>
+    <field name="settleSide" id="2" type="settleSideEnum"/>
+    <field name="strategyId" id="3" type="uint16"/>
+    <field name="instrument" id="4" type="instrumentId"/>
+    <field name="symbol" id="5" type="symbolText"/>
+    <field name="clientOrderIdField" id="6" type="clientOrderId"/>
+    <field name="execIdField" id="7" type="venueText"/>
+    <field name="amount" id="8" type="fixedE9"/>
+    <field name="tsEvent" id="9" type="timestampNs"/>
   </sbe:message>
 </sbe:messageSchema>

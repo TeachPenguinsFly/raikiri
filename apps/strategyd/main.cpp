@@ -198,6 +198,35 @@ public:
     observ::Histogram submit_hist;
 
 private:
+public:
+    // The ledger is written HERE, by the process that did the arithmetic, and
+    // is never re-derived downstream from the execution rows: a re-derivation
+    // depends on instrument data that can change under it, so it would answer
+    // a question about today with numbers from today rather than from the fill.
+    void journal_pnl(const OrderEvent& event,
+                     const InstrumentBase& base,
+                     raikiri_journal::types::pnlKindEnum kind,
+                     FixedE9 amount) noexcept {
+        if (amount.raw == 0 || amount.is_undef()) {
+            return; // an increment of nothing is not a fact worth keeping
+        }
+        (void)schema::append_msg<msgs::PnlIncrementMsg>(*journal_, event.ts_event.ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.kind(kind);
+            m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
+                             ? jt::settleSideEnum::Base
+                             : jt::settleSideEnum::Quote);
+            m.strategyId(event.client_order_id.strategy_id());
+            m.instrument(jt::instrumentId{event.instrument.packed});
+            m.symbol().assign_range(base.exchange_symbol.view());
+            m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
+            m.execIdField().assign_range(event.exec_id.view());
+            m.amount(jt::fixedE9{amount.raw});
+            m.tsEvent(jt::timestampNs{event.ts_event.ns});
+        });
+    }
+
+private:
     void journal_cmd(const OrderCmd& cmd) noexcept {
         (void)schema::append_msg<msgs::OrderCmdMsg>(*journal_, cmd.ts_created.ns, [&](auto m) {
             namespace jt = raikiri_journal::types;
@@ -354,10 +383,18 @@ int main(int argc, char** argv) {
                     QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
                 const auto* listed = ctx.instrument(event.instrument);
                 if (listed != nullptr && delta.raw > 0) {
-                    if (const auto applied =
-                            ctx.positions.on_fill(base_of(*listed), event, delta);
-                        !applied.has_value()) {
+                    const auto& base = base_of(*listed);
+                    const auto applied = ctx.positions.on_fill(base, event, delta);
+                    if (!applied.has_value()) {
                         ++position_refusals;
+                    } else {
+                        namespace jt = raikiri_journal::types;
+                        // One increment per kind per exec_id: a flipped fill is
+                        // still ONE realizing event to the venue, and the
+                        // ledger's grain has to match the grain every
+                        // reconciliation query joins on.
+                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Realized, applied->realized);
+                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, event.fee);
                     }
                 }
             }

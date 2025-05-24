@@ -162,7 +162,9 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     const auto dir = build_journal("pg");
 
     PgSink sink{dsn};
-    sink.exec_file(std::string{RAIKIRI_SQL_DIR} + "/migrations/0001_init.sql");
+    for (const auto* migration : {"/migrations/0001_init.sql", "/migrations/0002_positions.sql"}) {
+        sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
+    }
 
     const auto run_once = [&] {
         auto reader = journal::JournalReader::open_after(dir, "journal",

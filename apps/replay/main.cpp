@@ -52,6 +52,17 @@ void print_frame(const FrameView& frame) {
                    instrument_str(m.instrument().value()),
                    static_cast<int>(sbepp::to_underlying(m.kind())),
                    m.clientOrderIdField().value(), m.price().value(), m.qty().value());
+    } else if (frame.schema_id == raikiri::schema::message_id<msgs::PnlIncrementMsg>()) {
+        const auto m = raikiri::schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
+        // Fixed SBE char fields are NUL- or space-padded; trimming only one of
+        // the two leaves the other in the stream and the output stops being text.
+        const std::string_view raw{m.symbol().data(), m.symbol().size()};
+        const auto end = raw.find_last_not_of(std::string_view{"\0 ", 2});
+        fmt::print("{}PNL   {} kind={} strat={} amount={} settle={}\n", head,
+                   end == std::string_view::npos ? std::string_view{} : raw.substr(0, end + 1),
+                   static_cast<int>(sbepp::to_underlying(m.kind())), m.strategyId().value(),
+                   m.amount().value(),
+                   static_cast<int>(sbepp::to_underlying(m.settleSide())));
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::FundingMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::FundingMsg>(frame.payload);
         fmt::print("{}FUND  {} rate={} pred={} next={}\n", head,

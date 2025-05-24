@@ -38,6 +38,19 @@ std::string_view liquidity_name(std::uint8_t v) {
     return to_string(static_cast<Liquidity>(v));
 }
 
+std::string_view pnl_kind_name(raikiri_journal::types::pnlKindEnum kind) {
+    using K = raikiri_journal::types::pnlKindEnum;
+    switch (kind) {
+    case K::Realized:
+        return "realized";
+    case K::Fee:
+        return "fee";
+    case K::Funding:
+        return "funding";
+    }
+    return "realized";
+}
+
 // Event → projection status. Deliberately partial: events that need FSM
 // context (Updated, ModifyRejected, CancelRejected, ReconGap) leave the
 // projection status untouched; the event log carries the full story.
@@ -139,6 +152,24 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
 void map_frame(const journal::FrameView& frame, RowBatch& batch) {
     if (frame.schema_id == schema::message_id<msgs::OrderEventMsg>()) {
         map_order_event(frame, batch);
+    } else if (frame.schema_id == schema::message_id<msgs::PnlIncrementMsg>()) {
+        const auto m = schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
+        const auto venue = venue_of(m.instrument().value());
+        const auto kind = pnl_kind_name(m.kind());
+        const auto exec_id = trim_fixed(m.execIdField());
+        batch.pnl_increments.push_back({
+            .source_id = std::string{kind} + ":" + venue + ":" + exec_id,
+            .kind = std::string{kind},
+            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base"
+                                                                                         : "quote",
+            .strategy_id = m.strategyId().value(),
+            .venue = venue,
+            .exchange_symbol = trim_fixed(m.symbol()),
+            .instrument_id = m.instrument().value(),
+            .client_order_id = m.clientOrderIdField().value(),
+            .amount_e9 = m.amount().value(),
+            .ts_event = m.tsEvent().value(),
+        });
     } else if (frame.schema_id == schema::message_id<msgs::FundingMsg>()) {
         const auto m = schema::view_msg<msgs::FundingMsg>(frame.payload);
         batch.funding.push_back({
