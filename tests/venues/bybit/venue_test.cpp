@@ -103,5 +103,13 @@ TEST_F(BybitVenue, StopIsIdempotent) {
     SUCCEED() << "teardown calls stop more than once";
 }
 
+
+TEST(BybitCaps, ClaimsThePullsItImplements) {
+    // The reconciler reads this row instead of calling and guessing from an
+    // empty vector. Bybit answers, so it says so.
+    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).position_pull);
+    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).fill_pull);
+}
+
 } // namespace
 } // namespace raikiri::venues::bybit

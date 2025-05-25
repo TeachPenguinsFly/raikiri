@@ -86,9 +86,12 @@ TEST(KrakenVenue, OrderEntryRefusesPermanently) {
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
 
-    // Reconciliation pulls answer empty rather than failing: there is nothing
-    // of ours here, which is different from being unable to ask.
-    EXPECT_TRUE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
+    // A pull this adapter cannot perform must SAY so. Answering with an empty
+    // vector would be indistinguishable from "the venue holds nothing of ours",
+    // and a reconciler reading it that way concludes we are flat when we are not.
+    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
+    EXPECT_FALSE(exec::caps_of(VenueId::Kraken).position_pull);
 }
 
 TEST(KrakenVenue, TestnetIsRefusedRatherThanRedirectedToProduction) {

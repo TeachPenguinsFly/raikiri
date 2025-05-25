@@ -300,12 +300,12 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos) override {
-        return std::vector<exec::FillReport>{};
+        return std::unexpected{exec::not_implemented("Kraken reconciliation pulls")};
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType) override {
-        return std::vector<exec::PositionReport>{};
+        return std::unexpected{exec::not_implemented("Kraken reconciliation pulls")};
     }
 
 private:

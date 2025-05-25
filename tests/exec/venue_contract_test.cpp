@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace raikiri::exec {
@@ -175,6 +176,24 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
         EXPECT_GE(caps.max_client_order_id_len, k_min_client_order_id_len)
             << to_string(static_cast<VenueId>(v));
     }
+}
+
+TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
+    // The caps row is what the reconciler consults before calling. If a venue
+    // claims a pull it has not implemented, the reconciler asks and gets a
+    // refusal it did not plan for; if it hides one it has, reconciliation
+    // silently never runs. Either way the row and the adapter must agree, and
+    // exactly two venues have order entry live today.
+    std::vector<std::string_view> claiming;
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        if (caps_of(id).position_pull) {
+            claiming.push_back(to_string(id));
+        }
+        EXPECT_EQ(caps_of(id).position_pull, caps_of(id).fill_pull)
+            << to_string(id) << ": a venue that can report positions can report fills";
+    }
+    EXPECT_EQ(claiming, (std::vector<std::string_view>{"binance", "bybit"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {

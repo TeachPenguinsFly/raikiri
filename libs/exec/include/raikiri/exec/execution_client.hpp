@@ -47,6 +47,12 @@ struct PositionReport {
     UnixNanos ts_venue{};
 };
 
+// An adapter that does not implement a pull must SAY SO. An empty vector is a
+// legitimate answer meaning "flat", and a reconciler cannot tell the two apart:
+// read the wrong way it concludes the venue reports no position while we hold
+// one, and acts on it.
+[[nodiscard]] VenueError not_implemented(std::string_view what) noexcept;
+
 class ExecutionClient {
 public:
     ExecutionClient() = default;

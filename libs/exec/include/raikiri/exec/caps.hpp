@@ -34,6 +34,13 @@ struct VenueCaps {
     bool native_post_only{false};  // venue-enforced maker-only
     bool book_checksum{false};     // venue pushes book checksums (okx-style)
 
+    // Whether the reconciliation pulls are implemented. Default false, and the
+    // reconciler consults this BEFORE the call: without it, an adapter that
+    // answers "no positions" and an adapter that cannot answer at all look
+    // identical, and the reconciler reads the second as the first.
+    bool position_pull{false};
+    bool fill_pull{false};
+
     UserStreamModel user_stream{UserStreamModel::None};
     std::uint8_t max_client_order_id_len{0};
     std::uint32_t headline_order_rate_per_s{0}; // informative, not a limiter

@@ -1,4 +1,5 @@
 #include <raikiri/exec/venue.hpp>
+#include <raikiri/exec/execution_client.hpp>
 
 #include <array>
 
@@ -49,6 +50,10 @@ std::string_view to_string(SubKind kind) noexcept {
         return "kline";
     }
     return "unknown";
+}
+
+VenueError not_implemented(std::string_view what) noexcept {
+    return VenueError::make(ErrorClass::Terminal, 0, what);
 }
 
 } // namespace raikiri::exec
