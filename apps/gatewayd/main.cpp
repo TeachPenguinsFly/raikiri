@@ -15,6 +15,7 @@
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
+#include <raikiri/exec/reconcile.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -46,6 +47,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -108,6 +110,15 @@ public:
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
         ++counts_.order_events;
+        // Netted per instrument, the way the venue sees it: the venue has no
+        // idea our book is split by strategy, so a comparison against its
+        // report has to be against the sum. Quantity only — cost basis lives
+        // in strategyd and is never reconciled against a venue anyway.
+        if (event.type == raikiri::OrderEventType::Filled) {
+            const auto signed_qty = event.side == raikiri::Side::Buy ? event.qty.raw
+                                                                     : -event.qty.raw;
+            net_qty_[event.instrument.packed] += signed_qty;
+        }
         ch_.exec_events->publish({event});
         (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
             *journal_, event.ts_init.ns, [&](auto m) {
@@ -130,6 +141,15 @@ public:
                 m.tsEvent(jt::timestampNs{event.ts_event.ns});
                 m.tsInit(jt::timestampNs{event.ts_init.ns});
             });
+    }
+
+    [[nodiscard]] raikiri::QtyLots net_qty(raikiri::InstrumentId id) const noexcept {
+        const auto it = net_qty_.find(id.packed);
+        return raikiri::QtyLots::from_raw(it == net_qty_.end() ? 0 : it->second);
+    }
+
+    [[nodiscard]] const std::unordered_map<std::uint64_t, std::int64_t>& net_qty() const noexcept {
+        return net_qty_;
     }
 
     struct Counts {
@@ -155,6 +175,7 @@ public:
     }
 
 private:
+    std::unordered_map<std::uint64_t, std::int64_t> net_qty_;
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
     std::uint64_t md_seq_{0};
@@ -162,6 +183,73 @@ private:
 };
 
 } // namespace
+
+// A pull every 30s, and once at startup. Not a hot path: this is the slow,
+// authoritative check that the fast path is still telling the truth.
+constexpr std::uint64_t k_recon_interval_ns = 30ULL * 1'000'000'000ULL;
+
+// Compares what this gateway has published against what the venue says it
+// holds. Quantity only: the venue is authoritative on whether a position
+// exists and never on what it cost, so nothing here writes back a cost basis.
+void reconcile(const raikiri::exec::VenueAdapter& adapter,
+               const ShmSink& sink,
+               raikiri::MarketType market) {
+    static bool announced = false;
+    const bool can_report = adapter.caps.position_pull;
+    if (!can_report) {
+        if (!announced) {
+            // Said once, at start, and never again: a venue that cannot answer
+            // is a standing condition, not an event, and repeating it every
+            // 30s would train an operator to ignore the line that matters.
+            announced = true;
+            fmt::print("gatewayd[{}]: position reconciliation unavailable for this venue\n",
+                       raikiri::to_string(adapter.caps.venue));
+        }
+        return;
+    }
+
+    const auto reports = adapter.execution->position_reports(market);
+    std::unordered_map<std::uint64_t, raikiri::exec::PositionReport> by_instrument;
+    if (reports.has_value()) {
+        for (const auto& report : *reports) {
+            by_instrument[report.instrument.packed] = report;
+        }
+    }
+
+    for (const auto& [packed, local] : sink.net_qty()) {
+        std::optional<raikiri::exec::PositionReport> report;
+        if (const auto it = by_instrument.find(packed); it != by_instrument.end()) {
+            report = it->second;
+        }
+        const auto result = raikiri::exec::reconcile_position(
+            reports.has_value(), report, raikiri::QtyLots::from_raw(local));
+        if (result.verdict == raikiri::exec::ReconVerdict::Agree) {
+            continue;
+        }
+        fmt::print(stderr,
+                   "gatewayd[{}]: RECON {} instrument={:#x} local={} venue={} — {}\n",
+                   raikiri::to_string(adapter.caps.venue),
+                   raikiri::exec::to_string(result.verdict),
+                   packed,
+                   result.local_qty.raw,
+                   result.venue_qty.raw,
+                   result.detail);
+    }
+
+    // A position on the venue that this gateway never published is the one
+    // that goes unwatched: an orphan from a previous process generation.
+    for (const auto& [packed, report] : by_instrument) {
+        if (sink.net_qty().contains(packed) || report.net_qty.raw == 0) {
+            continue;
+        }
+        fmt::print(stderr,
+                   "gatewayd[{}]: RECON break instrument={:#x} local=0 venue={} — "
+                   "venue holds a position we do not know about\n",
+                   raikiri::to_string(adapter.caps.venue),
+                   packed,
+                   report.net_qty.raw);
+    }
+}
 
 int main(int argc, char** argv) {
     using namespace raikiri;
@@ -406,6 +494,7 @@ int main(int argc, char** argv) {
     const auto t_end =
         duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
+    std::uint64_t recon_due = 0; // first pass runs immediately
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -430,6 +519,10 @@ int main(int argc, char** argv) {
             }
         }
         adapter->data->poll(clock.wall());
+        if (mono.ns >= recon_due) {
+            reconcile(*adapter, sink, market);
+            recon_due = mono.ns + k_recon_interval_ns;
+        }
         owner->beat(mono.ns);
         if (mono.ns >= flush_due) {
             journal_writer->flush();
