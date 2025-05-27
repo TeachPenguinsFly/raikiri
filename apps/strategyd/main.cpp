@@ -338,6 +338,8 @@ int main(int argc, char** argv) {
     shm::BroadcastReader exec_reader{channels->exec_events};
     shm::BroadcastReader md_reader{channels->md_events};
     std::vector<std::uint32_t> bbo_seen(std::min<std::size_t>(instrument_count, shm::k_bbo_cells));
+    std::vector<std::uint32_t> funding_seen(
+        std::min<std::size_t>(instrument_count, shm::k_funding_cells));
 
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
@@ -345,6 +347,7 @@ int main(int argc, char** argv) {
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0;    // FSM refusals: must stay 0
     std::uint64_t position_refusals = 0;  // position book full: must stay 0
+    std::uint64_t funding_ticks = 0;
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
@@ -423,6 +426,21 @@ int main(int argc, char** argv) {
                 active.on_bbo(ctx, bbo);
             }
         }
+        // Funding changes on the venue's schedule — eight hours on most perps —
+        // so the gate matters more here than for BBO: without it every poll
+        // would re-deliver the same rate thousands of times a second.
+        for (std::uint32_t sym = 0; sym < funding_seen.size(); ++sym) {
+            const auto version = channels->funding->cells[sym].version_now();
+            if (version == funding_seen[sym] || (version & 1U) != 0) {
+                continue;
+            }
+            FundingUpdate funding{};
+            if (channels->funding->read(sym, funding) != 0) {
+                funding_seen[sym] = version;
+                ++funding_ticks;
+                active.on_funding(ctx, funding);
+            }
+        }
         const auto now_ns = clock.mono().ns;
         for (auto& timer : ctx.timers) {
             if (timer.deadline_ns != 0 && now_ns >= timer.deadline_ns) {
@@ -458,9 +476,10 @@ int main(int argc, char** argv) {
     row("tick-to-callback", tick);
     row("submit-call", submit);
     row("order-round-trip", rt);
-    fmt::print("fills={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}  "
+    fmt::print("fills={}  funding={}  open-at-exit={}  exec-ring-overruns={}  fsm-refusals={}  "
                "position-refusals={}\n",
                fills,
+               funding_ticks,
                store.open_count(),
                exec_overruns,
                bad_transitions,

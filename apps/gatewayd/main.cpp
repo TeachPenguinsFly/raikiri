@@ -106,6 +106,21 @@ public:
         if (idx < raikiri::shm::k_funding_cells) {
             ch_.funding->write(idx, funding);
         }
+        // The shm cell holds only the latest rate; a perp position pays or
+        // receives at every settlement, so the history is what a PnL
+        // attribution is reconstructed from and it has to be durable.
+        (void)raikiri::schema::append_msg<msgs::FundingMsg>(
+            *journal_, funding.ts_init.ns, [&](auto m) {
+                namespace jt = raikiri_journal::types;
+                m.instrument(jt::instrumentId{funding.instrument.packed});
+                m.rate(jt::fixedE9{funding.rate.raw});
+                m.predictedRate(jt::fixedE9{funding.predicted_rate.raw});
+                m.markPrice(jt::priceTicks{funding.mark_price.raw});
+                m.nextFundingTime(jt::timestampNs{funding.next_funding_time.ns});
+                m.intervalS(funding.interval_s);
+                m.tsEvent(jt::timestampNs{funding.ts_event.ns});
+                m.tsInit(jt::timestampNs{funding.ts_init.ns});
+            });
     }
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
