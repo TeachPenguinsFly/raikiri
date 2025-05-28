@@ -8,6 +8,7 @@
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/portfolio/position.hpp>
+#include <raikiri/portfolio/target.hpp>
 
 #include <cstdint>
 #include <expected>
@@ -59,6 +60,17 @@ public:
     // unrealized number can only answer "as of when?" wrongly.
     [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument,
                                              PriceTicks mark) const noexcept = 0;
+
+    // Declare what to hold and let the kernel work out the difference from
+    // what is held and what is already working. Idempotent by construction:
+    // calling it every tick with the same target sends one order, not one per
+    // tick, and a fill that goes missing is repaired by the next call rather
+    // than lost with the order that carried it.
+    //
+    // Returns the order it sent, or nullopt when the book already agrees with
+    // the target — which is the ordinary case, not an error.
+    [[nodiscard]] virtual std::optional<ClientOrderId>
+    set_target(const portfolio::PortfolioTarget& target) noexcept = 0;
 
     virtual void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept = 0;
 

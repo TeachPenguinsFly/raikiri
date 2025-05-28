@@ -18,6 +18,7 @@
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
 #include <raikiri/portfolio/position_book.hpp>
+#include <raikiri/portfolio/target.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
@@ -158,6 +159,29 @@ public:
 
     const Instrument* instrument(InstrumentId id) const noexcept override {
         return ch_.catalogue->find(id);
+    }
+
+    std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget& target) noexcept
+        override {
+        auto held = QtyLots::from_raw(0);
+        if (const auto* p = position(target.instrument); p != nullptr) {
+            held = p->qty();
+        }
+        const auto working = oms::working_lots(*store_, target.instrument);
+        const auto move =
+            portfolio::delta_to_target(target.qty, held, working.buy, working.sell);
+        if (move.qty.raw == 0) {
+            return std::nullopt;
+        }
+        // Market, because a target says WHAT to hold and not at what price. A
+        // strategy that cares about the price is asking for a different thing
+        // and should submit the order itself.
+        const auto sent = submit({.instrument = target.instrument,
+                                  .side = move.side,
+                                  .type = OrderType::Market,
+                                  .tif = TimeInForce::Ioc,
+                                  .qty = move.qty});
+        return sent.has_value() ? std::optional{*sent} : std::nullopt;
     }
 
     const portfolio::Position* position(InstrumentId id) const noexcept override {
