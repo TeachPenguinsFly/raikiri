@@ -48,6 +48,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -121,6 +122,28 @@ public:
                 m.tsEvent(jt::timestampNs{funding.ts_event.ns});
                 m.tsInit(jt::timestampNs{funding.ts_init.ns});
             });
+    }
+
+    // A refusal the venue never saw. Synthesized locally so the order reaches a
+    // terminal state instead of waiting for a verdict that will never come —
+    // the same shape as a REST-level rejection, which venues also never push.
+    void reject(const raikiri::OrderCmd& cmd, std::string_view why) noexcept {
+        raikiri::OrderEvent event{};
+        event.type = raikiri::OrderEventType::Rejected;
+        event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
+        event.flags = cmd.flags;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.price = cmd.price;
+        event.qty = cmd.qty;
+        event.leaves_qty = raikiri::QtyLots::from_raw(0);
+        event.ts_event = cmd.ts_created;
+        event.ts_init = cmd.ts_created;
+        fmt::print(stderr, "gatewayd: refused coid={:#x} — {}\n", cmd.client_order_id.raw, why);
+        on_order_event(event);
     }
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
@@ -206,9 +229,42 @@ constexpr std::uint64_t k_recon_interval_ns = 30ULL * 1'000'000'000ULL;
 // Compares what this gateway has published against what the venue says it
 // holds. Quantity only: the venue is authoritative on whether a position
 // exists and never on what it cost, so nothing here writes back a cost basis.
+// Instruments this gateway has stopped opening on, because the venue and this
+// process disagree about what is held. Cancels are NEVER halted — the escape
+// hatch has to work precisely when something is wrong — and the halt is
+// cleared only by an operator restart, not by one agreeing pull: an automatic
+// clear on a single agreement re-opens the window the break was reporting.
+std::unordered_set<std::uint64_t> g_halted;
+
+// A break is journalled, not just printed: stderr scrolls away, and the one
+// question asked afterwards is always "when did it start", which only a durable
+// row can answer.
+void journal_break(raikiri::journal::JournalWriter& journal,
+                   raikiri::VenueId venue,
+                   raikiri::InstrumentId instrument,
+                   std::string_view symbol,
+                   const raikiri::exec::ReconResult& result,
+                   raikiri::UnixNanos now) {
+    (void)raikiri::schema::append_msg<msgs::ReconBreakMsg>(journal, now.ns, [&](auto m) {
+        namespace jt = raikiri_journal::types;
+        m.verdict(result.verdict == raikiri::exec::ReconVerdict::Unknown
+                      ? jt::reconVerdictEnum::Unknown
+                      : jt::reconVerdictEnum::Break);
+        m.venue(static_cast<jt::venueIdEnum>(venue));
+        m.instrument(jt::instrumentId{instrument.packed});
+        m.symbol().assign_range(symbol);
+        m.localQty(jt::qtyLots{result.local_qty.raw});
+        m.venueQty(jt::qtyLots{result.venue_qty.raw});
+        m.tsSeen(jt::timestampNs{now.ns});
+    });
+}
+
 void reconcile(const raikiri::exec::VenueAdapter& adapter,
                const ShmSink& sink,
-               raikiri::MarketType market) {
+               raikiri::MarketType market,
+               const raikiri::shm::CatalogueTable& catalogue,
+               raikiri::journal::JournalWriter& journal,
+               raikiri::UnixNanos now) {
     static bool announced = false;
     const bool can_report = adapter.caps.position_pull;
     if (!can_report) {
@@ -240,6 +296,15 @@ void reconcile(const raikiri::exec::VenueAdapter& adapter,
             reports.has_value(), report, raikiri::QtyLots::from_raw(local));
         if (result.verdict == raikiri::exec::ReconVerdict::Agree) {
             continue;
+        }
+        const auto id = raikiri::InstrumentId{packed};
+        std::string_view symbol;
+        if (const auto* listed = catalogue.find(id); listed != nullptr) {
+            symbol = raikiri::base_of(*listed).exchange_symbol.view();
+        }
+        journal_break(journal, adapter.caps.venue, id, symbol, result, now);
+        if (result.verdict == raikiri::exec::ReconVerdict::Break) {
+            g_halted.insert(packed);
         }
         fmt::print(stderr,
                    "gatewayd[{}]: RECON {} instrument={:#x} local={} venue={} — {}\n",
@@ -523,6 +588,14 @@ int main(int argc, char** argv) {
         while (creates.try_pop(cmd)) {
             switch (cmd.kind) {
             case CmdKind::Create:
+                if (g_halted.contains(cmd.instrument.packed)) {
+                    // Refused here rather than upstream because the disagreement
+                    // is this gateway's knowledge: strategyd cannot see it, and
+                    // an order sent while the two sides disagree about the
+                    // position is the one that turns a break into a loss.
+                    sink.reject(cmd, "instrument halted by position reconciliation");
+                    break;
+                }
                 adapter->execution->submit(cmd);
                 break;
             case CmdKind::Amend:
@@ -535,7 +608,8 @@ int main(int argc, char** argv) {
         }
         adapter->data->poll(clock.wall());
         if (mono.ns >= recon_due) {
-            reconcile(*adapter, sink, market);
+            reconcile(*adapter, sink, market, *channels->catalogue, *journal_writer,
+                      clock.wall());
             recon_due = mono.ns + k_recon_interval_ns;
         }
         owner->beat(mono.ns);

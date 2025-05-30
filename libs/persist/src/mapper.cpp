@@ -170,6 +170,17 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .amount_e9 = m.amount().value(),
             .ts_event = m.tsEvent().value(),
         });
+    } else if (frame.schema_id == schema::message_id<msgs::ReconBreakMsg>()) {
+        const auto m = schema::view_msg<msgs::ReconBreakMsg>(frame.payload);
+        using V = raikiri_journal::types::reconVerdictEnum;
+        batch.recon_breaks.push_back({
+            .venue = std::string{to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
+            .exchange_symbol = trim_fixed(m.symbol()),
+            .ts_seen = m.tsSeen().value(),
+            .local_qty_lots = m.localQty().value(),
+            .venue_qty_lots = m.venueQty().value(),
+            .detail = m.verdict() == V::Unknown ? "venue could not report" : "quantities differ",
+        });
     } else if (frame.schema_id == schema::message_id<msgs::FundingMsg>()) {
         const auto m = schema::view_msg<msgs::FundingMsg>(frame.payload);
         batch.funding.push_back({

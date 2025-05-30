@@ -93,6 +93,12 @@
       <validValue name="Resubscribed">3</validValue>
     </enum>
 
+    <enum name="reconVerdictEnum" encodingType="uint8">
+      <validValue name="Agree">0</validValue>
+      <validValue name="Break">1</validValue>
+      <validValue name="Unknown">2</validValue>
+    </enum>
+
     <enum name="pnlKindEnum" encodingType="uint8">
       <validValue name="Realized">0</validValue>
       <validValue name="Fee">1</validValue>
@@ -212,5 +218,19 @@
     <field name="execIdField" id="7" type="venueText"/>
     <field name="amount" id="8" type="fixedE9"/>
     <field name="tsEvent" id="9" type="timestampNs"/>
+  </sbe:message>
+  <!-- A disagreement between this process and the venue about what is held.
+       Written only when the two differ: an agreement every 30s would bury the
+       one line that matters. Symbol travels as text for the same reason the
+       PnL ledger carries it — the symbol half of a packed instrument id is a
+       catalogue load-order index and moves under a delisting. -->
+  <sbe:message name="ReconBreakMsg" id="9" description="Position reconciliation disagreement">
+    <field name="verdict" id="1" type="reconVerdictEnum"/>
+    <field name="venue" id="2" type="venueIdEnum"/>
+    <field name="instrument" id="3" type="instrumentId"/>
+    <field name="symbol" id="4" type="symbolText"/>
+    <field name="localQty" id="5" type="qtyLots"/>
+    <field name="venueQty" id="6" type="qtyLots"/>
+    <field name="tsSeen" id="7" type="timestampNs"/>
   </sbe:message>
 </sbe:messageSchema>

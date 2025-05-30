@@ -77,6 +77,18 @@ struct PnlIncrementRow {
     std::uint64_t ts_event{0};
 };
 
+// A break is a fact worth keeping: the record that this process and the venue
+// disagreed about a position, and by how much. Never overwritten — a later
+// agreement does not make an earlier disagreement untrue.
+struct ReconBreakRow {
+    std::string venue;
+    std::string exchange_symbol;
+    std::uint64_t ts_seen{0};
+    std::int64_t local_qty_lots{0};
+    std::int64_t venue_qty_lots{0};
+    std::string detail;
+};
+
 struct FundingRow {
     std::uint64_t instrument_id{0};
     std::uint64_t ts_event{0};
@@ -112,6 +124,7 @@ struct RowBatch {
     std::vector<OrderUpsert> order_upserts;
     std::vector<ExecutionRow> executions;
     std::vector<PnlIncrementRow> pnl_increments;
+    std::vector<ReconBreakRow> recon_breaks;
     std::vector<FundingRow> funding;
     std::vector<ConnectivityRow> connectivity;
     std::vector<LatencyRow> latency;
@@ -119,7 +132,7 @@ struct RowBatch {
 
     [[nodiscard]] std::size_t size() const noexcept {
         return order_events.size() + order_upserts.size() + executions.size() +
-               pnl_increments.size() + funding.size() + connectivity.size() + latency.size();
+               pnl_increments.size() + recon_breaks.size() + funding.size() + connectivity.size() + latency.size();
     }
 
     void clear() noexcept {
@@ -127,6 +140,7 @@ struct RowBatch {
         order_upserts.clear();
         executions.clear();
         pnl_increments.clear();
+        recon_breaks.clear();
         funding.clear();
         connectivity.clear();
         latency.clear();

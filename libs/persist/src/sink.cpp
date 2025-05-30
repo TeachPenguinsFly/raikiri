@@ -138,6 +138,19 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.settle_side});
     }
 
+    for (const auto& r : batch.recon_breaks) {
+        tx.exec("INSERT INTO raikiri.recon_breaks (venue, exchange_symbol, ts_seen,"
+                " local_qty_lots, venue_qty_lots, detail)"
+                " VALUES ($1,$2,$3,$4,$5,$6)"
+                " ON CONFLICT (venue, exchange_symbol, ts_seen) DO NOTHING",
+                pqxx::params{r.venue,
+                             r.exchange_symbol,
+                             r.ts_seen,
+                             r.local_qty_lots,
+                             r.venue_qty_lots,
+                             r.detail});
+    }
+
     for (const auto& r : batch.funding) {
         tx.exec("INSERT INTO raikiri.funding_observations (instrument_id, ts_event, rate_e9,"
                 " predicted_e9, mark_ticks, next_funding_ts, interval_s)"
