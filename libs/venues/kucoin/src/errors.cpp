@@ -19,6 +19,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
 
     case k_internal_server_error:
     case k_service_unavailable:
+    case k_network_timeout:
         return exec::ErrorClass::Retryable;
 
     case k_timestamp_invalid:
@@ -34,6 +35,17 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
 
 bool is_expired_token(std::int64_t code) noexcept {
     return code == k_ws_token_invalid;
+}
+
+bool is_benign_cancel_failure(std::int64_t code, std::string_view msg) noexcept {
+    if (code == k_futures_order_not_cancelable) {
+        return true;
+    }
+    // Spot answers the same condition with 400100, the catch-all parameter
+    // error, so the code alone would also swallow a malformed cancel as
+    // harmless. Both spellings below have been seen for this one condition.
+    return code == k_parameter_error && (msg.find("order_not_exist") != std::string_view::npos ||
+                                         msg.find("does not exist") != std::string_view::npos);
 }
 
 } // namespace raikiri::venues::kucoin

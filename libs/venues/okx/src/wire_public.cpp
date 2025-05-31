@@ -23,6 +23,9 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "books") {
         return EventKind::Books;
     }
+    if (channel == "orders") {
+        return EventKind::Orders;
+    }
     return EventKind::Unknown;
 }
 
@@ -130,7 +133,13 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (!event->empty()) {
-            info.kind = *event == "error" ? EventKind::Error : EventKind::SubscribeAck;
+            // A login answer carries a code that is 0 on success and an auth
+            // failure otherwise, so it cannot share the subscribe path: a
+            // refused login read as an ack leaves a socket that will answer
+            // every subscribe with 60011 and no explanation.
+            info.kind = *event == "error"   ? EventKind::Error
+                        : *event == "login" ? EventKind::LoginAck
+                                            : EventKind::SubscribeAck;
             return info;
         }
         auto arg = detail::req_object(*root, "arg");

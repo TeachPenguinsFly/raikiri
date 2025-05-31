@@ -9,6 +9,7 @@
 // integer milliseconds — verified live, 2026-08. Only the websocket form is
 // parsed here.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/wire/json.hpp>
 
 #include <array>
@@ -28,6 +29,8 @@ enum class EventKind : std::uint8_t {
     Trade,      // futures.trades
     Ticker,     // futures.tickers — carries funding rate AND mark price
     BookUpdate, // futures.order_book_update — depth deltas
+    OrderUpdate, // futures.orders / spot.orders — private
+    UserTrade,   // futures.usertrades / spot.usertrades — private
     SubscribeAck,
     Error,
     Pong,
@@ -203,5 +206,130 @@ parse_contracts(std::string_view body, ContractBuffer& storage);
 
 // GET /spot/time — milliseconds as a JSON number; futures has no equivalent.
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
+
+// From GET /spot/currency_pairs. Precisions are DIGIT COUNTS, not steps:
+// `precision` is price decimals and `amount_precision` is quantity decimals,
+// so the steps are 10^-n and a pair with amount_precision 0 trades in whole
+// units.
+struct WireCurrencyPair {
+    std::string_view id;
+    std::string_view trade_status; // tradable, untradable, buyable, sellable
+    std::string_view min_base_amount;
+    std::string_view min_quote_amount;
+    std::uint32_t precision{0};
+    std::uint32_t amount_precision{0};
+};
+
+// 2230 pairs live on 2026-08; the count only grows.
+inline constexpr std::size_t k_max_currency_pairs = 8192;
+
+struct CurrencyPairBuffer {
+    std::array<WireCurrencyPair, k_max_currency_pairs> pairs{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireCurrencyPair>, WireError>
+parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage);
+
+// ---------------------------------------------------------- private ----
+
+// What an order frame says happened, normalised across the two APIs. Gate
+// spells this three different ways — futures `finish_as` (with the WS-only
+// pseudo-values `_new` and `_update`), spot `status`, and the spot socket's
+// per-order `event` — and none of them is a superset of the others.
+enum class WireOrderState : std::uint8_t {
+    Open,      // accepted, still working
+    Filled,    // finished, fully filled
+    Cancelled, // finished by a cancel, a liquidation or self-trade prevention
+    Expired,   // finished because ioc/poc/fok could not be met
+    Unknown,
+};
+
+// One order across both APIs. `amount` and `left` are MAGNITUDES: futures
+// signs both to carry the side, and a reader that keeps the sign turns a short
+// into a negative quantity halfway down the mapper.
+struct WireOrder {
+    std::string_view contract;
+    std::string_view order_id;   // `id`, venue-minted
+    std::string_view text;       // our "t-<ulid>" comes back here
+    std::string_view price;
+    std::string_view amount;     // futures `size`, spot `amount`
+    std::string_view left;
+    std::string_view fill_price; // AVERAGE over the order, not this fill
+    std::string_view tif;        // gtc, ioc, poc, fok
+    std::string_view order_type; // spot only; futures has no type field
+    bool sell{false};
+    bool accepted{false}; // the frame that says the order reached the book
+    WireOrderState state{WireOrderState::Unknown};
+    std::uint64_t ts_ms{0};
+};
+
+// Gate's own cap is 1000 rows per list call, which is also the largest
+// websocket batch observed.
+inline constexpr std::size_t k_max_private_entries = 1024;
+
+struct OrderBuffer {
+    std::array<WireOrder, k_max_private_entries> orders{};
+};
+
+// One fill. There is no `left` here on either API — the remaining size lives
+// on the ORDERS channel — so a mapper needs both frames to state leaves.
+struct WireUserTrade {
+    std::string_view contract;
+    std::string_view trade_id; // `id`, the dedupe key
+    std::string_view order_id;
+    std::string_view text;
+    std::string_view price;
+    std::string_view qty; // magnitude of futures `size` / spot `amount`
+    std::string_view fee;
+    bool sell{false};
+    bool maker{false};
+    std::uint64_t ts_ms{0};
+};
+
+struct UserTradeBuffer {
+    std::array<WireUserTrade, k_max_private_entries> trades{};
+};
+
+struct WirePosition {
+    std::string_view contract;
+    std::string_view size; // SIGNED: negative is short
+    std::string_view entry_price;
+    std::uint64_t update_s{0};
+};
+
+struct PositionBuffer {
+    std::array<WirePosition, k_max_private_entries> positions{};
+};
+
+// Websocket pushes: the rows hang off `result`, an array on both channels.
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+parse_ws_orders(std::string_view frame, OrderBuffer& storage, MarketType market);
+
+[[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError>
+parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketType market);
+
+// REST bodies: a top-level array, with no envelope to unwrap.
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market);
+
+[[nodiscard]] std::expected<WireOrder, WireError> parse_rest_order(std::string_view body,
+                                                                    MarketType market);
+
+// GET /spot/open_orders answers with one row PER CURRENCY PAIR, each holding
+// its own `orders` array. Reading it as a flat order list yields nothing at
+// all, silently.
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+parse_spot_open_orders(std::string_view body, OrderBuffer& storage);
+
+[[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError>
+parse_rest_user_trades(std::string_view body, UserTradeBuffer& storage, MarketType market);
+
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
+parse_positions(std::string_view body, PositionBuffer& storage);
+
+// `user` from GET /futures/{settle}/accounts, rendered as digits. The futures
+// private socket wants it as the first element of every subscribe payload and
+// answers a payload without it with an empty stream rather than an error.
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body);
 
 } // namespace raikiri::venues::gate

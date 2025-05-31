@@ -1,6 +1,8 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/gate/map.hpp>
+#include <raikiri/venues/gate/rest.hpp>
 
+#include <array>
 #include <optional>
 
 namespace raikiri::venues::gate {
@@ -160,6 +162,276 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // parser, so a new settle currency means deciding this per row.
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, wire.funding_interval_s};
+}
+
+
+std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
+    // buyable/sellable are one-sided listings; treating them as tradable puts
+    // orders on the side the venue refuses.
+    if (wire.trade_status != "tradable") {
+        return std::nullopt;
+    }
+    const auto step = [](std::uint32_t digits) -> std::optional<FixedE9> {
+        if (digits > 9) {
+            return std::nullopt; // finer than FixedE9 represents
+        }
+        std::int64_t raw = k_e9;
+        for (std::uint32_t i = 0; i < digits; ++i) {
+            raw /= 10;
+        }
+        return FixedE9::from_raw(raw);
+    };
+    const auto tick = step(wire.precision);
+    const auto lot = step(wire.amount_precision);
+    if (!tick.has_value() || !lot.has_value()) {
+        return std::nullopt;
+    }
+    const auto symbol = SymbolText::from(wire.id);
+    if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Gate, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    if (const auto notional = to_e9(wire.min_quote_amount); notional.has_value()) {
+        base.min_notional = *notional;
+    }
+    base.contract_value = FixedE9::from_raw(k_e9); // spot quotes base units
+    base.kind = ContractKind::Linear;
+    return SpotInstrument{base};
+}
+
+namespace {
+
+// Fees are neither a price nor a size, so they truncate at 1e-9 where those
+// refuse: Gate pads a futures fee to more decimals than FixedE9 carries, and
+// an exact read would drop the whole fill over a rounding in the eleventh
+// place.
+FixedE9 fee_e9(std::string_view text) noexcept {
+    const auto value = parse_rate_e9(text);
+    return value.has_value() ? *value : FixedE9::from_raw(0);
+}
+
+bool copy_order_id(std::string_view text, ExchangeOrderId& out) noexcept {
+    if (text.empty()) {
+        return true; // absent is survivable; wrong is not
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+// Our own ULID coming back inside Gate's `text`. Anything without the `t-`
+// prefix is one of Gate's reserved sources (`api`, `web`, `liq-...`), and a
+// value that does not fit the field cannot be one of ours either — the event
+// stays unattributed rather than matched to a lookalike.
+bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) noexcept {
+    const auto body = client_id_from_text(text);
+    if (body.empty()) {
+        return true;
+    }
+    const auto id = ExchangeClientOrderId::from(body);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+} // namespace
+
+std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    return to_lots(wire.left, base_of(*instrument));
+}
+
+std::optional<OrderEvent>
+map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    OrderEventType type{};
+    switch (wire.state) {
+    case WireOrderState::Open:
+        if (!wire.accepted) {
+            return std::nullopt; // a fill or an amend; usertrades owns it
+        }
+        type = OrderEventType::Accepted;
+        break;
+    case WireOrderState::Cancelled:
+        type = OrderEventType::Canceled;
+        break;
+    case WireOrderState::Expired:
+        type = OrderEventType::Expired;
+        break;
+    case WireOrderState::Filled:
+        // The user trade that took leaves to zero already said this, with the
+        // exec id and the fee attached. Saying it twice attributes one fill to
+        // two events.
+        return std::nullopt;
+    case WireOrderState::Unknown:
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = type;
+    out.instrument = base.id;
+    out.side = wire.sell ? Side::Sell : Side::Buy;
+    // Futures has no order-type field at all: a price of zero with tif ioc IS
+    // the market order, and that is the only thing that distinguishes it.
+    out.order_type = (wire.order_type == "market" || (wire.price == "0" && wire.tif == "ioc"))
+                         ? OrderType::Market
+                         : OrderType::Limit;
+    if (wire.tif == "ioc") {
+        out.tif = TimeInForce::Ioc;
+    } else if (wire.tif == "fok") {
+        out.tif = TimeInForce::Fok;
+    } else if (wire.tif == "poc") {
+        out.flags = OrderFlags::PostOnly;
+    }
+    if (!copy_client_id(wire.text, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    if (const auto qty = to_lots(wire.amount, base); qty.has_value()) {
+        out.qty = *qty;
+    }
+    out.leaves_qty = to_lots(wire.left, base).value_or(QtyLots::from_raw(0));
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
+                                         const exec::InstrumentTable& table,
+                                         QtyLots leaves,
+                                         const ExchangeClientOrderId& known_client_id,
+                                         UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.qty, base);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = OrderEventType::Filled;
+    out.instrument = base.id;
+    out.side = wire.sell ? Side::Sell : Side::Buy;
+    out.liquidity = wire.maker ? Liquidity::Maker : Liquidity::Taker;
+    out.exchange_client_order_id = known_client_id;
+    if (!copy_client_id(wire.text, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (!wire.trade_id.empty()) {
+        const auto exec_id = ExecId::from(wire.trade_id);
+        if (!exec_id.has_value()) {
+            return std::nullopt; // a dedupe key we cannot store is not one
+        }
+        out.exec_id = *exec_id;
+    }
+    out.price = *price;
+    out.qty = *qty;
+    out.leaves_qty = leaves.is_undef() ? QtyLots::from_raw(0) : leaves;
+    out.fee = fee_e9(wire.fee);
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto qty = to_lots(wire.amount, base);
+    const auto leaves = to_lots(wire.left, base);
+    if (!qty.has_value() || !leaves.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = wire.sell ? Side::Sell : Side::Buy;
+    if (!copy_client_id(wire.text, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    switch (wire.state) {
+    case WireOrderState::Open:
+        out.status = leaves->raw < qty->raw ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
+        break;
+    case WireOrderState::Filled:
+        out.status = OrderStatus::Filled;
+        break;
+    case WireOrderState::Cancelled:
+        out.status = OrderStatus::Canceled;
+        break;
+    case WireOrderState::Expired:
+        out.status = OrderStatus::Expired;
+        break;
+    case WireOrderState::Unknown:
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = *qty;
+    out.leaves = *leaves;
+    out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    // Gate signs the position size the same way it signs an order size, so the
+    // magnitude converts and the sign is re-applied afterwards.
+    auto text = wire.size;
+    const bool short_side = text.starts_with('-');
+    if (short_side) {
+        text.remove_prefix(1);
+    }
+    const auto size = to_lots(text, base);
+    if (!size.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = short_side ? QtyLots::from_raw(-size->raw) : *size;
+    if (const auto entry = to_ticks(wire.entry_price, base); entry.has_value()) {
+        out.avg_entry = *entry;
+    }
+    out.ts_venue = s_to_unix(wire.update_s);
+    return out;
 }
 
 } // namespace raikiri::venues::gate

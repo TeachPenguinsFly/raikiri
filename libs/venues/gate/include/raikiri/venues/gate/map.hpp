@@ -9,6 +9,8 @@
 // verified live including the `enable_decimal` ones.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/gate/wire.hpp>
 
@@ -45,5 +47,40 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 // Returns nullopt for anything delisting or not trading, anything that is not
 // a perp, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
+
+// Spot half of the catalogue. Gate states spot precision as DIGIT COUNTS, so
+// the steps are 10^-n; a pair asking for more than nine fractional digits is
+// refused rather than rounded to what FixedE9 can hold.
+[[nodiscard]] std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire);
+
+// Order entry ------------------------------------------------------------
+
+// The remaining size the order frame stated, in lots. Callers cache it per
+// venue order id: a user-trade frame carries the fill but never the leaves,
+// and the OMS treats leaves as authoritative.
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
+                                                  const exec::InstrumentTable& table);
+
+// Lifecycle only. A frame that merely reports a fill or an amend yields
+// nullopt: its Filled event comes from the user-trade channel, which is the
+// only place the exec id and the fee exist, and emitting from both would
+// attribute one fill twice.
+[[nodiscard]] std::optional<OrderEvent>
+map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// `leaves` and `known_client_id` come from the caller's per-order cache: Gate
+// splits one fill across two channels and this one carries neither. A trade
+// whose own `text` names our order wins over the cached id.
+[[nodiscard]] std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
+                                                       const exec::InstrumentTable& table,
+                                                       QtyLots leaves,
+                                                       const ExchangeClientOrderId& known_client_id,
+                                                       UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::gate

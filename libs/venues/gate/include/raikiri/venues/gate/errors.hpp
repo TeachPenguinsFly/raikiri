@@ -58,6 +58,26 @@ inline constexpr std::string_view k_repeated_creation = "REPEATED_CREATION";
 inline constexpr std::string_view k_price_too_deviated = "PRICE_TOO_DEVIATED";
 inline constexpr std::string_view k_size_too_large = "SIZE_TOO_LARGE";
 inline constexpr std::string_view k_size_too_small = "SIZE_TOO_SMALL";
+inline constexpr std::string_view k_fok_not_fill = "FOK_NOT_FILL";
+inline constexpr std::string_view k_order_fok = "ORDER_FOK";
+inline constexpr std::string_view k_invalid_precision = "INVALID_PRECISION";
+inline constexpr std::string_view k_invalid_client_order_id = "INVALID_CLIENT_ORDER_ID";
+inline constexpr std::string_view k_order_exists = "ORDER_EXISTS";
+inline constexpr std::string_view k_duplicate_request = "DUPLICATE_REQUEST";
+inline constexpr std::string_view k_order_not_owned = "ORDER_NOT_OWNED";
+inline constexpr std::string_view k_too_many_orders = "TOO_MANY_ORDERS";
+inline constexpr std::string_view k_amount_too_little = "AMOUNT_TOO_LITTLE";
+inline constexpr std::string_view k_amount_too_much = "AMOUNT_TOO_MUCH";
+inline constexpr std::string_view k_no_change = "NO_CHANGE";
+inline constexpr std::string_view k_cancel_fail = "CANCEL_FAIL";
+// Trading is switched off for this key or account: no amount of retrying
+// turns it back on, and a human has to look.
+inline constexpr std::string_view k_trade_restricted = "TRADE_RESTRICTED";
+// The order exists and the account is fine — the venue is mid-operation on
+// one of them, so the same request works a moment later.
+inline constexpr std::string_view k_order_pending = "ORDER_PENDING";
+inline constexpr std::string_view k_position_in_liquidation = "POSITION_IN_LIQUIDATION";
+inline constexpr std::string_view k_position_in_close = "POSITION_IN_CLOSE";
 
 [[nodiscard]] exec::ErrorClass classify(std::string_view label) noexcept;
 

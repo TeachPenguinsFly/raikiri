@@ -11,6 +11,11 @@ namespace {
 constexpr std::string_view k_host_live = "fx-ws.gateio.ws";
 constexpr std::string_view k_host_testnet = "fx-ws-testnet.gateio.ws";
 
+// Spot lives on the REST host under a different path, and its testnet is a
+// third hostname again.
+constexpr std::string_view k_spot_host_live = "api.gateio.ws";
+constexpr std::string_view k_spot_host_testnet = "ws-testnet.gate.com";
+
 constexpr std::string_view k_channel_depth = "futures.order_book_update";
 
 // Writes into a caller-owned buffer, refusing rather than truncating: a
@@ -58,6 +63,10 @@ std::string_view to_string(WsBuildError err) noexcept {
         return "NothingToSend";
     case WsBuildError::BufferTooSmall:
         return "BufferTooSmall";
+    case WsBuildError::NotSigned:
+        return "NotSigned";
+    case WsBuildError::MarketUnsupported:
+        return "MarketUnsupported";
     }
     return "Unknown";
 }
@@ -72,6 +81,62 @@ std::string_view stream_port() noexcept {
 
 std::string_view stream_path() noexcept {
     return "/v4/ws/usdt";
+}
+
+std::string_view private_host(bool testnet, MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Perp:
+        return stream_host(testnet);
+    case MarketType::Spot:
+        return testnet ? k_spot_host_testnet : k_spot_host_live;
+    case MarketType::Future:
+    case MarketType::Option:
+        return {};
+    }
+    return {};
+}
+
+std::string_view private_path(bool testnet, MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Perp:
+        return stream_path();
+    case MarketType::Spot:
+        // The live spot socket keeps its trailing slash; the testnet one is a
+        // different path entirely rather than the same path on another host.
+        return testnet ? "/v4/ws/spot" : "/ws/v4/";
+    case MarketType::Future:
+    case MarketType::Option:
+        return {};
+    }
+    return {};
+}
+
+std::string_view orders_channel(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Perp:
+        return "futures.orders";
+    case MarketType::Spot:
+        return "spot.orders";
+    case MarketType::Future:
+    case MarketType::Option:
+        // Gate publishes options.orders and delivery channels; nothing here
+        // maps their payloads, so no subscription is offered.
+        return {};
+    }
+    return {};
+}
+
+std::string_view user_trades_channel(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Perp:
+        return "futures.usertrades";
+    case MarketType::Spot:
+        return "spot.usertrades";
+    case MarketType::Future:
+    case MarketType::Option:
+        return {};
+    }
+    return {};
 }
 
 std::string_view channel_for(exec::SubKind kind) noexcept {
@@ -147,6 +212,66 @@ Protocol::subscribe_frame(std::span<const Subscription> subscriptions, std::uint
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions, std::uint64_t now_s) {
     return op_frame("unsubscribe", subscriptions, now_s);
+}
+
+std::string_view Protocol::last_auth_message() const noexcept {
+    return {auth_msg_.data(), auth_msg_len_};
+}
+
+std::expected<std::string_view, WsBuildError>
+Protocol::private_subscribe_frame(std::string_view channel,
+                                  std::span<const std::string_view> payload,
+                                  const net::Signer& signer,
+                                  std::uint64_t now_s) {
+    if (channel.empty()) {
+        return std::unexpected{WsBuildError::MarketUnsupported};
+    }
+    if (payload.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    if (!signer.has_credentials()) {
+        return std::unexpected{WsBuildError::NotSigned};
+    }
+
+    FrameWriter message{auth_msg_};
+    message.put("channel=");
+    message.put(channel);
+    message.put("&event=subscribe&time=");
+    message.put(now_s);
+    if (message.overflow()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    auth_msg_len_ = message.text().size();
+
+    const auto signature =
+        signer.sign(message.text(), net::Signer::Encoding::Hex512, signature_);
+    if (signature.empty()) {
+        return std::unexpected{WsBuildError::NotSigned};
+    }
+
+    FrameWriter writer{frame_};
+    writer.put(R"({"time":)");
+    writer.put(now_s);
+    writer.put(R"(,"channel":")");
+    writer.put(channel);
+    writer.put(R"(","event":"subscribe","payload":[)");
+    for (std::size_t i = 0; i < payload.size(); ++i) {
+        if (i != 0) {
+            writer.put(",");
+        }
+        writer.put("\"");
+        writer.put(payload[i]);
+        writer.put("\"");
+    }
+    writer.put(R"(],"auth":{"method":"api_key","KEY":")");
+    writer.put(signer.api_key());
+    writer.put(R"(","SIGN":")");
+    writer.put(signature);
+    writer.put(R"("}})");
+    if (writer.overflow()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return writer.text();
 }
 
 std::string_view Protocol::ping_frame(std::uint64_t now_s) noexcept {

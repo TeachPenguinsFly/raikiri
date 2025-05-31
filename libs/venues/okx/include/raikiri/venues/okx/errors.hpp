@@ -36,6 +36,7 @@ inline constexpr std::int64_t k_ip_not_whitelisted = 50110;
 inline constexpr std::int64_t k_invalid_api_key = 50111;
 inline constexpr std::int64_t k_invalid_timestamp = 50112;
 inline constexpr std::int64_t k_invalid_signature = 50113;
+inline constexpr std::int64_t k_duplicate_param = 50071; // "clOrdId already exists"
 inline constexpr std::int64_t k_parameter_error = 51000;
 inline constexpr std::int64_t k_instrument_not_found = 51001; // VERIFIED live
 inline constexpr std::int64_t k_insufficient_balance = 51008;
@@ -44,7 +45,8 @@ inline constexpr std::int64_t k_post_only_would_take = 51121;
 inline constexpr std::int64_t k_cancel_order_not_exist = 51400;
 inline constexpr std::int64_t k_cancel_already_canceled = 51401;
 inline constexpr std::int64_t k_cancel_already_completed = 51402;
-inline constexpr std::int64_t k_duplicate_client_order_id = 51603;
+inline constexpr std::int64_t k_amend_already_settled = 51503;
+inline constexpr std::int64_t k_order_not_found = 51603;
 inline constexpr std::int64_t k_ws_timestamp_expired = 60006;
 inline constexpr std::int64_t k_ws_invalid_signature = 60007;
 inline constexpr std::int64_t k_ws_login_failed = 60009;
@@ -53,6 +55,7 @@ inline constexpr std::int64_t k_ws_invalid_request = 60012;
 inline constexpr std::int64_t k_ws_too_frequent = 60014;
 inline constexpr std::int64_t k_ws_wrong_channel = 60018; // VERIFIED live
 inline constexpr std::int64_t k_internal_system_error = 63999;
+inline constexpr std::int64_t k_tier_too_low_for_channel = 64003; // e.g. the fills channel
 
 [[nodiscard]] exec::ErrorClass classify(std::int64_t code) noexcept;
 
@@ -60,5 +63,10 @@ inline constexpr std::int64_t k_internal_system_error = 63999;
 // filled or was already cancelled; reconciliation settles the truth. Callers
 // use this to avoid an alarming CancelRejected for a benign race.
 [[nodiscard]] bool is_benign_cancel_failure(std::int64_t code) noexcept;
+
+// Same reasoning for an amend: OKX refuses to modify an order that has
+// already settled, and the private stream has by then already said so. A
+// ModifyRejected for one would be a transition the order can no longer make.
+[[nodiscard]] bool is_benign_amend_failure(std::int64_t code) noexcept;
 
 } // namespace raikiri::venues::okx

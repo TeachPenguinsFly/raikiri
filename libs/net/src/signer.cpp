@@ -14,8 +14,8 @@ constexpr char k_hex_digits[] = "0123456789abcdef";
 constexpr char k_b64_digits[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-void to_hex(std::span<const std::uint8_t, k_hmac_bytes> digest, char* out) noexcept {
-    for (std::size_t i = 0; i < k_hmac_bytes; ++i) {
+void to_hex(std::span<const std::uint8_t> digest, char* out) noexcept {
+    for (std::size_t i = 0; i < digest.size(); ++i) {
         out[2 * i] = k_hex_digits[digest[i] >> 4];
         out[2 * i + 1] = k_hex_digits[digest[i] & 0x0F];
     }
@@ -67,6 +67,41 @@ std::string_view hmac_sha256_hex(std::string_view key, std::string_view message,
     return {out.data(), k_hex_bytes};
 }
 
+std::string_view sha512_hex(std::string_view message, std::span<char> out) noexcept {
+    if (out.size() < k_hex512_bytes) {
+        return {};
+    }
+    std::array<std::uint8_t, k_hmac512_bytes> digest{};
+    unsigned int len = 0;
+    // An empty body still hashes: Gate signs SHA512("") for every GET, so a
+    // null message pointer must not short-circuit into an empty digest.
+    if (::EVP_Digest(message.data(), message.size(), digest.data(), &len, EVP_sha512(), nullptr) !=
+            1 ||
+        len != k_hmac512_bytes) {
+        return {};
+    }
+    to_hex(digest, out.data());
+    return {out.data(), k_hex512_bytes};
+}
+
+std::string_view hmac_sha512_hex(std::string_view key, std::string_view message,
+                                 std::span<char> out) noexcept {
+    if (out.size() < k_hex512_bytes) {
+        return {};
+    }
+    std::array<std::uint8_t, k_hmac512_bytes> digest{};
+    unsigned int len = 0;
+    const auto* result =
+        ::HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()),
+               reinterpret_cast<const unsigned char*>(message.data()), message.size(),
+               digest.data(), &len);
+    if (result == nullptr || len != k_hmac512_bytes) {
+        return {};
+    }
+    to_hex(digest, out.data());
+    return {out.data(), k_hex512_bytes};
+}
+
 std::string_view hmac_sha256_base64(std::string_view key, std::string_view message,
                                     std::span<char> out) noexcept {
     if (out.size() < k_base64_bytes) {
@@ -91,8 +126,15 @@ std::string_view Signer::api_key() const noexcept {
 
 std::string_view Signer::sign(std::string_view message, Encoding encoding,
                               std::span<char> out) const noexcept {
-    return encoding == Encoding::Hex ? hmac_sha256_hex(secret_.view(), message, out)
-                                     : hmac_sha256_base64(secret_.view(), message, out);
+    switch (encoding) {
+    case Encoding::Hex:
+        return hmac_sha256_hex(secret_.view(), message, out);
+    case Encoding::Base64:
+        return hmac_sha256_base64(secret_.view(), message, out);
+    case Encoding::Hex512:
+        return hmac_sha512_hex(secret_.view(), message, out);
+    }
+    return {};
 }
 
 } // namespace raikiri::net

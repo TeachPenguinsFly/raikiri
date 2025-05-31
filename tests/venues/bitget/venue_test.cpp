@@ -719,9 +719,18 @@ TEST(BitgetWs, OneChannelServesThreeSubscriptionKinds) {
     EXPECT_EQ(channel_for(exec::SubKind::Depth), "books15");
     EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
 
-    EXPECT_EQ(inst_type(false), "USDT-FUTURES");
-    EXPECT_EQ(inst_type(true), "SUSDT-FUTURES");
+    EXPECT_EQ(inst_type(MarketType::Perp, false), "USDT-FUTURES");
+    EXPECT_EQ(inst_type(MarketType::Perp, true), "SUSDT-FUTURES");
+    // Demo trading is a futures-only product, so spot has one instType.
+    EXPECT_EQ(inst_type(MarketType::Spot, false), "SPOT");
+    EXPECT_EQ(inst_type(MarketType::Spot, true), "SPOT");
+    // Delivery contracts list under the USDT-M product with the perps.
+    EXPECT_EQ(inst_type(MarketType::Future, false), "USDT-FUTURES");
+    // Bitget v2 lists no crypto options; an empty instType is what
+    // subscribe_frame refuses rather than sending.
+    EXPECT_TRUE(inst_type(MarketType::Option, false).empty());
     EXPECT_EQ(stream_path(), "/v2/ws/public");
+    EXPECT_EQ(private_stream_path(), "/v2/ws/private");
 }
 
 TEST(BitgetRest, EveryMixTargetCarriesProductType) {
@@ -769,7 +778,10 @@ TEST(BitgetVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
-TEST(BitgetVenue, OrderWithoutAnImplementationFailsLoudly) {
+TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
+    // Bitget answers nothing at all for a request it never received, so the
+    // refusal has to be synthesized here: an order with no verdict sits in the
+    // store forever waiting for one no code will produce.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -782,31 +794,85 @@ TEST(BitgetVenue, OrderWithoutAnImplementationFailsLoudly) {
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+    EXPECT_EQ(sink.events[0].leaves_qty.raw, 0);
 
     // CancelRejected, not Rejected: the order a cancel targets is still alive.
     adapter->execution->cancel(cmd);
     ASSERT_EQ(sink.events.size(), 2U);
     EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
 
-    // Every pull refuses terminally rather than answering with an empty set,
-    // which reconciliation would read as "nothing is open".
-    EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Perp).has_value());
-    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
-    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
-    EXPECT_EQ(adapter->execution->open_order_reports(MarketType::Perp).error().cls,
-              exec::ErrorClass::Terminal);
+    // Bitget has no in-place amend on either API, so the refusal is a verdict
+    // rather than the base class's silent no-op.
+    adapter->execution->amend(cmd);
+    ASSERT_EQ(sink.events.size(), 3U);
+    EXPECT_EQ(sink.events[2].type, OrderEventType::ModifyRejected);
 }
 
-TEST(BitgetVenue, SpotCatalogueRefusesRatherThanReturningNothing) {
+TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
+    // Bitget v2 lists no crypto options at all, and no delivery contract
+    // reaches the instrument table. Both must say so: an empty vector reads
+    // as "nothing is open" and "the account is flat".
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .enable_spot = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
-    // An empty catalogue would look like a venue that lists no spot symbols.
-    const auto loaded = adapter->instruments->fetch_all(MarketType::Spot);
-    ASSERT_FALSE(loaded.has_value());
-    EXPECT_EQ(loaded.error().cls, exec::ErrorClass::Terminal);
+    auto& execution = *adapter->execution;
+
+    for (const auto market : {MarketType::Option, MarketType::Future}) {
+        const auto orders = execution.open_order_reports(market);
+        ASSERT_FALSE(orders.has_value());
+        EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
+        EXPECT_FALSE(execution.fill_reports(market, UnixNanos{0}).has_value());
+        EXPECT_FALSE(execution.position_reports(market).has_value());
+        const auto id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+        EXPECT_FALSE(execution.query_order(id, market).has_value());
+    }
+
+    // Spot holds coin balances, not positions against an instrument.
+    const auto spot = execution.position_reports(MarketType::Spot);
+    ASSERT_FALSE(spot.has_value());
+    EXPECT_EQ(spot.error().message.view(), "bitget spot position pull");
+}
+
+TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
+    // Spot states precision as decimal places and ships no priceEndStep, so
+    // the tick is 10^-pricePrecision and nothing multiplies it.
+    auto storage = std::make_unique<SpotSymbolBuffer>();
+    const auto body = fixture("rest_spot_symbols.json");
+    const auto rows = parse_spot_symbols(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+
+    exec::InstrumentTable table;
+    std::size_t loaded = 0;
+    for (const auto& row : *rows) {
+        const auto instrument = map_instrument(row);
+        if (instrument.has_value()) {
+            ASSERT_TRUE(table.add(*instrument).has_value());
+            ++loaded;
+        }
+    }
+    // BABYDOGEUSDT quotes 13 decimal places, which floors to a zero tick in
+    // the domain's e9 fixed point, and REAUSDT is halted. Five rows in, three
+    // out. MEASURED against the live catalogue on 2026-08-21: 1280 rows in,
+    // 1271 out, the nine refusals being two halts and seven over-precise ticks.
+    EXPECT_EQ(loaded, 3U);
+
+    const auto* btc = base_for(table, "BTCUSDT");
+    ASSERT_NE(btc, nullptr);
+    EXPECT_EQ(btc->tick_size.raw, 10'000'000);  // 0.01
+    EXPECT_EQ(btc->lot_size.raw, 1'000);        // 0.000001
+    EXPECT_EQ(btc->id.market(), MarketType::Spot);
+    EXPECT_EQ(btc->min_notional.raw, k_e9);     // minTradeUSDT "1"
+
+    // The finest tick the domain can hold, and a live row sits on it.
+    const auto* shib = base_for(table, "SHIBUSDT");
+    ASSERT_NE(shib, nullptr);
+    EXPECT_EQ(shib->tick_size.raw, 1);
+
+    EXPECT_EQ(table.find(std::string_view{"BABYDOGEUSDT"}), nullptr);
+    EXPECT_EQ(table.find(std::string_view{"REAUSDT"}), nullptr);
 }
 
 } // namespace

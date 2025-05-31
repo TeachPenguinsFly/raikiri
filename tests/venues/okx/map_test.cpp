@@ -27,6 +27,34 @@ exec::InstrumentTable table_with_btc() {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
+constexpr std::string_view k_ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+// A 5-contract IOC on BTC-USDT-SWAP that has filled 2, as the `orders`
+// channel writes it. Every number divides exactly by the 0.1 tick and the
+// 0.01 lot.
+WireOrder partly_filled_order() {
+    WireOrder wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.ord_id = "680800019749904385";
+    wire.cl_ord_id = k_ulid;
+    wire.side = "buy";
+    wire.ord_type = "ioc";
+    wire.px = "64043.5";
+    wire.sz = "5";
+    wire.acc_fill_sz = "2";
+    wire.avg_px = "64043.5";
+    wire.fill_px = "64043.5";
+    wire.fill_sz = "2";
+    wire.fill_fee = "-0.0384261";
+    wire.trade_id = "744876981";
+    wire.exec_type = "T";
+    wire.state = WireOrderState::PartiallyFilled;
+    wire.fill_ms = 1'786'392'410'701ULL;
+    wire.u_ms = 1'786'392'410'702ULL;
+    return wire;
+}
+
+
 TEST(OkxMap, BboBecomesTopOfBook) {
     const auto table = table_with_btc();
     WireBbo wire{};
@@ -263,6 +291,234 @@ TEST(OkxMap, InstrumentWithoutUsableStepsIsRefused) {
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 }
 
+// ------------------------------------------------------- order events ----
+
+TEST(OkxMap, AFillCarriesItsTradeAndTheFeeSignFlips) {
+    const auto table = table_with_btc();
+    const auto fill = map_order_fill(partly_filled_order(), table, k_ingest);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->side, Side::Buy);
+    EXPECT_EQ(fill->liquidity, Liquidity::Taker);
+    EXPECT_EQ(fill->price.raw, 640'435); // 64043.5 / 0.1
+    EXPECT_EQ(fill->qty.raw, 200);       // 2 contracts / 0.01
+    // OKX publishes no remainder: sz minus accFillSz is the only source.
+    EXPECT_EQ(fill->leaves_qty.raw, 300);
+    EXPECT_EQ(fill->exec_id.view(), "744876981");
+    EXPECT_EQ(fill->exchange_client_order_id.view(), k_ulid);
+    // Negative on the wire means a fee charged. Copying the sign through
+    // would credit the ledger for every trade we paid for.
+    EXPECT_EQ(fill->fee.raw, 38'426'100);
+    EXPECT_EQ(fill->ts_event.ns, 1'786'392'410'701ULL * 1'000'000ULL);
+
+    // A partial fill carries no lifecycle transition of its own.
+    EXPECT_FALSE(map_order_event(partly_filled_order(), table, k_ingest).has_value());
+}
+
+TEST(OkxMap, AFilledStateWithoutATradeIsNotASecondFill) {
+    // OKX closes a spot market order with state "filled" and fillSz 0 after
+    // the quantity already arrived on tradeId-bearing pushes. Reading
+    // accFillSz off this one books the same fill twice.
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.state = WireOrderState::Filled;
+    wire.acc_fill_sz = "5";
+    wire.trade_id = {};
+    wire.fill_sz = "0";
+    wire.fill_px = {};
+
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+    EXPECT_FALSE(map_order_event(wire, table, k_ingest).has_value());
+}
+
+TEST(OkxMap, OneMessageIsTheLastFillAndThenTheExpiry) {
+    // The race the brief exists for: an IOC that filled part of itself and was
+    // killed arrives as ONE object. Both halves have to come out, fill first.
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.state = WireOrderState::Canceled;
+    wire.cancel_source = "14"; // IOC remainder
+
+    const auto fill = map_order_fill(wire, table, k_ingest);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->qty.raw, 200);
+    EXPECT_EQ(fill->leaves_qty.raw, 300);
+
+    const auto event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    // Expired, not Canceled: nobody asked for this, the order ran out of book.
+    EXPECT_EQ(event->type, OrderEventType::Expired);
+    EXPECT_EQ(event->leaves_qty.raw, 300);
+    EXPECT_EQ(event->ts_event.ns, 1'786'392'410'702ULL * 1'000'000ULL);
+}
+
+TEST(OkxMap, AVenueCancelIsACancelAndAnAmendRefusalIsNeither) {
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.trade_id = {};
+    wire.state = WireOrderState::Canceled;
+    wire.cancel_source = "31"; // the post-only order would have taken
+
+    auto event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Canceled);
+
+    wire.state = WireOrderState::MmpCanceled;
+    wire.cancel_source = "39";
+    event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Canceled);
+
+    // amendResult "-1" leaves the order working at its old price. A Rejected
+    // here would close an order the venue still holds.
+    wire.state = WireOrderState::Live;
+    wire.cancel_source = {};
+    wire.amend_result = "-1";
+    event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::ModifyRejected);
+
+    wire.amend_result = {};
+    wire.code = k_insufficient_balance;
+    event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Rejected);
+
+    wire.code = k_ok;
+    event = map_order_event(wire, table, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Accepted);
+    EXPECT_EQ(event->price.raw, 640'435);
+    EXPECT_EQ(event->qty.raw, 500);
+    EXPECT_EQ(event->leaves_qty.raw, 300);
+}
+
+TEST(OkxMap, QuantitiesOffTheLotAreRefusedRatherThanRounded) {
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.fill_sz = "2.005"; // half a lot past a 0.01 step
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+
+    // A cumulative fill larger than the order it belongs to is not a
+    // remainder of zero. A fabricated zero closes the order at the wrong
+    // quantity; dropping the event leaves a live order for the pulls to fix.
+    wire = partly_filled_order();
+    wire.acc_fill_sz = "9";
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+
+    wire = partly_filled_order();
+    wire.sz = "5.005"; // the venue changed a lot size under us
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+
+    // An exec id we cannot store is a dedupe key we do not have.
+    wire = partly_filled_order();
+    wire.trade_id = std::string_view{
+        "744876981744876981744876981744876981744876981744876981744876981744876981"};
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+}
+
+TEST(OkxMap, OnlyWorkingOrdersBecomeStatusReports) {
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.state = WireOrderState::Live;
+    wire.acc_fill_sz = "0";
+    auto report = map_open_order(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::Accepted);
+    EXPECT_EQ(report->qty.raw, 500);
+    EXPECT_EQ(report->leaves.raw, 500);
+    EXPECT_EQ(report->exchange_client_order_id.view(), k_ulid);
+    EXPECT_EQ(report->exchange_order_id.view(), "680800019749904385");
+
+    wire.state = WireOrderState::PartiallyFilled;
+    wire.acc_fill_sz = "2";
+    report = map_open_order(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(report->leaves.raw, 300);
+
+    for (const auto state : {WireOrderState::Filled,
+                             WireOrderState::Canceled,
+                             WireOrderState::MmpCanceled,
+                             WireOrderState::Unknown}) {
+        wire.state = state;
+        EXPECT_FALSE(map_open_order(wire, table).has_value());
+    }
+}
+
+TEST(OkxMap, PositionSignComesFromPosSideAsWellAsFromPos) {
+    const auto table = table_with_btc();
+    WirePosition wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.pos = "12";
+    wire.pos_side = "net";
+    wire.avg_px = "64043.5";
+    wire.u_ms = 1'786'392'410'702ULL;
+
+    auto report = map_position(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->net_qty.raw, 1'200); // 12 contracts / 0.01
+    EXPECT_EQ(report->avg_entry.raw, 640'435);
+
+    // Net mode signs `pos` itself.
+    wire.pos = "-12";
+    report = map_position(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->net_qty.raw, -1'200);
+
+    // Long/short mode returns one UNSIGNED row a side, and reading a short as
+    // written is a position error of twice the size.
+    wire.pos = "12";
+    wire.pos_side = "short";
+    report = map_position(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->net_qty.raw, -1'200);
+
+    wire.pos_side = "long";
+    report = map_position(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->net_qty.raw, 1'200);
+}
+
+TEST(OkxMap, RestFillsBecomeFillReportsWithTheSameFeeConvention) {
+    const auto table = table_with_btc();
+    WireFill wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.trade_id = "744876980";
+    wire.ord_id = "680800019749904384";
+    wire.cl_ord_id = k_ulid;
+    wire.side = "sell";
+    wire.fill_px = "64043.5";
+    wire.fill_sz = "2";
+    wire.fee = "-0.0384261";
+    wire.exec_type = "M";
+    wire.fill_ms = 1'786'392'410'701ULL;
+
+    const auto report = map_fill(wire, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->exec_id.view(), "744876980");
+    EXPECT_EQ(report->side, Side::Sell);
+    EXPECT_EQ(report->price.raw, 640'435);
+    EXPECT_EQ(report->qty.raw, 200);
+    EXPECT_EQ(report->fee.raw, 38'426'100);
+    EXPECT_EQ(report->liquidity, Liquidity::Maker);
+    EXPECT_EQ(report->ts_venue.ns, 1'786'392'410'701ULL * 1'000'000ULL);
+
+    // Anything the venue never said stays Unknown rather than becoming Taker.
+    wire.exec_type = {};
+    EXPECT_EQ(map_fill(wire, table)->liquidity, Liquidity::Unknown);
+}
+
+TEST(OkxMap, PrivateFramesForInstrumentsWeNeverLoadedAreDropped) {
+    const auto table = table_with_btc();
+    auto wire = partly_filled_order();
+    wire.inst_id = "DOGE-USDT-SWAP";
+    EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
+    EXPECT_FALSE(map_order_event(wire, table, k_ingest).has_value());
+    EXPECT_FALSE(map_open_order(wire, table).has_value());
+}
+
 TEST(OkxErrors, AuthCodesHaltTheVenue) {
     for (const auto code : {k_invalid_api_key,
                             k_invalid_signature,
@@ -303,7 +559,26 @@ TEST(OkxErrors, BenignCancelRacesAreRecognised) {
     EXPECT_TRUE(is_benign_cancel_failure(k_cancel_order_not_exist));
     EXPECT_TRUE(is_benign_cancel_failure(k_cancel_already_canceled));
     EXPECT_TRUE(is_benign_cancel_failure(k_cancel_already_completed));
+    EXPECT_TRUE(is_benign_cancel_failure(k_order_not_found));
     EXPECT_FALSE(is_benign_cancel_failure(k_insufficient_balance));
+
+    // An amend of an order that already settled is the same race seen from
+    // the other side; the private stream has already reported the outcome.
+    EXPECT_TRUE(is_benign_amend_failure(k_amend_already_settled));
+    EXPECT_TRUE(is_benign_amend_failure(k_cancel_order_not_exist));
+    EXPECT_FALSE(is_benign_amend_failure(k_insufficient_balance));
+}
+
+TEST(OkxErrors, OrderEntryRefusalsAreTerminalNotRetried) {
+    // A duplicate client order id, a tier too low for a channel and a
+    // post-only that would have crossed are all final answers. Retrying any
+    // of them at full speed is how an account earns a rate-limit ban.
+    for (const auto code : {k_duplicate_param,
+                            k_tier_too_low_for_channel,
+                            k_post_only_would_take,
+                            k_operation_failed}) {
+        EXPECT_EQ(classify(code), exec::ErrorClass::Terminal) << code;
+    }
 }
 
 } // namespace

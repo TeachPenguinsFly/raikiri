@@ -25,7 +25,9 @@ using WireError = wire::Error;
 enum class EventKind : std::uint8_t {
     Ticker, // bid/ask, mark, index and funding on one frame
     Trade,
-    Books, // books5/books15/books share one shape
+    Books,  // books5/books15/books share one shape
+    Orders, // private: lifecycle AND fills on one channel
+    LoginAck, // the private handshake's answer, distinct from a subscribe ack
     SubscribeAck,
     Error,
     Unknown,
@@ -101,6 +103,9 @@ struct WireLevel {
 // letting a hostile frame make us allocate.
 inline constexpr std::size_t k_max_levels = 1024;
 
+// Bitget caps a cancel batch at 50, so a failure list cannot exceed it.
+inline constexpr std::size_t k_max_cancel_rows = 50;
+
 struct LevelBuffer {
     std::array<WireLevel, k_max_levels> bids{};
     std::array<WireLevel, k_max_levels> asks{};
@@ -122,6 +127,140 @@ struct WireBooks {
 
 [[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
                                                               LevelBuffer& storage);
+
+// ----------------------------------------------------------- private ----
+
+// Bitget's lifecycle vocabulary. SPOT spells the terminal cancel with two Ls
+// and MIX with one, and both are live: reading only one spelling leaves half
+// the cancels looking like orders that merely stopped updating.
+enum class WireOrderStatus : std::uint8_t {
+    Live,
+    PartiallyFilled,
+    Filled,
+    Canceled,
+    Unknown,
+};
+
+[[nodiscard]] WireOrderStatus order_status_from(std::string_view text) noexcept;
+
+// One `orders` element, and the same reader serves the REST pending lists —
+// which name the instrument `symbol` where the socket names it `instId`.
+//
+// The channel carries the fill inline: a push caused by a trade adds
+// trade_id, base_volume and fill_price to the lifecycle fields, which is why
+// this adapter never subscribes the separate `fill` channel. Subscribing both
+// would double-count every trade, and the spot `fill` element carries no
+// clientOid, so half of them would arrive unattributable.
+struct WireOrderUpdate {
+    std::string_view inst_id;
+    std::string_view order_id;
+    std::string_view client_oid;
+    std::string_view side;       // buy, sell
+    std::string_view order_type; // limit, market
+    std::string_view force;      // gtc, post_only, fok, ioc
+    std::string_view price;
+    // Order quantity. Spot states it in the QUOTE coin on a market buy and in
+    // the base coin otherwise; `new_size` is spot's base-denominated field.
+    std::string_view size;
+    std::string_view new_size;
+    std::string_view acc_base_volume; // cumulative filled, base units
+    std::string_view base_volume;     // this fill alone
+    std::string_view fill_price;
+    std::string_view fill_fee;
+    std::string_view trade_id;
+    std::string_view trade_scope; // "T"/"M" here; the `fill` channel spells it out
+    WireOrderStatus status{WireOrderStatus::Unknown};
+    std::uint64_t fill_ms{0};
+    std::uint64_t update_ms{0};
+};
+
+inline constexpr std::size_t k_max_updates = 128;
+
+struct OrderUpdateBuffer {
+    std::array<WireOrderUpdate, k_max_updates> updates{};
+};
+
+// The private socket's `orders` push.
+[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError>
+parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage);
+
+// GET .../spot/trade/unfilled-orders — `data` IS the array.
+// GET .../spot/trade/orderInfo — likewise an array, even for one order.
+[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError>
+parse_spot_orders(std::string_view body, OrderUpdateBuffer& storage);
+
+// GET .../mix/order/orders-pending — the array hides under data.entrustedList.
+[[nodiscard]] std::expected<std::span<const WireOrderUpdate>, WireError>
+parse_mix_orders(std::string_view body, OrderUpdateBuffer& storage);
+
+// A fill row from either fills endpoint. Neither carries a clientOid, so the
+// venue order id is the only join back to an order.
+struct WireFill {
+    std::string_view symbol;
+    std::string_view order_id;
+    std::string_view trade_id;
+    std::string_view side;
+    std::string_view price;
+    std::string_view size;
+    std::string_view fee;         // feeDetail totalFee; negative on Bitget
+    std::string_view trade_scope; // taker, maker
+    std::uint64_t ts_ms{0};
+};
+
+struct FillBuffer {
+    std::array<WireFill, k_max_updates> fills{};
+};
+
+// GET .../spot/trade/fills — `data` is the array and `feeDetail` an object.
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
+parse_spot_fills(std::string_view body, FillBuffer& storage);
+
+// GET .../mix/order/fills — data.fillList, and `feeDetail` is an ARRAY.
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
+parse_mix_fills(std::string_view body, FillBuffer& storage);
+
+// `holdSide` names the direction; there is no signed size anywhere.
+struct WirePosition {
+    std::string_view symbol; // `instId` on the socket, `symbol` over REST
+    std::string_view hold_side;
+    std::string_view total;
+    std::string_view open_price_avg;
+    std::uint64_t update_ms{0};
+};
+
+struct PositionBuffer {
+    std::array<WirePosition, k_max_updates> positions{};
+};
+
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
+parse_positions(std::string_view body, PositionBuffer& storage);
+
+// The `data` of place-order and cancel-order. order_id is empty when Bitget
+// declines to name it — a documented outcome when a one-way reduce-only
+// order displaces earlier ones — and clientOid is then the only handle.
+struct WireOrderAck {
+    std::string_view order_id;
+    std::string_view client_oid;
+};
+
+[[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body);
+
+// Batch cancels answer 00000 at the envelope while refusing individual
+// orders inside failureList, so a caller that reads only the envelope
+// believes it cancelled orders that are still working.
+struct WireBatchFailure {
+    std::string_view order_id;
+    std::string_view client_oid;
+    std::string_view code;
+    std::string_view msg;
+};
+
+struct BatchFailureBuffer {
+    std::array<WireBatchFailure, k_max_cancel_rows> failures{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBatchFailure>, WireError>
+parse_batch_failures(std::string_view body, BatchFailureBuffer& storage);
 
 // ------------------------------------------------------------- rest ----
 
@@ -160,6 +299,31 @@ struct ContractBuffer {
 
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError>
 parse_contracts(std::string_view body, ContractBuffer& storage);
+
+// One /api/v2/spot/public/symbols row. Spot states precision as DECIMAL
+// PLACES and ships no priceEndStep at all, so the mix row's two-factor tick
+// has no analogue here — reading the two catalogues through one struct is how
+// a spot tick silently gains a factor it never had.
+struct WireSpotSymbol {
+    std::string_view symbol;
+    std::string_view base_coin;
+    std::string_view quote_coin;
+    std::string_view status; // online, halt, offline
+    std::string_view price_precision;
+    std::string_view quantity_precision;
+    std::string_view min_trade_amount;
+    std::string_view min_trade_usdt;
+};
+
+// 1280 spot rows on 2026-08-21 against 745 mix rows, and both only grow.
+inline constexpr std::size_t k_max_spot_symbols = 4096;
+
+struct SpotSymbolBuffer {
+    std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
+parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
 
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 

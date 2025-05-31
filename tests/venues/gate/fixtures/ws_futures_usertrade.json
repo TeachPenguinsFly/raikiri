@@ -1,0 +1,1 @@
+{"time":1787670001,"channel":"futures.usertrades","event":"update","result":[{"id":"3335259","create_time":1787670001,"create_time_ms":1787670001500,"contract":"BTC_USDT","order_id":"123456789","size":5,"price":"64000.0","role":"maker","text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ","fee":0.0032,"point_fee":0}]}

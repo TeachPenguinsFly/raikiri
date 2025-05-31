@@ -3,6 +3,8 @@
 // Wire types -> domain types.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/kucoin/wire.hpp>
 
@@ -39,10 +41,38 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
                                                        const exec::InstrumentTable& table,
                                                        UnixNanos ts_init);
 
+// Private order flow ------------------------------------------------------
+
+// One frame kind carries the whole lifecycle, so this is where an ack, a fill
+// and a cancel part company. A `filled` notice yields nullopt: the trades that
+// filled the order already arrived as `match`, and emitting both counts the
+// last fill twice.
+[[nodiscard]] std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
+                                                         const exec::InstrumentTable& table,
+                                                         UnixNanos ts_init);
+
+// Reconciliation pulls ----------------------------------------------------
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire,
+                                                       const exec::InstrumentTable& table);
+
+// The venue's avg_entry is kept when it happens to land on a tick and left
+// undefined otherwise: an average of fills has no reason to be a multiple of
+// the price step, and the quantity is the part reconciliation acts on.
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything not Open, anything that is not a perpetual,
 // anything inverse, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
+
+// The spot catalogue lives on the other host and states its steps as
+// increments rather than as tick/lot sizes.
+[[nodiscard]] std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire);
 
 } // namespace raikiri::venues::kucoin

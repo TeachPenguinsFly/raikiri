@@ -61,22 +61,102 @@ std::optional<std::int64_t> whole_number(std::string_view text) {
 //
 // Integer scale, no double: the domain's fixed point is e9, so a place past
 // nine floors the unit to a zero step and is refused rather than clamped.
-// PEPEUSDT (pricePlace 10) is the live row that takes this path.
-std::optional<FixedE9> tick_size_of(std::string_view place_text, std::string_view end_step_text) {
+// PEPEUSDT (pricePlace 10) is the live row that takes this path, and seven
+// spot rows take the same one off `pricePrecision`.
+std::optional<FixedE9> decimal_unit(std::string_view place_text) {
     const auto place = whole_number(place_text);
-    const auto end_step = whole_number(end_step_text);
-    if (!place.has_value() || !end_step.has_value() || *end_step <= 0 || *place > 9) {
+    if (!place.has_value() || *place > 9) {
         return std::nullopt;
     }
     std::int64_t unit = k_e9;
     for (std::int64_t i = 0; i < *place; ++i) {
         unit /= 10;
     }
+    return FixedE9::from_raw(unit);
+}
+
+std::optional<FixedE9> tick_size_of(std::string_view place_text, std::string_view end_step_text) {
+    const auto unit = decimal_unit(place_text);
+    const auto end_step = whole_number(end_step_text);
+    if (!unit.has_value() || !end_step.has_value() || *end_step <= 0) {
+        return std::nullopt;
+    }
     std::int64_t raw = 0;
-    if (__builtin_mul_overflow(unit, *end_step, &raw)) {
+    if (__builtin_mul_overflow(unit->raw, *end_step, &raw)) {
         return std::nullopt;
     }
     return FixedE9::from_raw(raw);
+}
+
+
+// Our own ULID coming back from the venue. A value that does not fit the
+// field cannot be one of ours, so the event stays unattributed rather than
+// matched to a truncated lookalike.
+bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
+    if (text.empty()) {
+        return true; // absent is fine; wrong is not
+    }
+    const auto id = ExchangeClientOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+bool copy_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+// `tradeScope` is "T"/"M" on the orders channel and "taker"/"maker" on the
+// fills endpoints — the same field name for two vocabularies.
+Liquidity liquidity_from(std::string_view scope) noexcept {
+    if (scope == "M" || scope == "maker") {
+        return Liquidity::Maker;
+    }
+    if (scope == "T" || scope == "taker") {
+        return Liquidity::Taker;
+    }
+    return Liquidity::Unknown;
+}
+
+TimeInForce tif_from(std::string_view force) noexcept {
+    if (force == "ioc") {
+        return TimeInForce::Ioc;
+    }
+    if (force == "fok") {
+        return TimeInForce::Fok;
+    }
+    return TimeInForce::Gtc; // gtc and post_only both rest on the book
+}
+
+// Bitget signs a fee CHARGE negative; every consumer here subtracts fees from
+// realized PnL, so the sign is flipped once, at the edge.
+FixedE9 charge_from(std::string_view text) {
+    if (text.empty()) {
+        return FixedE9::from_raw(0);
+    }
+    const auto value = parse_number_e9(text);
+    return value.has_value() ? FixedE9::from_raw(-value->raw) : FixedE9::from_raw(0);
+}
+
+// The order quantity in BASE units, or nullopt where Bitget states it in the
+// quote coin instead: spot market buys size the order in quote, and no base
+// figure appears anywhere on the row.
+std::optional<QtyLots> order_qty(const WireOrderUpdate& wire, const InstrumentBase& base) {
+    if (base.id.market() == MarketType::Spot && wire.order_type == "market" &&
+        wire.side == "buy") {
+        return std::nullopt;
+    }
+    return to_lots(wire.new_size.empty() ? wire.size : wire.new_size, base);
 }
 
 } // namespace
@@ -206,6 +286,208 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
         return std::nullopt;
     }
     return out;
+}
+
+
+Side side_from(std::string_view text) noexcept {
+    return text == "sell" ? Side::Sell : Side::Buy;
+}
+
+std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
+                                           const exec::InstrumentTable& table,
+                                           UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt; // an instrument this process never loaded
+    }
+    const auto& base = base_of(*instrument);
+
+    OrderEvent out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.order_type = wire.order_type == "market" ? OrderType::Market : OrderType::Limit;
+    out.tif = tif_from(wire.force);
+    if (!copy_client_id(wire.client_oid, out.exchange_client_order_id) ||
+        !copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    out.ts_init = ts_init;
+
+    const auto total = order_qty(wire, base);
+    const auto filled = to_lots(wire.acc_base_volume, base);
+
+    if (!wire.trade_id.empty() && !wire.base_volume.empty()) {
+        const auto price = to_ticks(wire.fill_price, base);
+        const auto qty = to_lots(wire.base_volume, base);
+        const auto exec_id = ExecId::from(wire.trade_id);
+        if (!price.has_value() || !qty.has_value() || !exec_id.has_value()) {
+            return std::nullopt; // a fill we cannot price, size or dedupe is not usable
+        }
+        out.type = OrderEventType::Filled;
+        out.exec_id = *exec_id;
+        out.price = *price;
+        out.qty = *qty;
+        out.liquidity = liquidity_from(wire.trade_scope);
+        out.fee = charge_from(wire.fill_fee);
+        // Bitget publishes no remaining quantity anywhere; it is the original
+        // size less what has filled, and a status of `filled` settles it.
+        out.leaves_qty = wire.status == WireOrderStatus::Filled ? QtyLots::from_raw(0)
+                         : (total.has_value() && filled.has_value())
+                             ? QtyLots::from_raw(total->raw - filled->raw)
+                             : QtyLots::from_raw(0);
+        out.ts_event = ms_to_unix(wire.fill_ms != 0 ? wire.fill_ms : wire.update_ms, ts_init);
+        return out;
+    }
+
+    switch (wire.status) {
+    case WireOrderStatus::Live:
+        out.type = OrderEventType::Accepted;
+        break;
+    case WireOrderStatus::Canceled:
+        out.type = OrderEventType::Canceled;
+        break;
+    case WireOrderStatus::PartiallyFilled:
+    case WireOrderStatus::Filled:
+        // The trade that produced this already reported itself above.
+        return std::nullopt;
+    case WireOrderStatus::Unknown:
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    if (total.has_value()) {
+        out.qty = *total;
+    }
+    out.leaves_qty = out.type == OrderEventType::Canceled ? QtyLots::from_raw(0)
+                     : (total.has_value() && filled.has_value())
+                         ? QtyLots::from_raw(total->raw - filled->raw)
+                     : total.value_or(QtyLots::from_raw(0));
+    out.ts_event = ms_to_unix(wire.update_ms, ts_init);
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrderUpdate& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    if (!copy_client_id(wire.client_oid, out.exchange_client_order_id) ||
+        !copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    switch (wire.status) {
+    case WireOrderStatus::Live:
+        out.status = OrderStatus::Accepted;
+        break;
+    case WireOrderStatus::PartiallyFilled:
+        out.status = OrderStatus::PartiallyFilled;
+        break;
+    case WireOrderStatus::Filled:
+    case WireOrderStatus::Canceled:
+    case WireOrderStatus::Unknown:
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    const auto total = order_qty(wire, base);
+    if (total.has_value()) {
+        out.qty = *total;
+        if (const auto filled = to_lots(wire.acc_base_volume, base); filled.has_value()) {
+            out.leaves = QtyLots::from_raw(total->raw - filled->raw);
+        } else {
+            out.leaves = *total;
+        }
+    }
+    out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::FillReport> map_fill_report(const WireFill& wire,
+                                                const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.size, base);
+    const auto exec_id = ExecId::from(wire.trade_id);
+    if (!price.has_value() || !qty.has_value() || !exec_id.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::FillReport out{};
+    out.exec_id = *exec_id;
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.price = *price;
+    out.qty = *qty;
+    out.fee = charge_from(wire.fee);
+    out.liquidity = liquidity_from(wire.trade_scope);
+    if (!copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto size = to_lots(wire.total, base);
+    if (!size.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    // `total` is unsigned; holdSide is the only thing that says which way.
+    out.net_qty = wire.hold_side == "short" ? QtyLots::from_raw(-size->raw) : *size;
+    if (const auto avg = to_ticks(wire.open_price_avg, base); avg.has_value()) {
+        out.avg_entry = *avg;
+    }
+    out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<Instrument> map_instrument(const WireSpotSymbol& wire) {
+    if (wire.status != "online") {
+        return std::nullopt; // halt and offline rows are listed but untradable
+    }
+    const auto tick = decimal_unit(wire.price_precision);
+    const auto lot = decimal_unit(wire.quantity_precision);
+    if (!tick.has_value() || !lot.has_value()) {
+        return std::nullopt;
+    }
+    const auto symbol = SymbolText::from(wire.symbol);
+    if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Bitget, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    if (const auto min_notional = to_e9(wire.min_trade_usdt); min_notional.has_value()) {
+        base.min_notional = *min_notional;
+    }
+    base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
+    return SpotInstrument{base};
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {

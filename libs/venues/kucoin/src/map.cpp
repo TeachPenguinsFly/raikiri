@@ -66,6 +66,47 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_number_e9(text);
 }
 
+bool copy_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true; // absent is fine; wrong is not
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+// Our own ULID coming back from the venue. A value that does not fit the field
+// cannot be one of ours, so the event stays unattributed rather than being
+// matched to a truncated lookalike.
+bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeClientOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+Side side_from(std::string_view text) noexcept {
+    return text == "sell" ? Side::Sell : Side::Buy;
+}
+
+Liquidity liquidity_from(std::string_view text) noexcept {
+    if (text == "maker") {
+        return Liquidity::Maker;
+    }
+    if (text == "taker") {
+        return Liquidity::Taker;
+    }
+    return Liquidity::Unknown; // spot omits it entirely
+}
+
 } // namespace
 
 std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
@@ -209,8 +250,18 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
-    if (market != MarketType::Perp) {
+    switch (market) {
+    case MarketType::Perp:
+        break;
+    case MarketType::Spot:
+        return std::nullopt; // the futures host serves no spot; map_spot_symbol does
+    case MarketType::Future:
+        // KuCoin lists dated contracts on this endpoint, but every one seen so
+        // far is inverse, and the guard below drops those anyway. Admitting
+        // them needs the linear/inverse decision made per row first.
         return std::nullopt;
+    case MarketType::Option:
+        return std::nullopt; // KuCoin lists no options on the APIs in scope
     }
     if (wire.status != "Open") {
         return std::nullopt;
@@ -244,6 +295,216 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // deciding this per row.
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
+}
+
+
+std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
+                                           const exec::InstrumentTable& table,
+                                           UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    OrderEventType type{};
+    switch (wire.type) {
+    case OrderChangeType::Open:
+        type = OrderEventType::Accepted;
+        break;
+    case OrderChangeType::Match:
+        type = OrderEventType::Filled;
+        break;
+    case OrderChangeType::Canceled:
+        type = OrderEventType::Canceled;
+        break;
+    case OrderChangeType::Update:
+        type = OrderEventType::Updated;
+        break;
+    case OrderChangeType::Filled:
+        // The trades already arrived as `match`; this is the venue closing the
+        // order, and emitting it as a fill counts the last one twice.
+        return std::nullopt;
+    case OrderChangeType::Unknown:
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = type;
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.order_type = wire.order_type == "market" ? OrderType::Market : OrderType::Limit;
+    if (!copy_client_id(wire.client_oid, out.exchange_client_order_id) ||
+        !copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+
+    if (wire.type == OrderChangeType::Match) {
+        const auto price = to_ticks(wire.match_price, base);
+        const auto qty = to_lots(wire.match_size, base);
+        if (!price.has_value() || !qty.has_value()) {
+            return std::nullopt; // a fill we cannot scale is a schema event
+        }
+        out.price = *price;
+        out.qty = *qty;
+        out.liquidity = liquidity_from(wire.liquidity);
+        if (!wire.trade_id.empty()) {
+            const auto exec_id = ExecId::from(wire.trade_id);
+            if (!exec_id.has_value()) {
+                return std::nullopt; // a dedupe key we cannot store is not usable
+            }
+            out.exec_id = *exec_id;
+        }
+        // The frame names the fee TYPE and never the amount, so the charge for
+        // this fill is only knowable from the REST pull. Zero is what the
+        // ledger can arithmetic on; undef would poison it.
+        out.fee = FixedE9::from_raw(0);
+    } else {
+        if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+            out.price = *price;
+        }
+        if (const auto qty = to_lots(wire.size, base); qty.has_value()) {
+            out.qty = *qty;
+        }
+    }
+    if (const auto leaves = to_lots(wire.remain_size, base); leaves.has_value()) {
+        out.leaves_qty = *leaves;
+    }
+    out.ts_event = ns_to_unix(wire.ts_ns, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto qty = to_lots(wire.size, base);
+    if (!qty.has_value()) {
+        return std::nullopt;
+    }
+    const auto dealt = to_lots(wire.deal_size, base);
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    if (!copy_client_id(wire.client_oid, out.exchange_client_order_id) ||
+        !copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    out.status = dealt.has_value() && dealt->raw > 0 ? OrderStatus::PartiallyFilled
+                                                      : OrderStatus::Accepted;
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = *qty;
+    // Spot states what is left; futures states what was done and leaves the
+    // subtraction here.
+    if (const auto leaves = to_lots(wire.remain_size, base); leaves.has_value()) {
+        out.leaves = *leaves;
+    } else if (dealt.has_value()) {
+        out.leaves = QtyLots::from_raw(qty->raw - dealt->raw);
+    } else {
+        return std::nullopt; // neither form of "how much is left" was readable
+    }
+    out.ts_venue = ms_to_unix(wire.updated_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::FillReport> map_fill(const WireFill& wire,
+                                         const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.size, base);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::FillReport out{};
+    out.instrument = base.id;
+    out.side = side_from(wire.side);
+    out.liquidity = liquidity_from(wire.liquidity);
+    if (!copy_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (!wire.trade_id.empty()) {
+        const auto exec_id = ExecId::from(wire.trade_id);
+        if (!exec_id.has_value()) {
+            return std::nullopt;
+        }
+        out.exec_id = *exec_id;
+    }
+    out.price = *price;
+    out.qty = *qty;
+    // Neither host names the clientOid on a fill, so exchange_client_order_id
+    // stays empty and the fill is attributed through its order id alone.
+    if (const auto fee = to_e9(wire.fee); fee.has_value()) {
+        out.fee = *fee;
+    } else {
+        out.fee = FixedE9::from_raw(0);
+    }
+    out.ts_venue = ms_to_unix(wire.created_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    // Signed already: there is no side field that could disagree with it.
+    const auto qty = to_lots(wire.current_qty, base);
+    if (!qty.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = *qty;
+    if (const auto avg = to_ticks(wire.avg_entry_price, base); avg.has_value()) {
+        out.avg_entry = *avg;
+    }
+    out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
+    if (!wire.enable_trading) {
+        return std::nullopt;
+    }
+    const auto tick = parse_number_e9(wire.price_increment);
+    const auto lot = parse_number_e9(wire.base_increment);
+    if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
+        return std::nullopt;
+    }
+    const auto symbol = SymbolText::from(wire.symbol);
+    if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    base.id = InstrumentId::make(VenueId::Kucoin, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *symbol;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    if (const auto min_funds = to_e9(wire.min_funds); min_funds.has_value()) {
+        base.min_notional = *min_funds;
+    }
+    // A spot lot IS one base unit; there is no contract in between.
+    base.contract_value = FixedE9::from_raw(k_e9);
+    base.kind = ContractKind::Linear;
+    return SpotInstrument{base};
 }
 
 } // namespace raikiri::venues::kucoin

@@ -1,6 +1,6 @@
 #pragma once
 
-// KuCoin Futures error-code classification.
+// KuCoin error-code classification, spot and futures alike.
 //
 // The generic gateway retries Retryable, backs off RateLimited, halts on
 // AuthFailure and synthesizes a terminal Rejected for Terminal — so a code in
@@ -13,6 +13,7 @@
 #include <raikiri/exec/error.hpp>
 
 #include <cstdint>
+#include <string_view>
 
 namespace raikiri::venues::kucoin {
 
@@ -30,11 +31,26 @@ inline constexpr std::int64_t k_not_logged_in = 400401;
 inline constexpr std::int64_t k_validation_failed = 400600;
 inline constexpr std::int64_t k_interface_deprecated = 401000;
 inline constexpr std::int64_t k_url_not_found = 404000; // VERIFIED live: unknown symbol
+inline constexpr std::int64_t k_network_timeout = 408000;
 inline constexpr std::int64_t k_user_frozen = 411100;
 inline constexpr std::int64_t k_unsupported = 415000; // VERIFIED live: no funding rate
 inline constexpr std::int64_t k_too_many_requests = 429000;
 inline constexpr std::int64_t k_internal_server_error = 500000;
 inline constexpr std::int64_t k_service_unavailable = 503000;
+
+// Order entry. KuCoin publishes a SEPARATE table per product, and the two
+// overlap in neither numbering nor meaning — the spot codes below come from
+// the spot table, the futures ones from the futures table.
+inline constexpr std::int64_t k_spot_order_count_exceeded = 200003;
+inline constexpr std::int64_t k_spot_balance_insufficient = 200004;
+inline constexpr std::int64_t k_spot_symbol_not_tradable = 600203;
+inline constexpr std::int64_t k_spot_symbol_unknown = 900001;
+
+inline constexpr std::int64_t k_futures_order_not_cancelable = 100004;
+inline constexpr std::int64_t k_futures_balance_insufficient = 300003;
+inline constexpr std::int64_t k_futures_no_position_to_close = 300009;
+inline constexpr std::int64_t k_futures_leverage_too_high = 300016;
+inline constexpr std::int64_t k_futures_client_oid_repeated = 300018;
 
 // Websocket.
 inline constexpr std::int64_t k_ws_token_invalid = 401;   // VERIFIED live
@@ -46,5 +62,12 @@ inline constexpr std::int64_t k_ws_topic_not_found = 404; // VERIFIED live
 // reruns the handshake instead of waiting for the socket's own backoff, which
 // would reconnect with the same dead token forever.
 [[nodiscard]] bool is_expired_token(std::int64_t code) noexcept;
+
+// A cancel that lost the race with a fill, or with an earlier cancel, asked
+// for a state the order is already in — reporting CancelRejected there would
+// resurrect an order the OMS has correctly written off. KuCoin says so with a
+// generic 400100 whose TEXT is the only discriminator, so the text is read
+// here rather than the code alone.
+[[nodiscard]] bool is_benign_cancel_failure(std::int64_t code, std::string_view msg) noexcept;
 
 } // namespace raikiri::venues::kucoin

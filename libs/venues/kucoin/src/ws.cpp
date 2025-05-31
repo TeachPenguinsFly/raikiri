@@ -52,6 +52,19 @@ std::string_view topic_for(exec::SubKind kind) noexcept {
     return {};
 }
 
+std::string_view private_order_topic(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Spot:
+        return "/spotMarket/tradeOrders";
+    case MarketType::Perp:
+    case MarketType::Future:
+        return "/contractMarket/tradeOrders";
+    case MarketType::Option:
+        return {}; // KuCoin lists no options on the APIs in scope
+    }
+    return {};
+}
+
 std::expected<StreamEndpoint, WsBuildError>
 make_endpoint(std::string_view endpoint_url, std::string_view token, std::string_view connect_id) {
     if (!endpoint_url.starts_with(k_scheme) || !safe_in_query(token) ||
@@ -141,6 +154,39 @@ Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
+}
+
+std::expected<std::string_view, WsBuildError>
+Protocol::private_subscribe_frame(std::string_view topic) {
+    if (topic.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    std::array<char, 24> id{};
+    const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_++);
+    if (ec != std::errc{}) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    put(R"({"id":)");
+    put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
+    put(R"(,"type":"subscribe","topic":")");
+    put(topic);
+    // KuCoin's own examples render this as the string "true"; every SDK sends
+    // the boolean and is accepted, so the boolean is what goes out here.
+    put(R"(","privateChannel":true,"response":true})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return std::string_view{frame_.data(), len};
 }
 
 std::string_view Protocol::ping_frame() noexcept {

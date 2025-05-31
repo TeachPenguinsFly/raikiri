@@ -47,6 +47,68 @@ exec::InstrumentTable loaded_table() {
     return table;
 }
 
+// The spot table lives on the other host and comes from the other catalogue,
+// so nothing about it is shared with the futures one but the loading path.
+exec::InstrumentTable loaded_spot_table() {
+    const auto body = fixture("rest_spot_symbols.json");
+    static SpotSymbolBuffer storage;
+    const auto wire = parse_spot_symbols(body, storage);
+    EXPECT_TRUE(wire.has_value());
+    exec::InstrumentTable table;
+    for (const auto& entry : *wire) {
+        if (auto instrument = map_spot_symbol(entry); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    return table;
+}
+
+// A signer loaded with values that are not a real key. Every signature pinned
+// below was computed independently against these three strings.
+constexpr std::string_view k_test_key = "kucoin-test-key";
+constexpr std::string_view k_test_secret = "kucoin-test-secret";
+constexpr std::string_view k_test_passphrase = "kucoin-test-passphrase";
+
+void load_test_credentials(Credentials& credentials) {
+    credentials.signer().set_api_key(k_test_key);
+    ASSERT_TRUE(credentials.signer().secret().assign(k_test_secret).has_value());
+    ASSERT_TRUE(credentials.seal_passphrase(k_test_passphrase));
+}
+
+std::string_view header_of(const net::RestRequest& request, std::string_view name) {
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+OrderCmd limit_order(const exec::InstrumentTable& table,
+                     std::string_view symbol,
+                     std::string_view price,
+                     std::string_view qty) {
+    const auto* instrument = table.find(symbol);
+    EXPECT_NE(instrument, nullptr);
+    const auto& base = base_of(*instrument);
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.instrument = base.id;
+    cmd.client_order_id = ClientOrderId::make(1, 7);
+    cmd.exchange_client_order_id =
+        ExchangeClientOrderId::from("01J8ZQK9V7M3XPB2R6TDNAWC5E").value_or(ExchangeClientOrderId{});
+    cmd.price = PriceTicks::from_raw(parse_number_e9(price)->raw / base.tick_size.raw);
+    cmd.qty = QtyLots::from_raw(parse_number_e9(qty)->raw / base.lot_size.raw);
+    return cmd;
+}
+
+// Every signature in this file was taken at this instant; KuCoin signs
+// milliseconds, so the nanoseconds below render as 1730211033335.
+constexpr UnixNanos k_signed_at{1'730'211'033'335'000'000ULL};
+
 class CaptureSink final : public exec::GatewaySink {
 public:
     void on_bbo(const Bbo&) noexcept override {}
@@ -75,8 +137,10 @@ TEST(KucoinVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->instruments, nullptr);
 }
 
-TEST(KucoinVenue, OrderWithoutAnImplementationFailsLoudly) {
-    // Silence would leave the order open in the store forever.
+TEST(KucoinVenue, AnOrderThatCannotBeSignedIsRefusedRatherThanLeftOpen) {
+    // No credentials are configured here, so nothing can be signed. Silence
+    // would leave the order open in the store forever, waiting for a verdict
+    // that will never be produced.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -95,20 +159,43 @@ TEST(KucoinVenue, OrderWithoutAnImplementationFailsLoudly) {
     adapter->execution->cancel(cmd);
     ASSERT_EQ(sink.events.size(), 2U);
     EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
+
+    cmd.kind = CmdKind::Amend;
+    adapter->execution->amend(cmd);
+    ASSERT_EQ(sink.events.size(), 3U);
+    EXPECT_EQ(sink.events[2].type, OrderEventType::ModifyRejected);
 }
 
-TEST(KucoinVenue, CatalogueRefusesMarketsTheFuturesHostDoesNotServe) {
+TEST(KucoinVenue, StartingWithoutTheFullCredentialSetIsRefused) {
+    // KuCoin needs three secrets, not two. Starting on a partial set would let
+    // every order fail one at a time, each looking like a venue problem.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_spot = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
-    // An empty list would read as "KuCoin lists no spot pairs", which is a
-    // very different claim from "this host has no spot catalogue". No network
-    // is touched: the market is refused before any request is built.
-    const auto spot = adapter->instruments->fetch_all(MarketType::Spot);
-    ASSERT_FALSE(spot.has_value());
-    EXPECT_EQ(spot.error().cls, exec::ErrorClass::Terminal);
+    const auto started = adapter->execution->start();
+    ASSERT_FALSE(started.has_value());
+    EXPECT_EQ(started.error().cls, exec::ErrorClass::AuthFailure);
+}
+
+TEST(KucoinVenue, MarketsTheAdapterDoesNotServeAreNamedRefusals) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+    // No network is touched: each market is refused before a request is built.
+    // An empty list would read as "flat" or "nothing open", which are answers,
+    // not refusals.
+    EXPECT_FALSE(adapter->instruments->fetch_all(MarketType::Option).has_value());
+    EXPECT_FALSE(adapter->instruments->fetch_all(MarketType::Future).has_value());
+    EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Option).has_value());
+    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Option, UnixNanos{0}).has_value());
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Option).has_value());
+    // Spot was not enabled on this gateway, and spot has no positions at all.
+    EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Spot).has_value());
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Spot).has_value());
 }
 
 // ------------------------------------------------------------- wire ----
@@ -828,6 +915,620 @@ TEST(KucoinErrors, ClassificationPutsCodesInTheBucketTheGatewayActsOn) {
     // Unknown codes stay Terminal: an unknown refusal repeated at full speed
     // is how an account earns an IP ban.
     EXPECT_EQ(classify(999999), exec::ErrorClass::Terminal);
+}
+
+// ------------------------------------------------------- order entry ----
+
+TEST(KucoinSign, TheSignedStringIsTheRequestLineThatGoesOut) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto table = loaded_spot_table();
+
+    const auto request =
+        builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table,
+                             k_signed_at);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->target, "/api/v1/hf/orders");
+    EXPECT_EQ(request->body,
+              R"({"clientOid":"01J8ZQK9V7M3XPB2R6TDNAWC5E","symbol":"BTC-USDT","side":"buy",)"
+              R"("type":"limit","size":"0.00001","price":"50000","timeInForce":"GTC"})");
+    // Milliseconds, method upper case, path then body, nothing between them.
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{"1730211033335"} + "POST" + "/api/v1/hf/orders" +
+                  std::string{request->body});
+    EXPECT_EQ(header_of(*request, "KC-API-TIMESTAMP"), "1730211033335");
+    EXPECT_EQ(header_of(*request, "KC-API-KEY"), k_test_key);
+    EXPECT_EQ(header_of(*request, "KC-API-SIGN"), "+AWhvqpmFDu/7vY0xCCjfBIh4UC+cORP7LBx6rOlQTU=");
+}
+
+TEST(KucoinSign, KeyVersionTwoSendsTheHashedPassphraseNeverTheSecretItself) {
+    // A passphrase sent in clear answers 400004, which reads like the wrong
+    // passphrase rather than the wrong encoding, and costs an afternoon.
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+
+    const auto request = builder.positions(MarketType::Perp, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(header_of(*request, "KC-API-KEY-VERSION"), "2");
+    EXPECT_EQ(header_of(*request, "KC-API-PASSPHRASE"),
+              "WX/MCPps2NpCAWajYjOod/NfgMDWvFoHPQ15hoWy+fE=");
+    EXPECT_NE(header_of(*request, "KC-API-PASSPHRASE"), k_test_passphrase);
+}
+
+TEST(KucoinSign, AGetSignsItsQueryStringAndSendsNoBody) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+
+    const auto request = builder.open_orders(MarketType::Perp, {}, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Get);
+    // Without status=active KuCoin answers with the DONE orders, which a
+    // reconciler reads as a book full of orders that are already gone.
+    EXPECT_EQ(request->target, "/api/v1/orders?status=active");
+    EXPECT_TRUE(request->body.empty());
+    EXPECT_EQ(builder.last_sign_message(), "1730211033335GET/api/v1/orders?status=active");
+    EXPECT_EQ(header_of(*request, "KC-API-SIGN"), "rsS89SYWmBw2x3pvf1TSzXJzmxf+PjBwPgX6vM8khlY=");
+}
+
+TEST(KucoinSign, WithoutCredentialsNothingIsBuiltAtAll) {
+    // An unsigned order is not a degraded order; it is a request the venue
+    // answers with an auth error that looks like a bad key.
+    Credentials credentials;
+    OrderRequestBuilder builder{credentials};
+    const auto table = loaded_spot_table();
+    EXPECT_EQ(builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table,
+                                   k_signed_at)
+                  .error(),
+              BuildError::NotSigned);
+    EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at).error(), BuildError::NotSigned);
+
+    // A secret alone is not enough: the passphrase is a third credential.
+    credentials.signer().set_api_key(k_test_key);
+    ASSERT_TRUE(credentials.signer().secret().assign(k_test_secret).has_value());
+    EXPECT_FALSE(credentials.complete());
+    EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at).error(), BuildError::NotSigned);
+}
+
+TEST(KucoinRest, SpotAndFuturesAreDifferentHostsAndDifferentPayloads) {
+    EXPECT_EQ(rest_host(MarketType::Spot), "api.kucoin.com");
+    EXPECT_EQ(rest_host(MarketType::Perp), "api-futures.kucoin.com");
+    EXPECT_EQ(rest_host(MarketType::Future), "api-futures.kucoin.com");
+    EXPECT_TRUE(rest_host(MarketType::Option).empty());
+    EXPECT_EQ(rest_host(), rest_host(MarketType::Perp));
+
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto futures = loaded_table();
+
+    const auto request =
+        builder.create_order(limit_order(futures, "XBTUSDTM", "64125.6", "3"), futures,
+                             k_signed_at);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->target, "/api/v1/orders");
+    // `size` is a JSON NUMBER of contracts here and a quoted decimal of base
+    // units on spot. There is no `leverage`: it is optional, and it SETS the
+    // position's margin, so inventing one chooses risk nobody asked for.
+    EXPECT_EQ(request->body,
+              R"({"clientOid":"01J8ZQK9V7M3XPB2R6TDNAWC5E","symbol":"XBTUSDTM","side":"buy",)"
+              R"("type":"limit","size":3,"price":"64125.6","timeInForce":"GTC"})");
+    EXPECT_EQ(header_of(*request, "KC-API-SIGN"), "3ADpi9CieKkK4oCK+4ulPbtG5GP7eke2REbxhb52wX4=");
+}
+
+TEST(KucoinRest, FuturesRefusesAQuantityThatIsNotWholeContracts) {
+    // KuCoin trades lots. Rounding a fraction of one is how an order reaches
+    // the venue at a size nobody chose.
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto table = loaded_table();
+
+    auto cmd = limit_order(table, "PEPEUSDTM", "1", "1");
+    // PEPEUSDTM never loaded — its tick is below FixedE9 — so this is also the
+    // unknown-instrument path.
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(),
+              BuildError::UnknownInstrument);
+
+    cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
+    cmd.qty = QtyLots::from_raw(0);
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::BadQuantity);
+    cmd.qty = QtyLots::undef();
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::BadQuantity);
+
+    cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
+    cmd.price = PriceTicks::undef();
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::BadPrice);
+}
+
+TEST(KucoinRest, FlagsKucoinCannotExpressAreRefusedRatherThanDropped) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto spot = loaded_spot_table();
+    const auto futures = loaded_table();
+
+    // Spot holds no position to reduce; dropping the flag would send an
+    // opening order where a closing one was asked for.
+    auto cmd = limit_order(spot, "BTC-USDT", "50000", "0.00001");
+    cmd.flags = OrderFlags::ReduceOnly;
+    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+
+    // Post-only is a boolean alongside a resting time in force; with IOC the
+    // order is neither, so the pair is refused instead of quietly reshaped.
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.tif = TimeInForce::Ioc;
+    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+
+    auto perp = limit_order(futures, "XBTUSDTM", "64125.6", "3");
+    perp.flags = OrderFlags::ReduceOnly | OrderFlags::PostOnly;
+    const auto request = builder.create_order(perp, futures, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_NE(request->body.find(R"("postOnly":true)"), std::string_view::npos);
+    EXPECT_NE(request->body.find(R"("reduceOnly":true)"), std::string_view::npos);
+}
+
+TEST(KucoinRest, CancelNamesTheSymbolOnEveryPathThatDemandsIt) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto spot = loaded_spot_table();
+    const auto futures = loaded_table();
+
+    auto cmd = limit_order(spot, "BTC-USDT", "50000", "0.00001");
+    cmd.kind = CmdKind::Cancel;
+    auto request = builder.cancel_order(cmd, spot, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Delete);
+    EXPECT_EQ(request->target,
+              "/api/v1/hf/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=BTC-USDT");
+
+    // A venue order id, where we hold one, is the authoritative handle.
+    cmd.target_exchange_order_id = ExchangeOrderId::from("67120bbef094e200070976f6").value();
+    request = builder.cancel_order(cmd, spot, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, "/api/v1/hf/orders/67120bbef094e200070976f6?symbol=BTC-USDT");
+
+    auto perp = limit_order(futures, "XBTUSDTM", "64125.6", "3");
+    perp.kind = CmdKind::Cancel;
+    request = builder.cancel_order(perp, futures, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target,
+              "/api/v1/orders/client-order/01J8ZQK9V7M3XPB2R6TDNAWC5E?symbol=XBTUSDTM");
+    // Futures cancel-by-id needs no symbol, and adding one is a 400100.
+    perp.target_exchange_order_id = ExchangeOrderId::from("230181737576050688").value();
+    request = builder.cancel_order(perp, futures, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, "/api/v1/orders/230181737576050688");
+}
+
+TEST(KucoinRest, AmendExistsOnSpotAndNowhereElse) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto spot = loaded_spot_table();
+    const auto futures = loaded_table();
+
+    auto cmd = limit_order(spot, "BTC-USDT", "50000", "0.00001");
+    cmd.kind = CmdKind::Amend;
+    const auto request = builder.amend_order(cmd, spot, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, "/api/v1/hf/orders/alter");
+    EXPECT_EQ(request->body,
+              R"({"symbol":"BTC-USDT","clientOid":"01J8ZQK9V7M3XPB2R6TDNAWC5E",)"
+              R"("newPrice":"50000","newSize":"0.00001"})");
+
+    // KuCoin's modify REPLACES both fields, so an amend naming only one cannot
+    // be expressed; filling the other from memory resubmits a stale price.
+    cmd.price = PriceTicks::undef();
+    EXPECT_EQ(builder.amend_order(cmd, spot, k_signed_at).error(), BuildError::BadPrice);
+
+    auto perp = limit_order(futures, "XBTUSDTM", "64125.6", "3");
+    perp.kind = CmdKind::Amend;
+    EXPECT_EQ(builder.amend_order(perp, futures, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+}
+
+TEST(KucoinRest, TheSweepIsAccountWideOnFuturesAndPerSymbolOnSpot) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, "BTC-USDT", k_signed_at)->target,
+              "/api/v1/hf/orders/active?symbol=BTC-USDT");
+    // An empty symbol would fetch nothing and read as "no open orders".
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, {}, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.active_symbols(MarketType::Spot, k_signed_at)->target,
+              "/api/v1/hf/orders/active/symbols");
+    EXPECT_EQ(builder.active_symbols(MarketType::Perp, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+
+    EXPECT_EQ(builder.fills(MarketType::Spot, UnixNanos{0}, k_signed_at)->target,
+              "/api/v1/hf/fills");
+    EXPECT_EQ(builder.fills(MarketType::Perp, UnixNanos{1'727'692'804'808'000'000ULL},
+                            k_signed_at)
+                  ->target,
+              "/api/v1/fills?startAt=1727692804808");
+    EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at)->target, "/api/v1/positions");
+    // Spot has balances, not positions; an empty list would read as flat.
+    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+    // The private handshake is a signed POST, unlike the public one.
+    const auto bullet = builder.bullet_private(MarketType::Spot, k_signed_at);
+    ASSERT_TRUE(bullet.has_value());
+    EXPECT_EQ(bullet->method, net::HttpMethod::Post);
+    EXPECT_EQ(bullet->target, "/api/v1/bullet-private");
+    // The spot catalogue is the one public read that is not on the futures host.
+    RequestBuilder public_builder;
+    EXPECT_EQ(public_builder.spot_symbols().target, "/api/v2/symbols");
+}
+
+TEST(KucoinRest, EveryBuilderRefusesOptionsByName) {
+    // KuCoin lists no options on the APIs in scope. Each switch names the case
+    // rather than defaulting, so listing them would break the build here first.
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+    const auto table = loaded_table();
+
+    auto cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
+    cmd.instrument = InstrumentId::make(VenueId::Kucoin, MarketType::Option, SymbolId{0});
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_signed_at).error(),
+              BuildError::UnknownInstrument); // no option ever entered the table
+    EXPECT_EQ(builder.open_orders(MarketType::Option, "X", k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.active_symbols(MarketType::Option, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.fills(MarketType::Option, UnixNanos{0}, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.positions(MarketType::Option, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.bullet_private(MarketType::Option, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+    EXPECT_TRUE(private_order_topic(MarketType::Option).empty());
+}
+
+// ---------------------------------------------------- private stream ----
+
+TEST(KucoinWirePrivate, ThePrivateTopicCarriesNoSymbolBehindIt) {
+    // The public discriminator reads the symbol out of the topic and so
+    // refuses these frames outright; the payload names it instead.
+    for (const auto name : {"ws_spot_order_open.json", "ws_futures_order_match.json"}) {
+        const auto frame = fixture(name);
+        EXPECT_FALSE(parse_event(frame).has_value()) << name;
+        const auto event = parse_private_event(frame);
+        ASSERT_TRUE(event.has_value()) << name;
+        EXPECT_EQ(event->kind, EventKind::OrderChange) << name;
+    }
+    // The per-symbol form of the futures topic renames the subject and keeps
+    // the payload; reading only `orderChange` would silently drop every frame.
+    const auto per_symbol = fixture("ws_futures_order_symbol_match.json");
+    ASSERT_TRUE(parse_private_event(per_symbol).has_value());
+    EXPECT_EQ(parse_private_event(per_symbol)->kind, EventKind::OrderChange);
+
+    // Control frames still arrive on this socket and are not order changes.
+    EXPECT_EQ(parse_private_event(fixture("ws_welcome.json"))->kind, EventKind::Welcome);
+    EXPECT_EQ(parse_private_event(fixture("ws_error_token.json"))->kind, EventKind::Error);
+}
+
+TEST(KucoinWirePrivate, OrderTimeMeansMillisecondsOnSpotAndNanosecondsOnFutures) {
+    // Same field name, two scales, six orders of magnitude apart. `ts` is
+    // nanoseconds on both, which is why it is the one events are timed by.
+    const auto spot = parse_order_change(fixture("ws_spot_order_open.json"));
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot->order_time, 1730211033305ULL);
+    EXPECT_EQ(spot->ts_ns, 1730211033335000000ULL);
+
+    const auto futures = parse_order_change(fixture("ws_futures_order_match.json"));
+    ASSERT_TRUE(futures.has_value());
+    // Quoted on futures, bare on spot; both reach the DTO as digits.
+    EXPECT_EQ(futures->order_time, 1772043995356345762ULL);
+    EXPECT_EQ(futures->ts_ns, 1772043995362000000ULL);
+}
+
+TEST(KucoinMapPrivate, AnAckBecomesAcceptedAndCarriesWhatIsStillWorking) {
+    const auto table = loaded_spot_table();
+    const auto wire = parse_order_change(fixture("ws_spot_order_open.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto event = map_order_change(*wire, table, UnixNanos{5});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Accepted);
+    EXPECT_EQ(event->side, Side::Buy);
+    EXPECT_EQ(event->order_type, OrderType::Limit);
+    EXPECT_EQ(event->exchange_client_order_id.view(), "01J8ZQK9V7M3XPB2R6TDNAWC5E");
+    EXPECT_EQ(event->exchange_order_id.view(), "6720ecd9ec71f4000747731a");
+    EXPECT_EQ(event->price.raw, 500'000);   // 50000 over the 0.1 tick
+    EXPECT_EQ(event->qty.raw, 1'000);       // 0.00001 over the 0.00000001 lot
+    EXPECT_EQ(event->leaves_qty.raw, 1'000);
+    EXPECT_EQ(event->ts_event.ns, 1730211033335000000ULL);
+    EXPECT_EQ(event->ts_init.ns, 5U);
+}
+
+TEST(KucoinMapPrivate, APartialFillIsTheMatchPriceAndWhatIsLeftAfterIt) {
+    const auto table = loaded_spot_table();
+    const auto wire = parse_order_change(fixture("ws_spot_order_match.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto event = map_order_change(*wire, table, UnixNanos{5});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Filled);
+    // The FILL's price and size, not the order's: an order resting at 50000
+    // and a fill at 50000 are the same number here only by coincidence.
+    EXPECT_EQ(event->qty.raw, 400);        // 0.000004 traded
+    EXPECT_EQ(event->leaves_qty.raw, 600); // 0.000006 still working
+    EXPECT_EQ(event->price.raw, 500'000);
+    EXPECT_EQ(event->liquidity, Liquidity::Taker);
+    EXPECT_EQ(event->exec_id.view(), "11029373945659392");
+    // The frame names the fee TYPE and never the amount, so this is what the
+    // ledger can do arithmetic on — an undef would poison it.
+    EXPECT_EQ(event->fee.raw, 0);
+}
+
+TEST(KucoinMapPrivate, AFullFillOnFuturesIsPricedInContracts) {
+    const auto table = loaded_table();
+    const auto wire = parse_order_change(fixture("ws_futures_order_match.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto event = map_order_change(*wire, table, UnixNanos{9});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Filled);
+    EXPECT_EQ(event->order_type, OrderType::Market);
+    // A market order's `price` is "0"; only matchPrice says what traded.
+    EXPECT_EQ(event->price.raw, 206'855); // 2068.55 over the 0.01 tick
+    EXPECT_EQ(event->qty.raw, 1);
+    EXPECT_EQ(event->leaves_qty.raw, 0);
+    EXPECT_EQ(event->liquidity, Liquidity::Taker);
+    EXPECT_EQ(event->exec_id.view(), "1815302608109");
+}
+
+TEST(KucoinMapPrivate, TheFilledNoticeIsNotASecondFill) {
+    // KuCoin sends one `match` per trade and then a `filled` closing the
+    // order. Emitting both counts the last trade twice, which shows up as a
+    // position we never took.
+    const auto table = loaded_table();
+    const auto wire = parse_order_change(fixture("ws_futures_order_filled.json"));
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->type, OrderChangeType::Filled);
+    EXPECT_FALSE(map_order_change(*wire, table, UnixNanos{9}).has_value());
+}
+
+TEST(KucoinMapPrivate, ACancelIsTerminalAndKeepsItsIdentity) {
+    const auto table = loaded_table();
+    const auto wire = parse_order_change(fixture("ws_futures_order_canceled.json"));
+    ASSERT_TRUE(wire.has_value());
+    const auto event = map_order_change(*wire, table, UnixNanos{9});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Canceled);
+    EXPECT_EQ(event->side, Side::Sell);
+    EXPECT_EQ(event->qty.raw, 3);
+    EXPECT_EQ(event->leaves_qty.raw, 0);
+    EXPECT_EQ(event->exchange_client_order_id.view(), "01J8ZQK9V7M3XPB2R6TDNAWC5E");
+}
+
+TEST(KucoinMapPrivate, FramesThatCannotBeAttributedOrScaledAreDropped) {
+    const auto table = loaded_table();
+    auto wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+
+    // A clientOid longer than a ULID cannot be one of ours — it belongs to
+    // another client of the same account — and matching it to a truncated
+    // lookalike is worse than not hearing it.
+    wire.client_oid = "9f7a2be0-effe-45bd-bdc8-1614715a583a";
+    EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
+
+    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire.symbol = "NOSUCHSYM";
+    EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
+
+    // Half a tick. Rounding it would report a fill at a price that never
+    // traded, and the ledger would carry the difference forever.
+    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire.match_price = "2068.555";
+    EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
+
+    // A fraction of a contract is refused the same way.
+    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire.match_size = "0.5";
+    EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
+}
+
+TEST(KucoinWs, ThePrivateSubscribeFrameSaysSoOutLoud) {
+    Protocol protocol;
+    EXPECT_EQ(private_order_topic(MarketType::Spot), "/spotMarket/tradeOrders");
+    EXPECT_EQ(private_order_topic(MarketType::Perp), "/contractMarket/tradeOrders");
+    EXPECT_EQ(private_order_topic(MarketType::Future), "/contractMarket/tradeOrders");
+
+    const auto frame = protocol.private_subscribe_frame(private_order_topic(MarketType::Perp));
+    ASSERT_TRUE(frame.has_value());
+    EXPECT_EQ(*frame,
+              R"({"id":1,"type":"subscribe","topic":"/contractMarket/tradeOrders",)"
+              R"("privateChannel":true,"response":true})");
+    // No symbol list: the topic covers the whole account.
+    EXPECT_EQ(frame->find(':' + std::string{"XBTUSDTM"}), std::string_view::npos);
+    EXPECT_FALSE(protocol.private_subscribe_frame({}).has_value());
+}
+
+// ------------------------------------------------ reconciliation pulls ----
+
+TEST(KucoinMapRest, TheSpotSweepReadsAnUnwrappedArray) {
+    const auto table = loaded_spot_table();
+    static OrderBuffer storage;
+    const auto body = fixture("rest_spot_orders_active.json");
+    const auto wire = parse_spot_orders(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 2U);
+
+    const auto resting = map_open_order((*wire)[0], table);
+    ASSERT_TRUE(resting.has_value());
+    EXPECT_EQ(resting->status, OrderStatus::Accepted);
+    EXPECT_EQ(resting->qty.raw, 1'000);
+    EXPECT_EQ(resting->leaves.raw, 1'000);
+    EXPECT_EQ(resting->price.raw, 500'000);
+    EXPECT_EQ(resting->exchange_client_order_id.view(), "01J8ZQK9V7M3XPB2R6TDNAWC5E");
+    EXPECT_EQ(resting->ts_venue.ns, 1729235909862ULL * 1'000'000ULL);
+
+    const auto working = map_open_order((*wire)[1], table);
+    ASSERT_TRUE(working.has_value());
+    EXPECT_EQ(working->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(working->side, Side::Sell);
+    EXPECT_EQ(working->leaves.raw, 600); // spot states what is left
+}
+
+TEST(KucoinMapRest, TheFuturesSweepReadsAPageAndSubtractsWhatIsLeft) {
+    const auto table = loaded_table();
+    static OrderBuffer storage;
+    const auto body = fixture("rest_futures_orders_active.json");
+    // The same rows under `data` directly would be a spot answer; futures
+    // wraps them in a page object, and reading one as the other yields zero
+    // open orders, which a reconciler believes.
+    EXPECT_FALSE(parse_spot_orders(body, storage).has_value());
+    const auto wire = parse_futures_orders(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 2U);
+
+    const auto resting = map_open_order((*wire)[0], table);
+    ASSERT_TRUE(resting.has_value());
+    EXPECT_EQ(resting->status, OrderStatus::Accepted);
+    EXPECT_EQ(resting->qty.raw, 3);
+    EXPECT_EQ(resting->leaves.raw, 3);
+    EXPECT_EQ(resting->price.raw, 641'256);
+
+    // Futures never states remainSize, so what is left is size minus dealSize.
+    const auto working = map_open_order((*wire)[1], table);
+    ASSERT_TRUE(working.has_value());
+    EXPECT_EQ(working->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(working->qty.raw, 5);
+    EXPECT_EQ(working->leaves.raw, 3);
+}
+
+TEST(KucoinMapRest, ActiveSymbolsIsTheFirstHalfOfTheSpotSweep) {
+    static SymbolBuffer storage;
+    const auto symbols = parse_active_symbols(fixture("rest_spot_active_symbols.json"), storage);
+    ASSERT_TRUE(symbols.has_value());
+    ASSERT_EQ(symbols->size(), 1U);
+    EXPECT_EQ((*symbols)[0], "BTC-USDT");
+}
+
+TEST(KucoinMapRest, FillsShareOneShapeAcrossTwoHosts) {
+    static FillBuffer storage;
+    const auto futures_table = loaded_table();
+    const auto futures = parse_fills(fixture("rest_futures_fills.json"), storage);
+    ASSERT_TRUE(futures.has_value());
+    ASSERT_EQ(futures->size(), 1U);
+    const auto perp = map_fill((*futures)[0], futures_table);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(perp->side, Side::Sell);
+    EXPECT_EQ(perp->liquidity, Liquidity::Taker);
+    EXPECT_EQ(perp->price.raw, 641'400);
+    EXPECT_EQ(perp->qty.raw, 2);
+    EXPECT_EQ(perp->fee.raw, 76'900'000);
+    EXPECT_EQ(perp->exec_id.view(), "1940359085512");
+    EXPECT_EQ(perp->exchange_order_id.view(), "230181737576050688");
+    // Neither host names the clientOid on a fill; the order id is the link.
+    EXPECT_TRUE(perp->exchange_client_order_id.view().empty());
+    EXPECT_EQ(perp->ts_venue.ns, 1727692805000ULL * 1'000'000ULL);
+
+    const auto spot_table = loaded_spot_table();
+    const auto spot = parse_fills(fixture("rest_spot_fills.json"), storage);
+    ASSERT_TRUE(spot.has_value());
+    ASSERT_EQ(spot->size(), 1U);
+    // tradeId is a JSON number here and a quoted string on futures.
+    EXPECT_EQ((*spot)[0].trade_id, "11029373945659392");
+    const auto fill = map_fill((*spot)[0], spot_table);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->price.raw, 677'176);
+    EXPECT_EQ(fill->qty.raw, 1'000);
+    EXPECT_EQ(fill->fee.raw, 677'176);
+}
+
+TEST(KucoinMapRest, APositionKeepsItsSignAndSurvivesAnAverageOffTheTick) {
+    const auto table = loaded_table();
+    static PositionBuffer storage;
+    const auto wire = parse_positions(fixture("rest_positions.json"), storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 2U);
+
+    const auto long_side = map_position((*wire)[0], table);
+    ASSERT_TRUE(long_side.has_value());
+    EXPECT_EQ(long_side->net_qty.raw, 1);
+    EXPECT_EQ(long_side->avg_entry.raw, 1'200'164); // 120016.4 over the 0.1 tick
+    EXPECT_EQ(long_side->ts_venue.ns, 1758507727807ULL * 1'000'000ULL);
+
+    // currentQty is signed; there is no side field that could disagree.
+    const auto short_side = map_position((*wire)[1], table);
+    ASSERT_TRUE(short_side.has_value());
+    EXPECT_EQ(short_side->net_qty.raw, -40);
+    // 2068.555 is not a multiple of the 0.01 tick, which is normal for an
+    // average of fills. Discarding the row over it would lose the quantity —
+    // the only part reconciliation acts on.
+    EXPECT_TRUE(short_side->avg_entry.is_undef());
+}
+
+TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {
+    static SpotSymbolBuffer storage;
+    const auto wire = parse_spot_symbols(fixture("rest_spot_symbols.json"), storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 4U);
+
+    const auto btc = map_spot_symbol((*wire)[0]);
+    ASSERT_TRUE(btc.has_value());
+    ASSERT_TRUE(std::holds_alternative<SpotInstrument>(*btc));
+    const auto& base = base_of(*btc);
+    EXPECT_EQ(base.exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base.tick_size.raw, 100'000'000); // 0.1
+    EXPECT_EQ(base.lot_size.raw, 10);           // 0.00000001
+    EXPECT_EQ(base.min_notional.raw, 100'000'000);
+    // A spot lot IS one base unit; there is no contract in between.
+    EXPECT_EQ(base.contract_value.raw, k_e9);
+    EXPECT_EQ(base.id.market(), MarketType::Spot);
+
+    EXPECT_TRUE(map_spot_symbol((*wire)[1]).has_value()); // ETH-USDT
+    // enableTrading false: the only suspended pair of 1003 on the capture date.
+    EXPECT_FALSE((*wire)[2].enable_trading);
+    EXPECT_FALSE(map_spot_symbol((*wire)[2]).has_value());
+    // priceIncrement 1e-12, three decades below what FixedE9 models. Refusing
+    // beats rounding a tick size to zero.
+    EXPECT_EQ((*wire)[3].price_increment, "0.000000000001");
+    EXPECT_FALSE(map_spot_symbol((*wire)[3]).has_value());
+}
+
+TEST(KucoinErrors, ACancelThatLostItsRaceIsNotACancelReject) {
+    // The order is already gone, which is what the cancel asked for. Reporting
+    // CancelRejected would resurrect an order the OMS has written off.
+    const auto spot = parse_rest_envelope(fixture("rest_error_cancel_gone_spot.json"));
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot->code, k_parameter_error);
+    EXPECT_TRUE(is_benign_cancel_failure(spot->code, spot->msg));
+
+    const auto futures = parse_rest_envelope(fixture("rest_error_cancel_gone_futures.json"));
+    ASSERT_TRUE(futures.has_value());
+    EXPECT_EQ(futures->code, k_futures_order_not_cancelable);
+    EXPECT_TRUE(is_benign_cancel_failure(futures->code, futures->msg));
+
+    // 400100 is the catch-all parameter error, so the code alone must not
+    // swallow a malformed cancel as harmless.
+    EXPECT_FALSE(is_benign_cancel_failure(k_parameter_error, "pageSize should not greater than 500"));
+    EXPECT_FALSE(is_benign_cancel_failure(k_spot_balance_insufficient, "Balance insufficient"));
+    // A success body is not a failure of any kind.
+    EXPECT_TRUE(parse_rest_envelope(fixture("rest_order_ack.json"))->code == k_ok);
+}
+
+TEST(KucoinErrors, OrderEntryRefusalsLandInTheBucketTheGatewayActsOn) {
+    // Two separate tables: KuCoin numbers spot and futures refusals
+    // independently, and neither is a superset of the other.
+    EXPECT_EQ(classify(k_spot_balance_insufficient), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_spot_order_count_exceeded), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_spot_symbol_not_tradable), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_spot_symbol_unknown), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_futures_balance_insufficient), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_futures_client_oid_repeated), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_futures_leverage_too_high), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_futures_no_position_to_close), exec::ErrorClass::Terminal);
+    // A network timeout is the venue saying nothing, not the venue saying no.
+    EXPECT_EQ(classify(k_network_timeout), exec::ErrorClass::Retryable);
+    EXPECT_EQ(classify(k_order_forbidden), exec::ErrorClass::Terminal);
 }
 
 } // namespace

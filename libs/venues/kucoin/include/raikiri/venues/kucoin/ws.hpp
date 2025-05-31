@@ -1,13 +1,14 @@
 #pragma once
 
-// KuCoin Futures public websocket protocol: topic naming, the connect URL, and
-// subscription frames.
+// KuCoin websocket protocol: topic naming, the connect URL, and subscription
+// frames, public and private.
 //
 // A subscription is a TOPIC STRING, "/contractMarket/tickerV2:XBTUSDTM", whose
 // symbol part is a comma-joined list. The venue echoes one symbol per message
 // regardless (verified live), so batching keeps the topic count — what
 // KuCoin's limit of 100 per connection counts — at one per kind.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/exec/data_client.hpp>
 
 #include <array>
@@ -30,6 +31,12 @@ enum class WsBuildError : std::uint8_t {
 
 // Returns empty for a kind KuCoin does not stream under these names.
 [[nodiscard]] std::string_view topic_for(exec::SubKind kind) noexcept;
+
+// Acks, fills and cancels all arrive on ONE topic per market family — KuCoin
+// has no separate execution channel — and the topic carries no symbol, so it
+// is subscribed once per socket rather than per instrument. Empty for a market
+// KuCoin does not serve, which the caller must refuse rather than route.
+[[nodiscard]] std::string_view private_order_topic(MarketType market) noexcept;
 
 struct Subscription {
     std::string_view topic;
@@ -68,6 +75,12 @@ public:
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
+
+    // Private topics take no symbol list and must say so: without
+    // privateChannel the socket answers with the public feed of the same name
+    // where one exists, and with nothing where it does not.
+    [[nodiscard]] std::expected<std::string_view, WsBuildError>
+    private_subscribe_frame(std::string_view topic);
 
     [[nodiscard]] std::string_view ping_frame() noexcept;
 

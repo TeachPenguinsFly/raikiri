@@ -18,6 +18,9 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "books5" || channel == "books15" || channel == "books") {
         return EventKind::Books;
     }
+    if (channel == "orders") {
+        return EventKind::Orders;
+    }
     return EventKind::Unknown;
 }
 
@@ -45,8 +48,12 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (!event->empty()) {
-            // Every control frame but "error" is an ack we count, not act on.
-            info.kind = *event == "error" ? EventKind::Error : EventKind::SubscribeAck;
+            // The login answer must not be read as a subscribe ack: it is the
+            // one control frame whose absence means the private socket is
+            // connected and deaf.
+            info.kind = *event == "error"     ? EventKind::Error
+                        : *event == "login"   ? EventKind::LoginAck
+                                              : EventKind::SubscribeAck;
             return info;
         }
         auto arg = detail::req_object(*root, "arg");

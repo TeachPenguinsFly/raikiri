@@ -21,6 +21,9 @@ inline constexpr std::size_t k_hmac_bytes = 32;
 inline constexpr std::size_t k_hex_bytes = k_hmac_bytes * 2; // 64
 inline constexpr std::size_t k_base64_bytes = 44;            // 32 bytes -> 44 chars
 
+inline constexpr std::size_t k_hmac512_bytes = 64;
+inline constexpr std::size_t k_hex512_bytes = k_hmac512_bytes * 2; // 128
+
 // Raw digest of `message` keyed by `key`. Returns false only on an OpenSSL
 // failure, which in practice means the process is already unhealthy.
 [[nodiscard]] bool hmac_sha256(std::string_view key,
@@ -37,12 +40,21 @@ hmac_sha256_hex(std::string_view key, std::string_view message, std::span<char> 
 [[nodiscard]] std::string_view
 hmac_sha256_base64(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
+// SHA512, keyed and unkeyed, hex-encoded lowercase. Gate signs with HMAC-SHA512
+// over a payload that itself embeds a plain SHA512 of the request body, so the
+// unkeyed digest is not a convenience here — it is part of the signature.
+// `out` must be at least k_hex512_bytes.
+[[nodiscard]] std::string_view sha512_hex(std::string_view message, std::span<char> out) noexcept;
+
+[[nodiscard]] std::string_view
+hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept;
+
 // Holds a venue's credentials for the lifetime of a gateway process. The
 // secret never leaves this object: signing happens here, and callers get
 // only the digest.
 class Signer {
 public:
-    enum class Encoding : std::uint8_t { Hex, Base64 };
+    enum class Encoding : std::uint8_t { Hex, Base64, Hex512 };
 
     Signer() = default;
     Signer(const Signer&) = delete;

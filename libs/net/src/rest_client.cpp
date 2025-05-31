@@ -72,6 +72,8 @@ constexpr std::size_t k_no_slot = static_cast<std::size_t>(-1);
         return http::verb::put;
     case HttpMethod::Delete:
         return http::verb::delete_;
+    case HttpMethod::Patch:
+        return http::verb::patch;
     }
     return http::verb::post;
 }

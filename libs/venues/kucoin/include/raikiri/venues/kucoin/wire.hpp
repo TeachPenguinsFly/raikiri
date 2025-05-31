@@ -1,6 +1,6 @@
 #pragma once
 
-// KuCoin Futures wire types and parsers.
+// KuCoin wire types and parsers, public market data and private order flow.
 
 #include <raikiri/wire/json.hpp>
 
@@ -22,6 +22,7 @@ enum class EventKind : std::uint8_t {
     Depth,       // subject level2
     MarkPrice,   // subject mark.index.price, on /contract/instrument
     FundingRate, // subject funding.rate, on the same topic
+    OrderChange, // subject orderChange (or symbolOrderChange), private topic
     Welcome,     // sent once on connect, before anything may be subscribed
     Ack,
     Pong,
@@ -35,6 +36,11 @@ struct EventInfo {
 };
 
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
+
+// The private topics carry no symbol behind their topic string — the payload
+// names it instead — so the public discriminator, which reads the symbol out
+// of the topic, refuses these frames outright.
+[[nodiscard]] std::expected<EventInfo, WireError> parse_private_event(std::string_view frame);
 
 // A refused subscription or a rejected token. `data` holds the text here,
 // where a REST body would use `msg`.
@@ -207,5 +213,163 @@ parse_funding_current(std::string_view body);
 
 // GET /api/v1/timestamp. `data` is a bare number here, not an object.
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
+
+
+// ---------------------------------------------------------- private ----
+
+// KuCoin puts the WHOLE order lifecycle on one topic per market family: there
+// is no separate execution channel the way bybit has, and an ack, a fill and a
+// cancel differ only by `type`.
+//
+// `Filled` is the venue saying the order is done; the trades that filled it
+// already arrived as `Match`. Treating it as another fill double-counts the
+// last one.
+enum class OrderChangeType : std::uint8_t {
+    Open,
+    Match,
+    Filled,
+    Canceled,
+    Update, // a modify took effect; `old_size` names what it replaced
+    Unknown,
+};
+
+// Sizes are decimal text on spot and CONTRACTS on futures, and `order_time` is
+// a JSON number on spot but a quoted string on futures — both reach the DTO as
+// the raw token, so the mapper divides by the instrument's own steps either way.
+struct WireOrderChange {
+    OrderChangeType type{OrderChangeType::Unknown};
+    std::string_view symbol;
+    std::string_view order_id;
+    std::string_view client_oid;
+    std::string_view trade_id;  // `match` only; the fill's dedupe key
+    std::string_view side;      // "buy" / "sell"
+    std::string_view order_type; // "limit" / "market"
+    std::string_view price;      // the order's price; "0" on a market order
+    std::string_view size;
+    std::string_view filled_size;
+    std::string_view match_price; // `match` only, and the price that traded
+    std::string_view match_size;  // `match` only
+    std::string_view remain_size;
+    std::string_view canceled_size;
+    std::string_view old_size;    // `update` only
+    std::string_view liquidity;   // "maker" / "taker"; futures states it, spot does not
+    // `order_time` is MILLISECONDS on spot and NANOSECONDS on futures — the
+    // same field name, two scales, six orders of magnitude apart. `ts` is
+    // nanoseconds on both, so it is the one the mapper times events by.
+    std::uint64_t order_time{0};
+    std::uint64_t ts_ns{0};
+};
+
+[[nodiscard]] std::expected<WireOrderChange, WireError>
+parse_order_change(std::string_view frame);
+
+// ------------------------------------------------------ private rest ----
+
+// One row shape for both hosts: the spot and futures order lists disagree on
+// which fields they send, not on what the shared ones are called. `remain_size`
+// is spot-only — futures states `deal_size` and leaves the subtraction to the
+// mapper.
+struct WireOrder {
+    std::string_view symbol;
+    std::string_view order_id;
+    std::string_view client_oid;
+    std::string_view side;
+    std::string_view order_type;
+    std::string_view price;
+    std::string_view size;
+    std::string_view deal_size;
+    std::string_view remain_size;
+    std::string_view status; // futures "open" / "done"; absent on spot
+    bool active{false};
+    bool cancel_exist{false};
+    std::uint64_t updated_ms{0};
+};
+
+inline constexpr std::size_t k_max_orders = 512;
+
+struct OrderBuffer {
+    std::array<WireOrder, k_max_orders> orders{};
+};
+
+// GET /api/v1/hf/orders/active — `data` is the array itself.
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+parse_spot_orders(std::string_view body, OrderBuffer& storage);
+
+// GET /api/v1/orders?status=active — `data` is a page object wrapping `items`.
+[[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
+parse_futures_orders(std::string_view body, OrderBuffer& storage);
+
+inline constexpr std::size_t k_max_active_symbols = 256;
+
+struct SymbolBuffer {
+    std::array<std::string_view, k_max_active_symbols> symbols{};
+};
+
+// GET /api/v1/hf/orders/active/symbols. The first half of the spot sweep:
+// KuCoin answers actives one symbol at a time.
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
+parse_active_symbols(std::string_view body, SymbolBuffer& storage);
+
+// Neither host names the clientOid on a fill, so a fill is attributed through
+// its `order_id` alone.
+struct WireFill {
+    std::string_view symbol;
+    std::string_view trade_id;
+    std::string_view order_id;
+    std::string_view side;
+    std::string_view liquidity; // "maker" / "taker"
+    std::string_view price;
+    std::string_view size;
+    std::string_view fee;
+    std::uint64_t created_ms{0};
+};
+
+inline constexpr std::size_t k_max_fills = 512;
+
+struct FillBuffer {
+    std::array<WireFill, k_max_fills> fills{};
+};
+
+// GET /api/v1/fills and GET /api/v1/hf/fills — one shape, both hosts.
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
+parse_fills(std::string_view body, FillBuffer& storage);
+
+// `current_qty` is SIGNED and counted in contracts: negative is short, and
+// there is no side field to disagree with it.
+struct WirePosition {
+    std::string_view symbol;
+    std::string_view current_qty;
+    std::string_view avg_entry_price;
+    std::uint64_t ts_ms{0};
+};
+
+inline constexpr std::size_t k_max_positions = 256;
+
+struct PositionBuffer {
+    std::array<WirePosition, k_max_positions> positions{};
+};
+
+// GET /api/v1/positions — `data` is the array itself.
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
+parse_positions(std::string_view body, PositionBuffer& storage);
+
+// GET /api/v2/symbols on the SPOT host. `base_increment` is the lot step and
+// `price_increment` the tick; `min_funds` is a quote-currency floor, not a size.
+struct WireSpotSymbol {
+    std::string_view symbol;
+    std::string_view base_increment;
+    std::string_view price_increment;
+    std::string_view min_funds;
+    bool enable_trading{false};
+};
+
+inline constexpr std::size_t k_max_spot_symbols = 4096;
+
+struct SpotSymbolBuffer {
+    std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
+parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
 
 } // namespace raikiri::venues::kucoin

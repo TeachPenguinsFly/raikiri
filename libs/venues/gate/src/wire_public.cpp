@@ -20,6 +20,12 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "futures.order_book_update") {
         return EventKind::BookUpdate;
     }
+    if (channel == "futures.orders" || channel == "spot.orders") {
+        return EventKind::OrderUpdate;
+    }
+    if (channel == "futures.usertrades" || channel == "spot.usertrades") {
+        return EventKind::UserTrade;
+    }
     return EventKind::Unknown;
 }
 

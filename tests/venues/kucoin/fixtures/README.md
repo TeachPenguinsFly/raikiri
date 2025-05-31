@@ -65,3 +65,56 @@ The four kept contract rows are the ones the mapper has to disagree about:
 | File | Why |
 | --- | --- |
 | `rest_contracts_paused.json` | The live `ETHUSDTM` row with `"status":"Open"` changed to `"status":"Pause"`. All 677 contracts were `Open` on the capture date, so there was no real non-Open row to keep, and the mapper's status gate would otherwise go untested. |
+
+## Spot catalogue, captured live
+
+`rest_spot_symbols.json` — `GET https://api.kucoin.com/api/v2/symbols` (2026-08-25,
+no credentials), trimmed from 1003 rows to four, each byte-for-byte as served.
+Note the HOST: this is the only fixture here from `api.kucoin.com` rather than
+`api-futures.kucoin.com`, and it is the reason spot order entry can name a
+symbol at all.
+
+The four rows are the ones the mapper has to disagree about:
+
+- `BTC-USDT` — accepted. `priceIncrement` 0.1, `baseIncrement` 0.00000001.
+- `ETH-USDT` — accepted, a finer tick and a coarser lot.
+- `DEBIT-USDT` — refused: `enableTrading` is false. It was the ONLY suspended
+  pair of the 1003 on the capture date.
+- `WIN-BTC` — refused: `priceIncrement` is `0.000000000001`, three decades below
+  what FixedE9 models. Refusing beats rounding a tick size to zero.
+
+## Order flow, assembled
+
+No fixture below was captured: order entry needs credentials, and this
+repository has none. Each is the venue's own documented example for that
+endpoint or channel, so it proves the parsers read the shape KuCoin publishes —
+not that production sends exactly these bytes. Replace them with captures the
+first time a funded key runs against the venue.
+
+Two edits were made across all of them, and only these two:
+
+- `clientOid` is a 26-char Crockford ULID (`01J8ZQK9V7M3XPB2R6TDNAWC5E`, and
+  `...5F` for a second order), because that is what raikiri mints. KuCoin's own
+  examples use UUIDs, which are 36 characters and do not fit
+  `ExchangeClientOrderId` — the mapper drops those, which is a property the
+  tests pin separately rather than something the shared fixtures should hide.
+- Symbols are `BTC-USDT` / `ETH-USDT` / `XBTUSDTM` / `ETHUSDTM`, so the rows
+  resolve against the two catalogue fixtures above.
+
+| File | Documented source |
+| --- | --- |
+| `ws_spot_order_open.json` | `/spotMarket/tradeOrders`, subject `orderChange`, `type` `open` |
+| `ws_spot_order_match.json` | same channel, `type` `match` — adds `matchPrice`, `matchSize`, `liquidity`, `feeType`, `tradeId` |
+| `ws_futures_order_match.json` | `/contractMarket/tradeOrders`, `type` `match`; field values are a real recorded frame (ETHUSDTM, `price` `"0"` on a market order) |
+| `ws_futures_order_symbol_match.json` | the PER-SYMBOL form of the same topic, whose subject is `symbolOrderChange` and which names neither `orderId` nor `clientOid` |
+| `ws_futures_order_filled.json` | `type` `filled` — the venue closing an order whose trades already arrived as `match` |
+| `ws_futures_order_canceled.json` | `type` `canceled` |
+| `rest_order_ack.json` | `POST /api/v1/hf/orders` success body |
+| `rest_error_cancel_gone_spot.json` | spot cancel of an order that is already gone: a generic `400100` whose TEXT is the only discriminator |
+| `rest_error_cancel_gone_futures.json` | the futures spelling of the same condition, `100004` |
+| `rest_spot_active_symbols.json` | `GET /api/v1/hf/orders/active/symbols` |
+| `rest_spot_orders_active.json` | `GET /api/v1/hf/orders/active?symbol=BTC-USDT`; `data` is the array itself, and the second row is partially filled |
+| `rest_futures_orders_active.json` | `GET /api/v1/orders?status=active`; `data` is a PAGE object wrapping `items`, `size`/`dealSize` are JSON numbers, and there is no `remainSize` |
+| `rest_futures_fills.json` | `GET /api/v1/fills` |
+| `rest_spot_fills.json` | `GET /api/v1/hf/fills` — same `items` shape, but `tradeId` is a JSON number where futures sends a string |
+| `rest_positions.json` | `GET /api/v1/positions`; the ETHUSDTM row is short (`currentQty` -40) and its `avgEntryPrice` 2068.555 is NOT a multiple of the 0.01 tick, which is normal for an average and must not discard the row |

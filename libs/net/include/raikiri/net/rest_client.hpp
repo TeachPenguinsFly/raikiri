@@ -25,7 +25,7 @@ namespace raikiri::net {
 
 class IoContext;
 
-enum class HttpMethod : std::uint8_t { Get, Post, Put, Delete };
+enum class HttpMethod : std::uint8_t { Get, Post, Put, Delete, Patch };
 
 struct RestConfig {
     std::string host;

@@ -45,7 +45,11 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
 
 bool is_benign_cancel_failure(std::int64_t code) noexcept {
     return code == k_cancel_order_not_exist || code == k_cancel_already_canceled ||
-           code == k_cancel_already_completed;
+           code == k_cancel_already_completed || code == k_order_not_found;
+}
+
+bool is_benign_amend_failure(std::int64_t code) noexcept {
+    return code == k_amend_already_settled || is_benign_cancel_failure(code);
 }
 
 } // namespace raikiri::venues::okx

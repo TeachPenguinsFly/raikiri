@@ -14,7 +14,7 @@ struct LabelClass {
 
 // Only the labels that are NOT Terminal need listing: everything else falls
 // through to the default, which is what makes an unknown refusal safe.
-constexpr std::array<LabelClass, 12> k_table{{
+constexpr std::array<LabelClass, 17> k_table{{
     {k_authentication_failed, exec::ErrorClass::AuthFailure},
     {k_invalid_credentials, exec::ErrorClass::AuthFailure},
     {k_invalid_key, exec::ErrorClass::AuthFailure},
@@ -24,10 +24,17 @@ constexpr std::array<LabelClass, 12> k_table{{
     {k_forbidden, exec::ErrorClass::AuthFailure},
     {k_account_locked, exec::ErrorClass::AuthFailure},
     {k_missing_required_header, exec::ErrorClass::AuthFailure},
+    {k_trade_restricted, exec::ErrorClass::AuthFailure},
     {k_too_fast, exec::ErrorClass::RateLimited},
     {k_too_many_requests, exec::ErrorClass::RateLimited},
     // REQUEST_EXPIRED is deliberately absent here and handled below.
     {k_internal, exec::ErrorClass::Retryable},
+    {k_order_pending, exec::ErrorClass::Retryable},
+    {k_position_in_liquidation, exec::ErrorClass::Retryable},
+    {k_position_in_close, exec::ErrorClass::Retryable},
+    // The order was placed and only the answer went missing; resending it
+    // would be a second order, so this is the venue telling us to stop.
+    {k_duplicate_request, exec::ErrorClass::Terminal},
 }};
 
 } // namespace

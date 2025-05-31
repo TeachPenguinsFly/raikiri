@@ -6,6 +6,7 @@ add_library(raikiri_venue_kucoin STATIC
   src/rest.cpp
   src/ws.cpp
   src/wire_detail.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
 )

@@ -8,7 +8,10 @@
 // (verified live). It carries a timestamp, so unlike okx's four-byte "ping"
 // it cannot be a constant.
 
+#include <raikiri/common/time.hpp>
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/exec/data_client.hpp>
+#include <raikiri/net/signer.hpp>
 
 #include <array>
 #include <cstdint>
@@ -22,6 +25,8 @@ enum class WsBuildError : std::uint8_t {
     UnsupportedKind,
     NothingToSend,
     BufferTooSmall,
+    NotSigned,        // credentials were never loaded
+    MarketUnsupported, // no private channel wired for this market
 };
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
@@ -36,6 +41,20 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
+
+// Private streams. Futures shares the public host and settle-scoped path;
+// spot is a different host AND a different path, so the two private sockets
+// have nothing in common but the frame grammar.
+[[nodiscard]] std::string_view private_host(bool testnet, MarketType market) noexcept;
+[[nodiscard]] std::string_view private_path(bool testnet, MarketType market) noexcept;
+
+// Empty for a market with no private channel wired here.
+[[nodiscard]] std::string_view orders_channel(MarketType market) noexcept;
+[[nodiscard]] std::string_view user_trades_channel(MarketType market) noexcept;
+
+// Every contract / currency pair on the account. Gate's own wildcard, not a
+// convention of ours.
+inline constexpr std::string_view k_all_symbols = "!all";
 
 // Returns empty for a kind Gate does not stream under these names.
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
@@ -78,12 +97,29 @@ public:
 
     [[nodiscard]] std::string_view ping_frame(std::uint64_t now_s) noexcept;
 
+    // A private subscribe carries its own signature: HMAC-SHA512 over
+    // "channel=<c>&event=<e>&time=<t>", hex, in an `auth` object beside the
+    // payload. There is no connection-wide login for the push channels — every
+    // subscribe re-authenticates, and the `time` inside the digest must be the
+    // same one the frame carries or Gate answers code 4.
+    [[nodiscard]] std::expected<std::string_view, WsBuildError>
+    private_subscribe_frame(std::string_view channel,
+                            std::span<const std::string_view> payload,
+                            const net::Signer& signer,
+                            std::uint64_t now_s);
+
+    // Exposed for tests: the exact bytes signed by the last private frame.
+    [[nodiscard]] std::string_view last_auth_message() const noexcept;
+
 private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     op_frame(std::string_view op, std::span<const Subscription> subscriptions, std::uint64_t now_s);
 
     std::array<char, 8192> frame_{};
     std::array<char, 64> ping_{};
+    std::array<char, 128> auth_msg_{};
+    std::array<char, net::k_hex512_bytes> signature_{};
+    std::size_t auth_msg_len_{0};
 };
 
 } // namespace raikiri::venues::gate

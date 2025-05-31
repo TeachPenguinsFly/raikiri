@@ -3,9 +3,13 @@
 Provenance matters here: a parser test is only evidence if the bytes are the
 bytes the venue actually sends.
 
-Every file below was **captured live** from production OKX on 2026-08-10. No
-credentials are involved — all of these are public endpoints and the public
-websocket. Nothing in this directory is hand-written or reshaped from docs.
+Everything under "Websocket" and "REST" below was **captured live** from
+production OKX on 2026-08-10. No credentials are involved — those are public
+endpoints and the public websocket.
+
+The private-side files under "Private (documented, not captured)" are the
+exception, and the reason is stated there: placing an order needs credentials
+this repository does not have.
 
 ## Websocket — `wss://ws.okx.com:8443/ws/v5/public`
 
@@ -64,3 +68,43 @@ There is no `mark-price` websocket fixture. The channel exists and
 `GET /public/mark-price`, so `rest_mark_price.json` exercises the same parser
 against real bytes. The same is true of `funding-rate`, where the REST and
 websocket payloads were compared field-for-field and matched.
+
+
+## Private (documented, not captured)
+
+Nothing here was observed on a live account: order entry needs an API key, a
+secret and a passphrase, and none exist for this repository. These files are
+therefore the next best evidence — the response and push examples OKX
+publishes in its own v5 documentation, copied byte-for-byte, plus two files
+that are assembled and say so.
+
+**Copied verbatim from the OKX v5 docs (2026-08 revision):**
+
+| file | source |
+|---|---|
+| `ws_orders_fill.json` | the WS *Order channel* "Push Data Example" — a SPOT `BTC-USDT` sell that filled whole, `execType: "M"`, `tradeId` present |
+| `ws_login_ok.json` | the WebSocket *Login* success response |
+| `ws_login_failed.json` | the WebSocket *Login* failure response, code `60009` |
+| `rest_order_ack.json` | `POST /api/v5/trade/order` success response |
+| `rest_orders_pending.json` | `GET /api/v5/trade/orders-pending` response — one `state: "live"` post-only order, `accFillSz "0"`, and `fillTime ""` rather than absent |
+| `rest_fills.json` | `GET /api/v5/trade/fills` response |
+| `rest_positions.json` | `GET /api/v5/account/positions` response |
+
+**Assembled, and only these two:**
+
+| file | how it was built |
+|---|---|
+| `rest_order_reject.json` | the REST envelope shape OKX documents for a refused order (`code "1"`, reason in `data[].sCode`) carrying the per-order object verbatim from the docs' `51008` example, with `clOrdId` set to a ULID so the ack-to-order match has something to match on |
+| `ws_orders_partial_expiry.json` | the `ws_orders_fill.json` object, re-valued on `BTC-USDT-SWAP` as a 5-contract IOC that filled 2 and was then killed: `state: "canceled"` with `cancelSource: "14"` **and** a `tradeId` in the same message |
+
+That second file exists because it is the case a reader gets wrong. OKX sends
+the last fill and the cancel that ended the order as ONE object, so an adapter
+that maps state or fills but not both loses either the money or the terminal
+event. Every number in it divides exactly by the `BTC-USDT-SWAP` tick (0.1)
+and lot (0.01) the mapping tests load, which is the only thing about it that
+is not copied.
+
+`rest_positions.json` is a `MARGIN` row rather than a `SWAP` one because that
+is the row OKX publishes. The parser test reads it as-is; the sign and lot
+conversions are exercised in `map_test.cpp` against constructed rows, where a
+short position can be written without inventing a live response.

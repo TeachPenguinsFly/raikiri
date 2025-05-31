@@ -5,6 +5,7 @@ add_library(raikiri_venue_okx STATIC
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
 )

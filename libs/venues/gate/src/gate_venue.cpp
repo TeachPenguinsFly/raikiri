@@ -1,5 +1,7 @@
+#include <raikiri/config/secret.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/errors.hpp>
@@ -8,6 +10,7 @@
 #include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,6 +27,12 @@ constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
 // Cold-start only, and sized against a measurement — see GateInstruments.
 constexpr std::uint32_t k_catalogue_timeout_ms = 20'000;
+
+// Live orders tracked for their leaves. Far above any sane working set; the
+// cap exists so a venue incident cannot turn the map into the heap.
+constexpr std::size_t k_max_live_orders = 8'192;
+
+constexpr std::uint32_t k_private_stream_id = 1;
 
 // A subscription the gateway asked for, owned as strings because the
 // instrument table's views outlive nothing in particular.
@@ -44,9 +53,26 @@ struct VenueState {
     bool testnet;
 
     net::IoContext io;
+    net::Signer signer;
     exec::InstrumentTable instruments;
     Protocol protocol;
     RequestBuilder builder;
+
+    // The futures private socket demands the account's user id as the first
+    // element of every subscribe payload, and answers a payload without it
+    // with silence rather than an error. Spot wants no such thing.
+    std::uint64_t futures_user_id{0};
+
+    // As much of a live order as Gate states in any one frame. The orders
+    // channel carries `left` and our client id; the user-trade channel carries
+    // the fill and neither, so a fill cannot state its own leaves — which is
+    // the number the OMS treats as authoritative. Keyed by the venue order id,
+    // the one field both frames do carry.
+    struct OrderMemo {
+        ExchangeClientOrderId client_order_id{};
+        QtyLots leaves{QtyLots::from_raw(0)};
+    };
+    std::unordered_map<std::string, OrderMemo> live_orders;
 
     // The seed rides its own pool so a book resynchronising never queues
     // behind the catalogue, which is over a megabyte.
@@ -80,7 +106,44 @@ struct VenueState {
     }
 
     [[nodiscard]] std::uint64_t now_s() const noexcept {
-        return clock->wall().ns / 1'000'000'000ULL;
+        return venue_now().ns / 1'000'000'000ULL;
+    }
+
+    // Gate refuses a signature whose Timestamp is more than 60 s from ITS
+    // clock, so a laptop drifting a minute looks exactly like a bad key.
+    [[nodiscard]] UnixNanos venue_now() const noexcept {
+        const auto local = clock->wall();
+        return UnixNanos{
+            static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+    }
+
+    void remember(const WireOrder& wire) {
+        if (wire.order_id.empty()) {
+            return;
+        }
+        if (wire.state == WireOrderState::Cancelled || wire.state == WireOrderState::Expired ||
+            wire.state == WireOrderState::Filled) {
+            live_orders.erase(std::string{wire.order_id});
+            return;
+        }
+        if (live_orders.size() >= k_max_live_orders &&
+            !live_orders.contains(std::string{wire.order_id})) {
+            return; // a runaway order count must not become a runaway heap
+        }
+        auto& memo = live_orders[std::string{wire.order_id}];
+        if (const auto leaves = order_leaves(wire, instruments); leaves.has_value()) {
+            memo.leaves = *leaves;
+        }
+        if (const auto body = client_id_from_text(wire.text); !body.empty()) {
+            if (const auto id = ExchangeClientOrderId::from(body); id.has_value()) {
+                memo.client_order_id = *id;
+            }
+        }
+    }
+
+    [[nodiscard]] OrderMemo memo_for(std::string_view order_id) const {
+        const auto it = live_orders.find(std::string{order_id});
+        return it == live_orders.end() ? OrderMemo{} : it->second;
     }
 };
 
@@ -201,6 +264,81 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::OrderUpdate:
+    case EventKind::UserTrade:
+    case EventKind::Pong:
+    case EventKind::SubscribeAck:
+    case EventKind::Unknown:
+        break; // private kinds and control frames are not this socket's
+    }
+}
+
+// Routes one private frame. The market decides which of Gate's two order
+// shapes the payload is; nothing in the frame itself says.
+void handle_private_frame(VenueState& state,
+                          MarketType market,
+                          std::string_view frame,
+                          UnixNanos received) {
+    const auto event = parse_event(frame);
+    if (!event.has_value()) {
+        return;
+    }
+    switch (event->kind) {
+    case EventKind::OrderUpdate: {
+        static thread_local OrderBuffer orders;
+        const auto wire = parse_ws_orders(frame, orders, market);
+        if (!wire.has_value()) {
+            return;
+        }
+        for (const auto& entry : *wire) {
+            // Remembered BEFORE the event is emitted: a user trade for the
+            // same fill may already be queued behind this frame, and it can
+            // only state its leaves out of this memo.
+            state.remember(entry);
+            if (const auto mapped = map_order_event(entry, state.instruments, received);
+                mapped.has_value()) {
+                state.sink->on_order_event(*mapped);
+            }
+        }
+        break;
+    }
+    case EventKind::UserTrade: {
+        static thread_local UserTradeBuffer trades;
+        const auto wire = parse_ws_user_trades(frame, trades, market);
+        if (!wire.has_value()) {
+            return;
+        }
+        for (const auto& entry : *wire) {
+            const auto memo = state.memo_for(entry.order_id);
+            if (const auto mapped = map_user_trade(entry,
+                                                   state.instruments,
+                                                   memo.leaves,
+                                                   memo.client_order_id,
+                                                   received);
+                mapped.has_value()) {
+                state.sink->on_order_event(*mapped);
+            }
+        }
+        break;
+    }
+    case EventKind::Error: {
+        if (const auto err = parse_stream_error(frame); err.has_value()) {
+            state.last_error_code = err->code;
+            // Code 4 wraps a REST-style label in its message; the number is
+            // enough to tell a bad key from an unknown contract.
+            state.sink->on_connectivity(
+                {.state = classify_stream(err->code) == exec::ErrorClass::AuthFailure
+                              ? exec::ConnState::AuthFailed
+                              : exec::ConnState::Connected,
+                 .stream_id = k_private_stream_id,
+                 .ts = state.clock->wall()});
+        }
+        break;
+    }
+    case EventKind::BookTicker:
+    case EventKind::Trade:
+    case EventKind::Ticker:
+    case EventKind::BookUpdate:
     case EventKind::Pong:
     case EventKind::SubscribeAck:
     case EventKind::Unknown:
@@ -327,71 +465,6 @@ private:
     bool started_{false};
 };
 
-// Order entry is not implemented. Every path refuses with a terminal event so
-// an order can never sit open in the store waiting for a verdict that no code
-// will ever produce.
-class GateExec final : public exec::ExecutionClient {
-public:
-    explicit GateExec(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
-
-    std::expected<void, exec::VenueError> start() override { return {}; }
-
-    void stop() override {}
-
-    [[nodiscard]] bool connected() const noexcept override { return false; }
-
-    void submit(const OrderCmd& cmd) noexcept override { emit(cmd, OrderEventType::Rejected); }
-
-    void cancel(const OrderCmd& cmd) noexcept override {
-        // CancelRejected, not Rejected: the order this targets is still alive.
-        emit(cmd, OrderEventType::CancelRejected);
-    }
-
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
-    }
-
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
-        return std::unexpected{unimplemented()};
-    }
-
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
-        return std::unexpected{unimplemented()};
-    }
-
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
-    }
-
-private:
-    static exec::VenueError unimplemented() noexcept {
-        return exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "gate order entry not implemented");
-    }
-
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
-        OrderEvent event{};
-        event.type = type;
-        event.side = cmd.side;
-        event.order_type = cmd.order_type;
-        event.tif = cmd.tif;
-        event.instrument = cmd.instrument;
-        event.client_order_id = cmd.client_order_id;
-        event.exchange_client_order_id = cmd.exchange_client_order_id;
-        event.qty = cmd.qty;
-        event.price = cmd.price;
-        event.ts_event = state_->clock->wall();
-        event.ts_init = event.ts_event;
-        state_->sink->on_order_event(event);
-    }
-
-    std::shared_ptr<VenueState> state_;
-};
-
 std::optional<net::RestResponse> await_response(VenueState& state,
                                                 net::RestClient& rest,
                                                 const net::RestRequest& request,
@@ -436,6 +509,454 @@ exec::VenueError rest_failure(std::string_view body) {
     return exec::VenueError::make(classify(err->label), 0, err->label);
 }
 
+// Every market this adapter can act on, named exhaustively so Option is a
+// case the compiler forces a decision about rather than something a default
+// arm swallows. An empty answer here would read as "the venue holds nothing".
+std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Spot:
+    case MarketType::Perp:
+        return std::nullopt;
+    case MarketType::Future:
+        return exec::not_implemented("gate delivery (dated futures) order entry");
+    case MarketType::Option:
+        // Gate lists options under /api/v4/options, keyed by an underlying and
+        // an expiry rather than by a settle currency. Nothing maps an
+        // OptionInstrument onto that surface yet.
+        return exec::not_implemented("gate options order entry");
+    }
+    return exec::not_implemented("gate: unknown market");
+}
+
+exec::VenueError build_failure(BuildError err) noexcept {
+    // A refusal to build is terminal by construction: the same command built
+    // again produces the same refusal.
+    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
+                                                               : exec::ErrorClass::Terminal,
+                                  0,
+                                  to_string(err));
+}
+
+// One private socket. Futures and spot are different hosts carrying different
+// order shapes, so an account trading both holds two of these.
+class PrivateHandler final : public net::WsHandler {
+public:
+    PrivateHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
+
+    void on_open() override {
+        if (!subscribe(orders_channel(market_)) || !subscribe(user_trades_channel(market_))) {
+            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
+                                           .stream_id = k_private_stream_id,
+                                           .ts = state_->clock->wall()});
+            return;
+        }
+        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        handle_private_frame(*state_, market_, payload, received);
+    }
+
+    void on_close(net::WsCloseReason) override {
+        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void attach(net::WsClient& client) noexcept { client_ = &client; }
+
+private:
+    [[nodiscard]] bool subscribe(std::string_view channel) {
+        if (channel.empty() || client_ == nullptr) {
+            return false;
+        }
+        // The user id is positional and futures-only: sending the contract
+        // where Gate expects the id subscribes to nothing and reports success.
+        std::array<char, 24> id_text{};
+        std::array<std::string_view, 2> payload{};
+        std::size_t count = 0;
+        if (market_ == MarketType::Perp) {
+            const auto [stop, ec] = std::to_chars(
+                id_text.data(), id_text.data() + id_text.size(), state_->futures_user_id);
+            if (ec != std::errc{} || state_->futures_user_id == 0) {
+                return false;
+            }
+            payload[count++] = {id_text.data(), static_cast<std::size_t>(stop - id_text.data())};
+        }
+        payload[count++] = k_all_symbols;
+
+        const auto frame = state_->protocol.private_subscribe_frame(
+            channel, std::span{payload}.first(count), state_->signer, state_->now_s());
+        return frame.has_value() && client_->send(*frame);
+    }
+
+    VenueState* state_;
+    MarketType market_;
+    net::WsClient* client_{nullptr};
+};
+
+struct PrivateStream {
+    PrivateStream(VenueState& state, MarketType market)
+        : handler{state, market},
+          client{state.io,
+                 net::WsConfig{.host = std::string{private_host(state.testnet, market)},
+                               .port = std::string{stream_port()},
+                               .target = std::string{private_path(state.testnet, market)}},
+                 handler} {
+        handler.attach(client);
+    }
+
+    PrivateHandler handler;
+    net::WsClient client;
+};
+
+class GateExec final : public exec::ExecutionClient {
+public:
+    GateExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+        : state_{std::move(state)},
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}},
+          builder_{state_->signer} {
+        if (perp) {
+            perp_ = std::make_unique<PrivateStream>(*state_, MarketType::Perp);
+        }
+        if (spot) {
+            spot_ = std::make_unique<PrivateStream>(*state_, MarketType::Spot);
+        }
+    }
+
+    std::expected<void, exec::VenueError> start() override {
+        rest_.start();
+        sync_clock(*state_, rest_);
+        if (perp_ && state_->futures_user_id == 0) {
+            // Fetched before the socket opens, because on_open cannot ask for
+            // it: a subscribe with no user id is answered with an empty stream
+            // rather than an error, and that reads as a quiet account.
+            if (const auto request = builder_.futures_account(state_->venue_now());
+                request.has_value()) {
+                if (const auto response = await_response(*state_, rest_, *request);
+                    response.has_value() && !response->transport_failed() &&
+                    response->status >= 200 && response->status < 300) {
+                    if (const auto user = parse_account_user_id(response->body); user.has_value()) {
+                        state_->futures_user_id = *user;
+                    }
+                }
+            }
+            if (state_->futures_user_id == 0) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::AuthFailure, 0, "gate: futures account id unavailable")};
+            }
+        }
+        if (perp_) {
+            perp_->client.start();
+        }
+        if (spot_) {
+            spot_->client.start();
+        }
+        started_ = true;
+        return {};
+    }
+
+    void stop() override {
+        if (perp_) {
+            perp_->client.stop();
+        }
+        if (spot_) {
+            spot_->client.stop();
+        }
+        rest_.stop();
+        started_ = false;
+    }
+
+    [[nodiscard]] bool connected() const noexcept override {
+        const bool perp_up = perp_ == nullptr || perp_->client.connected();
+        const bool spot_up = spot_ == nullptr || spot_->client.connected();
+        return started_ && perp_up && spot_up && (perp_ != nullptr || spot_ != nullptr);
+    }
+
+    void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
+
+    void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
+
+    void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
+
+    void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
+        // Gate caps a batch at 20 and refuses the whole call past it, so the
+        // span is chunked rather than truncated.
+        for (std::size_t at = 0; at < cmds.size();
+             at += SignedRequestBuilder::k_max_batch_cancel) {
+            const auto chunk = cmds.subspan(
+                at, std::min(SignedRequestBuilder::k_max_batch_cancel, cmds.size() - at));
+            const auto request =
+                builder_.cancel_batch(chunk, state_->instruments, state_->venue_now());
+            if (!request.has_value()) {
+                for (const auto& cmd : chunk) {
+                    emit_reject(cmd, Kind::Cancel);
+                }
+                continue;
+            }
+            // The per-order verdicts come back in the body; a transport
+            // failure is the only thing this callback can honestly report.
+            std::vector<OrderCmd> pending{chunk.begin(), chunk.end()};
+            if (!rest_.send(*request, [this, pending](net::RestResponse&& response) {
+                    if (!response.transport_failed() && response.status >= 200 &&
+                        response.status < 300) {
+                        return;
+                    }
+                    for (const auto& cmd : pending) {
+                        emit_reject(cmd, Kind::Cancel);
+                    }
+                })) {
+                for (const auto& cmd : chunk) {
+                    emit_reject(cmd, Kind::Cancel);
+                }
+            }
+        }
+    }
+
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
+    open_order_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.open_orders(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+
+        static thread_local OrderBuffer storage;
+        const auto orders = market == MarketType::Spot
+                                ? parse_spot_open_orders(*body, storage)
+                                : parse_rest_orders(*body, storage, market);
+        if (!orders.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+        }
+        std::vector<exec::OrderStatusReport> reports;
+        reports.reserve(orders->size());
+        for (const auto& wire : *orders) {
+            if (auto report = map_open_order(wire, state_->instruments); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
+    std::expected<exec::OrderStatusReport, exec::VenueError>
+    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.query_order(id, market, state_->venue_now());
+        if (!request.has_value()) {
+            // Spot has no client-id lookup that does not also need the pair;
+            // the open-order sweep answers the same question.
+            return from_open_orders(id, market);
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto wire = parse_rest_order(*body, market);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        auto report = map_open_order(*wire, state_->instruments);
+        if (!report.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+        }
+        return *report;
+    }
+
+    std::expected<std::vector<exec::FillReport>, exec::VenueError>
+    fill_reports(MarketType market, UnixNanos since) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.my_trades(market, since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+
+        static thread_local UserTradeBuffer storage;
+        const auto trades = parse_rest_user_trades(*body, storage, market);
+        if (!trades.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(trades.error()))};
+        }
+        std::vector<exec::FillReport> reports;
+        reports.reserve(trades->size());
+        for (const auto& wire : *trades) {
+            const auto memo = state_->memo_for(wire.order_id);
+            const auto event = map_user_trade(
+                wire, state_->instruments, memo.leaves, memo.client_order_id, state_->clock->wall());
+            if (!event.has_value()) {
+                continue;
+            }
+            reports.push_back({.exec_id = event->exec_id,
+                               .exchange_order_id = event->exchange_order_id,
+                               .exchange_client_order_id = event->exchange_client_order_id,
+                               .instrument = event->instrument,
+                               .side = event->side,
+                               .price = event->price,
+                               .qty = event->qty,
+                               .fee = event->fee,
+                               .liquidity = event->liquidity,
+                               .ts_venue = event->ts_event});
+        }
+        return reports;
+    }
+
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
+    position_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // A spot balance is not a position. Answering "flat" would be a
+            // claim about a concept Gate does not have on this API.
+            return std::unexpected{exec::not_implemented("gate spot position pull")};
+        }
+        const auto request = builder_.positions(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+
+        static thread_local PositionBuffer storage;
+        const auto positions = parse_positions(*body, storage);
+        if (!positions.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+        }
+        std::vector<exec::PositionReport> reports;
+        reports.reserve(positions->size());
+        for (const auto& wire : *positions) {
+            if (auto report = map_position(wire, state_->instruments); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
+private:
+    enum class Kind : std::uint8_t { Create, Cancel, Amend };
+
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request) {
+        const auto response = await_response(*state_, rest_, request);
+        if (!response.has_value() || response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+        }
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected{rest_failure(response->body)};
+        }
+        return response->body;
+    }
+
+    [[nodiscard]] std::expected<exec::OrderStatusReport, exec::VenueError>
+    from_open_orders(const ExchangeClientOrderId& id, MarketType market) {
+        const auto reports = open_order_reports(market);
+        if (!reports.has_value()) {
+            return std::unexpected{reports.error()};
+        }
+        for (const auto& report : *reports) {
+            if (report.exchange_client_order_id.view() == id.view()) {
+                return report;
+            }
+        }
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+    }
+
+    void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        const auto now = state_->venue_now();
+        const auto request =
+            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
+                                   : builder_.amend_order(cmd, state_->instruments, now);
+        if (!request.has_value()) {
+            emit_reject(cmd, kind);
+            return;
+        }
+        const auto market = cmd.instrument.market();
+        if (!rest_.send(*request, [this, cmd, kind, market](net::RestResponse&& response) {
+                on_response(std::move(response), cmd, kind, market);
+            })) {
+            emit_reject(cmd, kind);
+        }
+    }
+
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
+                     MarketType market) {
+        if (response.transport_failed()) {
+            emit_reject(cmd, kind); // no verdict from the venue at all
+            return;
+        }
+        if (response.status >= 200 && response.status < 300) {
+            // The success body IS the order. Remembering it here seeds the
+            // leaves before the socket's `_new` push arrives, which is what
+            // lets a fill that overtakes that push still state its leaves.
+            if (const auto wire = parse_rest_order(response.body, market); wire.has_value()) {
+                state_->remember(*wire);
+            }
+            return;
+        }
+        if (kind == Kind::Cancel) {
+            if (const auto err = parse_rest_error(response.body);
+                err.has_value() && is_benign_cancel_failure(err->label)) {
+                return; // the order already finished; reconciliation settles it
+            }
+        }
+        emit_reject(cmd, kind);
+    }
+
+    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+        OrderEvent event{};
+        event.type = kind == Kind::Create   ? OrderEventType::Rejected
+                     : kind == Kind::Cancel ? OrderEventType::CancelRejected
+                                            : OrderEventType::ModifyRejected;
+        event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
+        event.flags = cmd.flags;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.qty = cmd.qty;
+        event.price = cmd.price;
+        // A create that never reached the book leaves nothing behind; a
+        // refused cancel or amend leaves the order exactly as it was.
+        event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
+        event.ts_event = state_->clock->wall();
+        event.ts_init = event.ts_event;
+        state_->sink->on_order_event(event);
+    }
+
+    std::shared_ptr<VenueState> state_;
+    std::unique_ptr<PrivateStream> perp_;
+    std::unique_ptr<PrivateStream> spot_;
+    net::RestClient rest_;
+    SignedRequestBuilder builder_;
+    bool started_{false};
+};
+
 class GateInstruments final : public exec::InstrumentSource {
 public:
     explicit GateInstruments(std::shared_ptr<VenueState> state)
@@ -446,17 +967,29 @@ public:
                                 .timeout_ms = k_catalogue_timeout_ms}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        if (market != MarketType::Perp) {
+        net::RestRequest request{};
+        switch (market) {
+        case MarketType::Perp:
+            request = state_->builder.contracts(k_settle_usdt);
+            break;
+        case MarketType::Spot:
+            request = state_->builder.currency_pairs();
+            break;
+        case MarketType::Future:
             return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "gate adapter covers usdt perpetuals only")};
+                exec::ErrorClass::Terminal, 0, "gate delivery contracts are not loaded")};
+        case MarketType::Option:
+            // /api/v4/options/contracts is keyed by underlying and expiry, and
+            // nothing here builds an OptionInstrument out of one.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "gate options contracts are not loaded")};
         }
+
         rest_.start();
         sync_clock(*state_, rest_);
 
-        const auto response = await_response(*state_,
-                                             rest_,
-                                             state_->builder.contracts(k_settle_usdt),
-                                             k_catalogue_timeout_ms + 5'000);
+        const auto response =
+            await_response(*state_, rest_, request, k_catalogue_timeout_ms + 5'000);
         if (!response.has_value()) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
@@ -468,19 +1001,39 @@ public:
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body)};
         }
+        return market == MarketType::Spot ? load_spot(response->body) : load_perp(response->body);
+    }
 
+private:
+    std::expected<std::vector<Instrument>, exec::VenueError> load_perp(std::string_view body) {
         static thread_local ContractBuffer storage;
-        const auto wire = parse_contracts(response->body, storage);
+        const auto wire = parse_contracts(body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
+        return intern(*wire, [](const WireContract& row) {
+            return map_instrument(row, MarketType::Perp);
+        });
+    }
 
+    std::expected<std::vector<Instrument>, exec::VenueError> load_spot(std::string_view body) {
+        static thread_local CurrencyPairBuffer storage;
+        const auto wire = parse_currency_pairs(body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        return intern(*wire, map_currency_pair);
+    }
+
+    template <typename Row, typename Map>
+    std::vector<Instrument> intern(std::span<const Row> rows, Map&& map) {
         std::vector<Instrument> loaded;
-        loaded.reserve(wire->size());
-        state_->instruments.reserve(wire->size());
-        for (const auto& entry : *wire) {
-            auto instrument = map_instrument(entry, market);
+        loaded.reserve(rows.size());
+        state_->instruments.reserve(state_->instruments.size() + rows.size());
+        for (const auto& row : rows) {
+            auto instrument = map(row);
             if (!instrument.has_value()) {
                 continue; // delisting, not trading, or missing a usable step
             }
@@ -493,7 +1046,6 @@ public:
         return loaded;
     }
 
-private:
     std::shared_ptr<VenueState> state_;
     net::RestClient rest_;
 };
@@ -501,10 +1053,27 @@ private:
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+
+    config::DefaultSecretProvider provider;
+    if (!config.api_key_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
+            config::Secret key;
+            if (provider.resolve(*ref, key).has_value()) {
+                state->signer.set_api_key(key.view());
+            }
+        }
+    }
+    if (!config.api_secret_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
+            (void)provider.resolve(*ref, state->signer.secret());
+        }
+    }
+
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Gate);
     adapter.data = std::make_unique<GateData>(state);
-    adapter.execution = std::make_unique<GateExec>(state);
+    adapter.execution =
+        std::make_unique<GateExec>(state, config.enable_spot, config.enable_perp);
     adapter.instruments = std::make_unique<GateInstruments>(state);
     return adapter;
 }
