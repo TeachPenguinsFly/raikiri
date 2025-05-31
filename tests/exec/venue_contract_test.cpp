@@ -182,8 +182,8 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     // The caps row is what the reconciler consults before calling. If a venue
     // claims a pull it has not implemented, the reconciler asks and gets a
     // refusal it did not plan for; if it hides one it has, reconciliation
-    // silently never runs. Either way the row and the adapter must agree, and
-    // exactly two venues have order entry live today.
+    // silently never runs. Either way the row and the adapter must agree, so
+    // this list grows only when an adapter actually gains the pulls.
     std::vector<std::string_view> claiming;
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         const auto id = static_cast<VenueId>(v);
@@ -193,7 +193,9 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
         EXPECT_EQ(caps_of(id).position_pull, caps_of(id).fill_pull)
             << to_string(id) << ": a venue that can report positions can report fills";
     }
-    EXPECT_EQ(claiming, (std::vector<std::string_view>{"binance", "bybit"}));
+    EXPECT_EQ(claiming,
+              (std::vector<std::string_view>{"binance", "bybit", "okx", "gate", "kucoin",
+                                             "bitget"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {
