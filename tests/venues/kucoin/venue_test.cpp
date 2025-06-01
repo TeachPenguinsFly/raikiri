@@ -18,6 +18,9 @@
 namespace raikiri::venues::kucoin {
 namespace {
 
+// Every parser here is zero-copy: the DTO it fills holds views INTO this
+// string, so the returned body has to be bound to a named local that outlives
+// them. Parsing a temporary leaves a wire struct pointing at freed memory.
 std::string fixture(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
     std::ifstream in{path, std::ios::binary};
@@ -89,7 +92,10 @@ OrderCmd limit_order(const exec::InstrumentTable& table,
                      std::string_view price,
                      std::string_view qty) {
     const auto* instrument = table.find(symbol);
-    EXPECT_NE(instrument, nullptr);
+    EXPECT_NE(instrument, nullptr) << symbol;
+    if (instrument == nullptr) {
+        return {}; // a caller naming an unloaded symbol fails here, not in a signal handler
+    }
     const auto& base = base_of(*instrument);
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
@@ -340,16 +346,19 @@ TEST(KucoinRest, BulletHandshakeNamesTheEndpointAndItsKeepalive) {
 }
 
 TEST(KucoinRest, EnvelopeReadsTheStringCode) {
-    const auto ok = parse_rest_envelope(fixture("rest_timestamp.json"));
+    const auto ok_body = fixture("rest_timestamp.json");
+    const auto ok = parse_rest_envelope(ok_body);
     ASSERT_TRUE(ok.has_value());
     EXPECT_EQ(ok->code, k_ok);
 
-    const auto missing = parse_rest_envelope(fixture("rest_error_unknown_symbol.json"));
+    const auto missing_body = fixture("rest_error_unknown_symbol.json");
+    const auto missing = parse_rest_envelope(missing_body);
     ASSERT_TRUE(missing.has_value());
     EXPECT_EQ(missing->code, k_url_not_found);
     EXPECT_FALSE(missing->msg.empty());
 
-    const auto unsupported = parse_rest_envelope(fixture("rest_error_unsupported.json"));
+    const auto unsupported_body = fixture("rest_error_unsupported.json");
+    const auto unsupported = parse_rest_envelope(unsupported_body);
     ASSERT_TRUE(unsupported.has_value());
     EXPECT_EQ(unsupported->code, k_unsupported);
 
@@ -359,7 +368,8 @@ TEST(KucoinRest, EnvelopeReadsTheStringCode) {
 }
 
 TEST(KucoinRest, ServerTimeReadsABareNumberPayload) {
-    const auto ts = parse_server_time(fixture("rest_timestamp.json"));
+    const auto body = fixture("rest_timestamp.json");
+    const auto ts = parse_server_time(body);
     ASSERT_TRUE(ts.has_value());
     EXPECT_EQ(*ts, 1786394604446ULL);
 }
@@ -1026,11 +1036,14 @@ TEST(KucoinRest, FuturesRefusesAQuantityThatIsNotWholeContracts) {
     OrderRequestBuilder builder{credentials};
     const auto table = loaded_table();
 
-    auto cmd = limit_order(table, "PEPEUSDTM", "1", "1");
-    // PEPEUSDTM never loaded — its tick is below FixedE9 — so this is also the
-    // unknown-instrument path.
-    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(),
-              BuildError::UnknownInstrument);
+    // PEPEUSDTM is in the catalogue and not in the table: its tick is a decade
+    // below FixedE9, so the mapper refused the row. An order naming it can only
+    // carry an id that resolves to nothing.
+    ASSERT_EQ(table.find("PEPEUSDTM"), nullptr);
+    auto cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
+    cmd.instrument = InstrumentId::make(
+        VenueId::Kucoin, MarketType::Perp, SymbolId{static_cast<std::uint32_t>(table.size())});
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::UnknownInstrument);
 
     cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
     cmd.qty = QtyLots::from_raw(0);
@@ -1178,8 +1191,12 @@ TEST(KucoinRest, EveryBuilderRefusesOptionsByName) {
 
     auto cmd = limit_order(table, "XBTUSDTM", "64125.6", "3");
     cmd.instrument = InstrumentId::make(VenueId::Kucoin, MarketType::Option, SymbolId{0});
-    EXPECT_EQ(builder.cancel_order(cmd, table, k_signed_at).error(),
-              BuildError::UnknownInstrument); // no option ever entered the table
+    // The market is named before the table is read. InstrumentId resolves by
+    // symbol index alone, so index 0 finds the first PERPETUAL; a refusal that
+    // came from the lookup would be reporting the wrong fact about this id.
+    EXPECT_EQ(builder.create_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.amend_order(cmd, table, k_signed_at).error(), BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.open_orders(MarketType::Option, "X", k_signed_at).error(),
               BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.active_symbols(MarketType::Option, k_signed_at).error(),
@@ -1216,15 +1233,50 @@ TEST(KucoinWirePrivate, ThePrivateTopicCarriesNoSymbolBehindIt) {
     EXPECT_EQ(parse_private_event(fixture("ws_error_token.json"))->kind, EventKind::Error);
 }
 
+TEST(KucoinWirePrivate, ParsedViewsPointIntoTheCallerBuffer) {
+    // The private path makes the same zero-copy promise the public one does,
+    // and breaks louder: every field below is read AFTER the frame is handled,
+    // by a mapper that resolves the symbol against the instrument table.
+    const auto frame = fixture("ws_futures_order_match.json");
+    const auto change = parse_order_change(frame);
+    ASSERT_TRUE(change.has_value());
+    const auto* begin = frame.data();
+    const auto* end = begin + frame.size();
+    for (const auto view : {change->symbol,
+                            change->order_id,
+                            change->client_oid,
+                            change->trade_id,
+                            change->match_price,
+                            change->match_size}) {
+        EXPECT_GE(view.data(), begin);
+        EXPECT_LE(view.data() + view.size(), end);
+    }
+
+    static FillBuffer storage;
+    const auto body = fixture("rest_futures_fills.json");
+    const auto fills = parse_fills(body, storage);
+    ASSERT_TRUE(fills.has_value());
+    ASSERT_EQ(fills->size(), 1U);
+    const auto* body_begin = body.data();
+    const auto* body_end = body_begin + body.size();
+    const auto& fill = (*fills)[0];
+    for (const auto view : {fill.symbol, fill.trade_id, fill.order_id, fill.price, fill.size}) {
+        EXPECT_GE(view.data(), body_begin);
+        EXPECT_LE(view.data() + view.size(), body_end);
+    }
+}
+
 TEST(KucoinWirePrivate, OrderTimeMeansMillisecondsOnSpotAndNanosecondsOnFutures) {
     // Same field name, two scales, six orders of magnitude apart. `ts` is
     // nanoseconds on both, which is why it is the one events are timed by.
-    const auto spot = parse_order_change(fixture("ws_spot_order_open.json"));
+    const auto spot_frame = fixture("ws_spot_order_open.json");
+    const auto spot = parse_order_change(spot_frame);
     ASSERT_TRUE(spot.has_value());
     EXPECT_EQ(spot->order_time, 1730211033305ULL);
     EXPECT_EQ(spot->ts_ns, 1730211033335000000ULL);
 
-    const auto futures = parse_order_change(fixture("ws_futures_order_match.json"));
+    const auto futures_frame = fixture("ws_futures_order_match.json");
+    const auto futures = parse_order_change(futures_frame);
     ASSERT_TRUE(futures.has_value());
     // Quoted on futures, bare on spot; both reach the DTO as digits.
     EXPECT_EQ(futures->order_time, 1772043995356345762ULL);
@@ -1233,7 +1285,8 @@ TEST(KucoinWirePrivate, OrderTimeMeansMillisecondsOnSpotAndNanosecondsOnFutures)
 
 TEST(KucoinMapPrivate, AnAckBecomesAcceptedAndCarriesWhatIsStillWorking) {
     const auto table = loaded_spot_table();
-    const auto wire = parse_order_change(fixture("ws_spot_order_open.json"));
+    const auto frame = fixture("ws_spot_order_open.json");
+    const auto wire = parse_order_change(frame);
     ASSERT_TRUE(wire.has_value());
     const auto event = map_order_change(*wire, table, UnixNanos{5});
     ASSERT_TRUE(event.has_value());
@@ -1251,7 +1304,8 @@ TEST(KucoinMapPrivate, AnAckBecomesAcceptedAndCarriesWhatIsStillWorking) {
 
 TEST(KucoinMapPrivate, APartialFillIsTheMatchPriceAndWhatIsLeftAfterIt) {
     const auto table = loaded_spot_table();
-    const auto wire = parse_order_change(fixture("ws_spot_order_match.json"));
+    const auto frame = fixture("ws_spot_order_match.json");
+    const auto wire = parse_order_change(frame);
     ASSERT_TRUE(wire.has_value());
     const auto event = map_order_change(*wire, table, UnixNanos{5});
     ASSERT_TRUE(event.has_value());
@@ -1270,7 +1324,8 @@ TEST(KucoinMapPrivate, APartialFillIsTheMatchPriceAndWhatIsLeftAfterIt) {
 
 TEST(KucoinMapPrivate, AFullFillOnFuturesIsPricedInContracts) {
     const auto table = loaded_table();
-    const auto wire = parse_order_change(fixture("ws_futures_order_match.json"));
+    const auto frame = fixture("ws_futures_order_match.json");
+    const auto wire = parse_order_change(frame);
     ASSERT_TRUE(wire.has_value());
     const auto event = map_order_change(*wire, table, UnixNanos{9});
     ASSERT_TRUE(event.has_value());
@@ -1289,7 +1344,8 @@ TEST(KucoinMapPrivate, TheFilledNoticeIsNotASecondFill) {
     // order. Emitting both counts the last trade twice, which shows up as a
     // position we never took.
     const auto table = loaded_table();
-    const auto wire = parse_order_change(fixture("ws_futures_order_filled.json"));
+    const auto frame = fixture("ws_futures_order_filled.json");
+    const auto wire = parse_order_change(frame);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->type, OrderChangeType::Filled);
     EXPECT_FALSE(map_order_change(*wire, table, UnixNanos{9}).has_value());
@@ -1297,7 +1353,8 @@ TEST(KucoinMapPrivate, TheFilledNoticeIsNotASecondFill) {
 
 TEST(KucoinMapPrivate, ACancelIsTerminalAndKeepsItsIdentity) {
     const auto table = loaded_table();
-    const auto wire = parse_order_change(fixture("ws_futures_order_canceled.json"));
+    const auto frame = fixture("ws_futures_order_canceled.json");
+    const auto wire = parse_order_change(frame);
     ASSERT_TRUE(wire.has_value());
     const auto event = map_order_change(*wire, table, UnixNanos{9});
     ASSERT_TRUE(event.has_value());
@@ -1310,7 +1367,8 @@ TEST(KucoinMapPrivate, ACancelIsTerminalAndKeepsItsIdentity) {
 
 TEST(KucoinMapPrivate, FramesThatCannotBeAttributedOrScaledAreDropped) {
     const auto table = loaded_table();
-    auto wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    const auto frame = fixture("ws_futures_order_match.json");
+    auto wire = parse_order_change(frame).value();
 
     // A clientOid longer than a ULID cannot be one of ours — it belongs to
     // another client of the same account — and matching it to a truncated
@@ -1318,18 +1376,18 @@ TEST(KucoinMapPrivate, FramesThatCannotBeAttributedOrScaledAreDropped) {
     wire.client_oid = "9f7a2be0-effe-45bd-bdc8-1614715a583a";
     EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
 
-    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire = parse_order_change(frame).value();
     wire.symbol = "NOSUCHSYM";
     EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
 
     // Half a tick. Rounding it would report a fill at a price that never
     // traded, and the ledger would carry the difference forever.
-    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire = parse_order_change(frame).value();
     wire.match_price = "2068.555";
     EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
 
     // A fraction of a contract is refused the same way.
-    wire = parse_order_change(fixture("ws_futures_order_match.json")).value();
+    wire = parse_order_change(frame).value();
     wire.match_size = "0.5";
     EXPECT_FALSE(map_order_change(wire, table, UnixNanos{1}).has_value());
 }
@@ -1405,7 +1463,8 @@ TEST(KucoinMapRest, TheFuturesSweepReadsAPageAndSubtractsWhatIsLeft) {
 
 TEST(KucoinMapRest, ActiveSymbolsIsTheFirstHalfOfTheSpotSweep) {
     static SymbolBuffer storage;
-    const auto symbols = parse_active_symbols(fixture("rest_spot_active_symbols.json"), storage);
+    const auto body = fixture("rest_spot_active_symbols.json");
+    const auto symbols = parse_active_symbols(body, storage);
     ASSERT_TRUE(symbols.has_value());
     ASSERT_EQ(symbols->size(), 1U);
     EXPECT_EQ((*symbols)[0], "BTC-USDT");
@@ -1414,7 +1473,8 @@ TEST(KucoinMapRest, ActiveSymbolsIsTheFirstHalfOfTheSpotSweep) {
 TEST(KucoinMapRest, FillsShareOneShapeAcrossTwoHosts) {
     static FillBuffer storage;
     const auto futures_table = loaded_table();
-    const auto futures = parse_fills(fixture("rest_futures_fills.json"), storage);
+    const auto futures_body = fixture("rest_futures_fills.json");
+    const auto futures = parse_fills(futures_body, storage);
     ASSERT_TRUE(futures.has_value());
     ASSERT_EQ(futures->size(), 1U);
     const auto perp = map_fill((*futures)[0], futures_table);
@@ -1431,7 +1491,8 @@ TEST(KucoinMapRest, FillsShareOneShapeAcrossTwoHosts) {
     EXPECT_EQ(perp->ts_venue.ns, 1727692805000ULL * 1'000'000ULL);
 
     const auto spot_table = loaded_spot_table();
-    const auto spot = parse_fills(fixture("rest_spot_fills.json"), storage);
+    const auto spot_body = fixture("rest_spot_fills.json");
+    const auto spot = parse_fills(spot_body, storage);
     ASSERT_TRUE(spot.has_value());
     ASSERT_EQ(spot->size(), 1U);
     // tradeId is a JSON number here and a quoted string on futures.
@@ -1446,7 +1507,8 @@ TEST(KucoinMapRest, FillsShareOneShapeAcrossTwoHosts) {
 TEST(KucoinMapRest, APositionKeepsItsSignAndSurvivesAnAverageOffTheTick) {
     const auto table = loaded_table();
     static PositionBuffer storage;
-    const auto wire = parse_positions(fixture("rest_positions.json"), storage);
+    const auto body = fixture("rest_positions.json");
+    const auto wire = parse_positions(body, storage);
     ASSERT_TRUE(wire.has_value());
     ASSERT_EQ(wire->size(), 2U);
 
@@ -1468,7 +1530,8 @@ TEST(KucoinMapRest, APositionKeepsItsSignAndSurvivesAnAverageOffTheTick) {
 
 TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {
     static SpotSymbolBuffer storage;
-    const auto wire = parse_spot_symbols(fixture("rest_spot_symbols.json"), storage);
+    const auto body = fixture("rest_spot_symbols.json");
+    const auto wire = parse_spot_symbols(body, storage);
     ASSERT_TRUE(wire.has_value());
     ASSERT_EQ(wire->size(), 4U);
 
@@ -1497,12 +1560,14 @@ TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {
 TEST(KucoinErrors, ACancelThatLostItsRaceIsNotACancelReject) {
     // The order is already gone, which is what the cancel asked for. Reporting
     // CancelRejected would resurrect an order the OMS has written off.
-    const auto spot = parse_rest_envelope(fixture("rest_error_cancel_gone_spot.json"));
+    const auto spot_body = fixture("rest_error_cancel_gone_spot.json");
+    const auto spot = parse_rest_envelope(spot_body);
     ASSERT_TRUE(spot.has_value());
     EXPECT_EQ(spot->code, k_parameter_error);
     EXPECT_TRUE(is_benign_cancel_failure(spot->code, spot->msg));
 
-    const auto futures = parse_rest_envelope(fixture("rest_error_cancel_gone_futures.json"));
+    const auto futures_body = fixture("rest_error_cancel_gone_futures.json");
+    const auto futures = parse_rest_envelope(futures_body);
     ASSERT_TRUE(futures.has_value());
     EXPECT_EQ(futures->code, k_futures_order_not_cancelable);
     EXPECT_TRUE(is_benign_cancel_failure(futures->code, futures->msg));

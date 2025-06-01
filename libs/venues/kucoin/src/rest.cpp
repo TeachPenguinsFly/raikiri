@@ -263,6 +263,12 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpM
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
+    // Named before the table is read, as amend_order does. InstrumentId
+    // resolves by symbol index alone, so an option id whose index happens to
+    // be occupied would otherwise be refused for the wrong reason.
+    if (market == MarketType::Option) {
+        return std::unexpected{BuildError::UnsupportedMarket};
+    }
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -358,6 +364,9 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::cancel_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
+    if (market == MarketType::Option) {
+        return std::unexpected{BuildError::UnsupportedMarket};
+    }
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
         return std::unexpected{BuildError::UnknownInstrument};
