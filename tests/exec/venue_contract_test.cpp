@@ -1,3 +1,4 @@
+#include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/exec/venue.hpp>
 
 #include <gtest/gtest.h>
@@ -251,6 +252,37 @@ TEST_F(VenueContract, DefaultBatchCancelLoops) {
     adapter.execution->stop();
     adapter.execution->stop(); // idempotent by contract
     EXPECT_EQ(exec->stop_calls, 2);
+}
+
+
+TEST_F(VenueContract, AWrongMarketIdResolvesToNothingRatherThanTheWrongInstrument) {
+    // Spot and perpetual share one index space in the table, so an id built by
+    // hand with the wrong market half used to resolve to a real instrument that
+    // simply was not the one asked for — and every tick and lot derived from it
+    // would have been another contract's.
+    InstrumentTable table;
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{0});
+    base.local_symbol = *SymbolText::from("BTCUSDT");
+    base.exchange_symbol = *SymbolText::from("BTCUSDT");
+    base.tick_size = *parse_decimal_e9("0.1");
+    base.lot_size = *parse_decimal_e9("0.001");
+    base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
+    const auto id = table.add(PerpInstrument{base, 28'800});
+    ASSERT_TRUE(id.has_value());
+
+    EXPECT_NE(table.find(*id), nullptr);
+    EXPECT_EQ(table.exchange_symbol(*id), "BTCUSDT");
+
+    for (const auto wrong : {MarketType::Spot, MarketType::Option, MarketType::Future}) {
+        const auto other = InstrumentId::make(VenueId::Bybit, wrong, id->symbol());
+        EXPECT_EQ(table.find(other), nullptr) << static_cast<int>(wrong);
+        EXPECT_TRUE(table.exchange_symbol(other).empty()) << static_cast<int>(wrong);
+    }
+    // Same index, another venue: also nothing.
+    EXPECT_EQ(table.find(InstrumentId::make(VenueId::Okx, MarketType::Perp, id->symbol())),
+              nullptr);
 }
 
 } // namespace

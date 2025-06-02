@@ -298,8 +298,31 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     return request;
 }
 
+// Gate serves spot and perpetuals here. Dated futures live under /delivery and
+// options under /options, each with its own model; both get their own name so a
+// refusal says which surface is missing rather than blaming the catalogue.
+std::optional<BuildError> market_refusal(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Spot:
+    case MarketType::Perp:
+        return std::nullopt;
+    case MarketType::Future:
+        return BuildError::DatedFuturesUnsupported;
+    case MarketType::Option:
+        return BuildError::OptionsUnsupported;
+    }
+    return BuildError::OptionsUnsupported;
+}
+
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+    // Named BEFORE the table is read. The table resolves an id by its whole
+    // value, so an id for a market this adapter never loaded finds nothing and
+    // would otherwise answer UnknownInstrument — a refusal that says the
+    // catalogue is stale when the truth is that the market is not served here.
+    if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
+        return std::unexpected{*refusal};
+    }
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -392,6 +415,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+    // Named BEFORE the table is read. The table resolves an id by its whole
+    // value, so an id for a market this adapter never loaded finds nothing and
+    // would otherwise answer UnknownInstrument — a refusal that says the
+    // catalogue is stale when the truth is that the market is not served here.
+    if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
+        return std::unexpected{*refusal};
+    }
     std::array<char, k_client_id_bytes> coid_buf{};
     const auto target = order_target(cmd, coid_buf);
     if (target.empty()) {
@@ -430,6 +460,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
+    // Named BEFORE the table is read. The table resolves an id by its whole
+    // value, so an id for a market this adapter never loaded finds nothing and
+    // would otherwise answer UnknownInstrument — a refusal that says the
+    // catalogue is stale when the truth is that the market is not served here.
+    if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
+        return std::unexpected{*refusal};
+    }
     const auto* instrument = table.find(cmd.instrument);
     if (instrument == nullptr) {
         return std::unexpected{BuildError::UnknownInstrument};

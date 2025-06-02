@@ -58,13 +58,26 @@ const Instrument* InstrumentTable::find(std::string_view exchange_symbol) const 
 
 const Instrument* InstrumentTable::find(InstrumentId id) const noexcept {
     const auto index = id.symbol().raw;
-    return index < instruments_.size() ? &instruments_[index] : nullptr;
+    if (index >= instruments_.size()) {
+        return nullptr;
+    }
+    // The WHOLE id is compared, not just the index it carries. Spot and
+    // perpetual instruments share one index space here, so an id built with the
+    // wrong market — a hand-made one, or a bug upstream — otherwise resolves to
+    // a real instrument that is simply not the one asked for, and every price
+    // and quantity derived from it is silently scaled by another contract's
+    // steps. shm::CatalogueTable::find has always compared the whole id; this
+    // is the same rule on this side of the boundary.
+    const auto* entry = &instruments_[index];
+    return base_of(*entry).id == id ? entry : nullptr;
 }
 
 std::string_view InstrumentTable::exchange_symbol(InstrumentId id) const noexcept {
+    // Resolved through find() so a wrong-market id yields nothing rather than
+    // another instrument's ticker — a mismatch the two answers must not disagree
+    // about, since a caller commonly asks for both.
     const auto index = id.symbol().raw;
-    return index < exchange_symbols_.size() ? std::string_view{exchange_symbols_[index]}
-                                            : std::string_view{};
+    return find(id) != nullptr ? std::string_view{exchange_symbols_[index]} : std::string_view{};
 }
 
 } // namespace raikiri::exec
