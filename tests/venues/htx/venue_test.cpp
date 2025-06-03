@@ -103,16 +103,22 @@ TEST(HtxVenue, OrderWithoutAnImplementationFailsLoudly) {
     EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
 }
 
-TEST(HtxVenue, PullsThatCannotBeAnsweredReportTerminal) {
+TEST(HtxVenue, PullsRefuseRatherThanAnswerEmptyWithoutCredentials) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue({.venue = VenueId::Htx, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
+    // AuthFailure, not Terminal: the pull is implemented and would work — what
+    // is missing is a key. Terminal would say retrying cannot help, and send an
+    // operator looking for a venue outage instead of at the config.
+    //
+    // What reconciliation needs is only that this REFUSES: an empty vector
+    // would be read as "the venue holds nothing of ours".
     const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
     ASSERT_FALSE(orders.has_value());
-    EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
+    EXPECT_EQ(orders.error().cls, exec::ErrorClass::AuthFailure);
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
     EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
 }

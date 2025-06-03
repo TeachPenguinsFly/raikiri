@@ -23,6 +23,18 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "pong") {
         return EventKind::Pong;
     }
+    if (channel == "push.personal.order") {
+        return EventKind::PersonalOrder;
+    }
+    if (channel == "push.personal.order.deal") {
+        return EventKind::PersonalDeal;
+    }
+    if (channel == "push.personal.position") {
+        return EventKind::PersonalPosition;
+    }
+    if (channel == "rs.login") {
+        return EventKind::LoginAck;
+    }
     if (channel == "rs.error") {
         return EventKind::Error;
     }

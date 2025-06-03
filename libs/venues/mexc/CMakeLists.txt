@@ -4,6 +4,7 @@ add_library(raikiri_venue_mexc STATIC
   src/mexc_venue.cpp
   src/rest.cpp
   src/wire_detail.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
   src/ws.cpp

@@ -1,5 +1,6 @@
 #include <raikiri/venues/mexc/ws.hpp>
 
+#include <array>
 #include <charconv>
 #include <cstring>
 
@@ -19,6 +20,8 @@ std::string_view to_string(WsBuildError err) noexcept {
         return "NothingToSend";
     case WsBuildError::BufferTooSmall:
         return "BufferTooSmall";
+    case WsBuildError::NotSigned:
+        return "NotSigned";
     }
     return "Unknown";
 }
@@ -107,6 +110,71 @@ Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
     return op_frame("unsub", subscriptions.front());
+}
+
+std::string_view Protocol::last_login_message() const noexcept {
+    return {login_msg_.data(), login_msg_len_};
+}
+
+std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::Signer& signer,
+                                                                    UnixNanos now) {
+    if (!signer.has_credentials()) {
+        return std::unexpected{WsBuildError::NotSigned};
+    }
+    std::array<char, 24> ts_buf{};
+    const auto [ts_stop, ts_ec] =
+        std::to_chars(ts_buf.data(), ts_buf.data() + ts_buf.size(), now.ns / 1'000'000ULL);
+    if (ts_ec != std::errc{}) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    const std::string_view ts{ts_buf.data(), static_cast<std::size_t>(ts_stop - ts_buf.data())};
+
+    std::size_t msg_len = 0;
+    bool msg_overflow = false;
+    const auto put_msg = [&](std::string_view text) {
+        if (msg_overflow || msg_len + text.size() > login_msg_.size()) {
+            msg_overflow = true;
+            return;
+        }
+        std::memcpy(login_msg_.data() + msg_len, text.data(), text.size());
+        msg_len += text.size();
+    };
+    put_msg(signer.api_key());
+    put_msg(ts);
+    if (msg_overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    login_msg_len_ = msg_len;
+
+    const auto signature = signer.sign(
+        std::string_view{login_msg_.data(), msg_len}, net::Signer::Encoding::Hex, login_sig_);
+    if (signature.empty()) {
+        return std::unexpected{WsBuildError::NotSigned};
+    }
+
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > login_frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(login_frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    put(R"({"method":"login","param":{"apiKey":")");
+    put(signer.api_key());
+    // reqTime is a STRING here and a header value over REST; sending it as a
+    // JSON number is answered with a generic error that reads as a bad key.
+    put(R"(","reqTime":")");
+    put(ts);
+    put(R"(","signature":")");
+    put(signature);
+    put(R"("}})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return std::string_view{login_frame_.data(), len};
 }
 
 } // namespace raikiri::venues::mexc

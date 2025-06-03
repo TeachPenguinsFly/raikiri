@@ -3,6 +3,8 @@
 // Wire types -> domain types.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/htx/wire.hpp>
 
@@ -52,5 +54,67 @@ map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos t
 // Returns nullopt for anything not listed, anything that is not a USDT-M swap,
 // and any row whose tick or contract size failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
+
+// Spot half of the catalogue. HTX states spot precision as DIGIT COUNTS, so
+// the steps are 10^-n; a pair asking for more than nine fractional digits is
+// refused rather than rounded to what FixedE9 can hold. `api-trading` is
+// checked beside `state`: a pair can be online for the web and shut to keys.
+[[nodiscard]] std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire);
+
+// Order entry ------------------------------------------------------------
+
+struct OrderIdentity {
+    ClientOrderId client_order_id{};
+    ExchangeClientOrderId exchange_client_order_id{};
+    ExchangeOrderId exchange_order_id{};
+};
+
+// HTX puts OUR id in a different field on each market — an int64 on the swap,
+// a 64-character string on spot — so reading it back needs to know which.
+// Getting it backwards leaves an order unroutable: OrderStore::route reads
+// client_order_id first and exchange_client_order_id only after it.
+//
+// Returns nullopt for text that cannot be one of ours: an over-long spot id or
+// a venue order id past what ExchangeOrderId holds.
+[[nodiscard]] std::optional<OrderIdentity>
+map_identity(std::string_view client_order_id, std::string_view order_id, MarketType market);
+
+// The remaining size the order frame stated, in lots. Spot says it outright;
+// the swap says how much filled, so this subtracts. Callers cache it per
+// order: a fill frame on either surface can arrive without it, and the OMS
+// treats leaves as authoritative.
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
+                                                  const exec::InstrumentTable& table);
+
+// Lifecycle only. A frame that merely reports a fill yields nullopt: its
+// Filled event comes from map_fill, which is the only place the exec id and
+// the fee exist, and emitting from both would attribute one fill twice.
+[[nodiscard]] std::optional<OrderEvent>
+map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// One fill off a swap order push, which carries the trades inline. `leaves` is
+// what the same frame's volume/trade_volume implies, so the caller does not
+// need a memo on this surface.
+[[nodiscard]] std::optional<OrderEvent> map_fill(const WireOrder& order,
+                                                 const WireFill& fill,
+                                                 const exec::InstrumentTable& table,
+                                                 QtyLots leaves,
+                                                 UnixNanos ts_init);
+
+// One fill off spot's trade.clearing push or either surface's REST match rows.
+// `leaves` comes from the caller's per-order cache when the frame states none,
+// and `known_*` fill in the identity a match row does not carry.
+[[nodiscard]] std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
+                                                       const exec::InstrumentTable& table,
+                                                       QtyLots leaves,
+                                                       ClientOrderId known_client_id,
+                                                       const ExchangeClientOrderId& known_ulid,
+                                                       UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::htx

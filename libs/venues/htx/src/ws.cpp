@@ -1,3 +1,4 @@
+#include <raikiri/venues/htx/sign.hpp>
 #include <raikiri/venues/htx/ws.hpp>
 
 #include <charconv>
@@ -9,6 +10,8 @@ namespace raikiri::venues::htx {
 namespace {
 
 constexpr std::string_view k_host = "api.hbdm.com";
+constexpr std::string_view k_spot_host = "api.huobi.pro";
+constexpr std::string_view k_spot_private_path = "/ws/v2";
 // Fills the protocol's frame buffer. A part that would overflow marks the
 // whole frame bad rather than truncating it: a half-written subscribe names a
 // topic HTX refuses.
@@ -153,6 +156,137 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::market_pong_frame(std::st
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::notify_pong_frame(std::string_view ts) {
     return pong(R"({"op":"pong","ts":)", ts);
+}
+
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_pong_frame(std::string_view ts) {
+    if (ts.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    FrameWriter writer{frame_};
+    writer.put(R"({"action":"pong","data":{"ts":)");
+    writer.put(ts);
+    writer.put("}}");
+    return writer.frame();
+}
+
+std::string_view spot_stream_host() noexcept {
+    return k_spot_host;
+}
+
+std::string_view spot_private_path() noexcept {
+    return k_spot_private_path;
+}
+
+std::string_view Protocol::last_auth_message() const noexcept {
+    return {auth_msg_.data(), auth_msg_len_};
+}
+
+std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net::Signer& signer,
+                                                                       UnixNanos now) {
+    if (!signer.has_credentials()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    const auto ts = sign::timestamp(now.ns / 1'000'000'000ULL, timestamp_);
+    if (ts.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    sign::Query query;
+    query.add("AccessKeyId", signer.api_key());
+    query.add("SignatureMethod", "HmacSHA256");
+    query.add("SignatureVersion", "2");
+    query.add("Timestamp", ts);
+    const auto rendered = query.render(auth_query_);
+    if (rendered.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    const auto message = sign::canonical("GET", k_host, notify_path(), rendered, auth_msg_);
+    if (message.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    auth_msg_len_ = message.size();
+    const auto signature = signer.sign(message, net::Signer::Encoding::Base64, signature_);
+    if (signature.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+
+    // The handshake carries the digest as a JSON STRING, not as a query
+    // parameter, so it is the one place on this venue the base64 is NOT
+    // percent-encoded. Encoding it here is answered "invalid signature".
+    FrameWriter writer{auth_frame_};
+    writer.put(R"({"op":"auth","type":"api","AccessKeyId":")");
+    writer.put(signer.api_key());
+    writer.put(R"(","SignatureMethod":"HmacSHA256","SignatureVersion":"2","Timestamp":")");
+    writer.put(ts);
+    writer.put(R"(","Signature":")");
+    writer.put(signature);
+    writer.put(R"("})");
+    return writer.frame();
+}
+
+std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net::Signer& signer,
+                                                                       UnixNanos now) {
+    if (!signer.has_credentials()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    const auto ts = sign::timestamp(now.ns / 1'000'000'000ULL, timestamp_);
+    if (ts.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    sign::Query query;
+    query.add("accessKey", signer.api_key());
+    query.add("signatureMethod", "HmacSHA256");
+    query.add("signatureVersion", "2.1");
+    query.add("timestamp", ts);
+    const auto rendered = query.render(auth_query_);
+    if (rendered.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    const auto message = sign::canonical("GET", k_spot_host, k_spot_private_path, rendered,
+                                         auth_msg_);
+    if (message.empty()) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    auth_msg_len_ = message.size();
+    const auto signature = signer.sign(message, net::Signer::Encoding::Base64, signature_);
+    if (signature.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+
+    FrameWriter writer{auth_frame_};
+    writer.put(R"({"action":"req","ch":"auth","params":{"authType":"api","accessKey":")");
+    writer.put(signer.api_key());
+    writer.put(R"(","signatureMethod":"HmacSHA256","signatureVersion":"2.1","timestamp":")");
+    writer.put(ts);
+    writer.put(R"(","signature":")");
+    writer.put(signature);
+    writer.put(R"("}})");
+    return writer.frame();
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::swap_private_subscribe_frame(std::string_view topic) {
+    if (topic.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    FrameWriter writer{frame_};
+    writer.put(R"({"op":"sub","topic":")");
+    writer.put(topic);
+    writer.put(R"(","cid":")");
+    writer.put(++next_id_);
+    writer.put(R"("})");
+    return writer.frame();
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::spot_private_subscribe_frame(std::string_view channel) {
+    if (channel.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    FrameWriter writer{frame_};
+    writer.put(R"({"action":"sub","ch":")");
+    writer.put(channel);
+    writer.put(R"("})");
+    return writer.frame();
 }
 
 } // namespace raikiri::venues::htx

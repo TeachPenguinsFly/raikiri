@@ -3,12 +3,16 @@
 Provenance matters here: a parser test is only evidence if the bytes are the
 bytes the venue actually sends.
 
-Every file below was **captured live** from production MEXC futures on
-2026-08-10. No credentials are involved — all of these are public endpoints and
-the public websocket. Nothing is hand-written or reshaped from docs, and no
-file was round-tripped through a JSON library: the bytes are sliced verbatim
-out of the capture, because re-serializing turns MEXC's `0.000085` into
-`8.5e-05`, which the fixed-point parser refuses.
+Every file in the two market-data sections below was **captured live** from
+production MEXC futures on 2026-08-10. No credentials are involved — all of
+these are public endpoints and the public websocket. Nothing is hand-written or
+reshaped from docs, and no file was round-tripped through a JSON library: the
+bytes are sliced verbatim out of the capture, because re-serializing turns
+MEXC's `0.000085` into `8.5e-05`, which the fixed-point parser refuses.
+
+Order entry cannot be captured without credentials. The last section says,
+file by file, which of those bytes came off the wire anyway and which were
+assembled from MEXC's reference.
 
 MEXC sends **uncompressed JSON text frames** — no per-message deflate, no
 binary payloads — so `libs/net`'s text-only `WsClient` reads them as they are.
@@ -98,3 +102,90 @@ observable on 2026-08-10, so the "must be refused" row here is refused on
 precision rather than on state. `map_instrument` still rejects a non-zero
 `state` first, and a unit test pins that with a synthetic row rather than
 pretending a captured one exists.
+
+## Order entry (added 2026-08-26)
+
+Order entry needs credentials and this repository has none, so the private
+files below split into two provenances and each one says which it is.
+
+### Captured live, unauthenticated
+
+These are real refusal bodies: a request with no key, or with a made-up one,
+against production. They are the evidence behind `classify` / `classify_spot`.
+
+| file | how |
+|---|---|
+| `rest_exchange_info.json` | `GET https://api.mexc.com/api/v3/exchangeInfo` (2123 rows), five rows sliced VERBATIM out of the response |
+| `rest_error_not_logged_in.json` | `GET contract.mexc.com/api/v1/private/order/list/open_orders/BTC_USDT` with no headers |
+| `rest_error_key_expired.json` | the same call against `api.mexc.com` with `ApiKey: bogus` |
+| `rest_spot_error_key.json` | `POST api.mexc.com/api/v3/order` with `X-MEXC-APIKEY: bogus` |
+| `rest_spot_error_not_found.json` | `GET /api/v3/openOrders?symbol=BTCUSDT` with a key header and NO timestamp/signature |
+
+`rest_spot_error_not_found.json` earns its place: a signed spot endpoint reached
+without its timestamp and signature answers **404**, not a parameter error, so a
+signing bug in this adapter would present as a routing bug.
+
+The two futures refusals were captured against DIFFERENT hosts on purpose.
+`contract.mexc.com` still answers private GETs with MEXC's own envelope but
+403s a private POST at the CDN, while `api.mexc.com` answers both — which is
+how the 2026-01 host migration is observable without a key, and why order entry
+targets `api.mexc.com`.
+
+`rest_exchange_info.json` is trimmed only in the sense that rows were
+**selected**; each is verbatim bytes out of the live response, because
+re-serializing turns `"0.000001"` into `1e-06`, which the fixed-point parser
+refuses. It keeps
+
+- `BTCUSDT` and `ETHUSDT` — loadable, `quotePrecision` 2 with
+  `baseSizePrecision` `0.000001` and `0.0001`. The two precisions in one row
+  arrive in DIFFERENT forms: a digit count for price, a decimal step for size;
+- `WNTUSDT` — `isSpotTradingAllowed: false` with an otherwise usable pair of
+  steps, so the refusal is attributable to the flag alone. 104 of the 2123 rows
+  are like this;
+- `XENUSDT` — `quotePrecision: 12`. The tick is 10^-scale and FixedE9 carries
+  nine fractional digits, so this row must be refused rather than rounded;
+- `PYTHUSDT` — `baseSizePrecision: "0"`. 1590 rows carry a zero size step,
+  which is not a lot size and cannot become one.
+
+Every one of the 2123 rows carried `status: "1"` and an `orderTypes` list of
+`LIMIT`/`MARKET`/`LIMIT_MAKER` — 2088 with all three and 35 without `MARKET`.
+**Not one advertised `IMMEDIATE_OR_CANCEL` or `FILL_OR_KILL`**, though the API
+reference lists both as `type` values. That measurement is why an IOC or FOK
+spot order is refused here instead of being downgraded to GTC.
+
+### Built from the API reference
+
+No credentials exist to capture these, so they are assembled from the payload
+examples in MEXC's own reference and marked as such. Field NAMES and TYPES are
+the doc's; the symbols and numbers were changed to ones the catalogue fixtures
+above actually carry, so the mapper has real tick and lot sizes to divide by.
+
+| file | reference shape |
+|---|---|
+| `ws_personal_order_filled.json` | the `push.personal.order` payload example, VERBATIM |
+| `ws_personal_order_new.json`, `_partial.json`, `_cancelled.json` | the same shape at `state` 2 with `dealVol` 0, at 2 with `dealVol` 1, and at 4 |
+| `ws_personal_deal.json` | the `order/deal_details` row shape (`isTaker`, not `taker`) on the inferred channel — see below |
+| `ws_personal_position.json` | the `push.personal.position` payload example, VERBATIM |
+| `ws_login_ack.json` | `rs.login`, the channel the docs name for a successful login |
+| `rest_futures_open_orders.json` | `GET /api/v1/private/order/list/open_orders` |
+| `rest_futures_order_deals.json` | `GET /api/v1/private/order/list/order_deals` (`taker`, not `isTaker`) |
+| `rest_futures_positions.json` | `GET /api/v1/private/position/open_positions` |
+| `rest_futures_cancel_partial.json` | the cancel response example, VERBATIM — a per-order `errorCode` 2040 beside a 0 |
+| `rest_spot_order_new.json` | `POST /api/v3/order` |
+| `rest_spot_open_orders.json` | `GET /api/v3/openOrders` |
+| `rest_spot_my_trades.json` | `GET /api/v3/myTrades` |
+
+`ws_personal_deal.json` is the one file whose CHANNEL NAME is inferred rather
+than quoted. MEXC documents the personal filter keys as `order`, `order.deal`,
+`position`, `asset` and shows payload examples on `push.personal.order`,
+`push.personal.position` and `push.personal.asset` — but none for the deal
+stream. `push.personal.order.deal` follows the mapping the other three
+establish. It is also a strict SUFFIX extension of `push.personal.order`, which
+is exactly the hazard `push.depth` / `push.depth.full` already posed here, so
+the dispatch test pins that the two do not collapse.
+
+`ws_personal_order_filled.json` keeps the doc's own `externalOid`,
+`_m_95bc2b72d3784bce8f9efecbdef9fe35` — 35 characters, which is what MEXC's own
+web orders carry and is not a ULID. It is the evidence that a foreign id must
+leave the client-order-id field empty instead of dropping the event: an order we
+did not place is still one the reconciler has to see.

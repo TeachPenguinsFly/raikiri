@@ -2,8 +2,14 @@
 
 // The Mexc adapter.
 //
-// Market data only for now; order entry refuses loudly rather than pretending,
-// so an order can never sit open waiting for a verdict no code will produce.
+// Public futures market data off contract.mexc.com, and order entry for both
+// markets over api.mexc.com — two signing schemes on one host, plus a futures
+// private socket that authenticates itself rather than minting a listen key.
+//
+// MEXC gates futures order placement behind an account permission ("Order
+// Placing", KYC-bound). A key without it is refused with a permission code
+// this adapter classifies as AuthFailure, so the venue halts loudly instead of
+// leaving orders in doubt.
 
 #include <raikiri/exec/venue.hpp>
 

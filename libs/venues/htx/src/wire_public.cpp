@@ -21,6 +21,23 @@ std::string_view suffix_of(std::string_view topic) {
     return topic.substr(second + 1);
 }
 
+// The private topics carry ONE dot, so suffix_of finds nothing in them and
+// kind_from_topic would call every order push Unknown. Both margin modes are
+// listed because the `_cross` family is what this adapter subscribes to and
+// the bare family is what an isolated-margin account would see.
+EventKind private_kind_from_topic(std::string_view topic) noexcept {
+    if (topic.starts_with("orders_cross.") || topic.starts_with("orders.")) {
+        return EventKind::PrivateOrder;
+    }
+    if (topic.starts_with("positions_cross.") || topic.starts_with("positions.")) {
+        return EventKind::PrivatePosition;
+    }
+    if (topic.starts_with("matchOrders_cross.") || topic.starts_with("matchOrders.")) {
+        return EventKind::PrivateMatch;
+    }
+    return EventKind::Unknown;
+}
+
 EventKind kind_from_topic(std::string_view topic) noexcept {
     const auto suffix = suffix_of(topic);
     if (suffix == "bbo") {
@@ -143,6 +160,10 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 info.keepalive_ts = *ts;
                 return info;
             }
+            if (*op == "auth") {
+                info.kind = EventKind::AuthReply;
+                return info;
+            }
             const auto topic = detail::opt_str(*root, "topic");
             if (!topic.has_value()) {
                 return std::unexpected(topic.error());
@@ -150,6 +171,9 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             info.contract_code = detail::code_of(*topic);
             if (*op == "notify") {
                 info.kind = kind_from_topic(*topic);
+                if (info.kind == EventKind::Unknown) {
+                    info.kind = private_kind_from_topic(*topic);
+                }
                 return info;
             }
             const auto code = detail::opt_raw(*root, "err-code");
@@ -160,6 +184,50 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
 
+        // The spot v2 socket speaks `action` where every other HTX endpoint
+        // speaks `op`, and its keepalive hides the timestamp one level down.
+        const auto action = detail::opt_str(*root, "action");
+        if (!action.has_value()) {
+            return std::unexpected(action.error());
+        }
+        if (!action->empty()) {
+            if (*action == "ping") {
+                auto data = detail::req_object(*root, "data");
+                if (!data.has_value()) {
+                    return std::unexpected(data.error());
+                }
+                const auto ts = detail::opt_raw(*data, "ts");
+                if (!ts.has_value()) {
+                    return std::unexpected(ts.error());
+                }
+                info.kind = EventKind::SpotPing;
+                info.keepalive_ts = *ts;
+                return info;
+            }
+            const auto channel = detail::opt_str(*root, "ch");
+            if (!channel.has_value()) {
+                return std::unexpected(channel.error());
+            }
+            if (*channel == "auth") {
+                info.kind = EventKind::AuthReply;
+                return info;
+            }
+            if (*action == "push") {
+                if (channel->starts_with("orders#")) {
+                    info.kind = EventKind::PrivateOrder;
+                } else if (channel->starts_with("trade.clearing#")) {
+                    info.kind = EventKind::PrivateMatch;
+                }
+                return info;
+            }
+            const auto code = detail::opt_i64(*root, "code");
+            if (!code.has_value()) {
+                return std::unexpected(code.error());
+            }
+            info.kind = *code == 200 ? EventKind::SubscribeAck : EventKind::Error;
+            return info;
+        }
+
         const auto ch = detail::opt_str(*root, "ch");
         if (!ch.has_value()) {
             return std::unexpected(ch.error());
@@ -167,6 +235,13 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!ch->empty()) {
             info.kind = kind_from_topic(*ch);
             info.contract_code = detail::code_of(*ch);
+            if (info.kind == EventKind::Unknown) {
+                if (ch->starts_with("orders#")) {
+                    info.kind = EventKind::PrivateOrder;
+                } else if (ch->starts_with("trade.clearing#")) {
+                    info.kind = EventKind::PrivateMatch;
+                }
+            }
             return info;
         }
 

@@ -1,3 +1,4 @@
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
@@ -74,8 +75,9 @@ TEST(MexcVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->instruments, nullptr);
 }
 
-TEST(MexcVenue, OrderWithoutAnImplementationFailsLoudly) {
-    // Silence would leave the order open in the store forever.
+TEST(MexcVenue, AnUnbuildableCommandIsRefusedLocally) {
+    // No catalogue and no credentials, so nothing can be built. Silence would
+    // leave the order open in the store forever.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -631,6 +633,10 @@ TEST(MexcRest, SymbolGoesInThePathForDepthAndFundingButInTheQueryForTicker) {
     EXPECT_EQ(rest_host(), "contract.mexc.com");
     EXPECT_EQ(stream_host(), "contract.mexc.com");
     EXPECT_EQ(stream_path(), "/edge");
+    // Public data and signed calls live on different names: contract.mexc.com
+    // 403s a private POST at the CDN, api.mexc.com answers it.
+    EXPECT_EQ(private_rest_host(), "api.mexc.com");
+    EXPECT_NE(private_rest_host(), rest_host());
 }
 
 } // namespace

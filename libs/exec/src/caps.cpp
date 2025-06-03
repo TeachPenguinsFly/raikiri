@@ -145,6 +145,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = false,
         .native_post_only = true, // provisional
         .book_checksum = false,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // VERIFIED: futures externalOid max 32 (error 2030 beyond).
         .max_client_order_id_len = 32,
@@ -254,6 +256,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
         .native_post_only = true,
+        .position_pull = true,
+        // HTX windows trade history by CONTRACT, and the pull names only a
+        // market; a sweep over every instrument is a different call the
+        // reconciler does not make. Positions answer, fills do not.
+        .fill_pull = false,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64,
         .headline_order_rate_per_s = 10,

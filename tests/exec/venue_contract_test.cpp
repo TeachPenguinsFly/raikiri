@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -191,12 +192,22 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
         if (caps_of(id).position_pull) {
             claiming.push_back(to_string(id));
         }
-        EXPECT_EQ(caps_of(id).position_pull, caps_of(id).fill_pull)
-            << to_string(id) << ": a venue that can report positions can report fills";
+        // The two are independent. HTX is the case that proves it: it reports
+        // positions, but its trade history is windowed by contract while the
+        // pull names only a market, so fills genuinely have no answer. What
+        // must hold is the other direction — a venue that cannot report
+        // positions has nothing to reconcile against.
+        if (caps_of(id).fill_pull) {
+            EXPECT_TRUE(caps_of(id).position_pull)
+                << to_string(id) << ": fills without positions leaves nothing to compare";
+        }
     }
+    // Sorted: this asserts WHICH venues claim the pull, not where they happen
+    // to sit in the VenueId enum.
+    std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
-              (std::vector<std::string_view>{"binance", "bybit", "okx", "gate", "kucoin",
-                                             "bitget"}));
+              (std::vector<std::string_view>{"binance", "bitget", "bybit", "gate", "htx",
+                                             "kucoin", "mexc", "okx"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {
