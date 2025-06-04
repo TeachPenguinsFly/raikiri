@@ -27,4 +27,19 @@ namespace raikiri::venues::hyperliquid {
 // read worth repeating.
 [[nodiscard]] exec::ErrorClass classify(int status, std::string_view body) noexcept;
 
+// Classifies an /exchange refusal, which is PROSE and nothing else — there is
+// no numeric code anywhere in this protocol, on either endpoint.
+//
+// Matched by PREFIX, never by equality: the venue appends context to several of
+// these ("Insufficient margin to place order. asset=84", "Post only order would
+// have immediately matched, bbo was ..."), and those are the ones a strategy
+// meets most often. Anything unrecognised is Terminal, because an unknown
+// refusal retried at full speed is how an address earns a rate-limit ban.
+[[nodiscard]] exec::ErrorClass classify_reason(std::string_view reason) noexcept;
+
+// A cancel refusal meaning the order was already gone. The cancel did not fail
+// so much as arrive late, and reporting it as a failure leaves the OMS holding
+// an order the venue has already closed.
+[[nodiscard]] bool is_benign_cancel_failure(std::string_view reason) noexcept;
+
 } // namespace raikiri::venues::hyperliquid

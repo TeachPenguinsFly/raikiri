@@ -207,7 +207,7 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
               (std::vector<std::string_view>{"binance", "bitget", "bybit", "gate", "htx",
-                                             "kucoin", "mexc", "okx"}));
+                                             "hyperliquid", "kucoin", "mexc", "okx"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {

@@ -34,6 +34,7 @@ std::expected<std::size_t, WireError> read_universe(detail::ondemand::object& me
         out.name = *name;
         out.sz_decimals = *sz_decimals;
         out.max_leverage = *max_leverage;
+        out.index = static_cast<std::int64_t>(count);
         out.delisted = *delisted;
         storage.assets[count] = out;
         ++count;

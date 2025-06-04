@@ -1,7 +1,11 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/int128.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
 
+#include <array>
+#include <charconv>
 #include <optional>
+#include <string_view>
 
 namespace raikiri::venues::hyperliquid {
 
@@ -10,6 +14,10 @@ namespace {
 // A PERP price is capped at 6 - szDecimals decimal places; spot uses 8, which
 // is why this is named for its market rather than being a bare 6.
 constexpr std::int64_t k_perp_price_digits = 6;
+
+// The same rule on the spot book, two places finer. A pair loaded with the perp
+// exponent quotes every price a hundred times off its own grid.
+constexpr std::int64_t k_spot_price_digits = 8;
 
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means the venue changed an instrument's precision, so the
@@ -208,6 +216,336 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
     if (out.bid_count == 0 && out.ask_count == 0) {
         return std::nullopt;
     }
+    return out;
+}
+
+// ---------------------------------------------------------- account ----
+
+namespace {
+
+// `szi` is the one account field this venue serialises from a FLOAT: a live
+// response carries "-4216984.4000000004" for a position whose lot is 0.1.
+// Truncating below 1e-9 drops dust no step this domain can express could have
+// carried, and the exact division by the lot below still refuses a size
+// genuinely off the grid. For `szi` and nothing else.
+std::optional<QtyLots> to_float_lots(std::string_view text, const InstrumentBase& base) {
+    if (text.empty() || base.lot_size.raw <= 0) {
+        return std::nullopt;
+    }
+    const auto value = parse_rate_e9(text);
+    if (!value.has_value() || value->raw % base.lot_size.raw != 0) {
+        return std::nullopt;
+    }
+    return QtyLots::from_raw(value->raw / base.lot_size.raw);
+}
+
+// A fee is money, but this venue pads a rebate past 1e-9 of a token and an
+// exact reader would drop the whole fill over the eleventh digit. NO sign flip:
+// a charge is already positive and a rebate negative, the ledger's own
+// convention, and okx's inversion here would turn every rebate into a cost.
+FixedE9 fee_e9(std::string_view text) noexcept {
+    if (text.empty()) {
+        return FixedE9::from_raw(0);
+    }
+    const auto value = parse_rate_e9(text);
+    return value.has_value() ? *value : FixedE9::from_raw(0);
+}
+
+// The alphabet UlidGen emits. Lowercase is NOT accepted: the generator never
+// produces it, so a lowercase id is someone else's wearing our shape.
+constexpr std::string_view k_crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+constexpr std::size_t k_ulid_chars = 26;
+
+[[nodiscard]] int crockford_value(char c) noexcept {
+    const auto at = k_crockford.find(c);
+    return at == std::string_view::npos ? -1 : static_cast<int>(at);
+}
+
+[[nodiscard]] int hex_value(char c) noexcept {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+// `oid` and `tid` arrive as JSON numbers; the domain carries both as text.
+template <typename Id> [[nodiscard]] std::optional<Id> id_from(std::uint64_t value) noexcept {
+    std::array<char, 24> digits{};
+    const auto [stop, ec] = std::to_chars(digits.data(), digits.data() + digits.size(), value);
+    if (ec != std::errc{}) {
+        return std::nullopt;
+    }
+    const auto text =
+        std::string_view{digits.data(), static_cast<std::size_t>(stop - digits.data())};
+    const auto id = Id::from(text);
+    return id.has_value() ? std::optional{*id} : std::nullopt;
+}
+
+// The vocabulary GROWS: every margin, open-interest and self-trade check adds
+// a reason glued in front of a base state ("openInterestCapCanceled"). Matching
+// the tail keeps next month's word out of the unknown bucket, where query_order
+// would refuse to speak about an order the venue plainly calls dead.
+std::optional<OrderStatus> status_from(std::string_view text, bool partial) noexcept {
+    if (text == "open") {
+        return partial ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
+    }
+    if (text == "filled") {
+        return OrderStatus::Filled;
+    }
+    if (text == "triggered") {
+        return OrderStatus::Triggered;
+    }
+    if (text == "canceled" || text.ends_with("Canceled") || text.ends_with("Cancel")) {
+        return OrderStatus::Canceled;
+    }
+    if (text == "rejected" || text.ends_with("Rejected")) {
+        return OrderStatus::Rejected;
+    }
+    return std::nullopt;
+}
+
+// Everything both order reads share.
+std::optional<exec::OrderStatusReport> read_order(const WireOpenOrder& wire,
+                                                  const exec::InstrumentTable& table) {
+    // A conditional is DORMANT: `limitPx` is where it WILL rest once triggerPx
+    // prints. The domain cannot say that, and reporting it as a live limit
+    // tells a reconciler about an order that is not in the book. Only the
+    // frontendOpenOrders form carries the flag, which is why that form is read.
+    if (wire.is_trigger) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.coin);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto leaves = to_lots(wire.qty, base);
+    // `sz` is what REMAINS and `origSz` what was sent; an absent original reads
+    // as equal to the remainder rather than guessed, so a row that does not
+    // carry it reports Accepted instead of an invented partial fill.
+    const auto total = to_lots(wire.orig_qty.empty() ? wire.qty : wire.orig_qty, base);
+    const auto order_id = id_from<ExchangeOrderId>(wire.oid);
+    if (!leaves.has_value() || !total.has_value() || !order_id.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    out.exchange_order_id = *order_id;
+    (void)cloid_to_ulid(wire.cloid, out.exchange_client_order_id);
+    out.status = leaves->raw < total->raw ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = *total;
+    out.leaves = *leaves;
+    out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+} // namespace
+
+std::optional<PriceTicks> price_from_wire(std::string_view text, const InstrumentBase& base) {
+    return to_ticks(text, base);
+}
+
+std::optional<QtyLots> qty_from_wire(std::string_view text, const InstrumentBase& base) {
+    return to_lots(text, base);
+}
+
+std::int64_t spot_asset_id(std::int64_t pair_index) noexcept {
+    return k_spot_asset_offset + pair_index;
+}
+
+std::string_view cloid_text(const ExchangeClientOrderId& id, std::span<char> out) noexcept {
+    const auto text = id.view();
+    if (text.size() != k_ulid_chars || out.size() < k_cloid_chars) {
+        return {};
+    }
+    // 26 base-32 digits span 130 bits, two more than the number underneath: a
+    // ULID's 48-bit millisecond leaves them clear, so the leading digit never
+    // exceeds 7. Checked BEFORE the accumulation, because those two bits are
+    // exactly the ones the shift drops — by the end the overflow is invisible.
+    if (crockford_value(text.front()) >= 8) {
+        return {};
+    }
+    uint128_t value = 0;
+    for (const char c : text) {
+        const auto digit = crockford_value(c);
+        if (digit < 0) {
+            return {};
+        }
+        value = (value << 5) | static_cast<uint128_t>(digit);
+    }
+    out[0] = '0';
+    out[1] = 'x';
+    constexpr std::string_view k_hex = "0123456789abcdef";
+    for (std::size_t i = 0; i < 32; ++i) {
+        const auto nibble = static_cast<std::size_t>((value >> ((31 - i) * 4)) & 0xFU);
+        out[2 + i] = k_hex[nibble];
+    }
+    return std::string_view{out.data(), k_cloid_chars};
+}
+
+bool cloid_to_ulid(std::string_view cloid, ExchangeClientOrderId& out) noexcept {
+    if (cloid.size() != k_cloid_chars || cloid[0] != '0' || (cloid[1] != 'x' && cloid[1] != 'X')) {
+        return false;
+    }
+    uint128_t value = 0;
+    for (const char c : cloid.substr(2)) {
+        const auto digit = hex_value(c);
+        if (digit < 0) {
+            return false;
+        }
+        value = (value << 4) | static_cast<uint128_t>(digit);
+    }
+    std::array<char, k_ulid_chars> text{};
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const auto shift = (text.size() - 1 - i) * 5;
+        text[i] = k_crockford[static_cast<std::size_t>((value >> shift) & 0x1FU)];
+    }
+    const auto id = ExchangeClientOrderId::from(std::string_view{text.data(), text.size()});
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+std::optional<Instrument> map_spot_instrument(const WireSpotAsset& wire) {
+    // DERIVED, NOT VENUE-STATED — and from the BASE TOKEN's szDecimals, which
+    // is the only place the pair's precision is written down.
+    const auto lot = step_from_decimals(wire.sz_decimals);
+    const auto tick = step_from_decimals(k_spot_price_digits - wire.sz_decimals);
+    if (!lot.has_value() || !tick.has_value()) {
+        return std::nullopt;
+    }
+    // The wire coin, "@<index>" for every pair but the canonical PURR/USDC. A
+    // table keyed by the human name matches nothing the venue ever sends.
+    const auto symbol = SymbolText::from(wire.name);
+    if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+    // Every listed pair quotes USDC, so the readable name is the base token's.
+    // `name` is an index no human or sibling catalogue would recognise.
+    constexpr std::string_view k_quote = "/USDC";
+    std::array<char, sizeof(SymbolText::data)> local{};
+    if (wire.base.size() + k_quote.size() > local.size()) {
+        return std::nullopt;
+    }
+    std::size_t at = 0;
+    for (const char c : wire.base) {
+        local[at++] = c;
+    }
+    for (const char c : k_quote) {
+        local[at++] = c;
+    }
+    const auto local_symbol = SymbolText::from(std::string_view{local.data(), at});
+    if (!local_symbol.has_value()) {
+        return std::nullopt;
+    }
+
+    InstrumentBase base{};
+    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    base.id = InstrumentId::make(VenueId::Hyperliquid, MarketType::Spot, SymbolId{0});
+    base.exchange_symbol = *symbol;
+    base.local_symbol = *local_symbol;
+    base.tick_size = *tick;
+    base.lot_size = *lot;
+    base.contract_value = *parse_decimal_e9("1"); // spot sizes are base units
+    base.kind = ContractKind::Linear;
+    return SpotInstrument{base};
+}
+
+std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixNanos ts_venue) {
+    const auto* instrument = table.find(wire.coin);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    // Signed, with no side field beside it to disagree with: a reader that
+    // takes the magnitude reports every short as a long.
+    const auto size = to_float_lots(wire.size, base);
+    if (!size.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = *size;
+    // A weighted average need not land on the tick grid, so an unconvertible
+    // entry is left undefined rather than sinking the position it belongs to.
+    if (const auto entry = to_ticks(wire.entry_px, base); entry.has_value()) {
+        out.avg_entry = *entry;
+    }
+    out.ts_venue = ts_venue;
+    return out;
+}
+
+std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.coin);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.qty, base);
+    const auto exec_id = id_from<ExecId>(wire.tid);
+    const auto order_id = id_from<ExchangeOrderId>(wire.oid);
+    if (!price.has_value() || !qty.has_value() || !exec_id.has_value() || !order_id.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::FillReport out{};
+    out.exec_id = *exec_id;
+    out.exchange_order_id = *order_id;
+    (void)cloid_to_ulid(wire.cloid, out.exchange_client_order_id);
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    out.price = *price;
+    out.qty = *qty;
+    out.fee = fee_e9(wire.fee);
+    // `crossed` is the whole liquidity signal: true means we took. There is no
+    // third spelling, so Unknown is never the honest answer here.
+    out.liquidity = wire.crossed ? Liquidity::Taker : Liquidity::Maker;
+    out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    return read_order(wire, table);
+}
+
+std::optional<exec::OrderStatusReport> map_order_status(const WireOrderStatus& wire,
+                                                        const exec::InstrumentTable& table) {
+    if (!wire.found) {
+        return std::nullopt; // "unknownOid": forgotten and never minted read alike
+    }
+    auto out = read_order(wire.order, table);
+    if (!out.has_value()) {
+        return std::nullopt;
+    }
+    const auto status = status_from(wire.status, out->leaves.raw < out->qty.raw);
+    if (!status.has_value()) {
+        return std::nullopt;
+    }
+    out->status = *status;
+    // A terminal order rests nowhere. Leaving `leaves` at the size the venue
+    // last saw would tell a reconciler there is still work in the book.
+    if (is_terminal(*status)) {
+        out->leaves = QtyLots::from_raw(0);
+    }
+    out->ts_venue = ms_to_unix(wire.ts_ms, out->ts_venue);
     return out;
 }
 
