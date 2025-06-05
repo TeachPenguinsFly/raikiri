@@ -1,3 +1,4 @@
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitmex/bitmex_venue.hpp>
 #include <raikiri/venues/bitmex/book.hpp>
 #include <raikiri/venues/bitmex/errors.hpp>
@@ -90,29 +91,60 @@ TEST(BitmexVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
-TEST(BitmexVenue, OrderEntryRefusesPermanently) {
-    // Read-only venue: an order must fail loudly, never wait for a verdict
-    // that no code will ever produce.
+TEST(BitmexVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
+    // BitMEX serves spot and the perpetuals here. Dated futures price correctly
+    // in map.cpp but VenueConfig carries no switch that loads them, and options
+    // are not listed at all — so both must refuse BY NAME. find() compares the
+    // WHOLE id, so an id for an unloaded market would otherwise resolve to
+    // nothing and blame the catalogue for a market never asked for.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bitmex, .enable_spot = true, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
+
+    for (const auto market : {MarketType::Future, MarketType::Option}) {
+        const auto orders = adapter->execution->open_order_reports(market);
+        ASSERT_FALSE(orders.has_value()) << to_string(market);
+        EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
+        EXPECT_FALSE(adapter->execution->fill_reports(market, UnixNanos{0}).has_value());
+        EXPECT_FALSE(adapter->execution->position_reports(market).has_value());
+    }
 
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
     cmd.client_order_id = ClientOrderId::make(1, 42);
+    cmd.instrument = InstrumentId::make(VenueId::Bitmex, MarketType::Option, SymbolId{0});
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+}
+
+TEST(BitmexVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
+    // A gateway started without a key is misconfigured, not broken: the
+    // reconciler retries after an operator fixes it, and halting the venue as
+    // Terminal is the wrong response to a fixable state.
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue(
+        {.venue = VenueId::Bitmex, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto started = adapter->execution->start();
+    ASSERT_FALSE(started.has_value());
+    EXPECT_EQ(started.error().cls, exec::ErrorClass::AuthFailure);
 
     // A pull this adapter cannot perform must SAY so. Answering with an empty
     // vector would be indistinguishable from "the venue holds nothing of ours",
     // and a reconciler reading it that way concludes we are flat when we are not.
-    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
-    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
-    EXPECT_FALSE(exec::caps_of(VenueId::Bitmex).position_pull);
+    const auto positions = adapter->execution->position_reports(MarketType::Perp);
+    ASSERT_FALSE(positions.has_value());
+    EXPECT_EQ(positions.error().cls, exec::ErrorClass::AuthFailure);
+    const auto fills = adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0});
+    ASSERT_FALSE(fills.has_value());
+    EXPECT_EQ(fills.error().cls, exec::ErrorClass::AuthFailure);
 }
 
 // --------------------------------------------------------------- wire ----
@@ -946,6 +978,481 @@ TEST(BitmexRest, BuildsTheReadTargets) {
     EXPECT_EQ(rest_host(true), "testnet.bitmex.com");
     EXPECT_EQ(stream_host(false), "ws.bitmex.com");
     EXPECT_EQ(stream_path(), "/realtime");
+}
+
+
+// ------------------------------------------------------------- exec ----
+
+// BitMEX's OWN published authentication example secret. The three digests
+// asserted below are the ones its documentation prints for it, so this test
+// checks the implementation against the venue rather than against itself.
+constexpr std::string_view k_doc_secret = "chNOOS4KvNXR_Xq4k4c9qsfoKWvnDecLATCRlcBwyKDYnWgO";
+
+TEST(BitmexSign, MatchesTheVenuesOwnPublishedVectors) {
+    std::array<char, net::k_hex_bytes> out{};
+    // verb + path + expires + body, bare concatenation, hex. A GET has no body
+    // and still signs the empty string after the expiry.
+    EXPECT_EQ(net::hmac_sha256_hex(k_doc_secret, "GET/api/v1/instrument1518064236", out),
+              "c7682d435d0cfe87c16098df34ef2eb5a549d4c5a3c2b1f0f77b8af73423bf00");
+    // The path INCLUDES the query string, percent-encoded exactly as it travels.
+    EXPECT_EQ(net::hmac_sha256_hex(
+                  k_doc_secret,
+                  "GET/api/v1/instrument?filter=%7B%22symbol%22%3A+%22XBTM15%22%7D1518064237",
+                  out),
+              "e2f422547eecb5b3cb29ade2127e21b858b235b386bfa45e1c1756eb3383919f");
+    // A POST appends the body verbatim — the bytes that are sent, not a
+    // re-serialisation of them.
+    EXPECT_EQ(net::hmac_sha256_hex(k_doc_secret,
+                                   R"(POST/api/v1/order1518064238{"symbol":"XBTM15",)"
+                                   R"("price":219.0,"clOrdID":"mm_bitmex_1a/oemUeQ4CAJZgP3fjHsA",)"
+                                   R"("orderQty":98})",
+                                   out),
+              "1749cd2ccae4aa49048ae09f0b95110cee706e0944e6a14ad0b3a8cb45bd336b");
+}
+
+exec::InstrumentTable loaded_table() {
+    const auto body = fixture("rest_instruments.json");
+    const auto rows = catalogue_rows(body);
+    exec::InstrumentTable table;
+    // Both markets in one table, the way a gateway with enable_spot and
+    // enable_perp loads them: the pulls answer for one market at a time and the
+    // filtering is what keeps them apart.
+    for (const auto market : {MarketType::Perp, MarketType::Spot}) {
+        for (const auto& row : rows) {
+            if (auto instrument = map_instrument(row, market); instrument.has_value()) {
+                EXPECT_TRUE(table.add(*instrument).has_value());
+            }
+        }
+    }
+    return table;
+}
+
+InstrumentId id_of(const exec::InstrumentTable& table, std::string_view symbol) {
+    const auto* instrument = table.find(symbol);
+    EXPECT_NE(instrument, nullptr) << symbol;
+    return instrument == nullptr ? InstrumentId{} : base_of(*instrument).id;
+}
+
+void load_credentials(net::Signer& signer) {
+    signer.set_api_key("LAqUlngMIQkIUjXMUreyu3qn");
+    ASSERT_TRUE(signer.secret().assign(k_doc_secret).has_value());
+}
+
+// XBTUSD: tick 0.1, lot 100 contracts. 640005 ticks is 64000.5, one lot is 100
+// contracts of 1 USD each.
+OrderCmd limit_buy(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.instrument = id_of(table, "XBTUSD");
+    cmd.client_order_id = ClientOrderId::make(7, 11);
+    cmd.price = PriceTicks::from_raw(640'005);
+    cmd.qty = QtyLots::from_raw(1);
+    return cmd;
+}
+
+// k_expiry_window_s ahead of this is 1518064236, the venue's own example.
+constexpr UnixNanos k_now{(1'518'064'236ULL - SignedRequestBuilder::k_expiry_window_s) *
+                          1'000'000'000ULL};
+
+TEST(BitmexRest, ASignedPostSignsVerbPathExpiresAndTheBodyItSends) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto request = builder.create_order(limit_buy(table), table, k_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_EQ(request->target, "/api/v1/order");
+    EXPECT_EQ(request->body,
+              R"({"symbol":"XBTUSD","side":"Buy","orderQty":100,"ordType":"Limit",)"
+              R"("price":64000.5,"timeInForce":"GoodTillCancel"})");
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{"POST/api/v1/order1518064236"} + std::string{request->body});
+
+    ASSERT_EQ(request->headers.size(), 3U);
+    EXPECT_EQ(request->headers[0].name, "api-key");
+    EXPECT_EQ(request->headers[1].name, "api-expires");
+    // An absolute DEADLINE, not the request time every other venue here sends.
+    EXPECT_EQ(request->headers[1].value, "1518064236");
+    EXPECT_EQ(request->headers[2].name, "api-signature");
+    std::array<char, net::k_hex_bytes> expected{};
+    EXPECT_EQ(request->headers[2].value,
+              net::hmac_sha256_hex(k_doc_secret, builder.last_sign_message(), expected));
+}
+
+TEST(BitmexRest, OrderTypeTimeInForceAndExecInstAreThreeSeparateFields) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    auto cmd = limit_buy(table);
+    cmd.flags = OrderFlags::PostOnly | OrderFlags::ReduceOnly;
+    cmd.tif = TimeInForce::Ioc;
+    const auto both = builder.create_order(cmd, table, k_now);
+    ASSERT_TRUE(both.has_value());
+    // execInst is a comma-separated LIST; sending only one of the two flags
+    // would silently drop half of what the strategy asked for.
+    EXPECT_NE(both->body.find(R"("timeInForce":"ImmediateOrCancel")"), std::string_view::npos)
+        << both->body;
+    EXPECT_NE(both->body.find(R"("execInst":"ParticipateDoNotInitiate,ReduceOnly")"),
+              std::string_view::npos)
+        << both->body;
+
+    // A market order carries NO price: BitMEX defaults ordType from whether one
+    // is present, so a price on a market order changes which order was placed.
+    cmd.order_type = OrderType::Market;
+    cmd.flags = OrderFlags::None;
+    cmd.tif = TimeInForce::Gtc;
+    const auto market = builder.create_order(cmd, table, k_now);
+    ASSERT_TRUE(market.has_value());
+    EXPECT_EQ(market->body,
+              R"({"symbol":"XBTUSD","side":"Buy","orderQty":100,"ordType":"Market",)"
+              R"("timeInForce":"ImmediateOrCancel"})")
+        << market->body;
+
+    // A quantity that is not a whole number of the venue's own units cannot be
+    // sent, and must not be rounded into one that can.
+    cmd = limit_buy(table);
+    cmd.qty = QtyLots::from_raw(0);
+    EXPECT_EQ(builder.create_order(cmd, table, k_now).error(), BuildError::BadQuantity);
+}
+
+TEST(BitmexRest, CancelAndAmendCarryABodyAndTheirBodyIsSigned) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    auto cmd = limit_buy(table);
+    cmd.kind = CmdKind::Cancel;
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("b5c5a2d4-1f04-4a3f-b0f3-9e5d5a4f9a11");
+    const auto cancel = builder.cancel_order(cmd, table, k_now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->method, net::HttpMethod::Delete);
+    EXPECT_EQ(cancel->target, "/api/v1/order");
+    // A DELETE carries a body here, and that body is part of the digest.
+    EXPECT_EQ(cancel->body, R"({"orderID":"b5c5a2d4-1f04-4a3f-b0f3-9e5d5a4f9a11"})");
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{"DELETE/api/v1/order1518064236"} + std::string{cancel->body});
+
+    cmd.kind = CmdKind::Amend;
+    const auto amend = builder.amend_order(cmd, table, k_now);
+    ASSERT_TRUE(amend.has_value());
+    EXPECT_EQ(amend->method, net::HttpMethod::Put);
+    EXPECT_EQ(amend->body,
+              R"({"orderID":"b5c5a2d4-1f04-4a3f-b0f3-9e5d5a4f9a11","orderQty":100,)"
+              R"("price":64000.5})");
+
+    // `origClOrdID`, not `clOrdID`: the latter would RENAME the order.
+    cmd.target_exchange_order_id = {};
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+    const auto by_client = builder.amend_order(cmd, table, k_now);
+    ASSERT_TRUE(by_client.has_value());
+    EXPECT_NE(by_client->body.find(R"("origClOrdID":"01J9ZQ8V3T4W5X6Y7Z8A9B0C1D")"),
+              std::string_view::npos)
+        << by_client->body;
+
+    cmd.exchange_client_order_id = {};
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_now).error(), BuildError::NoOrderTarget);
+}
+
+TEST(BitmexRest, GetsSignThePercentEncodedQueryTheyActuallySend) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto open = builder.open_orders(0, k_now);
+    ASSERT_TRUE(open.has_value());
+    EXPECT_EQ(open->method, net::HttpMethod::Get);
+    // The filter is JSON: braces, quotes and a colon, none of which may travel
+    // raw in a query — and the ENCODED form is what the signature covers.
+    EXPECT_EQ(open->target,
+              "/api/v1/order?filter=%7B%22open%22%3Atrue%7D&count=500&reverse=true&start=0");
+    EXPECT_TRUE(open->body.empty());
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{"GET"} + std::string{open->target} + "1518064236");
+
+    const auto query = builder.query_order(
+        *ExchangeClientOrderId::from("01J9ZQ8V3T4W5X6Y7Z8A9B0C1D"), k_now);
+    ASSERT_TRUE(query.has_value());
+    EXPECT_EQ(query->target,
+              "/api/v1/order?filter=%7B%22clOrdID%22%3A%2201J9ZQ8V3T4W5X6Y7Z8A9B0C1D%22%7D"
+              "&count=1&reverse=true");
+
+    const auto positions = builder.positions(k_now);
+    ASSERT_TRUE(positions.has_value());
+    EXPECT_EQ(positions->target, "/api/v1/position?count=500");
+
+    const auto history = builder.fills(UnixNanos{1'770'000'000'000'000'000ULL}, 500, k_now);
+    ASSERT_TRUE(history.has_value());
+    EXPECT_EQ(history->target,
+              "/api/v1/execution/tradeHistory?count=500&reverse=true&start=500"
+              "&startTime=2026-02-02T02%3A40%3A00.000Z");
+
+    // A zero floor asks for the newest page and names no window at all.
+    const auto newest = builder.fills(UnixNanos{0}, 0, k_now);
+    ASSERT_TRUE(newest.has_value());
+    EXPECT_EQ(newest->target,
+              "/api/v1/execution/tradeHistory?count=500&reverse=true&start=0");
+}
+
+TEST(BitmexRest, ABatchCancelIsOneRequestNamingManyVenueIds) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    std::array<OrderCmd, 2> cmds{limit_buy(table), limit_buy(table)};
+    cmds[0].target_exchange_order_id = *ExchangeOrderId::from("aaaaaaaa-0000-0000-0000-0000000000");
+    cmds[1].target_exchange_order_id = *ExchangeOrderId::from("bbbbbbbb-0000-0000-0000-0000000000");
+    const auto batch = builder.cancel_batch(cmds, table, k_now);
+    ASSERT_TRUE(batch.has_value());
+    EXPECT_EQ(batch->method, net::HttpMethod::Delete);
+    EXPECT_EQ(batch->body,
+              R"({"orderID":["aaaaaaaa-0000-0000-0000-0000000000",)"
+              R"("bbbbbbbb-0000-0000-0000-0000000000"]})");
+
+    // The array form takes venue ids only, so a batch is all-or-nothing rather
+    // than silently dropping the ones we cannot name.
+    cmds[1].target_exchange_order_id = {};
+    EXPECT_EQ(builder.cancel_batch(cmds, table, k_now).error(), BuildError::NoOrderTarget);
+    EXPECT_EQ(builder.cancel_batch({}, table, k_now).error(), BuildError::EmptyBatch);
+}
+
+TEST(BitmexRest, MarketRefusalIsNamedBeforeTheInstrumentTableIsEverRead) {
+    // The table here is EMPTY on purpose: the refusal must not depend on it.
+    const exec::InstrumentTable empty;
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    for (const auto [market, expected] :
+         {std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
+          std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
+        OrderCmd cmd{};
+        cmd.instrument = InstrumentId::make(VenueId::Bitmex, market, SymbolId{3});
+        EXPECT_EQ(builder.create_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(builder.cancel_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(builder.amend_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(market_refusal(market), expected);
+    }
+    EXPECT_FALSE(market_refusal(MarketType::Spot).has_value());
+    EXPECT_FALSE(market_refusal(MarketType::Perp).has_value());
+
+    // A served market whose id is genuinely not in the table is a DIFFERENT
+    // answer, and the two must not be confused.
+    OrderCmd perp{};
+    perp.instrument = InstrumentId::make(VenueId::Bitmex, MarketType::Perp, SymbolId{9});
+    EXPECT_EQ(builder.create_order(perp, empty, k_now).error(), BuildError::UnknownInstrument);
+}
+
+TEST(BitmexRest, WithoutCredentialsNothingIsBuiltAndNothingIsSigned) {
+    const auto table = loaded_table();
+    net::Signer signer;
+    SignedRequestBuilder builder{signer};
+    EXPECT_EQ(builder.create_order(limit_buy(table), table, k_now).error(), BuildError::NotSigned);
+    EXPECT_EQ(builder.positions(k_now).error(), BuildError::NotSigned);
+}
+
+// ------------------------------------------------------ private wire ----
+
+TEST(BitmexWire, OneReaderTakesTheBareArrayTheObjectAndTheDataWrapper) {
+    // POST answers ONE row, GET and DELETE answer an array, and the socket
+    // wraps the same rows in `data`. Reading a row out of the wrong wrapper
+    // yields an empty result that looks exactly like an empty account.
+    const auto single = fixture("rest_order_new.json");
+    const auto one = parse_order(single);
+    ASSERT_TRUE(one.has_value());
+    EXPECT_EQ(one->order_id, "b5c5a2d4-1f04-4a3f-b0f3-9e5d5a4f9a11");
+    EXPECT_EQ(one->ord_status, "New");
+
+    static OrderBuffer storage;
+    const auto array_body = fixture("rest_order_open.json");
+    const auto many = parse_orders(array_body, storage);
+    ASSERT_TRUE(many.has_value());
+    EXPECT_EQ(many->size(), 3U);
+
+    const auto frame = fixture("ws_order_partial.json");
+    const auto wrapped = parse_orders(frame, storage);
+    ASSERT_TRUE(wrapped.has_value());
+    ASSERT_EQ(wrapped->size(), 1U);
+    EXPECT_EQ(wrapped->front().symbol, "XBTUSD");
+
+    const auto info = parse_frame(frame);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->table, TableKind::Order);
+    EXPECT_EQ(info->action, FrameAction::Partial);
+}
+
+TEST(BitmexWire, AnUpdateCarriesOnlyTheColumnsThatChanged) {
+    // BitMEX keys `order` on orderID ALONE, so an update can arrive with no
+    // symbol, no side and no size. Reading an absent column as zero would
+    // report a live order as one for nothing at a price of nothing.
+    const auto frame = fixture("ws_order_update_canceled.json");
+    static OrderBuffer storage;
+    const auto rows = parse_orders(frame, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    const auto& row = rows->front();
+    EXPECT_EQ(row.order_id, "b5c5a2d4-1f04-4a3f-b0f3-9e5d5a4f9a11");
+    EXPECT_EQ(row.ord_status, "Canceled");
+    EXPECT_TRUE(row.symbol.empty());
+    EXPECT_TRUE(row.side.empty());
+    EXPECT_TRUE(row.price.empty());
+    EXPECT_TRUE(row.order_qty.empty());
+    EXPECT_EQ(row.leaves_qty, "0");
+}
+
+TEST(BitmexMap, StatusDecidesTheEventAndFillsBelongToTheExecutionTable) {
+    EXPECT_EQ(effect_of("New"), OrderEffect::Accepted);
+    EXPECT_EQ(effect_of("Canceled"), OrderEffect::Canceled);
+    EXPECT_EQ(effect_of("Rejected"), OrderEffect::Rejected);
+    EXPECT_EQ(effect_of("Expired"), OrderEffect::Expired);
+    // The execution table carries the price, the size and the exec id these do
+    // not; emitting anything here would either duplicate it or contradict it.
+    EXPECT_EQ(effect_of("PartiallyFilled"), OrderEffect::Silent);
+    EXPECT_EQ(effect_of("Filled"), OrderEffect::Silent);
+    EXPECT_EQ(effect_of("PendingCancel"), OrderEffect::Silent);
+    EXPECT_EQ(effect_of(""), OrderEffect::Silent);
+}
+
+TEST(BitmexMap, AnOpenOrderRowConvertsAgainstTheContractsOwnSteps) {
+    const auto table = loaded_table();
+    const auto body = fixture("rest_order_open.json");
+    static OrderBuffer storage;
+    const auto rows = parse_orders(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    const auto working = map_open_order((*rows)[0], table);
+    ASSERT_TRUE(working.has_value());
+    EXPECT_EQ(working->status, OrderStatus::Accepted);
+    EXPECT_EQ(working->side, Side::Buy);
+    EXPECT_EQ(working->price.raw, 640'005); // 64000.5 over the 0.1 tick
+    EXPECT_EQ(working->qty.raw, 1);         // 100 contracts over the 100 lot
+    EXPECT_EQ(working->leaves.raw, 1);
+    EXPECT_EQ(working->exchange_client_order_id.view(), "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+
+    const auto partial = map_open_order((*rows)[1], table);
+    ASSERT_TRUE(partial.has_value());
+    EXPECT_EQ(partial->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(partial->qty.raw, 5);
+    EXPECT_EQ(partial->leaves.raw, 3);
+
+    // ETHUSD is quanto: the catalogue refuses it because no single-currency
+    // contract size exists, so an order on it has no instrument to attach to.
+    EXPECT_FALSE(map_open_order((*rows)[2], table).has_value());
+}
+
+TEST(BitmexMap, OnlyExecTypeTradeIsAFillAndTheFeeComesFromTheSettlementValue) {
+    const auto table = loaded_table();
+    const auto body = fixture("rest_execution_history.json");
+    static ExecutionBuffer storage;
+    const auto rows = parse_executions(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    const auto maker = map_execution((*rows)[0], table, k_ingest);
+    ASSERT_TRUE(maker.has_value());
+    EXPECT_EQ(maker->type, OrderEventType::Filled);
+    EXPECT_EQ(maker->liquidity, Liquidity::Maker);
+    EXPECT_EQ(maker->price.raw, 640'005);
+    EXPECT_EQ(maker->qty.raw, 1);
+    EXPECT_EQ(maker->leaves_qty.raw, 4);
+    EXPECT_EQ(maker->exec_id.view(), "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
+    // XBTUSD is INVERSE: 100 contracts of 1 USD at 64000.5 settle in BTC, so
+    // 100/64000.5 = 0.001562488 BTC and the 0.00075 rate on it is 1171e-9 BTC.
+    // price * quantity would have been 6 400 050 of nothing at all.
+    EXPECT_EQ(maker->fee.raw, 1'171);
+
+    // A Funding row carries a commission and a timestamp too; booking it as a
+    // trade invents a position that was never traded.
+    EXPECT_FALSE(map_execution((*rows)[1], table, k_ingest).has_value());
+
+    const auto taker = map_execution((*rows)[2], table, k_ingest);
+    ASSERT_TRUE(taker.has_value());
+    EXPECT_EQ(taker->liquidity, Liquidity::Taker);
+    EXPECT_EQ(taker->qty.raw, 4);
+    EXPECT_EQ(taker->leaves_qty.raw, 0);
+    // A rebate is NEGATIVE, and dropping the sign turns a credit into a charge.
+    EXPECT_LT(taker->fee.raw, 0);
+
+    const auto report = map_fill((*rows)[0], table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->exec_id, maker->exec_id);
+    EXPECT_EQ(report->qty.raw, 1);
+    EXPECT_EQ(report->fee.raw, 1'171);
+}
+
+TEST(BitmexMap, APositionsSignIsItsSideAndSpotIsNotThePerp) {
+    const auto table = loaded_table();
+    const auto body = fixture("rest_position.json");
+    static PositionBuffer storage;
+    const auto rows = parse_positions(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    const auto shrt = map_position((*rows)[0], table);
+    ASSERT_TRUE(shrt.has_value());
+    // currentQty is signed and there is no side field that could disagree.
+    EXPECT_EQ(shrt->net_qty.raw, -5);
+    EXPECT_EQ(shrt->avg_entry.raw, 635'005);
+    EXPECT_EQ(shrt->instrument.market(), MarketType::Perp);
+
+    // Spot and the perpetual are different instruments with different steps;
+    // one call answers for both markets, so the caller filters on this.
+    const auto spot = map_position((*rows)[1], table);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot->instrument.market(), MarketType::Spot);
+    EXPECT_EQ(spot->net_qty.raw, 5);
+    EXPECT_EQ(spot->avg_entry.raw, 15'025);
+
+    EXPECT_FALSE(map_position((*rows)[2], table).has_value()); // quanto, never loaded
+}
+
+TEST(BitmexWs, ThePrivateHandshakeSignsTheSocketsOwnVerbAndPath) {
+    std::array<char, 64> message{};
+    // The same shape a REST request signs, with no body to follow it.
+    EXPECT_EQ(auth_message(1'518'064'236, message), "GET/realtime1518064236");
+    std::array<char, 8> small{};
+    EXPECT_TRUE(auth_message(1'518'064'236, small).empty());
+
+    Protocol protocol;
+    const auto frame = protocol.auth_frame("k-public", 1'518'064'236, "deadbeef");
+    ASSERT_TRUE(frame.has_value());
+    EXPECT_EQ(frame->text,
+              R"({"op":"authKeyExpires","args":["k-public",1518064236,"deadbeef"]})");
+    EXPECT_FALSE(protocol.auth_frame("", 1'518'064'236, "deadbeef").has_value());
+    EXPECT_FALSE(protocol.auth_frame("k", 0, "deadbeef").has_value());
+    EXPECT_FALSE(protocol.auth_frame("k", 1'518'064'236, "").has_value());
+
+    // The private tables are ACCOUNT-scoped: "order", not "order:XBTUSD".
+    // Naming a symbol there loses every other contract's orders.
+    const std::array<std::string_view, 3> tables{k_table_order, k_table_execution,
+                                                 k_table_position};
+    const auto subscribe = protocol.private_subscribe_frame(tables);
+    ASSERT_TRUE(subscribe.has_value());
+    EXPECT_EQ(subscribe->text,
+              R"({"op":"subscribe","args":["order","execution","position"]})");
+    EXPECT_FALSE(protocol.private_subscribe_frame({}).has_value());
+
+    // A refused handshake is an error frame, not a silent socket — reading it
+    // as anything else leaves an authenticated stream indistinguishable from an
+    // idle account.
+    const auto refusal = fixture("ws_auth_failure.json");
+    const auto info = parse_frame(refusal);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->table, TableKind::Error);
+    const auto err = parse_stream_error(refusal);
+    ASSERT_TRUE(err.has_value());
+    EXPECT_EQ(err->status, 401);
+    EXPECT_EQ(classify(err->status, {}), exec::ErrorClass::AuthFailure);
 }
 
 } // namespace

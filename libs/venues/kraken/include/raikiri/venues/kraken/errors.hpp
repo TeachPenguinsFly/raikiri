@@ -25,4 +25,17 @@ namespace raikiri::venues::kraken {
 // order filled or was already cancelled; reconciliation settles the truth.
 [[nodiscard]] bool is_benign_cancel_failure(std::string_view error) noexcept;
 
+// The per-order verdict, which is a SECOND vocabulary: the envelope reports
+// result "success" for a refused order as readily as for an accepted one, so
+// `sendStatus.status` is the only thing that says what happened. Anything the
+// three helpers below do not name is a refusal.
+[[nodiscard]] bool is_send_accepted(std::string_view status) noexcept;
+
+// "filled" and "notFound" mean the order was already gone; both are answers a
+// cancel can live with, and neither is a reason to tell the OMS its cancel
+// failed while the order is in fact no longer working.
+[[nodiscard]] bool is_cancel_accepted(std::string_view status) noexcept;
+
+[[nodiscard]] bool is_edit_accepted(std::string_view status) noexcept;
+
 } // namespace raikiri::venues::kraken

@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/portfolio/pnl.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
 
 #include <charconv>
@@ -81,6 +82,90 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
 // their 1e9 representation rather than becoming ticks.
 std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_number_e9(text);
+}
+
+// `execInst` is a comma-separated LIST, so this looks for members rather than
+// comparing the whole field: "ParticipateDoNotInitiate,ReduceOnly" is one value
+// carrying both flags, and an equality test would see neither.
+OrderFlags flags_of(std::string_view exec_inst) noexcept {
+    auto flags = OrderFlags::None;
+    if (exec_inst.find("ParticipateDoNotInitiate") != std::string_view::npos) {
+        flags = flags | OrderFlags::PostOnly;
+    }
+    if (exec_inst.find("ReduceOnly") != std::string_view::npos) {
+        flags = flags | OrderFlags::ReduceOnly;
+    }
+    return flags;
+}
+
+// BitMEX names the two sides of the book "AddedLiquidity" and
+// "RemovedLiquidity"; an auction or a settlement row names neither, and filing
+// one under a fee tier it did not earn is what Unknown exists to prevent.
+Liquidity liquidity_of(std::string_view indicator) noexcept {
+    if (indicator == "AddedLiquidity") {
+        return Liquidity::Maker;
+    }
+    if (indicator == "RemovedLiquidity") {
+        return Liquidity::Taker;
+    }
+    return Liquidity::Unknown;
+}
+
+// The fill's commission, in the instrument's SETTLEMENT currency.
+//
+// `commission` is the fee RATE for this fill and is signed — a maker rebate is
+// negative. Its companion `execComm` is the amount, but denominated in the
+// settlement currency's MINOR units (satoshis for XBt) with nothing in the row
+// stating that currency's scale, so reading it would mean hard-coding a table
+// of scales BitMEX can extend. The rate against the fill's own settlement value
+// needs no such table — and settlement_value is the one function here that
+// already knows XBTUSD settles in BTC while XBTUSDT settles in USDT. Never
+// price * quantity: on an inverse row that product is in the wrong currency.
+std::optional<FixedE9> fee_of(const InstrumentBase& base,
+                              PriceTicks price,
+                              QtyLots qty,
+                              std::string_view rate_text) {
+    if (rate_text.empty()) {
+        return std::nullopt;
+    }
+    const auto rate = parse_number_e9(rate_text);
+    if (!rate.has_value()) {
+        return std::nullopt;
+    }
+    const auto value = portfolio::settlement_value(base, price, qty);
+    if (value.is_undef()) {
+        return std::nullopt;
+    }
+    // Truncation below 1e-9 of the settlement currency is finer than anything
+    // the venue can pay; refusing it exactly would report every fill as free.
+    return FixedE9::from_raw(mul_div(value.raw, rate->raw, k_e9));
+}
+
+// Our own ULID coming back from the venue. A value that does not fit the field
+// cannot be one of ours, so the event stays unattributed rather than being
+// matched to a truncated lookalike.
+bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeClientOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+bool copy_order_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true; // absent is fine; wrong is not
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
 }
 
 // `multiplier` and the three *Multiplier columns are counts; a fractional one
@@ -485,6 +570,181 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         break;
     }
     return std::nullopt;
+}
+
+OrderEffect effect_of(std::string_view ord_status) noexcept {
+    if (ord_status == "New") {
+        return OrderEffect::Accepted;
+    }
+    if (ord_status == "Canceled") {
+        return OrderEffect::Canceled;
+    }
+    if (ord_status == "Rejected") {
+        return OrderEffect::Rejected;
+    }
+    if (ord_status == "Expired") {
+        return OrderEffect::Expired;
+    }
+    // PartiallyFilled and Filled belong to the `execution` table; the rest —
+    // PendingNew, PendingCancel, Stopped, DoneForDay — are states BitMEX passes
+    // through, and an absent ordStatus means this update did not change one.
+    return OrderEffect::Silent;
+}
+
+std::optional<OrderColumns>
+map_order_columns(const WireOrder& wire, const InstrumentBase& base, UnixNanos ts_init) {
+    OrderColumns out{};
+    if (!wire.side.empty()) {
+        out.side = wire.side == "Sell" ? Side::Sell : Side::Buy;
+    }
+    if (!wire.ord_type.empty()) {
+        out.order_type = wire.ord_type == "Market" ? OrderType::Market : OrderType::Limit;
+    }
+    if (!wire.exec_inst.empty()) {
+        out.flags = flags_of(wire.exec_inst);
+    }
+    if (!wire.price.empty()) {
+        const auto price = to_ticks(wire.price, base);
+        if (!price.has_value()) {
+            return std::nullopt;
+        }
+        out.price = *price;
+    }
+    if (!wire.order_qty.empty()) {
+        const auto qty = to_lots(wire.order_qty, base);
+        if (!qty.has_value()) {
+            return std::nullopt;
+        }
+        out.qty = *qty;
+    }
+    if (!wire.leaves_qty.empty()) {
+        const auto leaves = to_lots(wire.leaves_qty, base);
+        if (!leaves.has_value()) {
+            return std::nullopt;
+        }
+        out.leaves = *leaves;
+    }
+    // `transactTime` is when the venue acted; `timestamp` is when the row was
+    // written. They differ on an amend, and the first is the one an event means.
+    out.ts_event = iso8601_to_unix(!wire.transact_time.empty() ? wire.transact_time
+                                                               : wire.timestamp,
+                                   ts_init);
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto columns = map_order_columns(wire, base, UnixNanos{0});
+    if (!columns.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    if (wire.ord_status == "New") {
+        out.status = OrderStatus::Accepted;
+    } else if (wire.ord_status == "PartiallyFilled") {
+        out.status = OrderStatus::PartiallyFilled;
+    } else {
+        return std::nullopt;
+    }
+    if (!copy_client_id(wire.cl_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    out.side = columns->side.value_or(Side::Buy);
+    out.price = columns->price.value_or(PriceTicks::undef());
+    out.qty = columns->qty.value_or(QtyLots::undef());
+    out.leaves = columns->leaves.value_or(QtyLots::undef());
+    out.ts_venue = columns->ts_event;
+    return out;
+}
+
+std::optional<OrderEvent> map_execution(const WireExecution& wire,
+                                        const exec::InstrumentTable& table,
+                                        UnixNanos ts_init) {
+    if (wire.exec_type != "Trade") {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.last_px, base);
+    const auto qty = to_lots(wire.last_qty, base);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = OrderEventType::Filled;
+    out.instrument = base.id;
+    out.side = wire.side == "Sell" ? Side::Sell : Side::Buy;
+    out.liquidity = liquidity_of(wire.last_liquidity_ind);
+    if (!copy_client_id(wire.cl_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    const auto exec_id = ExecId::from(wire.exec_id);
+    if (!exec_id.has_value()) {
+        return std::nullopt; // a dedupe key we cannot store is not usable
+    }
+    out.exec_id = *exec_id;
+    out.price = *price;
+    out.qty = *qty;
+    out.leaves_qty = to_lots(wire.leaves_qty, base).value_or(QtyLots::from_raw(0));
+    if (const auto fee = fee_of(base, *price, *qty, wire.commission); fee.has_value()) {
+        out.fee = *fee;
+    }
+    out.ts_event = iso8601_to_unix(wire.transact_time, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::FillReport> map_fill(const WireExecution& wire,
+                                         const exec::InstrumentTable& table) {
+    const auto event = map_execution(wire, table, UnixNanos{0});
+    if (!event.has_value()) {
+        return std::nullopt;
+    }
+    return exec::FillReport{.exec_id = event->exec_id,
+                            .exchange_order_id = event->exchange_order_id,
+                            .exchange_client_order_id = event->exchange_client_order_id,
+                            .instrument = event->instrument,
+                            .side = event->side,
+                            .price = event->price,
+                            .qty = event->qty,
+                            .fee = event->fee,
+                            .liquidity = event->liquidity,
+                            .ts_venue = event->ts_event};
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto qty = to_lots(wire.current_qty, base);
+    if (!qty.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = *qty;
+    if (const auto avg = to_ticks(wire.avg_entry_price, base); avg.has_value()) {
+        out.avg_entry = *avg;
+    }
+    out.ts_venue = iso8601_to_unix(wire.timestamp, UnixNanos{0});
+    return out;
 }
 
 } // namespace raikiri::venues::bitmex

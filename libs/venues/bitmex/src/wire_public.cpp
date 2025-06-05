@@ -20,6 +20,15 @@ TableKind table_from_name(std::string_view table) noexcept {
     if (table == "orderBookL2_25") {
         return TableKind::OrderBook;
     }
+    if (table == "order") {
+        return TableKind::Order;
+    }
+    if (table == "execution") {
+        return TableKind::Execution;
+    }
+    if (table == "position") {
+        return TableKind::Position;
+    }
     return TableKind::Unknown;
 }
 

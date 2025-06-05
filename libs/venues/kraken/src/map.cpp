@@ -121,12 +121,14 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
     return FixedE9::from_raw(static_cast<std::int64_t>(value));
 }
 
-// Rates only. relative_funding_rate is a full-precision quotient (1.477885e-5
-// is eleven decimals), so an exact read would refuse every funding frame
-// Kraken has ever sent and present a live stream as silence. Truncating a
-// dimensionless RATE at 1e-9 leaves eight significant figures of a number
-// nothing divides an order by; prices and quantities stay exact.
-std::optional<FixedE9> to_rate_e9(std::string_view text) noexcept {
+// Rates and fees, never prices or sizes. Both are full-precision quotients
+// Kraken prints with more digits than 1e9 holds — relative_funding_rate
+// 1.477885e-5 is eleven decimals, a maker rebate -0.00009142857 BTC is eleven
+// more — so an exact read would refuse every funding frame the venue has ever
+// sent and report every fill as free. Truncating here discards less than the
+// settlement currency's own smallest unit (1e-9 BTC is one satoshi) and
+// nothing divides an order by either number; prices and quantities stay exact.
+std::optional<FixedE9> to_truncated_e9(std::string_view text) noexcept {
     if (text.empty()) {
         return std::nullopt;
     }
@@ -157,6 +159,52 @@ std::optional<PriceTicks> to_ticks(std::string_view text, const InstrumentBase& 
 std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base) {
     const auto steps = exact_steps(text, base.lot_size);
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
+}
+
+// An absent numeric field means "none of it", which for a filled or remaining
+// quantity is zero. An unreadable one does NOT: that is a schema event.
+std::optional<QtyLots> to_lots_or_zero(std::string_view text, const InstrumentBase& base) {
+    return text.empty() ? std::optional{QtyLots::from_raw(0)} : to_lots(text, base);
+}
+
+// Our own ULID coming back from the venue. A value that does not fit the field
+// cannot be one of ours, so the event stays unattributed rather than being
+// matched to a truncated lookalike.
+bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeClientOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+// `fillType` names nine things, and only two of them are a side of the book.
+// A liquidation or an assignment was not our quote and not our take, so it is
+// left Unknown rather than filed under the tier it did not earn.
+Liquidity liquidity_of(std::string_view fill_type) noexcept {
+    if (fill_type == "maker") {
+        return Liquidity::Maker;
+    }
+    if (fill_type == "taker" || fill_type == "takerAfterEdit") {
+        return Liquidity::Taker;
+    }
+    return Liquidity::Unknown;
+}
+
+bool copy_order_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true; // absent is fine; wrong is not
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
 }
 
 } // namespace
@@ -249,7 +297,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    const auto rate = to_rate_e9(wire.relative_funding_rate);
+    const auto rate = to_truncated_e9(wire.relative_funding_rate);
     if (!rate.has_value()) {
         return std::nullopt; // ticker_lite quotes none: not the same as zero
     }
@@ -258,7 +306,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     const auto& base = base_of(*instrument);
     out.instrument = base.id;
     out.rate = *rate;
-    if (const auto predicted = to_rate_e9(wire.relative_funding_rate_prediction);
+    if (const auto predicted = to_truncated_e9(wire.relative_funding_rate_prediction);
         predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
@@ -314,6 +362,224 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // only thing that says so — Kraken's row carries no explicit flag.
     base.kind = linear ? ContractKind::Linear : ContractKind::Inverse;
     return PerpInstrument{base, /*funding_interval_s=*/0};
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto filled = to_lots_or_zero(wire.filled_size, base);
+    const auto unfilled = to_lots_or_zero(wire.unfilled_size, base);
+    if (!filled.has_value() || !unfilled.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport out{};
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    if (!copy_client_id(wire.cli_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    // `untouched` and `partiallyFilled` are the only two states an order can be
+    // in and still appear here; anything else is a shape we do not understand.
+    if (wire.status == "untouched") {
+        out.status = OrderStatus::Accepted;
+    } else if (wire.status == "partiallyFilled") {
+        out.status = OrderStatus::PartiallyFilled;
+    } else {
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.limit_price, base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = QtyLots::from_raw(filled->raw + unfilled->raw);
+    out.leaves = *unfilled;
+    out.ts_venue = ms_to_unix(wire.last_update_ms, UnixNanos{0});
+    return out;
+}
+
+std::optional<exec::FillReport> map_rest_fill(const WireFill& wire,
+                                              const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.size, base);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::FillReport out{};
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    if (!copy_client_id(wire.cli_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (!wire.fill_id.empty()) {
+        const auto exec_id = ExecId::from(wire.fill_id);
+        if (!exec_id.has_value()) {
+            return std::nullopt; // a dedupe key we cannot store is not usable
+        }
+        out.exec_id = *exec_id;
+    }
+    out.price = *price;
+    out.qty = *qty;
+    out.liquidity = liquidity_of(wire.fill_type);
+    // The pull carries no fee: /fills reports realized PnL, never commission.
+    out.ts_venue = ms_to_unix(wire.fill_ms, UnixNanos{0});
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto size = to_lots(wire.size, base);
+    if (!size.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base.id;
+    out.net_qty = wire.is_long ? *size : QtyLots::from_raw(-size->raw);
+    if (const auto avg = to_ticks(wire.price, base); avg.has_value()) {
+        out.avg_entry = *avg;
+    }
+    // The row carries no update time of its own; the envelope's serverTime
+    // describes the read, not the position, and dating one with the other is
+    // how a stale reconciliation looks fresh.
+    return out;
+}
+
+DeltaEffect effect_of(std::string_view reason, bool is_cancel) noexcept {
+    // A fill is reported by the fills feed, which carries the price, the size
+    // and the exec id this frame does not. Emitting anything here would either
+    // duplicate it or contradict it.
+    if (reason == "full_fill" || reason == "partial_fill") {
+        return DeltaEffect::Silent;
+    }
+    if (is_cancel) {
+        // Kraken spells two of these as sentences rather than as names, and a
+        // near-miss is silently a different verdict: the order was refused, so
+        // the OMS must hear Rejected and stop waiting for a fill.
+        if (reason == "not_enough_margin" ||
+            reason == "post_order_failed_because_it_would_filled" ||
+            reason == "ioc_order_failed_because_it_would_not_be_executed" ||
+            reason == "would_execute_self" || reason == "would_not_reduce_position") {
+            return DeltaEffect::Rejected;
+        }
+        if (reason == "order_for_edit_not_found") {
+            // A failed EDIT, not a departure: the editorder response already
+            // reports it, and re-reporting it as a cancel would close an order
+            // that is still working.
+            return DeltaEffect::Silent;
+        }
+        // Everything else that leaves the book — by the user, by an admin, by
+        // the dead-man switch, by expiry, by liquidation — is a cancel.
+        return DeltaEffect::Canceled;
+    }
+    if (reason == "stop_order_triggered") {
+        return DeltaEffect::Triggered;
+    }
+    if (reason == "new_placed_order_by_user" || reason == "limit_order_from_stop") {
+        return DeltaEffect::Accepted;
+    }
+    return DeltaEffect::Silent;
+}
+
+std::optional<OrderEvent> map_ws_order(const WireWsOrder& wire,
+                                       OrderEventType type,
+                                       const exec::InstrumentTable& table,
+                                       UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.instrument);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto remaining = to_lots_or_zero(wire.remaining_qty, base);
+    const auto filled = to_lots_or_zero(wire.filled_qty, base);
+    if (!remaining.has_value() || !filled.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = type;
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    out.order_type = wire.type == "limit" ? OrderType::Limit : OrderType::Market;
+    if (wire.reduce_only) {
+        out.flags = OrderFlags::ReduceOnly;
+    }
+    if (!copy_client_id(wire.cli_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.limit_price, base); price.has_value()) {
+        out.price = *price;
+    }
+    // `qty` on this feed is what REMAINS; the original is that plus `filled`.
+    out.qty = QtyLots::from_raw(remaining->raw + filled->raw);
+    out.leaves_qty = *remaining;
+    out.ts_event = ms_to_unix(wire.last_update_ms != 0 ? wire.last_update_ms : wire.time_ms,
+                              ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<OrderEvent>
+map_ws_fill(const WireWsFill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.instrument);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto price = to_ticks(wire.price, base);
+    const auto qty = to_lots(wire.qty, base);
+    const auto remaining = to_lots_or_zero(wire.remaining_order_qty, base);
+    if (!price.has_value() || !qty.has_value() || !remaining.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = OrderEventType::Filled;
+    out.instrument = base.id;
+    out.side = wire.buy ? Side::Buy : Side::Sell;
+    out.liquidity = liquidity_of(wire.fill_type);
+    if (!copy_client_id(wire.cli_ord_id, out.exchange_client_order_id) ||
+        !copy_order_id(wire.order_id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (!wire.fill_id.empty()) {
+        const auto exec_id = ExecId::from(wire.fill_id);
+        if (!exec_id.has_value()) {
+            return std::nullopt;
+        }
+        out.exec_id = *exec_id;
+    }
+    out.price = *price;
+    out.qty = *qty;
+    out.leaves_qty = *remaining;
+    // `fee_paid` is denominated in the instrument's SETTLEMENT currency — base
+    // on the inverse PI_ families, quote on the linear PF_ ones — which
+    // portfolio::settle_side(base.kind) recovers from the id this event already
+    // carries. It travels verbatim rather than through a conversion this frame
+    // has no rate for.
+    if (const auto fee = to_truncated_e9(wire.fee_paid); fee.has_value()) {
+        out.fee = *fee;
+    }
+    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
 }
 
 } // namespace raikiri::venues::kraken

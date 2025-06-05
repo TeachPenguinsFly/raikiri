@@ -1,8 +1,11 @@
 #pragma once
 
-// The Bitmex adapter — READ ONLY.
+// The BitMEX adapter — spot and the perpetuals.
 //
-// Market data only: order entry answers ErrorClass::Terminal, never Retryable.
+// Market data and order entry for both. Dated futures price correctly here but
+// VenueConfig carries no switch that would load them, and options are not
+// listed at all; both are refused BY NAME rather than letting an id for an
+// unloaded market read as an unknown instrument.
 
 #include <raikiri/exec/venue.hpp>
 

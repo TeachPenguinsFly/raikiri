@@ -49,6 +49,18 @@ struct Subscription {
 inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
 inline constexpr std::size_t k_max_subscriptions_per_frame = 32;
 
+// The private tables are ACCOUNT-scoped: the arg is "order", not
+// "order:XBTUSD". Naming a symbol there subscribes to one contract's orders and
+// silently loses every other one.
+inline constexpr std::string_view k_table_order = "order";
+inline constexpr std::string_view k_table_execution = "execution";
+inline constexpr std::string_view k_table_position = "position";
+
+// What the private handshake signs: the verb and path of the socket itself,
+// concatenated with the same absolute expiry the REST headers carry. Returns
+// empty on a buffer too small to hold it.
+[[nodiscard]] std::string_view auth_message(std::uint64_t expires, std::span<char> out) noexcept;
+
 class Protocol {
 public:
     struct Frame {
@@ -62,6 +74,16 @@ public:
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
+
+    // {"op":"authKeyExpires","args":["<key>",<expires>,"<signature>"]}. BitMEX
+    // answers a bad signature with {"success":false,...} and then simply never
+    // sends a private row, which is indistinguishable from an idle account —
+    // hence the caller reports AuthFailed on the refusal rather than waiting.
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    auth_frame(std::string_view api_key, std::uint64_t expires, std::string_view signature);
+
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    private_subscribe_frame(std::span<const std::string_view> tables);
 
     [[nodiscard]] static std::string_view ping_frame() noexcept { return "ping"; }
 

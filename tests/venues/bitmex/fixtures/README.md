@@ -1,15 +1,20 @@
 # BitMEX fixtures
 
-Every file is a verbatim capture from BitMEX production on **2026-08-10** (UTC)
-— except the `XBTEUR` row noted below, captured **2026-08-11** — trimmed but
-never reformatted: numbers keep the venue's own spelling, because that spelling
-is what the parsers are asserted against. REST writes
+This directory holds two kinds of file. Everything in the **REST** and
+**WebSocket** sections below is a verbatim capture from BitMEX production on
+**2026-08-10** (UTC) — except the `XBTEUR` row noted below, captured
+**2026-08-11** — trimmed but never reformatted: numbers keep the venue's own
+spelling, because that spelling is what the parsers are asserted against. REST writes
 `"tickSize":0.000000001`, never `1e-09`; the websocket writes the same kind of
 value as `1.0E-4`. Both spellings are in here on purpose, and a re-serialised
 fixture would have tested a format the venue does not send.
 
 REST base `https://www.bitmex.com/api/v1`, websocket `wss://ws.bitmex.com/realtime`.
-Nothing here is synthetic and nothing is authenticated.
+Nothing in those two sections is synthetic and nothing is authenticated.
+
+The last section, **Authenticated surfaces**, is documentation-derived rather
+than captured. Read its heading before treating anything under it as evidence
+about the live wire.
 
 ## REST
 
@@ -77,3 +82,67 @@ photograph the refusal risks an IP ban for a fixture that would test nothing:
 The bare text `pong` (BitMEX's answer to the bare text `ping`) is not a fixture
 either — it is not JSON, and the test asserts that by feeding the literal to
 `parse_frame`.
+
+## Authenticated surfaces — **documentation-derived, not captured**
+
+Order entry, the reconciliation pulls and the private `order` / `execution` /
+`position` tables all require credentials, and this repository has none.
+Capturing them would mean placing real orders with real money on a production
+account, so the files below are **assembled from BitMEX's own API reference** —
+its `Order`, `Execution` and `Position` model definitions and the examples that
+accompany them — rather than photographed off a socket.
+
+They are evidence about *shape*: which wrapper a row arrives in, which columns
+an `update` omits, where a per-order verdict hides. They are not evidence that
+the live wire matches, and no assertion against them should be read that way.
+
+| file | source |
+| --- | --- |
+| `rest_order_new.json` | `POST /order` — the single `Order` object it answers |
+| `rest_order_rejected.json` | the same object with `ordStatus: "Rejected"` |
+| `rest_order_open.json` | `GET /order?filter={"open":true}` — a bare array of three |
+| `rest_order_cancel.json` | `DELETE /order` — an array where the SECOND row carries `error` |
+| `rest_execution_history.json` | `GET /execution/tradeHistory` — a maker Trade, a Funding row, a taker Trade |
+| `rest_position.json` | `GET /position` |
+| `ws_order_partial.json` | the private `order` table's snapshot, `data`-wrapped |
+| `ws_order_update_canceled.json` | an `update` carrying an id, an ordStatus and almost nothing else |
+| `ws_execution_insert.json` | a private `execution` insert |
+| `ws_auth_failure.json` | `{"status":401,"error":"Signature not valid."}` |
+
+Four of these exist for one reason each, and each reason is a bug that would
+otherwise be invisible:
+
+- **`rest_order_cancel.json` puts the failure in the ROW.** BitMEX answers a
+  bulk cancel with HTTP 200 and marks the orders it could not cancel by adding
+  an `error` column to them. An adapter that reads the status line reports every
+  one of those as cancelled, and the OMS then believes a live order is gone.
+- **`ws_order_update_canceled.json` carries no symbol, no side and no size.**
+  The `order` table is keyed on `orderID` alone, so an update legitimately
+  arrives with three columns. Reading an absent column as zero reports a live
+  order as one for nothing at a price of nothing; the adapter merges onto what
+  it remembered instead, and drops the frame entirely if it remembers nothing.
+- **`rest_execution_history.json` includes a `Funding` row.** It carries a
+  `commission`, a timestamp and an account, and no price or quantity — booking
+  it as a trade invents a position that was never traded. Only
+  `execType: "Trade"` is a fill.
+- **The maker row's numbers are chosen to be checkable.** 100 contracts of
+  XBTUSD at 64000.5 is 100 USD, which on an **inverse** contract settles as
+  100 / 64000.5 = 0.001562488 **BTC**; the 0.00075 commission rate on that is
+  1171e-9 BTC. `price * quantity` would have been 6 400 050 of no currency at
+  all, which is why the fee is derived through `portfolio::settlement_value`.
+  The row's own `execComm` (117 satoshis) is left in and deliberately unread:
+  it is denominated in the settlement currency's **minor units** and the row
+  never says what that currency's scale is.
+
+Symbols were chosen from `rest_instruments.json` so that every row resolves —
+or deliberately does not. `XBTUSD` is the inverse perpetual, `SOL_USDT` the
+spot pair (a different market with a different step, which is what the pulls'
+market filtering is tested against), and `ETHUSD` the **quanto** row the
+catalogue refuses: an order and a position on it appear here precisely so the
+mappers can be shown dropping them rather than attaching them to instrument
+zero.
+
+The signing test uses no fixture. Its three expected digests are the ones
+BitMEX's own authentication documentation publishes for its example secret, so
+that test checks this implementation against the venue rather than against
+itself.

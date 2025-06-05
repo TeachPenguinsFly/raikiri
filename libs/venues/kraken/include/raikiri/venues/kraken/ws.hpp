@@ -45,6 +45,13 @@ struct Subscription {
 inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
 inline constexpr std::size_t k_max_products_per_frame = 64;
 
+// The private feeds. They ride the SAME socket shape as the public ones and
+// differ only in the three credential fields the subscribe carries, which is
+// why the adapter opens a second connection rather than mixing them: a public
+// reconnect must not have to re-run the challenge handshake.
+inline constexpr std::string_view k_feed_open_orders = "open_orders";
+inline constexpr std::string_view k_feed_fills = "fills";
+
 class Protocol {
 public:
     struct Frame {
@@ -57,6 +64,21 @@ public:
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
+
+    // Step one of the private handshake: ask for a challenge to sign. The
+    // reply is {"event":"challenge","message":"<uuid>"}, and nothing may be
+    // subscribed until it arrives.
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    challenge_request_frame(std::string_view api_key);
+
+    // Step two. `signed_challenge` is the Authent chain (sign.hpp) run over
+    // the challenge UUID alone — the same digest as a REST request whose
+    // postData, nonce and path happen to concatenate to that UUID.
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    private_subscribe_frame(std::string_view feed,
+                            std::string_view api_key,
+                            std::string_view original_challenge,
+                            std::string_view signed_challenge);
 
 private:
     [[nodiscard]] std::expected<Frame, WsBuildError>

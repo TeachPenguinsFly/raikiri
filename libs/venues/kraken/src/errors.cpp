@@ -47,4 +47,19 @@ bool is_benign_cancel_failure(std::string_view error) noexcept {
            name == "cancelOrderNotFound";
 }
 
+bool is_send_accepted(std::string_view status) noexcept {
+    // An IOC or market order can be filled or partially filled before the
+    // response is written; neither is a refusal, and the fills feed carries
+    // the trades themselves.
+    return status == "placed" || status == "filled" || status == "partiallyFilled";
+}
+
+bool is_cancel_accepted(std::string_view status) noexcept {
+    return status == "cancelled" || status == "filled" || status == "notFound";
+}
+
+bool is_edit_accepted(std::string_view status) noexcept {
+    return status == "edited";
+}
+
 } // namespace raikiri::venues::kraken

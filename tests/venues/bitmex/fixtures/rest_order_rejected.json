@@ -1,0 +1,23 @@
+{
+  "orderID": "0c9f7c22-2a0e-4a52-9a6d-0c1b1a9e6d20",
+  "clOrdID": "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D",
+  "account": 1234567,
+  "symbol": "XBTUSD",
+  "side": "Buy",
+  "orderQty": 100,
+  "price": 64000.5,
+  "currency": "USD",
+  "settlCurrency": "XBt",
+  "ordType": "Limit",
+  "timeInForce": "GoodTillCancel",
+  "execInst": "ParticipateDoNotInitiate",
+  "ordStatus": "Rejected",
+  "workingIndicator": false,
+  "ordRejReason": "ParticipateDoNotInitiate",
+  "leavesQty": 0,
+  "cumQty": 0,
+  "avgPx": null,
+  "text": "Canceled: Order had execInst of ParticipateDoNotInitiate",
+  "transactTime": "2026-08-10T20:53:31.108Z",
+  "timestamp": "2026-08-10T20:53:31.108Z"
+}

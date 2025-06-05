@@ -9,6 +9,36 @@ namespace {
 
 constexpr std::string_view k_host = "futures.kraken.com";
 
+// Appends into the protocol's frame buffer, reporting overflow rather than
+// truncating: half a subscribe frame is still valid JSON often enough to be
+// accepted as a subscription to something else.
+class Writer {
+public:
+    explicit Writer(std::span<char> into) noexcept : into_{into} {}
+
+    void put(std::string_view text) noexcept {
+        if (overflow_ || len_ + text.size() > into_.size()) {
+            overflow_ = true;
+            return;
+        }
+        std::memcpy(into_.data() + len_, text.data(), text.size());
+        len_ += text.size();
+    }
+
+    [[nodiscard]] std::expected<Protocol::Frame, WsBuildError>
+    frame(std::size_t consumed) const noexcept {
+        if (overflow_) {
+            return std::unexpected{WsBuildError::BufferTooSmall};
+        }
+        return Protocol::Frame{.text = {into_.data(), len_}, .consumed = consumed};
+    }
+
+private:
+    std::span<char> into_;
+    std::size_t len_{0};
+    bool overflow_{false};
+};
+
 } // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
@@ -69,34 +99,22 @@ Protocol::event_frame(std::string_view event, std::span<const Subscription> subs
         ++batch;
     }
 
-    std::size_t len = 0;
-    bool overflow = false;
-    const auto put = [&](std::string_view text) {
-        if (overflow || len + text.size() > frame_.size()) {
-            overflow = true;
-            return;
-        }
-        std::memcpy(frame_.data() + len, text.data(), text.size());
-        len += text.size();
-    };
-    put(R"({"event":")");
-    put(event);
-    put(R"(","feed":")");
-    put(feed);
-    put(R"(","product_ids":[)");
+    Writer writer{frame_};
+    writer.put(R"({"event":")");
+    writer.put(event);
+    writer.put(R"(","feed":")");
+    writer.put(feed);
+    writer.put(R"(","product_ids":[)");
     for (std::size_t i = 0; i < batch; ++i) {
         if (i != 0) {
-            put(",");
+            writer.put(",");
         }
-        put("\"");
-        put(subscriptions[i].product_id);
-        put("\"");
+        writer.put("\"");
+        writer.put(subscriptions[i].product_id);
+        writer.put("\"");
     }
-    put("]}");
-    if (overflow) {
-        return std::unexpected{WsBuildError::BufferTooSmall};
-    }
-    return Frame{.text = {frame_.data(), len}, .consumed = batch};
+    writer.put("]}");
+    return writer.frame(batch);
 }
 
 std::expected<Protocol::Frame, WsBuildError>
@@ -107,6 +125,43 @@ Protocol::subscribe_frame(std::span<const Subscription> subscriptions) {
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return event_frame("unsubscribe", subscriptions);
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::challenge_request_frame(std::string_view api_key) {
+    if (api_key.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    Writer writer{frame_};
+    writer.put(R"({"event":"challenge","api_key":")");
+    writer.put(api_key);
+    writer.put(R"("})");
+    return writer.frame(0);
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::private_subscribe_frame(std::string_view feed,
+                                  std::string_view api_key,
+                                  std::string_view original_challenge,
+                                  std::string_view signed_challenge) {
+    // An empty credential would subscribe to the public form of a private
+    // feed, which Kraken answers with an alert rather than a stream — the one
+    // failure that looks like a quiet market.
+    if (feed.empty() || api_key.empty() || original_challenge.empty() ||
+        signed_challenge.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    Writer writer{frame_};
+    writer.put(R"({"event":"subscribe","feed":")");
+    writer.put(feed);
+    writer.put(R"(","api_key":")");
+    writer.put(api_key);
+    writer.put(R"(","original_challenge":")");
+    writer.put(original_challenge);
+    writer.put(R"(","signed_challenge":")");
+    writer.put(signed_challenge);
+    writer.put(R"("})");
+    return writer.frame(0);
 }
 
 } // namespace raikiri::venues::kraken

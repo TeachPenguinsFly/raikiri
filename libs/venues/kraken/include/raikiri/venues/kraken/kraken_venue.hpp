@@ -1,8 +1,11 @@
 #pragma once
 
-// The Kraken adapter — READ ONLY.
+// The Kraken adapter — Kraken FUTURES only.
 //
-// Market data only: order entry answers ErrorClass::Terminal, never Retryable.
+// Market data and order entry for the perpetuals, PF_ (linear) and PI_
+// (inverse). Kraken SPOT is a different product on a different host with a
+// different signature, and every entry point here refuses it BY NAME rather
+// than letting an id for an unloaded market read as an unknown instrument.
 
 #include <raikiri/exec/venue.hpp>
 

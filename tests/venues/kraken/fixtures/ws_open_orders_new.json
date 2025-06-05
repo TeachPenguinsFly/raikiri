@@ -1,0 +1,19 @@
+{
+  "feed": "open_orders",
+  "order": {
+    "instrument": "PI_XBTUSD",
+    "time": 1567702877410,
+    "last_update_time": 1567702877410,
+    "qty": 304.0,
+    "filled": 0.0,
+    "limit_price": 10640.0,
+    "stop_price": 0.0,
+    "type": "limit",
+    "cli_ord_id": "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D",
+    "order_id": "59302619-41d2-4f0b-941f-7e7914760ad3",
+    "direction": 1,
+    "reduce_only": true
+  },
+  "is_cancel": false,
+  "reason": "new_placed_order_by_user"
+}

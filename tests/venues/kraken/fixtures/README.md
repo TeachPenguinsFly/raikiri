@@ -3,12 +3,18 @@
 Provenance matters here: a parser test is only evidence if the bytes are the
 bytes the venue actually sends.
 
-Every file below was **captured live** from production Kraken Futures on
-2026-08-10. No credentials are involved — all of these are public endpoints and
-the public websocket. Frames were copied out of the capture **verbatim**, never
-re-serialized: Kraken spells the same field `0.00001477885` on one contract and
-`8.907125e-6` on another, and a round trip through a JSON library would have
-normalised exactly the difference these tests exist to pin.
+This directory holds two kinds of file and they are not interchangeable.
+Everything named in the two sections below was **captured live** from
+production Kraken Futures on 2026-08-10 over public endpoints and the public
+websocket, with no credentials involved. Frames were copied out of the capture
+**verbatim**, never re-serialized: Kraken spells the same field
+`0.00001477885` on one contract and `8.907125e-6` on another, and a round trip
+through a JSON library would have normalised exactly the difference these tests
+exist to pin.
+
+The last section, **Authenticated surfaces**, is documentation-derived rather
+than captured, and says so at length. Read that heading before treating
+anything under it as evidence about the live wire.
 
 Kraken **Spot** is a different venue surface — different host, different
 symbology, different message shapes — and nothing in this directory or in the
@@ -118,3 +124,84 @@ has to skip over that, and a trimmed row would not exercise it.
   byte in this directory is the venue's.
 
 A loader that accepts all six is wrong in a way that stays invisible for months.
+
+## Authenticated surfaces — **documentation-derived, not captured**
+
+Everything above is the venue's own bytes off a live socket. The files below
+are **not**, and the distinction is the whole point of this section: order
+entry, the reconciliation pulls and the private feeds all require credentials,
+and this repository has none. Capturing them would mean placing real orders
+with real money on a production account.
+
+Each file is the **example payload from Kraken's own reference documentation**
+for that endpoint or feed, transcribed verbatim except for the substitutions
+listed below. That makes them evidence about *shape* — which key a verdict
+hides under, which of two spellings an id takes, whether a size is what is left
+or what was asked for — and evidence about nothing else. A field Kraken adds
+tomorrow will not appear here, and no assertion in this directory should be
+read as proof that the live wire matches.
+
+| file | source |
+|---|---|
+| `rest_send_order_placed.json` | `POST /sendorder` success example |
+| `rest_send_order_rejected.json` | `POST /sendorder` refusal example |
+| `rest_cancel_order.json` | `POST /cancelorder` example |
+| `rest_edit_order.json` | `POST /editorder` example |
+| `rest_open_orders.json` | `GET /openorders` example |
+| `rest_fills.json` | `GET /fills` example |
+| `rest_open_positions.json` | `GET /openpositions` example |
+| `ws_challenge.json` | the `{"event":"challenge"}` reply to a challenge request |
+| `ws_open_orders_snapshot.json` | `open_orders_snapshot` example |
+| `ws_open_orders_new.json` | `open_orders` delta carrying an `order` object |
+| `ws_open_orders_partial.json` | the same delta with `reason: "partial_fill"` |
+| `ws_open_orders_cancel.json` | `open_orders` removal — an id, `is_cancel` and a reason |
+| `ws_open_orders_post_refused.json` | the same removal with a refusal reason |
+| `ws_fills_snapshot.json` | `fills_snapshot` example |
+| `ws_fills_partial.json` | a `fills` delta with a non-zero `remaining_order_qty` |
+
+### The substitutions, and why each one was made
+
+The documentation's examples name instruments and quantities that this
+directory's catalogue does not contain, and a fixture whose symbol is absent
+from `rest_instruments.json` proves only that the mapper drops unknown symbols.
+Every change below is textual and listed so a reader can undo it:
+
+- **`PF_XBTUSD` → `PI_XBTUSD` in the websocket order and fill frames.** The
+  docs use `PF_XBTUSD` with `qty: 1000`, which is 1000 **BTC** against that
+  contract's 0.0001 step. `PI_XBTUSD` counts contracts of 1 USD, so the same
+  numbers are a plausible position and every price still lands on its 0.5 tick.
+- **`FI_XBTUSD_201225` → `FI_XBTUSD_260925`** in `rest_open_positions.json`, so
+  the dated row matches the one in `rest_instruments.json`. It is refused by the
+  catalogue either way; matching it makes the refusal about the *market type*
+  rather than about an expiry that no longer exists.
+- **`PF_DEFIUSD` → `PF_XBTUSD`, price 570 → 64000, size 1 → 0.5** in the same
+  file. This is the one row whose average entry *does* divide by its tick, and
+  it is the only reason the file can show both outcomes: a size kept with an
+  average, and a size kept without one.
+- **A `cliOrdId` was added** to one `openorders` row, one `fills` row and the
+  websocket order and fill deltas. Kraken's examples omit it — the field is
+  optional and their example orders carried none — but it is the id the OMS
+  routes on, so a fixture set in which it never appears cannot test routing.
+  The value is a real 26-character Crockford ULID.
+- **A third `openorders` row** naming `NOT_A_PRODUCT`, and a third `fills` row
+  with `fillType: "liquidation"`. Both are additions, not edits: the first pins
+  that a symbol we never loaded yields no report rather than a report against
+  instrument zero, the second that a forced fill is filed under `Unknown`
+  liquidity rather than under a fee tier it did not earn.
+- **`ws_open_orders_partial.json` and `ws_fills_partial.json` are constructed**
+  from the corresponding documented frame by changing `qty`/`filled` and
+  `remaining_order_qty` only. Kraken documents no partial-fill example, and
+  "`qty` is what REMAINS" is the single most expensive thing to get wrong on
+  this feed — reading it as the original size turns a half-filled order into a
+  smaller order that never filled.
+
+`rest_open_positions.json` keeps the documentation's own
+`price: 9392.749993345933` untouched. That is a full-precision average of fills
+that no tick size divides, and it is why `map_position` reports the size while
+leaving the average undefined: dropping the row would tell a reconciler we are
+flat while we are short 10000 contracts.
+
+The signing test uses no fixture at all. Its expected `Authent` values were
+computed independently (base64-decode, SHA-256, HMAC-SHA-512, base64-encode)
+rather than read from any capture, which is the only way a signature test proves
+anything about the implementation under it.

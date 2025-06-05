@@ -1,8 +1,10 @@
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kraken/map.hpp>
 #include <raikiri/venues/kraken/rest.hpp>
+#include <raikiri/venues/kraken/sign.hpp>
 #include <raikiri/venues/kraken/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -69,9 +71,12 @@ TEST(KrakenVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
-TEST(KrakenVenue, OrderEntryRefusesPermanently) {
-    // Read-only venue: an order must fail loudly, never wait for a verdict
-    // that no code will ever produce.
+TEST(KrakenVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
+    // Kraken Futures serves PF_ and PI_ perpetuals. Spot is another product on
+    // another host with another signature, and a refusal must say so by name:
+    // InstrumentTable::find compares the WHOLE id, so an id for an unloaded
+    // market would otherwise come back as an unknown instrument and blame the
+    // catalogue for a market that was never served.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -79,19 +84,47 @@ TEST(KrakenVenue, OrderEntryRefusesPermanently) {
         {.venue = VenueId::Kraken, .enable_spot = false, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
+    for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
+        const auto orders = adapter->execution->open_order_reports(market);
+        ASSERT_FALSE(orders.has_value()) << to_string(market);
+        EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
+        EXPECT_FALSE(adapter->execution->fill_reports(market, UnixNanos{0}).has_value());
+        EXPECT_FALSE(adapter->execution->position_reports(market).has_value());
+    }
+
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
     cmd.client_order_id = ClientOrderId::make(1, 42);
+    cmd.instrument = InstrumentId::make(VenueId::Kraken, MarketType::Spot, SymbolId{0});
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+}
 
+TEST(KrakenVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
+    // A gateway started without a key is misconfigured, not broken: the
+    // reconciler retries after an operator fixes it, and halting the venue as
+    // Terminal is the wrong response to a fixable state.
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue(
+        {.venue = VenueId::Kraken, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto started = adapter->execution->start();
+    ASSERT_FALSE(started.has_value());
+    EXPECT_EQ(started.error().cls, exec::ErrorClass::AuthFailure);
+
+    const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
+    ASSERT_FALSE(orders.has_value());
+    EXPECT_EQ(orders.error().cls, exec::ErrorClass::AuthFailure);
     // A pull this adapter cannot perform must SAY so. Answering with an empty
     // vector would be indistinguishable from "the venue holds nothing of ours",
     // and a reconciler reading it that way concludes we are flat when we are not.
-    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
-    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
-    EXPECT_FALSE(exec::caps_of(VenueId::Kraken).position_pull);
+    const auto positions = adapter->execution->position_reports(MarketType::Perp);
+    ASSERT_FALSE(positions.has_value());
+    EXPECT_EQ(positions.error().cls, exec::ErrorClass::AuthFailure);
 }
 
 TEST(KrakenVenue, TestnetIsRefusedRatherThanRedirectedToProduction) {
@@ -773,6 +806,532 @@ TEST(KrakenRest, TargetsMatchTheEndpointsTheFixturesCameFrom) {
     EXPECT_EQ(builder.orderbook("PI_XBTUSD").target,
               "/derivatives/api/v3/orderbook?symbol=PI_XBTUSD");
     EXPECT_EQ(builder.instruments().method, net::HttpMethod::Get);
+}
+
+
+// ------------------------------------------------------------- sign ----
+
+// 64 bytes 0x00..0x3F, base64-encoded: a Kraken secret is 64 raw bytes, and
+// this one is chosen so the DECODED key is inspectable rather than random.
+constexpr std::string_view k_test_secret =
+    "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==";
+
+// The one message every signed request in this file reduces to.
+constexpr std::string_view k_send_message =
+    "orderType=lmt&symbol=PI_XBTUSD&side=buy&size=1&limitPrice=94001690000000000/api/v3/sendorder";
+
+TEST(KrakenSign, TheSecretIsBase64DecodedBeforeItKeysTheHmac) {
+    // Computed independently (python: b64decode -> sha256 -> hmac-sha512 ->
+    // b64encode). Signing the PRINTABLE secret produces a different, wrong
+    // digest that Kraken answers as authenticationError — a failure that reads
+    // like a revoked credential rather than a coding error, which is exactly
+    // why this value is pinned.
+    std::array<char, k_authent_bytes> out{};
+    const auto signature = authent(k_test_secret, k_send_message, out);
+    EXPECT_EQ(signature,
+              "AuijpQ61ixs1MRiL1sTMNvtagw/9ziKaXrt7OXCjkpHGKX5I6lC2NKfGf+ItOGNDQFIdetXNHNBIxe7Q"
+              "iBqekw==");
+    EXPECT_EQ(signature.size(), k_authent_bytes);
+
+    // The websocket challenge runs the SAME chain over the UUID alone.
+    const auto signed_challenge =
+        authent(k_test_secret, "226aee50-88fc-4618-a42a-34f7709570b2", out);
+    EXPECT_EQ(signed_challenge,
+              "uI506uuxHesOy5ARmPf7tntMqCAGiAf+W4q69I/S6UeO0gQTVLJHuIgfkxI5pUYpP5fqWE9mqu3ix8ov"
+              "2uHO9w==");
+
+    // A secret that is not valid base64 yields NO signature rather than one
+    // keyed by its printable bytes: an empty Authent is never sent.
+    EXPECT_TRUE(authent("not base64!", k_send_message, out).empty());
+    EXPECT_TRUE(authent("", k_send_message, out).empty());
+    // An output buffer that cannot hold 88 characters is refused outright.
+    std::array<char, 8> small{};
+    EXPECT_TRUE(authent(k_test_secret, k_send_message, small).empty());
+}
+
+// ------------------------------------------------------ signed rest ----
+
+InstrumentId id_of(const exec::InstrumentTable& table, std::string_view symbol) {
+    const auto* instrument = table.find(symbol);
+    EXPECT_NE(instrument, nullptr) << symbol;
+    return instrument == nullptr ? InstrumentId{} : base_of(*instrument).id;
+}
+
+// PI_XBTUSD: tick 0.5, lot 1. 18800 ticks is 9400, one lot is one contract.
+OrderCmd limit_buy(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.instrument = id_of(table, "PI_XBTUSD");
+    cmd.client_order_id = ClientOrderId::make(7, 11);
+    cmd.price = PriceTicks::from_raw(18800);
+    cmd.qty = QtyLots::from_raw(1);
+    return cmd;
+}
+
+void load_credentials(net::Signer& signer) {
+    signer.set_api_key("k-public");
+    ASSERT_TRUE(signer.secret().assign(k_test_secret).has_value());
+}
+
+constexpr UnixNanos k_now{1'690'000'000'000ULL * 1'000'000ULL};
+
+TEST(KrakenRest, ASignedPostSignsTheBodyItActuallySends) {
+    const auto table = catalogue();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto request = builder.create_order(limit_buy(table), table, k_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    // The request path carries "/derivatives"; the signature does NOT.
+    EXPECT_EQ(request->target, "/derivatives/api/v3/sendorder");
+    EXPECT_EQ(request->body, "orderType=lmt&symbol=PI_XBTUSD&side=buy&size=1&limitPrice=9400");
+    EXPECT_EQ(request->content_type, "application/x-www-form-urlencoded");
+    EXPECT_EQ(builder.last_sign_message(), k_send_message);
+    EXPECT_EQ(builder.last_authent(),
+              "AuijpQ61ixs1MRiL1sTMNvtagw/9ziKaXrt7OXCjkpHGKX5I6lC2NKfGf+ItOGNDQFIdetXNHNBIxe7Q"
+              "iBqekw==");
+
+    ASSERT_EQ(request->headers.size(), 3U);
+    EXPECT_EQ(request->headers[0].name, "APIKey");
+    EXPECT_EQ(request->headers[0].value, "k-public");
+    EXPECT_EQ(request->headers[1].name, "Nonce");
+    EXPECT_EQ(request->headers[1].value, "1690000000000");
+    EXPECT_EQ(request->headers[2].name, "Authent");
+    EXPECT_EQ(request->headers[2].value, builder.last_authent());
+}
+
+TEST(KrakenRest, NonceStrictlyIncreasesWithinOneMillisecond) {
+    // Kraken refuses a nonce at or below the last one this key used, so two
+    // orders fired inside the same millisecond must not collide.
+    const auto table = catalogue();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    ASSERT_TRUE(builder.create_order(limit_buy(table), table, k_now).has_value());
+    const auto first = std::string{builder.last_sign_message()};
+    ASSERT_TRUE(builder.create_order(limit_buy(table), table, k_now).has_value());
+    EXPECT_NE(builder.last_sign_message(), first);
+    EXPECT_NE(builder.last_sign_message().find("1690000000001"), std::string_view::npos);
+}
+
+TEST(KrakenRest, OrderTypeAndTimeInForceAreOneField) {
+    const auto table = catalogue();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    auto cmd = limit_buy(table);
+    cmd.tif = TimeInForce::Ioc;
+    ASSERT_TRUE(builder.create_order(cmd, table, k_now).has_value());
+    EXPECT_TRUE(builder.last_sign_message().starts_with("orderType=ioc&"));
+
+    cmd.tif = TimeInForce::Fok;
+    ASSERT_TRUE(builder.create_order(cmd, table, k_now).has_value());
+    EXPECT_TRUE(builder.last_sign_message().starts_with("orderType=fok&"));
+
+    // Post-only is an order TYPE here, not a flag beside one, and it is read
+    // before the time in force: "post" and "ioc" are alternatives.
+    cmd.flags = OrderFlags::PostOnly;
+    ASSERT_TRUE(builder.create_order(cmd, table, k_now).has_value());
+    EXPECT_TRUE(builder.last_sign_message().starts_with("orderType=post&"));
+
+    // A market order carries NO limitPrice: Kraken refuses "mkt" outright when
+    // one rides along, so the field is absent rather than zero.
+    cmd.order_type = OrderType::Market;
+    cmd.flags = OrderFlags::ReduceOnly;
+    const auto market = builder.create_order(cmd, table, k_now);
+    ASSERT_TRUE(market.has_value());
+    EXPECT_EQ(market->body, "orderType=mkt&symbol=PI_XBTUSD&side=buy&size=1&reduceOnly=true")
+        << market->body;
+}
+
+TEST(KrakenRest, CancelSpellsTheTargetOrderIdOneWayAndEditSpellsItTheOther) {
+    const auto table = catalogue();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    auto cmd = limit_buy(table);
+    cmd.kind = CmdKind::Cancel;
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("cb4e34f6-4eb3-4d4b-9724-4c3035b99d47");
+    const auto cancel = builder.cancel_order(cmd, table, k_now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->target, "/derivatives/api/v3/cancelorder");
+    EXPECT_EQ(cancel->body, "order_id=cb4e34f6-4eb3-4d4b-9724-4c3035b99d47");
+
+    // Same field, other spelling. Getting this wrong is an invalidArgument on
+    // every amend, which reads as a broken order rather than a typo.
+    cmd.kind = CmdKind::Amend;
+    const auto edit = builder.amend_order(cmd, table, k_now);
+    ASSERT_TRUE(edit.has_value());
+    EXPECT_EQ(edit->target, "/derivatives/api/v3/editorder");
+    EXPECT_EQ(edit->body,
+              "orderId=cb4e34f6-4eb3-4d4b-9724-4c3035b99d47&size=1&limitPrice=9400");
+
+    // Neither id: nothing to name, so nothing is sent.
+    cmd.target_exchange_order_id = {};
+    cmd.exchange_client_order_id = {};
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_now).error(), BuildError::NoOrderTarget);
+
+    // A client order id is the fallback, on both endpoints.
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+    const auto by_client = builder.cancel_order(cmd, table, k_now);
+    ASSERT_TRUE(by_client.has_value());
+    EXPECT_EQ(by_client->body, "cliOrdId=01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+}
+
+TEST(KrakenRest, GetsCarryTheirParametersInTheQueryAndSignTheSameText) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto open = builder.open_orders(k_now);
+    ASSERT_TRUE(open.has_value());
+    EXPECT_EQ(open->method, net::HttpMethod::Get);
+    EXPECT_EQ(open->target, "/derivatives/api/v3/openorders");
+    EXPECT_TRUE(open->body.empty());
+    // An empty postData still hashes: the message is nonce + path.
+    EXPECT_EQ(builder.last_sign_message(), "1690000000000/api/v3/openorders");
+    EXPECT_EQ(builder.last_authent(),
+              "zkNjmi34ExjThETZGFFdBoBBdbql2qiZXts/ISOj5QHsRRqVt+lc6aQHUXiIecDrto8mErJ70i3iL4gI"
+              "f6EtPg==");
+
+    const auto positions = builder.positions(k_now);
+    ASSERT_TRUE(positions.has_value());
+    EXPECT_EQ(positions->target, "/derivatives/api/v3/openpositions");
+
+    const auto newest = builder.fills({}, k_now);
+    ASSERT_TRUE(newest.has_value());
+    EXPECT_EQ(newest->target, "/derivatives/api/v3/fills");
+
+    // The cursor is echoed verbatim — it is the instant the venue printed, and
+    // its fractional width varies frame to frame.
+    const auto paged = builder.fills("2020-07-21T12:41:52.790Z", k_now);
+    ASSERT_TRUE(paged.has_value());
+    EXPECT_EQ(paged->target,
+              "/derivatives/api/v3/fills?lastFillTime=2020-07-21T12:41:52.790Z");
+    EXPECT_TRUE(paged->body.empty());
+    EXPECT_EQ(builder.last_sign_message(),
+              "lastFillTime=2020-07-21T12:41:52.790Z1690000000003/api/v3/fills");
+}
+
+TEST(KrakenRest, MarketRefusalIsNamedBeforeTheInstrumentTableIsEverRead) {
+    // The table here is EMPTY on purpose: the refusal must not depend on it.
+    // find() compares the whole id, so a spot id resolves to nothing and would
+    // otherwise be reported as an unknown instrument.
+    const exec::InstrumentTable empty;
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    for (const auto [market, expected] :
+         {std::pair{MarketType::Spot, BuildError::SpotUnsupported},
+          std::pair{MarketType::Future, BuildError::DatedFuturesUnsupported},
+          std::pair{MarketType::Option, BuildError::OptionsUnsupported}}) {
+        OrderCmd cmd{};
+        cmd.instrument = InstrumentId::make(VenueId::Kraken, market, SymbolId{3});
+        EXPECT_EQ(builder.create_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(builder.cancel_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(builder.amend_order(cmd, empty, k_now).error(), expected);
+        EXPECT_EQ(market_refusal(market), expected);
+    }
+    EXPECT_FALSE(market_refusal(MarketType::Perp).has_value());
+
+    // A perp id that is genuinely not in the table is a DIFFERENT answer.
+    OrderCmd perp{};
+    perp.instrument = InstrumentId::make(VenueId::Kraken, MarketType::Perp, SymbolId{9});
+    EXPECT_EQ(builder.create_order(perp, empty, k_now).error(), BuildError::UnknownInstrument);
+}
+
+TEST(KrakenRest, WithoutCredentialsNothingIsBuiltAndNothingIsSigned) {
+    const auto table = catalogue();
+    net::Signer signer;
+    SignedRequestBuilder builder{signer};
+    EXPECT_EQ(builder.create_order(limit_buy(table), table, k_now).error(), BuildError::NotSigned);
+    EXPECT_EQ(builder.open_orders(k_now).error(), BuildError::NotSigned);
+}
+
+// ------------------------------------------------------ private wire ----
+
+TEST(KrakenWire, TheThreeVerdictObjectsAnswerUnderThreeKeysAndTwoIdSpellings) {
+    const auto placed = fixture("rest_send_order_placed.json");
+    auto status = parse_order_status(placed, StatusKind::Send);
+    ASSERT_TRUE(status.has_value());
+    EXPECT_EQ(status->status, "placed");
+    EXPECT_EQ(status->order_id, "179f9af8-e45e-469d-b3e9-2fd4675cb7d0");
+    EXPECT_NE(status->received_ms, 0U);
+    EXPECT_TRUE(is_send_accepted(status->status));
+
+    // The envelope reports result "success" for a REFUSED order as readily as
+    // for an accepted one, so `status` is the only verdict there is.
+    const auto rejected = fixture("rest_send_order_rejected.json");
+    const auto envelope = parse_rest_envelope(rejected);
+    ASSERT_TRUE(envelope.has_value());
+    EXPECT_TRUE(envelope->ok);
+    status = parse_order_status(rejected, StatusKind::Send);
+    ASSERT_TRUE(status.has_value());
+    EXPECT_EQ(status->status, "iocWouldNotExecute");
+    EXPECT_FALSE(is_send_accepted(status->status));
+
+    const auto cancelled = fixture("rest_cancel_order.json");
+    status = parse_order_status(cancelled, StatusKind::Cancel);
+    ASSERT_TRUE(status.has_value());
+    EXPECT_EQ(status->status, "cancelled");
+    EXPECT_TRUE(is_cancel_accepted(status->status));
+
+    // editorder answers `orderId`; sendorder answers `order_id`. Reading only
+    // the documented one loses the venue id on every amend.
+    const auto edited = fixture("rest_edit_order.json");
+    status = parse_order_status(edited, StatusKind::Edit);
+    ASSERT_TRUE(status.has_value());
+    EXPECT_EQ(status->status, "edited");
+    EXPECT_EQ(status->order_id, "022774bc-2c4a-4f26-9317-436c8d85746d");
+    EXPECT_TRUE(is_edit_accepted(status->status));
+}
+
+TEST(KrakenMap, AnOpenOrderRowStatesWhatIsLeftAndWhatTraded) {
+    const auto table = catalogue();
+    const auto body = fixture("rest_open_orders.json");
+    static thread_local OpenOrderBuffer storage;
+    const auto orders = parse_open_orders(body, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 3U);
+
+    const auto untouched = map_open_order((*orders)[0], table);
+    ASSERT_TRUE(untouched.has_value());
+    EXPECT_EQ(untouched->status, OrderStatus::Accepted);
+    EXPECT_EQ(untouched->side, Side::Sell);
+    EXPECT_EQ(untouched->price.raw, 21280); // 10640 / 0.5
+    EXPECT_EQ(untouched->qty.raw, 304);
+    EXPECT_EQ(untouched->leaves.raw, 304);
+
+    // The row never states the original size: it is filledSize + unfilledSize.
+    // Reading unfilledSize as the size turns a part-filled order into a smaller
+    // one that never filled.
+    const auto partial = map_open_order((*orders)[1], table);
+    ASSERT_TRUE(partial.has_value());
+    EXPECT_EQ(partial->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(partial->qty.raw, 1501);
+    EXPECT_EQ(partial->leaves.raw, 1201);
+    EXPECT_EQ(partial->exchange_client_order_id.view(), "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+
+    // A symbol this adapter never loaded yields nothing rather than a report
+    // against instrument zero.
+    EXPECT_FALSE(map_open_order((*orders)[2], table).has_value());
+}
+
+TEST(KrakenMap, FillsCarryTheirDedupeKeyAndOnlyTwoFillTypesAreASideOfTheBook) {
+    const auto table = catalogue();
+    const auto body = fixture("rest_fills.json");
+    static thread_local FillBuffer storage;
+    const auto fills = parse_fills(body, storage);
+    ASSERT_TRUE(fills.has_value());
+    ASSERT_EQ(fills->size(), 3U);
+
+    const auto maker = map_rest_fill((*fills)[0], table);
+    ASSERT_TRUE(maker.has_value());
+    EXPECT_EQ(maker->liquidity, Liquidity::Maker);
+    EXPECT_EQ(maker->side, Side::Buy);
+    EXPECT_EQ(maker->price.raw, 18800); // 9400 / 0.5
+    EXPECT_EQ(maker->qty.raw, 5490);
+    EXPECT_EQ(maker->exec_id.view(), "3d57ed09-fbd6-44f1-8e8b-b10e551c5e73");
+    EXPECT_EQ(maker->exchange_client_order_id.view(), "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+
+    EXPECT_EQ(map_rest_fill((*fills)[1], table)->liquidity, Liquidity::Taker);
+    // A liquidation was neither our quote nor our take: filing it under a fee
+    // tier it did not earn is what Unknown exists to prevent.
+    EXPECT_EQ(map_rest_fill((*fills)[2], table)->liquidity, Liquidity::Unknown);
+}
+
+TEST(KrakenMap, APositionKeepsItsSizeEvenWhenNoTickDividesItsAverageEntry) {
+    const auto table = catalogue();
+    const auto body = fixture("rest_open_positions.json");
+    static thread_local PositionBuffer storage;
+    const auto positions = parse_positions(body, storage);
+    ASSERT_TRUE(positions.has_value());
+    ASSERT_EQ(positions->size(), 3U);
+
+    // 9392.749993345933 is a full-precision average no 0.5 tick divides.
+    // Dropping the row would tell a reconciler we are FLAT while we are short
+    // 10000 contracts, so the size is reported and the average is not.
+    const auto shrt = map_position((*positions)[0], table);
+    ASSERT_TRUE(shrt.has_value());
+    EXPECT_EQ(shrt->net_qty.raw, -10000);
+    EXPECT_TRUE(shrt->avg_entry.is_undef());
+
+    const auto lng = map_position((*positions)[1], table);
+    ASSERT_TRUE(lng.has_value());
+    EXPECT_EQ(lng->net_qty.raw, 5000); // 0.5 BTC at a 0.0001 step
+    EXPECT_EQ(lng->avg_entry.raw, 64000);
+
+    // A dated future is refused by the catalogue, so a position on one has no
+    // instrument to attach to.
+    EXPECT_FALSE(map_position((*positions)[2], table).has_value());
+}
+
+TEST(KrakenMap, ADeltaReasonIsTheWholeVerdict) {
+    // Kraken spells two of these as sentences. A near-miss is silently a
+    // different outcome: a refused order read as a cancel leaves the OMS
+    // waiting for a fill that cannot come.
+    EXPECT_EQ(effect_of("new_placed_order_by_user", false), DeltaEffect::Accepted);
+    EXPECT_EQ(effect_of("limit_order_from_stop", false), DeltaEffect::Accepted);
+    EXPECT_EQ(effect_of("stop_order_triggered", false), DeltaEffect::Triggered);
+    EXPECT_EQ(effect_of("cancelled_by_user", true), DeltaEffect::Canceled);
+    EXPECT_EQ(effect_of("dead_man_switch", true), DeltaEffect::Canceled);
+    EXPECT_EQ(effect_of("liquidation", true), DeltaEffect::Canceled);
+    EXPECT_EQ(effect_of("post_order_failed_because_it_would_filled", true), DeltaEffect::Rejected);
+    EXPECT_EQ(effect_of("ioc_order_failed_because_it_would_not_be_executed", true),
+              DeltaEffect::Rejected);
+    EXPECT_EQ(effect_of("would_execute_self", true), DeltaEffect::Rejected);
+    EXPECT_EQ(effect_of("not_enough_margin", true), DeltaEffect::Rejected);
+    // The fills feed owns every fill: it carries the price, the size and the
+    // exec id these frames do not.
+    EXPECT_EQ(effect_of("full_fill", true), DeltaEffect::Silent);
+    EXPECT_EQ(effect_of("partial_fill", false), DeltaEffect::Silent);
+    // A failed edit is not a departure; editorder already reported it.
+    EXPECT_EQ(effect_of("order_for_edit_not_found", true), DeltaEffect::Silent);
+    EXPECT_EQ(effect_of("something_kraken_adds_later", false), DeltaEffect::Silent);
+}
+
+TEST(KrakenMap, TheOpenOrdersFeedStatesWhatREMAINSNotWhatWasAsked) {
+    const auto table = catalogue();
+    const auto snapshot = fixture("ws_open_orders_snapshot.json");
+    static thread_local OrderSnapshotBuffer storage;
+    const auto orders = parse_order_snapshot(snapshot, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 2U);
+    EXPECT_EQ((*orders)[0].buy, false); // direction 1 is a sell
+    EXPECT_EQ((*orders)[1].buy, true);
+
+    const auto placed = fixture("ws_open_orders_new.json");
+    auto delta = parse_order_delta(placed);
+    ASSERT_TRUE(delta.has_value());
+    ASSERT_TRUE(delta->has_order);
+    EXPECT_EQ(effect_of(delta->reason, delta->is_cancel), DeltaEffect::Accepted);
+    auto event = map_ws_order(delta->order, OrderEventType::Accepted, table, UnixNanos{99});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->side, Side::Sell);
+    EXPECT_EQ(event->price.raw, 21280);
+    EXPECT_EQ(event->qty.raw, 304);
+    EXPECT_EQ(event->leaves_qty.raw, 304);
+    EXPECT_TRUE(has_flag(event->flags, OrderFlags::ReduceOnly));
+    EXPECT_EQ(event->exchange_client_order_id.view(), "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D");
+
+    // `qty` is what is LEFT and `filled` is cumulative, so the ORIGINAL size is
+    // their sum: 204 + 100 is still a 304-contract order.
+    const auto partial = fixture("ws_open_orders_partial.json");
+    delta = parse_order_delta(partial);
+    ASSERT_TRUE(delta.has_value());
+    ASSERT_TRUE(delta->has_order);
+    event = map_ws_order(delta->order, OrderEventType::Accepted, table, UnixNanos{99});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->qty.raw, 304);
+    EXPECT_EQ(event->leaves_qty.raw, 204);
+
+    // A removal names an order id and nothing else — no instrument, no side.
+    const auto removal = fixture("ws_open_orders_cancel.json");
+    delta = parse_order_delta(removal);
+    ASSERT_TRUE(delta.has_value());
+    EXPECT_FALSE(delta->has_order);
+    EXPECT_EQ(delta->order_id, "59302619-41d2-4f0b-941f-7e7914760ad3");
+    EXPECT_EQ(effect_of(delta->reason, delta->is_cancel), DeltaEffect::Canceled);
+
+    const auto refused = fixture("ws_open_orders_post_refused.json");
+    delta = parse_order_delta(refused);
+    ASSERT_TRUE(delta.has_value());
+    EXPECT_EQ(effect_of(delta->reason, delta->is_cancel), DeltaEffect::Rejected);
+}
+
+TEST(KrakenMap, AFillCarriesTheLeavesTheFeedStatesAndAFeeInTheSettlementCurrency) {
+    const auto table = catalogue();
+    const auto snapshot = fixture("ws_fills_snapshot.json");
+    static thread_local WsFillBuffer storage;
+    auto fills = parse_ws_fills(snapshot, storage);
+    ASSERT_TRUE(fills.has_value());
+    ASSERT_EQ(fills->size(), 1U);
+    auto event = map_ws_fill((*fills)[0], table, UnixNanos{99});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Filled);
+    EXPECT_EQ(event->liquidity, Liquidity::Maker);
+    EXPECT_EQ(event->price.raw, 21875); // 10937.5 / 0.5
+    EXPECT_EQ(event->qty.raw, 5000);
+    EXPECT_EQ(event->leaves_qty.raw, 0);
+    // A maker rebate is NEGATIVE and quoted to eleven decimals. Refusing it
+    // exactly would report every fill as free; 1e-9 BTC is one satoshi, which
+    // is finer than anything the venue can actually pay.
+    EXPECT_EQ(event->fee.raw, -91428);
+
+    const auto partial = fixture("ws_fills_partial.json");
+    fills = parse_ws_fills(partial, storage);
+    ASSERT_TRUE(fills.has_value());
+    ASSERT_EQ(fills->size(), 1U);
+    event = map_ws_fill((*fills)[0], table, UnixNanos{99});
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->qty.raw, 100);
+    // remaining_order_qty is the venue's own count of what is still working.
+    EXPECT_EQ(event->leaves_qty.raw, 204);
+    EXPECT_EQ(event->liquidity, Liquidity::Taker);
+    EXPECT_EQ(event->fee.raw, 18285);
+    EXPECT_EQ(event->exec_id.view(), "9f5e2b1a-0d43-4b21-9c8f-6a2e13d4c7b5");
+}
+
+TEST(KrakenWs, ThePrivateSubscribeCarriesTheSignedChallengeAndNeverAnEmptyOne) {
+    const auto frame = fixture("ws_challenge.json");
+    const auto event = parse_event(frame);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Challenge);
+    const auto challenge = parse_challenge(frame);
+    ASSERT_TRUE(challenge.has_value());
+    EXPECT_EQ(challenge->message, "226aee50-88fc-4618-a42a-34f7709570b2");
+
+    Protocol protocol;
+    const auto ask = protocol.challenge_request_frame("k-public");
+    ASSERT_TRUE(ask.has_value());
+    EXPECT_EQ(ask->text, R"({"event":"challenge","api_key":"k-public"})");
+
+    const auto subscribe = protocol.private_subscribe_frame(
+        k_feed_open_orders, "k-public", challenge->message, "sig");
+    ASSERT_TRUE(subscribe.has_value());
+    EXPECT_EQ(subscribe->text,
+              R"({"event":"subscribe","feed":"open_orders","api_key":"k-public",)"
+              R"("original_challenge":"226aee50-88fc-4618-a42a-34f7709570b2",)"
+              R"("signed_challenge":"sig"})");
+
+    // Any missing credential would subscribe to the PUBLIC form of a private
+    // feed, which Kraken answers with an alert rather than a stream — a failure
+    // indistinguishable from a quiet account.
+    EXPECT_FALSE(protocol.private_subscribe_frame(k_feed_fills, "", "c", "s").has_value());
+    EXPECT_FALSE(protocol.private_subscribe_frame(k_feed_fills, "k", "", "s").has_value());
+    EXPECT_FALSE(protocol.private_subscribe_frame(k_feed_fills, "k", "c", "").has_value());
+    EXPECT_FALSE(protocol.challenge_request_frame("").has_value());
+}
+
+TEST(KrakenErrors, TheOrderVerdictVocabularyIsNotTheErrorVocabulary) {
+    // Two different alphabets: `error` names a request failure, `status` names
+    // what happened to the order, and the envelope says "success" for both.
+    EXPECT_TRUE(is_send_accepted("placed"));
+    EXPECT_TRUE(is_send_accepted("filled"));
+    EXPECT_TRUE(is_send_accepted("partiallyFilled"));
+    EXPECT_FALSE(is_send_accepted("postWouldExecute"));
+    EXPECT_FALSE(is_send_accepted("insufficientAvailableFunds"));
+    EXPECT_FALSE(is_send_accepted("cancelled"));
+
+    // An order already gone is an answer a cancel can live with; reporting
+    // CancelRejected would leave the OMS believing a dead order is working.
+    EXPECT_TRUE(is_cancel_accepted("cancelled"));
+    EXPECT_TRUE(is_cancel_accepted("filled"));
+    EXPECT_TRUE(is_cancel_accepted("notFound"));
+    EXPECT_FALSE(is_cancel_accepted("placed"));
+
+    EXPECT_TRUE(is_edit_accepted("edited"));
+    EXPECT_FALSE(is_edit_accepted("orderForEditNotFound"));
+    EXPECT_FALSE(is_edit_accepted(""));
 }
 
 } // namespace

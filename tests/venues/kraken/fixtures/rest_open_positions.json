@@ -1,0 +1,32 @@
+{
+  "result": "success",
+  "openPositions": [
+    {
+      "side": "short",
+      "symbol": "PI_XBTUSD",
+      "price": 9392.749993345933,
+      "size": 10000,
+      "unrealizedPnl": -607250.006654067,
+      "unrealizedFunding": 0.00001045432180096817
+    },
+    {
+      "side": "long",
+      "symbol": "PF_XBTUSD",
+      "price": 64000,
+      "size": 0.5,
+      "unrealizedPnl": 12.34,
+      "unrealizedFunding": -0.0073428045972263895,
+      "pnlCurrency": "USD",
+      "maxFixedLeverage": 5
+    },
+    {
+      "side": "long",
+      "symbol": "FI_XBTUSD_260925",
+      "price": 9399.749966754434,
+      "size": 20000,
+      "unrealizedPnl": 1199500.664911316,
+      "unrealizedFunding": null
+    }
+  ],
+  "serverTime": "2020-07-22T14:39:12.376Z"
+}

@@ -1,0 +1,22 @@
+{
+  "feed": "fills",
+  "fills": [
+    {
+      "instrument": "PI_XBTUSD",
+      "time": 1600256911884,
+      "price": 10937.5,
+      "seq": 37,
+      "buy": false,
+      "qty": 100.0,
+      "remaining_order_qty": 204.0,
+      "order_id": "59302619-41d2-4f0b-941f-7e7914760ad3",
+      "cli_ord_id": "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D",
+      "fill_id": "9f5e2b1a-0d43-4b21-9c8f-6a2e13d4c7b5",
+      "fill_type": "taker",
+      "fee_paid": 0.00001828571,
+      "fee_currency": "BTC",
+      "taker_order_type": "lmt",
+      "order_type": "limit"
+    }
+  ]
+}

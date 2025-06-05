@@ -14,6 +14,8 @@
 
 #include <raikiri/common/fixed_string.hpp>
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/bitmex/wire.hpp>
 
@@ -89,5 +91,66 @@ private:
 // steps failed to convert exactly.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
+
+// Execution ---------------------------------------------------------------
+
+// What an `ordStatus` does to the order it names. Named separately from the
+// event because an `update` frame's ordStatus is often the ONLY thing in it,
+// and because a fill is reported by the `execution` table — which carries the
+// price, the size and the exec id an order row does not.
+enum class OrderEffect : std::uint8_t {
+    Accepted,
+    Canceled,
+    Rejected,
+    Expired,
+    // Either the execution table already accounts for it, or it is a state
+    // BitMEX passes through on the way somewhere. Silence beats inventing a
+    // lifecycle event the OMS cannot undo.
+    Silent,
+};
+
+[[nodiscard]] OrderEffect effect_of(std::string_view ord_status) noexcept;
+
+// The columns one `order` row actually carried, converted against the
+// instrument. EVERY member is optional: BitMEX keys the table on orderID alone
+// and an `update` carries only what changed, so a caller merges this onto what
+// it remembered rather than reading an absent column as zero.
+struct OrderColumns {
+    std::optional<Side> side;
+    std::optional<OrderType> order_type;
+    std::optional<OrderFlags> flags;
+    std::optional<PriceTicks> price;
+    std::optional<QtyLots> qty;
+    std::optional<QtyLots> leaves;
+    UnixNanos ts_event{};
+};
+
+// nullopt only when a column that IS present fails to convert exactly — a
+// schema event, never something to round past.
+[[nodiscard]] std::optional<OrderColumns>
+map_order_columns(const WireOrder& wire, const InstrumentBase& base, UnixNanos ts_init);
+
+// A REST /order row, which unlike a stream update always carries every column.
+// nullopt for a status that is not working: the open-orders filter should never
+// return one, and reporting a finished order as live is worse than dropping it.
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+// Only `execType: "Trade"` is a fill. Funding and Settlement rows carry a price
+// and a quantity too, and booking them as trades invents a position that was
+// never traded.
+[[nodiscard]] std::optional<OrderEvent>
+map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireExecution& wire,
+                                                       const exec::InstrumentTable& table);
+
+// `currentQty` is signed and counted in the venue's own units, so the sign
+// carries the side and no side field can disagree with it. `avgEntryPrice` is
+// an average of fills that no tick size need divide: the SIZE must convert
+// exactly, and an average that does not is reported as no average rather than
+// dropping a row and telling a reconciler we are flat.
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bitmex

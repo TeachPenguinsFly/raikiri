@@ -6,6 +6,7 @@ add_library(raikiri_venue_bitmex STATIC
   src/rest.cpp
   src/ws.cpp
   src/wire_detail.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
 )
@@ -18,4 +19,5 @@ target_include_directories(raikiri_venue_bitmex PUBLIC
 # which JSON library walks the frame is a fact confined to src/.
 target_link_libraries(raikiri_venue_bitmex
   PUBLIC raikiri::domain raikiri::book raikiri::wire raikiri::exec raikiri::net
+         raikiri::portfolio
   PRIVATE simdjson::simdjson raikiri::config raikiri::warnings)

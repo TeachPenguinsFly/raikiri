@@ -1,0 +1,46 @@
+{
+  "result": "success",
+  "openOrders": [
+    {
+      "order_id": "59302619-41d2-4f0b-941f-7e7914760ad3",
+      "symbol": "PI_XBTUSD",
+      "side": "sell",
+      "orderType": "lmt",
+      "limitPrice": 10640,
+      "unfilledSize": 304,
+      "receivedTime": "2019-09-05T17:01:17.410Z",
+      "status": "untouched",
+      "filledSize": 0,
+      "reduceOnly": true,
+      "lastUpdateTime": "2019-09-05T17:01:17.410Z"
+    },
+    {
+      "order_id": "022774bc-2c4a-4f26-9317-436c8d85746d",
+      "cliOrdId": "01J9ZQ8V3T4W5X6Y7Z8A9B0C1D",
+      "symbol": "PI_XBTUSD",
+      "side": "buy",
+      "orderType": "lmt",
+      "limitPrice": 7200,
+      "unfilledSize": 1201,
+      "receivedTime": "2019-09-05T16:41:35.173Z",
+      "status": "partiallyFilled",
+      "filledSize": 300,
+      "reduceOnly": false,
+      "lastUpdateTime": "2019-09-05T16:47:47.519Z"
+    },
+    {
+      "order_id": "d08021f7-58cb-4f2c-9c86-da4c60de46bb",
+      "symbol": "NOT_A_PRODUCT",
+      "side": "sell",
+      "orderType": "lmt",
+      "limitPrice": 10640,
+      "unfilledSize": 10000,
+      "receivedTime": "2019-09-05T16:38:43.651Z",
+      "status": "untouched",
+      "filledSize": 0,
+      "reduceOnly": true,
+      "lastUpdateTime": "2019-09-05T16:38:43.651Z"
+    }
+  ],
+  "serverTime": "2019-09-05T17:08:18.138Z"
+}

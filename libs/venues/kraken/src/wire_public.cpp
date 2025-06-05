@@ -20,6 +20,17 @@ EventKind kind_from_feed(std::string_view feed) noexcept {
     if (feed == "book" || feed == "book_snapshot") {
         return EventKind::Book;
     }
+    if (feed == "open_orders_snapshot") {
+        return EventKind::OpenOrdersSnapshot;
+    }
+    if (feed == "open_orders") {
+        return EventKind::OpenOrders;
+    }
+    // Snapshot and delta are one shape here, unlike open_orders: both carry a
+    // `fills` array under the same key.
+    if (feed == "fills" || feed == "fills_snapshot") {
+        return EventKind::Fills;
+    }
     return EventKind::Unknown;
 }
 
@@ -32,6 +43,9 @@ EventKind kind_from_event(std::string_view event) noexcept {
     }
     if (event == "alert" || event == "error") {
         return EventKind::Alert;
+    }
+    if (event == "challenge") {
+        return EventKind::Challenge;
     }
     return EventKind::Unknown;
 }

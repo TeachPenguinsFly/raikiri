@@ -7,6 +7,8 @@
 // parse_decimal_e9 everywhere — the latter cannot read exponents at all.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/kraken/wire.hpp>
 
@@ -53,5 +55,51 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 // failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
+
+// Reconciliation pulls ----------------------------------------------------
+
+// A row carries `unfilledSize` and `filledSize` and never the original size,
+// so the order quantity here is their SUM. Reading unfilledSize as the size
+// turns a half-filled order into a smaller order that never filled.
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<exec::FillReport> map_rest_fill(const WireFill& wire,
+                                                            const exec::InstrumentTable& table);
+
+// `price` is a full-precision average entry that no tick size divides. The
+// SIZE must still convert exactly — a position off by a lot is a position — so
+// a rounded average is reported as no average at all rather than dropping the
+// row and telling a reconciler we are flat.
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+
+// Private stream ----------------------------------------------------------
+
+// What one `open_orders` delta does to the order it names. Kraken states the
+// cause in `reason` and nothing else in the frame does, so this is the whole
+// decision.
+// An EDIT is deliberately absent: Kraken's documented `reason` vocabulary has
+// no value for one, so an amend is confirmed off the editorder response rather
+// than guessed at here.
+enum class DeltaEffect : std::uint8_t {
+    Accepted,
+    Triggered,
+    Canceled,
+    Rejected,
+    // A frame the fills feed already accounts for, or a cause we cannot name.
+    // Silence beats inventing a lifecycle event the OMS cannot undo.
+    Silent,
+};
+
+[[nodiscard]] DeltaEffect effect_of(std::string_view reason, bool is_cancel) noexcept;
+
+[[nodiscard]] std::optional<OrderEvent> map_ws_order(const WireWsOrder& wire,
+                                                     OrderEventType type,
+                                                     const exec::InstrumentTable& table,
+                                                     UnixNanos ts_init);
+
+[[nodiscard]] std::optional<OrderEvent>
+map_ws_fill(const WireWsFill& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 } // namespace raikiri::venues::kraken
