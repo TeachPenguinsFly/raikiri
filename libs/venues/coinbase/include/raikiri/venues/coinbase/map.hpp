@@ -3,6 +3,8 @@
 // Wire types -> domain types.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/coinbase/wire.hpp>
 
@@ -37,5 +39,32 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
 // Returns nullopt for any market other than Spot, anything not "online",
 // anything trading_disabled, and any row whose increments failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market);
+
+// Order entry ------------------------------------------------------------
+
+// `size` minus `filled_size`, exact in lots. Coinbase publishes no leaves
+// field and both terms are base currency, so the subtraction is the answer.
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
+                                                  const exec::InstrumentTable& table);
+
+// The lifecycle event one order row reports.
+//
+// `client_id` is passed IN rather than read off the row: what comes back is
+// the UUID derived from the ULID, and that derivation is one-way. The caller
+// knows the ULID — from the command it just sent, or from the memo it kept —
+// and an event carrying an empty one is an event nothing can route.
+//
+// Returns nullopt for a row that says nothing this adapter can honestly
+// announce: an order Coinbase reports `done`/`filled` is described by its
+// executions, and this adapter has no source for them (see fill_reports).
+[[nodiscard]] std::optional<OrderEvent> map_order_event(const WireOrder& wire,
+                                                        const exec::InstrumentTable& table,
+                                                        const ExchangeClientOrderId& client_id,
+                                                        UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire,
+               const exec::InstrumentTable& table,
+               const ExchangeClientOrderId& client_id);
 
 } // namespace raikiri::venues::coinbase

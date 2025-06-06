@@ -7,6 +7,8 @@
 // cannot read a single catalogue row.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/deribit/wire.hpp>
 
@@ -44,5 +46,42 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 // steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
+
+// Order entry ------------------------------------------------------------
+
+// What the order has LEFT: amount minus filled_amount, exact in lots. Deribit
+// publishes no leaves field, and subtracting is only safe because both terms
+// are denominated in the same unit lot_size divides by.
+[[nodiscard]] std::optional<QtyLots> order_leaves(const WireOrder& wire,
+                                                  const exec::InstrumentTable& table);
+
+// The lifecycle event one order row reports, or nullopt when the row says
+// nothing new — an "open" order that already has fills is described by its
+// Filled events, and re-announcing it as Accepted is a transition the FSM
+// rejects outright.
+[[nodiscard]] std::optional<OrderEvent>
+map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// One Filled event per execution. `leaves` is what the order has left AFTER
+// this trade, which only the accompanying order row knows — and it must be a
+// DEFINITE quantity: the OMS subtracts it from the order size, and an
+// undefined one is refused here rather than turned into a zero that would
+// close an order still working.
+[[nodiscard]] std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
+                                                 const exec::InstrumentTable& table,
+                                                 QtyLots leaves,
+                                                 UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire,
+                                                              const exec::InstrumentTable& table);
+
+// A row whose size does not divide by the instrument's own step is dropped:
+// a position reported to the reconciler off by a rounding is worse than one
+// it knows it did not receive.
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixNanos ts_venue);
 
 } // namespace raikiri::venues::deribit

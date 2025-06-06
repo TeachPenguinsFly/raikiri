@@ -47,8 +47,32 @@ EventKind kind_from_channel(const Channel& channel) noexcept {
     if (stream == "book") {
         return channel.count >= 5 ? EventKind::Bbo : EventKind::Book;
     }
+    if (stream == "user") {
+        // user.changes.{kind}.{currency}.raw — the instrument is NOT in the
+        // channel here, it is in every row of the payload.
+        return channel.parts[1] == "changes" ? EventKind::UserChange : EventKind::Unknown;
+    }
     // Other channels exist; only what ws.cpp subscribes to is claimed here.
     return EventKind::Unknown;
+}
+
+// True where the channel's SECOND segment is an instrument name. On the
+// private channels it is the topic, and copying it into EventInfo would hand
+// the mapper "orders" as a symbol to look up.
+bool names_instrument(EventKind kind) noexcept {
+    switch (kind) {
+    case EventKind::Bbo:
+    case EventKind::Trade:
+    case EventKind::Ticker:
+    case EventKind::Book:
+        return true;
+    case EventKind::UserChange:
+    case EventKind::Heartbeat:
+    case EventKind::Response:
+    case EventKind::Unknown:
+        return false;
+    }
+    return false;
 }
 
 // Every implemented push nests its payload one level down from the frame.
@@ -199,7 +223,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         const auto parts = split_channel(*channel);
         info.kind = kind_from_channel(parts);
-        if (parts.count >= 2) {
+        if (parts.count >= 2 && names_instrument(info.kind)) {
             info.instrument = parts.parts[1];
         }
         return info;

@@ -187,6 +187,167 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
+namespace {
+
+// Coinbase's own vocabulary for where an order stands.
+enum class OrderState : std::uint8_t { Open, Pending, Active, Rejected, Done };
+
+std::optional<OrderState> state_of(std::string_view text) noexcept {
+    if (text == "open") {
+        return OrderState::Open;
+    }
+    if (text == "pending") {
+        return OrderState::Pending;
+    }
+    if (text == "active") {
+        return OrderState::Active;
+    }
+    if (text == "rejected") {
+        return OrderState::Rejected;
+    }
+    if (text == "done") {
+        return OrderState::Done;
+    }
+    return std::nullopt;
+}
+
+std::optional<QtyLots> leaves_of(const WireOrder& wire, const InstrumentBase& base) {
+    const auto size = to_lots(wire.size, base);
+    if (!size.has_value()) {
+        return std::nullopt;
+    }
+    if (wire.filled_size.empty()) {
+        return size;
+    }
+    const auto filled = to_lots(wire.filled_size, base);
+    if (!filled.has_value() || filled->raw > size->raw) {
+        return std::nullopt;
+    }
+    return QtyLots::from_raw(size->raw - filled->raw);
+}
+
+} // namespace
+
+std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(wire.product_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    return leaves_of(wire, base_of(*instrument));
+}
+
+std::optional<OrderEvent> map_order_event(const WireOrder& wire,
+                                          const exec::InstrumentTable& table,
+                                          const ExchangeClientOrderId& client_id,
+                                          UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.product_id);
+    if (instrument == nullptr) {
+        return std::nullopt; // a product this process never loaded
+    }
+    const auto state = state_of(wire.status);
+    if (!state.has_value()) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto leaves = leaves_of(wire, base);
+    if (!leaves.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent event{};
+    switch (*state) {
+    case OrderState::Open:
+    case OrderState::Pending:
+    case OrderState::Active:
+        // `pending` is an order the matching engine has taken but not yet
+        // placed. It is an acknowledgement either way, and the FSM treats a
+        // second Accepted as idempotent.
+        event.type = OrderEventType::Accepted;
+        break;
+    case OrderState::Rejected:
+        event.type = OrderEventType::Rejected;
+        break;
+    case OrderState::Done:
+        if (wire.done_reason == "filled") {
+            // Every unit is accounted for by executions this adapter cannot
+            // observe; announcing a Filled here would book a quantity at a
+            // price nothing on this path knows.
+            return std::nullopt;
+        }
+        event.type = OrderEventType::Canceled;
+        break;
+    }
+
+    event.side = wire.sell ? Side::Sell : Side::Buy;
+    event.instrument = base.id;
+    event.exchange_client_order_id = client_id;
+    if (const auto id = ExchangeOrderId::from(wire.id); id.has_value()) {
+        event.exchange_order_id = *id;
+    }
+    // A market order carries no price at all, and an absent price stays undef
+    // rather than becoming a zero somebody averages.
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        event.price = *price;
+    }
+    if (const auto qty = to_lots(wire.size, base); qty.has_value()) {
+        event.qty = *qty;
+    }
+    event.leaves_qty = event.type == OrderEventType::Rejected ? QtyLots::from_raw(0) : *leaves;
+    const auto stamped = wire.done_at.empty() ? wire.created_at : wire.done_at;
+    event.ts_event = iso_to_unix(stamped, ts_init);
+    event.ts_init = ts_init;
+    return event;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                      const exec::InstrumentTable& table,
+                                                      const ExchangeClientOrderId& client_id) {
+    const auto* instrument = table.find(wire.product_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto state = state_of(wire.status);
+    if (!state.has_value()) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    const auto qty = to_lots(wire.size, base);
+    const auto leaves = leaves_of(wire, base);
+    if (!qty.has_value() || !leaves.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport report{};
+    switch (*state) {
+    case OrderState::Open:
+    case OrderState::Pending:
+    case OrderState::Active:
+        report.status =
+            leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
+        break;
+    case OrderState::Rejected:
+        report.status = OrderStatus::Rejected;
+        break;
+    case OrderState::Done:
+        report.status = wire.done_reason == "filled" ? OrderStatus::Filled : OrderStatus::Canceled;
+        break;
+    }
+    report.exchange_client_order_id = client_id;
+    if (const auto id = ExchangeOrderId::from(wire.id); id.has_value()) {
+        report.exchange_order_id = *id;
+    }
+    report.instrument = base.id;
+    report.side = wire.sell ? Side::Sell : Side::Buy;
+    if (const auto price = to_ticks(wire.price, base); price.has_value()) {
+        report.price = *price;
+    }
+    report.qty = *qty;
+    report.leaves = *leaves;
+    const auto stamped = wire.done_at.empty() ? wire.created_at : wire.done_at;
+    report.ts_venue = iso_to_unix(stamped, UnixNanos{0});
+    return report;
+}
+
 std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType market) {
     if (market != MarketType::Spot) {
         return std::nullopt;

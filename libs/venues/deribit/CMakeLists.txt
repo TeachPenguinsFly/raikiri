@@ -4,8 +4,10 @@ add_library(raikiri_venue_deribit STATIC
   src/errors.cpp
   src/map.cpp
   src/rest.cpp
+  src/sign.cpp
   src/ws.cpp
   src/wire_detail.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
 )

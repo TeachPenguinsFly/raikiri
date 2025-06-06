@@ -49,6 +49,31 @@ inline constexpr std::int64_t k_unavailable = 13503;
 // batch with it, which is why ws.hpp keeps batches small.
 inline constexpr std::int64_t k_raw_subscriptions_unauthorized = 13778;
 
+// Order-entry codes. Everything an order can be refused for that is not a bad
+// parameter is here, because those are the ones whose bucket is not obvious.
+inline constexpr std::int64_t k_order_overlap = 10003;
+inline constexpr std::int64_t k_locked_by_admin = 10019;
+inline constexpr std::int64_t k_not_owner_of_order = 10029;
+inline constexpr std::int64_t k_not_open_order = 11044;
+inline constexpr std::int64_t k_permission_denied = 11042;
+inline constexpr std::int64_t k_account_locked = 11098;
+inline constexpr std::int64_t k_internal_server_error = 11094;
+inline constexpr std::int64_t k_unauthenticated_public_disabled = 11056;
+inline constexpr std::int64_t k_method_switched_off = 13025;
+inline constexpr std::int64_t k_scope_exceeded = 13403;
+inline constexpr std::int64_t k_edit_replaced = 13777;
+// valid_until elapsed inside the matching engine: the order never existed, and
+// the same request sent again is a fresh, legitimate attempt.
+inline constexpr std::int64_t k_timed_out = 13888;
+
 [[nodiscard]] exec::ErrorClass classify(std::int64_t code) noexcept;
+
+[[nodiscard]] exec::ErrorClass classify_http(int status) noexcept;
+
+// A cancel or amend whose target is already gone. The order finished on its
+// own between the decision and the request, so the refusal describes the
+// venue agreeing with a state we simply had not heard about yet; escalating
+// it would put a CancelRejected against an order the FSM has already closed.
+[[nodiscard]] bool is_settled_order_refusal(std::int64_t code) noexcept;
 
 } // namespace raikiri::venues::deribit

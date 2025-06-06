@@ -1,5 +1,7 @@
+#include <raikiri/config/secret.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/coinbase/book.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
@@ -25,6 +27,13 @@ namespace {
 // rather than for the one measured; the value is a ceiling, not a buffer.
 constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
 
+// Far above any sane working set; the cap exists so a venue incident cannot
+// turn the client-id memo into the heap.
+constexpr std::size_t k_max_tracked_orders = 65'536;
+
+// A cancel naming an order Coinbase has already finished.
+constexpr int k_http_not_found = 404;
+
 // A subscription the gateway asked for, owned as strings because the
 // instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
@@ -46,6 +55,10 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
     RequestBuilder builder;
+    net::Signer signer;
+    // Coinbase's third credential. Held as a string because it travels in a
+    // header on every signed request and is not itself a signing key.
+    std::string passphrase;
 
     std::vector<OwnedSubscription> desired;
     std::unordered_map<std::uint64_t, Book> books;
@@ -55,6 +68,33 @@ struct VenueState {
     std::uint64_t channels_confirmed{0};
     std::uint64_t subscribe_refusals{0};
     exec::VenueError last_error{};
+
+    // The UUID this adapter derived from a ULID cannot be turned back into
+    // one, so the mapping is remembered for as long as the process lives. An
+    // order placed by an EARLIER process comes back from a sweep with no
+    // client id, which is a gap reconciliation must be told about rather than
+    // one that is quietly filled with a wrong id.
+    std::unordered_map<std::string, ExchangeClientOrderId> client_ids;
+
+    // Deribit-style venue clock correction: Coinbase rejects a signature more
+    // than 30 seconds from its own clock.
+    [[nodiscard]] UnixNanos venue_now() const noexcept {
+        const auto local = static_cast<std::int64_t>(clock->wall().ns);
+        return UnixNanos{static_cast<std::uint64_t>(local + clock_offset_ns)};
+    }
+
+    void remember(const ExchangeClientOrderId& id) {
+        const auto uuid = client_oid_of(id);
+        if (!uuid.has_value() || client_ids.size() >= k_max_tracked_orders) {
+            return;
+        }
+        client_ids.emplace(std::string{uuid->data(), uuid->size()}, id);
+    }
+
+    [[nodiscard]] ExchangeClientOrderId recall(std::string_view client_oid) const {
+        const auto at = client_ids.find(std::string{client_oid});
+        return at == client_ids.end() ? ExchangeClientOrderId{} : at->second;
+    }
 
     void add_subscription(std::string_view channel, std::string_view product_id) {
         for (const auto& existing : desired) {
@@ -280,69 +320,6 @@ private:
     bool started_{false};
 };
 
-// Read-only by design, not by omission: the caps row still describes what
-// Coinbase OFFERS, and this refusal describes what we chose to build.
-exec::VenueError read_only() noexcept {
-    return exec::VenueError::make(
-        exec::ErrorClass::Terminal, 0, "coinbase is a market-data-only venue");
-}
-
-class CoinbaseExec final : public exec::ExecutionClient {
-public:
-    explicit CoinbaseExec(exec::GatewaySink& sink, const Clock& clock)
-        : sink_{&sink}, clock_{&clock} {}
-
-    std::expected<void, exec::VenueError> start() override { return {}; }
-
-    void stop() override {}
-
-    [[nodiscard]] bool connected() const noexcept override { return false; }
-
-    void submit(const OrderCmd& cmd) noexcept override { emit(cmd, OrderEventType::Rejected); }
-
-    void cancel(const OrderCmd& cmd) noexcept override {
-        emit(cmd, OrderEventType::CancelRejected);
-    }
-
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
-        return std::unexpected{read_only()};
-    }
-
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
-        return std::unexpected{read_only()};
-    }
-
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
-        return std::unexpected{exec::not_implemented("Coinbase reconciliation pulls")};
-    }
-
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::unexpected{exec::not_implemented("Coinbase reconciliation pulls")};
-    }
-
-private:
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
-        OrderEvent event{};
-        event.type = type;
-        event.side = cmd.side;
-        event.instrument = cmd.instrument;
-        event.client_order_id = cmd.client_order_id;
-        event.exchange_client_order_id = cmd.exchange_client_order_id;
-        event.qty = cmd.qty;
-        event.price = cmd.price;
-        event.ts_event = clock_->wall();
-        event.ts_init = event.ts_event;
-        sink_->on_order_event(event);
-    }
-
-    exec::GatewaySink* sink_;
-    const Clock* clock_;
-};
-
 std::optional<net::RestResponse> await_response(VenueState& state,
                                                 net::RestClient& rest,
                                                 const net::RestRequest& request,
@@ -380,6 +357,277 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     state.clock_offset_ns =
         static_cast<std::int64_t>(venue->ns) - static_cast<std::int64_t>(midpoint);
 }
+
+// A refusal to build is terminal by construction: the same command built again
+// produces the same refusal. NotSigned is the exception, and it points at the
+// config rather than at the venue.
+exec::VenueError build_failure(BuildError err) noexcept {
+    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
+                                                               : exec::ErrorClass::Terminal,
+                                  0,
+                                  to_string(err));
+}
+
+// Live order entry over REST.
+//
+// There is no private socket here, and the omission is named rather than
+// implied: Coinbase Exchange's real-time private feed is the per-product
+// `user` channel, and an ExecutionClient is never told which products to
+// watch. What that costs is EXECUTIONS — every other lifecycle step is
+// answered synchronously, because POST /orders returns the whole order object
+// and DELETE /orders answers only when the cancel took. fill_reports says the
+// same thing in the same words rather than answering with an empty vector.
+class CoinbaseExec final : public exec::ExecutionClient {
+public:
+    explicit CoinbaseExec(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          builder_{state_->signer, state_->passphrase} {}
+
+    std::expected<void, exec::VenueError> start() override {
+        if (!state_->signer.has_credentials() || state_->passphrase.empty()) {
+            // AuthFailure, not Terminal: the first sends an operator to the
+            // config, the second to a venue status page. The passphrase is a
+            // third credential and the one most often left unset.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::AuthFailure, 0, "coinbase: key, secret and passphrase required")};
+        }
+        rest_.start();
+        sync_clock(*state_, rest_);
+        started_ = true;
+        return {};
+    }
+
+    void stop() override {
+        rest_.stop();
+        started_ = false;
+    }
+
+    [[nodiscard]] bool connected() const noexcept override { return started_; }
+
+    void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
+
+    void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
+
+    void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
+
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
+    open_order_reports(MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        const auto request = builder_.open_orders(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local OrderBuffer storage;
+        const auto orders = parse_orders(*body, storage);
+        if (!orders.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+        }
+        std::vector<exec::OrderStatusReport> reports;
+        reports.reserve(orders->size());
+        for (const auto& wire : *orders) {
+            if (auto report = map_open_order(wire, state_->instruments,
+                                             state_->recall(wire.client_oid));
+                report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
+    std::expected<exec::OrderStatusReport, exec::VenueError>
+    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        const auto request = builder_.query_order(id, market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto order = parse_order(*body);
+        if (!order.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(order.error()))};
+        }
+        // The id asked about is the one reported back: the UUID that travelled
+        // cannot be turned into a ULID, and the caller already holds the one
+        // it wanted.
+        auto report = map_open_order(*order, state_->instruments, id);
+        if (!report.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
+        }
+        return *report;
+    }
+
+    std::expected<std::vector<exec::FillReport>, exec::VenueError>
+    fill_reports(MarketType market, UnixNanos since) override {
+        (void)since;
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        // GET /fills requires order_id OR product_id — "Either `order_id` or
+        // `product_id` is required" — and this call names only a market.
+        // Sweeping the 800-odd listed products would be a guess at which ones
+        // matter, and an empty vector reads as "no fills", the one answer a
+        // reconciler must not be handed wrongly.
+        return std::unexpected{exec::not_implemented("coinbase fill pull is per-product")};
+    }
+
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
+    position_reports(MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        // A coin balance is not a position: one BTC balance backs BTC-USD,
+        // BTC-EUR and BTC-USDT alike, and there is no InstrumentId to report
+        // it against. Answering "flat" would be a claim about a concept this
+        // API does not have.
+        return std::unexpected{exec::not_implemented("coinbase spot position pull")};
+    }
+
+private:
+    enum class Kind : std::uint8_t { Create, Cancel, Amend };
+
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request) {
+        const auto response = await_response(*state_, rest_, request);
+        if (!response.has_value() || response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+        }
+        if (response->status < 200 || response->status >= 300) {
+            const auto message = parse_rest_error(response->body);
+            return std::unexpected{exec::VenueError::make(
+                classify_http(response->status), response->status,
+                message.has_value() ? *message : std::string_view{"http error"})};
+        }
+        return response->body;
+    }
+
+    void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        const auto now = state_->venue_now();
+        const auto request =
+            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
+                                   : builder_.amend_order(cmd, state_->instruments, now);
+        if (!request.has_value()) {
+            emit_reject(cmd, kind);
+            return;
+        }
+        if (kind == Kind::Create) {
+            // Remembered BEFORE the send: the response can arrive inside the
+            // same poll, and a sweep that raced it would find no id to map.
+            state_->remember(cmd.exchange_client_order_id);
+        }
+        if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+                on_response(std::move(response), cmd, kind);
+            })) {
+            emit_reject(cmd, kind);
+        }
+    }
+
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
+        if (response.transport_failed()) {
+            emit_reject(cmd, kind); // no verdict from the venue at all
+            return;
+        }
+        if (response.status < 200 || response.status >= 300) {
+            // A cancel naming an order Coinbase no longer has answers 404 with
+            // {"message":"order not found"}. The order finished between the
+            // decision and the request; escalating would raise a
+            // CancelRejected against an order the FSM has already closed.
+            if (kind == Kind::Cancel && response.status == k_http_not_found) {
+                return;
+            }
+            emit_reject(cmd, kind);
+            return;
+        }
+        switch (kind) {
+        case Kind::Create: {
+            // POST /orders answers with the whole order object, so acceptance
+            // and a same-instant rejection are both stated here rather than
+            // waiting on a stream this adapter does not hold.
+            const auto order = parse_order(response.body);
+            if (!order.has_value()) {
+                emit_reject(cmd, kind);
+                return;
+            }
+            if (const auto event = map_order_event(*order, state_->instruments,
+                                                   cmd.exchange_client_order_id,
+                                                   state_->clock->wall());
+                event.has_value()) {
+                state_->sink->on_order_event(*event);
+            }
+            return;
+        }
+        case Kind::Cancel:
+            // The body is the cancelled order's id and nothing else, so the
+            // status line is the whole verdict.
+            emit_cancelled(cmd);
+            return;
+        case Kind::Amend:
+            return; // unreachable: amend_order never builds a request
+        }
+    }
+
+    void emit_cancelled(const OrderCmd& cmd) noexcept {
+        OrderEvent event{};
+        event.type = OrderEventType::Canceled;
+        event.side = cmd.side;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.exchange_order_id = cmd.target_exchange_order_id;
+        event.qty = cmd.qty;
+        event.price = cmd.price;
+        // Nothing rests on the book after a cancel, and that is what this
+        // field means. How much of the order had already filled is a separate
+        // question the cancel reply does not answer and the Filled events do.
+        event.leaves_qty = QtyLots::from_raw(0);
+        event.ts_event = state_->clock->wall();
+        event.ts_init = event.ts_event;
+        state_->sink->on_order_event(event);
+    }
+
+    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+        OrderEvent event{};
+        event.type = kind == Kind::Create   ? OrderEventType::Rejected
+                     : kind == Kind::Cancel ? OrderEventType::CancelRejected
+                                            : OrderEventType::ModifyRejected;
+        event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
+        event.flags = cmd.flags;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.qty = cmd.qty;
+        event.price = cmd.price;
+        // A create that never reached the book leaves nothing behind; a
+        // refused cancel or amend leaves the order exactly as it was.
+        event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
+        event.ts_event = state_->clock->wall();
+        event.ts_init = event.ts_event;
+        state_->sink->on_order_event(event);
+    }
+
+    std::shared_ptr<VenueState> state_;
+    net::RestClient rest_;
+    SignedRequestBuilder builder_;
+    bool started_{false};
+};
 
 class CoinbaseInstruments final : public exec::InstrumentSource {
 public:
@@ -441,12 +689,47 @@ private:
     net::RestClient rest_;
 };
 
-exec::VenueAdapter make(const exec::VenueConfig&, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter
+make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
+
+    config::DefaultSecretProvider provider;
+    if (!config.api_key_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
+            config::Secret key;
+            if (provider.resolve(*ref, key).has_value()) {
+                state->signer.set_api_key(key.view());
+            }
+        }
+    }
+    if (!config.api_secret_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
+            config::Secret encoded;
+            if (provider.resolve(*ref, encoded).has_value()) {
+                // Decoded ONCE, here. Coinbase keys the HMAC with the raw
+                // bytes behind the printable secret, and a signer holding the
+                // printable form produces a well-formed digest the venue
+                // answers 401 to — indistinguishable from a revoked key.
+                std::array<char, k_max_secret_bytes> raw{};
+                if (const auto len = decode_secret(encoded.view(), raw); len.has_value()) {
+                    (void)state->signer.secret().assign(std::string_view{raw.data(), *len});
+                }
+            }
+        }
+    }
+    if (!config.passphrase_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.passphrase_env); ref.has_value()) {
+            config::Secret phrase;
+            if (provider.resolve(*ref, phrase).has_value()) {
+                state->passphrase = std::string{phrase.view()};
+            }
+        }
+    }
+
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Coinbase);
     adapter.data = std::make_unique<CoinbaseData>(state);
-    adapter.execution = std::make_unique<CoinbaseExec>(sink, clock);
+    adapter.execution = std::make_unique<CoinbaseExec>(state);
     adapter.instruments = std::make_unique<CoinbaseInstruments>(state);
     return adapter;
 }

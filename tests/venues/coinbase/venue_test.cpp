@@ -1,8 +1,10 @@
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/coinbase/book.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
 #include <raikiri/venues/coinbase/rest.hpp>
+#include <raikiri/venues/coinbase/sign.hpp>
 #include <raikiri/venues/coinbase/wire.hpp>
 #include <raikiri/venues/coinbase/ws.hpp>
 
@@ -59,6 +61,52 @@ exec::InstrumentTable table_with_btc() {
     return table;
 }
 
+// A 64-byte key behind a printable base64 secret, which is the shape Coinbase
+// issues. The decode is the step that goes wrong quietly, so the test data is
+// chosen to make a signature over the WRONG key visibly different.
+constexpr std::string_view k_key = "raikiri-coinbase-test-key";
+constexpr std::string_view k_secret_b64 =
+    "cmFpa2lyaS1jb2luYmFzZS10ZXN0LXNlY3JldC1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NQ==";
+constexpr std::string_view k_secret_raw =
+    "raikiri-coinbase-test-secret-key-material-0123456789abcdef012345";
+constexpr std::string_view k_passphrase = "raikiri-passphrase";
+
+// The ULID the OMS mints, and the UUID it must become. Computed independently
+// with a Crockford decoder; see rest.hpp for why this is a conversion.
+constexpr std::string_view k_ulid = "01K3QW9F2H6M5N8P0R2T4V6X8Z";
+constexpr std::string_view k_client_oid = "0198efc4-bc51-450b-9458-181689b3751f";
+
+void load_credentials(net::Signer& signer) {
+    signer.set_api_key(k_key);
+    // The adapter decodes at credential load; a test that skipped it would
+    // pass while production signed with the printable form.
+    std::array<char, k_max_secret_bytes> raw{};
+    const auto len = decode_secret(k_secret_b64, raw);
+    ASSERT_TRUE(len.has_value());
+    ASSERT_EQ(std::string_view(raw.data(), *len), k_secret_raw);
+    ASSERT_TRUE(signer.secret().assign(std::string_view{raw.data(), *len}).has_value());
+}
+
+std::string_view header_of(const net::RestRequest& request, std::string_view name) {
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+OrderCmd order_for(const exec::InstrumentTable& table, std::string_view product) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.client_order_id = ClientOrderId::make(1, 42);
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from(k_ulid);
+    if (const auto* instrument = table.find(product); instrument != nullptr) {
+        cmd.instrument = base_of(*instrument).id;
+    }
+    return cmd;
+}
+
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
 // ----------------------------------------------------------- adapter ----
@@ -74,9 +122,17 @@ TEST(CoinbaseVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
-TEST(CoinbaseVenue, OrderEntryRefusesPermanently) {
-    // Read-only venue: an order must fail loudly, never wait for a verdict
-    // that no code will ever produce.
+TEST(CoinbaseVenue, ServesSpotAndRefusesTheMarketsThisEntityDoesNotList) {
+    // Decided BEFORE the instrument table is consulted, and each market named
+    // separately: "unsupported market" tells an operator nothing about whether
+    // to change the config or the adapter.
+    EXPECT_FALSE(market_refusal(MarketType::Spot).has_value());
+    EXPECT_EQ(market_refusal(MarketType::Perp), BuildError::PerpNotListed);
+    EXPECT_EQ(market_refusal(MarketType::Future), BuildError::DatedFuturesNotListed);
+    EXPECT_EQ(market_refusal(MarketType::Option), BuildError::OptionsNotListed);
+}
+
+TEST(CoinbaseVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -84,19 +140,51 @@ TEST(CoinbaseVenue, OrderEntryRefusesPermanently) {
         {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
+    // Three credentials, not two. AuthFailure sends an operator to the config;
+    // Terminal would send them to a venue status page.
+    const auto started = adapter->execution->start();
+    ASSERT_FALSE(started.has_value());
+    EXPECT_EQ(started.error().cls, exec::ErrorClass::AuthFailure);
+
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
+    cmd.instrument = InstrumentId::make(VenueId::Coinbase, MarketType::Spot, SymbolId{3});
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from(k_ulid);
     cmd.client_order_id = ClientOrderId::make(1, 42);
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+    EXPECT_EQ(sink.events[0].leaves_qty.raw, 0);
 
-    // A pull this adapter cannot perform must SAY so. Answering with an empty
-    // vector would be indistinguishable from "the venue holds nothing of ours",
-    // and a reconciler reading it that way concludes we are flat when we are not.
-    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
-    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
+    // No modify anywhere on this API, so an amend is answered rather than
+    // dropped: a strategy waiting on a verdict no code will produce waits
+    // forever.
+    sink.events.clear();
+    adapter->execution->amend(cmd);
+    ASSERT_EQ(sink.events.size(), 1U);
+    EXPECT_EQ(sink.events[0].type, OrderEventType::ModifyRejected);
+}
+
+TEST(CoinbaseVenue, PullsThisApiCannotPerformAreRefusedByName) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue(
+        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    // A coin balance is not a position, and there is no InstrumentId to report
+    // one against. An empty vector would read as "flat".
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Spot).has_value());
+    // GET /fills demands order_id or product_id, and this call names a market.
+    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Spot, UnixNanos{0}).has_value());
     EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).position_pull);
+    EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).fill_pull);
+
+    // ...and the markets this entity does not list are refused on every pull,
+    // not just on order entry.
+    EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Perp).has_value());
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Future).has_value());
 }
 
 TEST(CoinbaseVenue, PerpCatalogueIsRefusedNotEmptied) {
@@ -783,6 +871,323 @@ TEST(CoinbaseErrors, StatusIsTheOnlyMachineReadablePartOfAFailure) {
     // full speed is how an IP earns a ban.
     EXPECT_EQ(classify_http(400), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_http(418), exec::ErrorClass::Terminal);
+}
+
+
+// ------------------------------------------------------ order entry ----
+
+TEST(CoinbaseClientOid, TheUlidBecomesAUuidBecauseAnythingElseIsIgnored) {
+    // Coinbase's own words: a client_oid that is not a variant 1 UUIDv4 "will
+    // be accepted via REST but NOT processed and will not be visible in future
+    // REST calls". A silently ignored id is worse than a refused one, so the
+    // 26-character ULID is CONVERTED — both are 128 bits — rather than sent.
+    const auto id = *ExchangeClientOrderId::from(k_ulid);
+    const auto uuid = client_oid_of(id);
+    ASSERT_TRUE(uuid.has_value());
+    EXPECT_EQ(std::string_view(uuid->data(), uuid->size()), k_client_oid);
+    EXPECT_EQ(uuid->size(), k_uuid_len);
+
+    // Version 4 and variant 1, which is what the venue checks for.
+    EXPECT_EQ((*uuid)[14], '4');
+    EXPECT_TRUE((*uuid)[19] == '8' || (*uuid)[19] == '9' || (*uuid)[19] == 'a' ||
+                (*uuid)[19] == 'b');
+    // Lowercase hyphenated, grouped 8-4-4-4-12.
+    EXPECT_EQ((*uuid)[8], '-');
+    EXPECT_EQ((*uuid)[13], '-');
+    EXPECT_EQ((*uuid)[18], '-');
+    EXPECT_EQ((*uuid)[23], '-');
+
+    // Deterministic, so GET /orders/client:<uuid> resolves with no local table.
+    EXPECT_EQ(client_oid_of(id), uuid);
+
+    // Anything that is not a ULID is refused rather than sent as-is.
+    EXPECT_FALSE(client_oid_of(ExchangeClientOrderId{}).has_value());
+    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("too-short")).has_value());
+    // 'I', 'L', 'O' and 'U' are not in Crockford's alphabet.
+    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6XIL")).has_value());
+    // A first character above 7 would carry more than 128 bits.
+    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("Z1K3QW9F2H6M5N8P0R2T4V6X8Z")).has_value());
+}
+
+TEST(CoinbaseSign, TheSecretIsBase64AndTheHmacKeyIsItsBytes) {
+    std::array<char, k_max_secret_bytes> raw{};
+    const auto len = decode_secret(k_secret_b64, raw);
+    ASSERT_TRUE(len.has_value());
+    EXPECT_EQ(*len, k_secret_raw.size());
+    EXPECT_EQ(std::string_view(raw.data(), *len), k_secret_raw);
+
+    // Not base64 at all, which is what a pasted-wrong key looks like.
+    EXPECT_FALSE(decode_secret("not base64!!", raw).has_value());
+    EXPECT_FALSE(decode_secret("abc", raw).has_value()); // length not a multiple of 4
+    EXPECT_FALSE(decode_secret("", raw).has_value());
+
+    // timestamp + METHOD + requestPath + body, concatenated with NOTHING
+    // between them.
+    std::array<char, 256> buffer{};
+    EXPECT_EQ(prehash("1787751010", net::HttpMethod::Get, "/orders?status=open", {}, buffer),
+              "1787751010GET/orders?status=open");
+    // SECONDS, not the milliseconds every other venue here wants.
+    std::array<char, 24> stamp{};
+    EXPECT_EQ(timestamp_s(UnixNanos{1'787'751'010'667'000'000ULL}, stamp), "1787751010");
+}
+
+TEST(CoinbaseSignedRest, CreateOrderSignsTheBodyItActuallySends) {
+    const auto table = table_with_btc();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer, k_passphrase};
+
+    auto cmd = order_for(table, "BTC-USD");
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.flags = OrderFlags::PostOnly;
+    cmd.qty = QtyLots::from_raw(50'000'000);   // 0.5 BTC in 1e-8 steps
+    cmd.price = PriceTicks::from_raw(6'350'000); // 63500.00 in 0.01 ticks
+
+    const auto request = builder.create_order(cmd, table, UnixNanos{1'787'751'010'667'000'000ULL});
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_EQ(request->target, "/orders");
+    EXPECT_EQ(request->body,
+              R"({"client_oid":"0198efc4-bc51-450b-9458-181689b3751f","product_id":"BTC-USD",)"
+              R"("side":"buy","type":"limit","size":"0.5","price":"63500",)"
+              R"("time_in_force":"GTC","post_only":true})");
+    EXPECT_EQ(builder.last_prehash(),
+              std::string{"1787751010POST/orders"} + std::string{request->body});
+    // Digest computed independently in Python over the same bytes with the
+    // DECODED key, so this pins the decode as well as the HMAC.
+    EXPECT_EQ(header_of(*request, "CB-ACCESS-SIGN"),
+              "A9Hfp8A4oD2YiaHt7OFP8wO/ebpnLYOT74HEGwy7fDk=");
+    EXPECT_EQ(header_of(*request, "CB-ACCESS-KEY"), k_key);
+    EXPECT_EQ(header_of(*request, "CB-ACCESS-TIMESTAMP"), "1787751010");
+    EXPECT_EQ(header_of(*request, "CB-ACCESS-PASSPHRASE"), k_passphrase);
+}
+
+TEST(CoinbaseSignedRest, MarketOrdersAndTimeInForceCarryTheVenuesOwnRules) {
+    const auto table = table_with_btc();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer, k_passphrase};
+    const UnixNanos now{1'787'751'010'667'000'000ULL};
+
+    // `size` is BASE currency on both sides, so a market BUY needs no
+    // quote-denominated guess and — unlike gate and htx — is not refused.
+    auto market = order_for(table, "BTC-USD");
+    market.order_type = OrderType::Market;
+    market.qty = QtyLots::from_raw(25'000'000);
+    const auto taker = builder.create_order(market, table, now);
+    ASSERT_TRUE(taker.has_value());
+    EXPECT_EQ(taker->body,
+              R"({"client_oid":"0198efc4-bc51-450b-9458-181689b3751f","product_id":"BTC-USD",)"
+              R"("side":"buy","type":"market","size":"0.25"})");
+
+    // post_only beside IOC is REFUSED by the venue, not ignored, so a
+    // maker-only order that is not GTC simply is not one.
+    auto ioc = order_for(table, "BTC-USD");
+    ioc.tif = TimeInForce::Ioc;
+    ioc.flags = OrderFlags::PostOnly | OrderFlags::ReduceOnly;
+    ioc.qty = QtyLots::from_raw(50'000'000);
+    ioc.price = PriceTicks::from_raw(6'350'000);
+    const auto immediate = builder.create_order(ioc, table, now);
+    ASSERT_TRUE(immediate.has_value());
+    EXPECT_NE(std::string{immediate->body}.find(R"("time_in_force":"IOC")"), std::string::npos);
+    EXPECT_EQ(std::string{immediate->body}.find("post_only"), std::string::npos);
+    // ReduceOnly has no field here: a spot balance cannot be short.
+    EXPECT_EQ(std::string{immediate->body}.find("reduce_only"), std::string::npos);
+}
+
+TEST(CoinbaseSignedRest, CancelPrefersTheVenueIdAndNamespacesTheClientOne) {
+    const auto table = table_with_btc();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer, k_passphrase};
+    const UnixNanos now{1'787'751'010'667'000'000ULL};
+
+    auto cmd = order_for(table, "BTC-USD");
+    cmd.kind = CmdKind::Cancel;
+    const auto by_client = builder.cancel_order(cmd, table, now);
+    ASSERT_TRUE(by_client.has_value());
+    // The `client:` namespace is what tells Coinbase the id is ours; the bare
+    // form is read as a venue id and answers 404.
+    EXPECT_EQ(by_client->target,
+              "/orders/client:0198efc4-bc51-450b-9458-181689b3751f?product_id=BTC-USD");
+    EXPECT_EQ(builder.last_prehash(),
+              std::string{"1787751010DELETE"} + std::string{by_client->target});
+    EXPECT_EQ(header_of(*by_client, "CB-ACCESS-SIGN"),
+              "177FdGidwD6bETBLZQwxC80ykHNmC7iqvzCFEyYZn+I=");
+
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("a9625b04-fc66-4999-a876-543c3684d702");
+    const auto by_id = builder.cancel_order(cmd, table, now);
+    ASSERT_TRUE(by_id.has_value());
+    EXPECT_EQ(by_id->target,
+              "/orders/a9625b04-fc66-4999-a876-543c3684d702?product_id=BTC-USD");
+
+    cmd.target_exchange_order_id = {};
+    cmd.exchange_client_order_id = {};
+    EXPECT_EQ(builder.cancel_order(cmd, table, now).error(), BuildError::NoOrderTarget);
+}
+
+TEST(CoinbaseSignedRest, PullsAndRefusalsAreNamedRatherThanImplied) {
+    const auto table = table_with_btc();
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer, k_passphrase};
+    const UnixNanos now{1'787'751'010'667'000'000ULL};
+
+    // `status` is REQUIRED, and `pending` belongs beside `open`: leaving it
+    // out reports a live order as absent for as long as the engine holds it.
+    EXPECT_EQ(builder.open_orders(MarketType::Spot, now)->target,
+              "/orders?status=open&status=pending&limit=1000");
+    EXPECT_EQ(builder.query_order(*ExchangeClientOrderId::from(k_ulid), MarketType::Spot, now)
+                  ->target,
+              "/orders/client:0198efc4-bc51-450b-9458-181689b3751f");
+
+    auto cmd = order_for(table, "BTC-USD");
+    cmd.qty = QtyLots::from_raw(50'000'000);
+    cmd.price = PriceTicks::from_raw(6'350'000);
+    // No modify on this REST API at all. An amend that looked like it worked
+    // would be a lie about the book.
+    EXPECT_EQ(builder.amend_order(cmd, table, now).error(), BuildError::AmendUnsupported);
+
+    cmd.instrument = InstrumentId::make(VenueId::Coinbase, MarketType::Perp, SymbolId{0});
+    EXPECT_EQ(builder.create_order(cmd, table, now).error(), BuildError::PerpNotListed);
+    EXPECT_EQ(builder.open_orders(MarketType::Perp, now).error(), BuildError::PerpNotListed);
+
+    // An id that is not a ULID cannot become a UUID, and must not travel raw.
+    auto raw_id = order_for(table, "BTC-USD");
+    raw_id.qty = QtyLots::from_raw(50'000'000);
+    raw_id.price = PriceTicks::from_raw(6'350'000);
+    raw_id.exchange_client_order_id = *ExchangeClientOrderId::from("not-a-ulid");
+    EXPECT_EQ(builder.create_order(raw_id, table, now).error(),
+              BuildError::ClientOrderIdNotAUlid);
+}
+
+TEST(CoinbaseSignedRest, RefusesToSignWithoutEveryCredential) {
+    net::Signer signer;
+    load_credentials(signer);
+    // The passphrase is a third credential and the one most often left unset;
+    // without it every request is 401, which reads like a wrong secret.
+    SignedRequestBuilder no_phrase{signer, {}};
+    EXPECT_EQ(no_phrase.open_orders(MarketType::Spot, UnixNanos{1}).error(),
+              BuildError::NotSigned);
+
+    const net::Signer bare;
+    SignedRequestBuilder no_key{bare, k_passphrase};
+    EXPECT_EQ(no_key.open_orders(MarketType::Spot, UnixNanos{1}).error(), BuildError::NotSigned);
+}
+
+// ------------------------------------------------- order event mapping ----
+
+TEST(CoinbaseMap, AnAcknowledgedOrderIsAcceptedWhetherPendingOrResting) {
+    const auto table = table_with_btc();
+    const auto id = *ExchangeClientOrderId::from(k_ulid);
+
+    const auto body = fixture("rest_order_ack.json");
+    const auto order = parse_order(body);
+    ASSERT_TRUE(order.has_value());
+    EXPECT_EQ(order->status, "pending");
+    EXPECT_EQ(order->client_oid, k_client_oid);
+
+    const auto event = map_order_event(*order, table, id, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    // `pending` is an order the engine has taken but not yet placed. It is an
+    // acknowledgement either way.
+    EXPECT_EQ(event->type, OrderEventType::Accepted);
+    EXPECT_EQ(event->side, Side::Buy);
+    EXPECT_EQ(event->qty.raw, 50'000'000);
+    EXPECT_EQ(event->leaves_qty.raw, 50'000'000);
+    EXPECT_EQ(event->price.raw, 6'350'000);
+    EXPECT_EQ(event->exchange_order_id.view(), "a9625b04-fc66-4999-a876-543c3684d702");
+    // The ULID is passed IN: the UUID that came back cannot be turned back
+    // into one, and an event with an empty client id routes nowhere.
+    EXPECT_EQ(event->exchange_client_order_id.view(), k_ulid);
+}
+
+TEST(CoinbaseMap, ARejectionAndACancellationAreBothTerminalAndDifferent) {
+    const auto table = table_with_btc();
+    const auto id = *ExchangeClientOrderId::from(k_ulid);
+
+    const auto rejected_body = fixture("rest_order_rejected.json");
+    const auto rejected = parse_order(rejected_body);
+    ASSERT_TRUE(rejected.has_value());
+    EXPECT_EQ(rejected->reject_reason, "post only");
+    const auto reject_event = map_order_event(*rejected, table, id, k_ingest);
+    ASSERT_TRUE(reject_event.has_value());
+    EXPECT_EQ(reject_event->type, OrderEventType::Rejected);
+    EXPECT_EQ(reject_event->leaves_qty.raw, 0); // never reached the book
+
+    const auto canceled_body = fixture("rest_order_done_canceled.json");
+    const auto canceled = parse_order(canceled_body);
+    ASSERT_TRUE(canceled.has_value());
+    const auto cancel_event = map_order_event(*canceled, table, id, k_ingest);
+    ASSERT_TRUE(cancel_event.has_value());
+    EXPECT_EQ(cancel_event->type, OrderEventType::Canceled);
+    // 0.5 ordered, 0.2 filled: 0.3 BTC withdrawn.
+    EXPECT_EQ(cancel_event->leaves_qty.raw, 30'000'000);
+    EXPECT_EQ(cancel_event->ts_event.ns, parse_iso8601("2026-08-26T09:35:44.221000Z")->ns);
+
+    // A done/filled order is described by executions this adapter has no
+    // source for. Announcing a Filled here would book a quantity at a price
+    // nothing on this path knows.
+    const auto filled_body = fixture("rest_order_done_filled.json");
+    const auto filled = parse_order(filled_body);
+    ASSERT_TRUE(filled.has_value());
+    EXPECT_FALSE(map_order_event(*filled, table, id, k_ingest).has_value());
+    // The status REPORT still states it, because a reconciler must see it.
+    const auto report = map_open_order(*filled, table, id);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::Filled);
+    EXPECT_EQ(report->leaves.raw, 0);
+}
+
+TEST(CoinbaseMap, AMarketOrderCarriesNoPriceAndItStaysUndefined) {
+    const auto table = table_with_btc();
+    const auto body = fixture("rest_order_market.json");
+    const auto order = parse_order(body);
+    ASSERT_TRUE(order.has_value());
+    EXPECT_TRUE(order->price.empty());
+
+    const auto event =
+        map_order_event(*order, table, *ExchangeClientOrderId::from(k_ulid), k_ingest);
+    ASSERT_TRUE(event.has_value());
+    // Undefined, not zero: a zero price is a number somebody averages.
+    EXPECT_TRUE(event->price.is_undef());
+    EXPECT_EQ(event->qty.raw, 25'000'000);
+}
+
+TEST(CoinbaseMap, ASweepReportsPartialFillsAndDropsProductsNobodyLoaded) {
+    const auto table = table_with_btc();
+    const auto body = fixture("rest_orders_open.json");
+    auto storage = std::make_unique<OrderBuffer>();
+    const auto orders = parse_orders(body, *storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 2U);
+
+    const auto btc = map_open_order((*orders)[0], table, *ExchangeClientOrderId::from(k_ulid));
+    ASSERT_TRUE(btc.has_value());
+    EXPECT_EQ(btc->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(btc->qty.raw, 50'000'000);
+    EXPECT_EQ(btc->leaves.raw, 30'000'000);
+
+    // ETH-USD is a real product this table never loaded. Dropped, never
+    // invented — the sweep is account-wide and names everything we trade.
+    EXPECT_FALSE(map_open_order((*orders)[1], table, ExchangeClientOrderId{}).has_value());
+}
+
+TEST(CoinbaseErrors, AnUnauthorizedBodyIsTheWholeMessage) {
+    // Verbatim capture: every unauthenticated private call answers this.
+    const auto body = fixture("rest_error_unauthorized.json");
+    const auto message = parse_rest_error(body);
+    ASSERT_TRUE(message.has_value());
+    EXPECT_EQ(*message, "Unauthorized.");
+    EXPECT_EQ(classify_http(401), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_http(403), exec::ErrorClass::AuthFailure);
+    // A cancel naming an order Coinbase no longer has; the adapter swallows it
+    // rather than raising a CancelRejected against a closed order.
+    EXPECT_EQ(classify_http(404), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_http(429), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify_http(0), exec::ErrorClass::Connectivity);
 }
 
 } // namespace

@@ -1,8 +1,10 @@
 #pragma once
 
-// The Deribit adapter — READ ONLY.
+// The Deribit adapter: market data and live order entry.
 //
-// Market data only: order entry answers ErrorClass::Terminal, never Retryable.
+// Order entry covers every market this venue models — the inverse perpetual,
+// the inverse dated future, and the option series that share `private/buy`
+// with them. Spot is the one refusal, and it is named rather than implied.
 
 #include <raikiri/exec/venue.hpp>
 

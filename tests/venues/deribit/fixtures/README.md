@@ -4,11 +4,16 @@ Captured 2026-08-11 against **production** `www.deribit.com` (`"testnet":false`
 is visible in every REST body), unauthenticated. REST with `curl`, websocket
 with `websocat -B 400000` against `wss://www.deribit.com/ws/api/v2`.
 
-Every file is a verbatim frame or body reformatted to one line. Nothing is
-hand-written or synthesised. The only edits are noted per file below, and both
-are deletions — no number token, key or ordering was ever retyped, because the
+Every file in the public sections is a verbatim frame or body reformatted to
+one line. Nothing there is hand-written or synthesised. The only edits are
+noted per file below, and both are deletions — no number token, key or ordering was ever retyped, because the
 exact spelling of a number (`10` vs `10.0` vs `1.0e-5` vs `6.4e4`) is the thing
 several of these fixtures exist to pin.
+
+The **Private / order entry** section at the bottom is the exception, and says
+so: no credentials exist for this repository, so those bodies are constructed
+from the published specification rather than captured. Two of them are live
+error captures and are marked verbatim.
 
 ## REST — `GET /api/v2/public/...`
 
@@ -47,6 +52,35 @@ The six catalogue rows, and why each is there:
 | `ws_subscribe_ack_empty.json` | Verbatim reply to `book.BTC-DOESNOTEXIST.none.1.100ms`. `result: []` with **no error**: an unknown instrument is refused silently, which is why the adapter counts accepted-vs-requested. |
 | `ws_error_raw_unauthorized.json` | Verbatim. Asking for `ticker.BTC-PERPETUAL.raw` on an unauthenticated socket returns 13778 — and it killed the other three channels in the same batch, which is the evidence that `public/subscribe` is all-or-nothing. |
 | `ws_heartbeat_test_request.json` | Verbatim, after `public/set_heartbeat` with `interval: 10`. Must be answered with `public/test` or the socket is closed. |
+
+## Private / order entry
+
+**These are the only files here that were not captured from a live socket or
+response.** No credentials exist for this repository, so nothing authenticated
+could be recorded. Every field name, every enum value and every optional-vs-
+required decision below is taken from Deribit's published OpenAPI and AsyncAPI
+specifications (`docs.deribit.com/specifications/deribit_openapi.json` and
+`deribit_asyncapi.json`, read 2026-08-26 via the `.md` mirrors under
+`docs.deribit.com/api-reference/` and `docs.deribit.com/subscriptions/`); the
+VALUES are chosen to agree with the catalogue rows above, so an order in one of
+these files really does land on the tick and lot size `rest_get_instruments.json`
+publishes for the same instrument.
+
+Two files in this section ARE verbatim, and are marked so.
+
+| file | provenance |
+| --- | --- |
+| `rest_error_unauthorized.json` | **Verbatim.** `GET /api/v2/private/buy?...` with no credentials, 2026-08-26. Code 13009, `data.reason: "invalid_token"`. |
+| `rest_error_method_not_found.json` | **Verbatim.** `GET /api/v2/public/definitely_not_a_method`, 2026-08-26. Code **-32601** — the negative JSON-RPC space sharing one field with Deribit's positive codes. |
+| `rest_private_buy_ack.json` | Constructed. `private/buy` on `BTC-PERPETUAL`, 200 USD at 63500, resting: `order_state: "open"`, `trades: []`. |
+| `rest_private_buy_option_ack.json` | Constructed. `private/buy` on `BTC-11AUG26-64000-C`, 0.3 coin at a 0.0315 BTC premium, filled on arrival. Carries the inline trade with `liquidity: "T"` and a fee in `BTC` — the evidence that an option order is the same call and the same reply shape as a future's. |
+| `rest_open_orders.json` | Constructed. `get_open_orders_by_currency`. Three rows: a partially filled perpetual (200 ordered, 60 filled), a resting option, and one naming `BTC-DOESNOTEXIST` — **the row the mapper must drop**, because a currency-wide sweep can name series this process never loaded. |
+| `rest_order_state_ioc_cancelled.json` | Constructed. An `immediate_or_cancel` order reported `order_state: "cancelled"` with 120 of 300 filled. Deribit has **no** "expired" state, so `time_in_force` is the only witness that this is an IOC working as designed. |
+| `rest_user_trades.json` | Constructed. `get_user_trades_by_currency`, `result.trades` beside `has_more`. One maker fill with a NEGATIVE fee (`-1.4e-7`, a rebate) and one taker fill on an option (`9.0e-5`). Both fee spellings are exponent form on purpose. |
+| `rest_positions.json` | Constructed. `get_positions`. A short perpetual (`size: -200.0`, the sign IS the direction) and a long option (`size: 2.5`). |
+| `ws_user_changes_partial_fill.json` | Constructed. `user.changes.future.BTC.raw` carrying one trade AND the order it moved in the same `data` object — the pairing that makes leaves exact. |
+| `ws_user_changes_accept.json` | Constructed. `user.changes.option.BTC.raw` with an untouched resting order and an empty `trades` array. |
+| `ws_user_changes_market_price.json` | Constructed. An `untriggered` stop whose `price` is the STRING `"market_price"`, which the OpenAPI documents as a legal alternative to a number. The frame must still parse; only the price is absent. |
 
 ## Channels probed and not implemented
 

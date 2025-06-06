@@ -1,10 +1,14 @@
 #pragma once
 
-// The Coinbase adapter — READ ONLY, and the only SPOT venue in this tree.
+// The Coinbase adapter: market data and live spot order entry.
 //
-// Market data is complete against Coinbase Exchange (the former Coinbase Pro,
-// api.exchange.coinbase.com), whose public reads need no credentials at all.
-// Market data only: order entry answers ErrorClass::Terminal, never Retryable.
+// Coinbase Exchange (the former Coinbase Pro, api.exchange.coinbase.com),
+// whose public reads need no credentials at all — order entry needs three.
+//
+// SPOT is the whole of it, and that is the entity rather than a choice: this
+// one lists no perpetual, no dated future and no option, so each of those is
+// refused by name. Executions are the one thing order entry cannot observe in
+// real time, and fill_reports says so instead of answering empty.
 
 #include <raikiri/exec/venue.hpp>
 

@@ -3,6 +3,11 @@
 All captured live from production on 2026-08-10, unedited except where a file
 says otherwise. Compact single-line JSON, one frame per file.
 
+The exception is the **Private / order entry** section at the bottom: no
+credentials exist for this repository, so those bodies are constructed from the
+published OpenAPI specification rather than captured. One of them is a live
+capture and says so.
+
 REST base `https://api.exchange.coinbase.com` (Coinbase **Exchange**, the
 former Coinbase Pro — not Advanced Trade on `api.coinbase.com`). Public reads
 need no credentials.
@@ -37,3 +42,23 @@ Captured with
 | `ws_l2update.json` | A `level2_batch` delta, trimmed to a short `changes` list. |
 | `ws_l2_snapshot.json` | The `level2_batch` opening snapshot, captured 2026-08-17. **Trimmed** from 18,427 bids / 27,378 asks to the first 150 a side by splicing at the bracket boundaries; every number is still spelled the way Coinbase spelled it. The whole frame was 1,203,894 bytes, which is why this venue raises `WsConfig::max_message_bytes` from the 1 MiB default. |
 | `ws_l2update_chained.json` | The very next frame of that capture, untrimmed. Sixteen changes: five deletes, ten restatements, and a bid at 56015.12 that sits below the floor of the trimmed snapshot — the band case. |
+
+## Private / order entry
+
+Constructed from `docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/exchange-spec.yaml`
+(the `apiOrder` schema, read 2026-08-26), with values chosen to agree with
+`rest_products.json`: every price is a multiple of BTC-USD's `0.01`
+`quote_increment` and every size a multiple of its `0.00000001`
+`base_increment`, so an order in one of these files really would be accepted.
+The `client_oid` is the UUID the adapter derives from the ULID
+`01K3QW9F2H6M5N8P0R2T4V6X8Z`; see `rest.hpp` for why that is a conversion.
+
+| file | provenance |
+| --- | --- |
+| `rest_error_unauthorized.json` | **Verbatim.** `GET /orders?status=open` with no credentials, 2026-08-26. HTTP 401, and the body really is only `{"message":"Unauthorized."}` — the status line is the whole machine-readable part. |
+| `rest_order_ack.json` | Constructed. `POST /orders` answering a resting post-only limit buy: `status: "pending"`, `filled_size: "0"`. The venue returns the whole order object, which is why acceptance needs no stream. |
+| `rest_order_rejected.json` | Constructed. The same order refused by the engine: `status: "rejected"`, `reject_reason: "post only"`. |
+| `rest_orders_open.json` | Constructed. `GET /orders`. Two rows: a partially filled `BTC-USD` order (0.5 ordered, 0.2 filled), and an `ETH-USD` order — **the row the mapper must drop**, because the sweep is account-wide and names products a given process never loaded. Its `client_oid` is empty, which is what an order placed by an earlier process looks like. |
+| `rest_order_done_canceled.json` | Constructed. `status: "done"`, `done_reason: "canceled"`, with 0.2 of 0.5 filled — the remainder that a Canceled event must report as left. |
+| `rest_order_done_filled.json` | Constructed. `status: "done"`, `done_reason: "filled"`. The row a status report calls Filled and an event deliberately says nothing about, because this adapter has no source for the executions behind it. |
+| `rest_order_market.json` | Constructed. A market order, which carries **no `price` field at all** — the absence must stay undefined rather than becoming a zero. |

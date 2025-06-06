@@ -10,6 +10,7 @@
 // against the requested count rather than assumed.
 
 #include <raikiri/exec/data_client.hpp>
+#include <raikiri/net/signer.hpp>
 
 #include <array>
 #include <cstdint>
@@ -35,6 +36,26 @@ enum class WsBuildError : std::uint8_t {
 
 // Longest channel built here is book.<20-char name>.none.1.100ms.
 inline constexpr std::size_t k_max_channel_len = 64;
+
+// The private feed: user.changes.{kind}.{currency}.raw. Two choices are made
+// here and both are deliberate.
+//
+// KIND/CURRENCY rather than per-instrument, because a per-instrument
+// subscription only hears about instruments something thought to name, and a
+// liquidation on one nobody subscribed to is exactly the event reconciliation
+// exists to catch.
+//
+// CHANGES rather than the separate user.orders and user.trades, because it
+// delivers an order and the trades that moved it in ONE frame. Split across
+// two channels, a fill's remaining quantity would have to be stitched together
+// from whichever push happened to land first, and an order wrongly reported
+// with nothing left is an order the OMS stops watching.
+//
+// `raw` is refused for an unauthenticated socket (13778, verified live), which
+// is why this channel only ever goes out after public/auth succeeded.
+[[nodiscard]] std::string_view user_changes_channel(std::string_view kind,
+                                                    std::string_view currency,
+                                                    std::span<char> into) noexcept;
 
 // Writes the channel into `into` and returns a view over it. Empty for a kind
 // Deribit does not stream under these names, or a buffer too small.
@@ -65,6 +86,18 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
 
+    // private/subscribe. Identical wire shape to the public one, and legal
+    // only after this socket has authenticated.
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    private_subscribe_frame(std::span<const Subscription> subscriptions);
+
+    // public/auth with grant_type=client_signature: the secret never leaves
+    // the process, and the digest is the same timestamp/nonce/data HMAC the
+    // REST header carries with `data` left empty. Deribit remembers the token
+    // for the life of this socket, so nothing after this carries one.
+    [[nodiscard]] std::expected<Frame, WsBuildError> auth_frame(const net::Signer& signer,
+                                                                UnixNanos now);
+
     // Interval is seconds and Deribit's floor is 10.
     [[nodiscard]] Frame set_heartbeat_frame(std::uint32_t interval_s);
 
@@ -72,11 +105,16 @@ public:
     [[nodiscard]] Frame test_frame();
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError>
-    channel_frame(std::string_view method, std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError> channel_frame(
+        std::string_view scope, std::string_view method,
+        std::span<const Subscription> subscriptions);
 
     std::array<char, 2048> frame_{};
+    std::array<char, 24> nonce_{};
+    std::array<char, 192> sign_msg_{};
+    std::array<char, net::k_hex_bytes> signature_{};
     std::int64_t next_id_{1};
+    std::uint64_t nonce_counter_{0};
 };
 
 } // namespace raikiri::venues::deribit

@@ -1,5 +1,7 @@
+#include <raikiri/config/secret.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
@@ -22,6 +24,10 @@ namespace {
 // demonstrably alive rather than merely un-torn-down.
 constexpr std::uint32_t k_heartbeat_interval_s = 15;
 
+// Distinguishes the private socket's connectivity from the market-data one in
+// everything the gateway logs.
+constexpr std::uint64_t k_private_stream_id = 1;
+
 // Owned as a string: the instrument table's views outlive nothing here.
 struct OwnedSubscription {
     std::string channel;
@@ -40,7 +46,9 @@ struct VenueState {
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
+    Protocol private_protocol; // its own id sequence: two sockets, two streams
     RequestBuilder builder;
+    net::Signer signer;
 
     std::vector<OwnedSubscription> desired;
     std::unordered_map<std::uint64_t, Book> books;
@@ -50,6 +58,13 @@ struct VenueState {
     std::uint64_t channels_requested{0};
     std::uint64_t channels_accepted{0};
     std::int64_t last_error_code{0};
+
+    // Deribit rejects a signature more than 60 seconds old, so every signed
+    // request is stamped with the venue's clock rather than this host's.
+    [[nodiscard]] UnixNanos venue_now() const noexcept {
+        const auto local = static_cast<std::int64_t>(clock->wall().ns);
+        return UnixNanos{static_cast<std::uint64_t>(local + clock_offset_ns)};
+    }
 
     void add_subscription(std::string_view channel) {
         for (const auto& existing : desired) {
@@ -85,6 +100,54 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
         depth.has_value()) {
         state.sink->on_depth(*depth);
+    }
+}
+
+// What an order has left after a frame's trades. The order row beside the
+// trade is the authority; failing that, the trade states the ORDER's state
+// after itself, and "filled" is the one value that names a quantity.
+std::optional<QtyLots> leaves_for(const WireUserTrade& trade,
+                                  std::span<const WireOrder> orders,
+                                  const exec::InstrumentTable& table) {
+    for (const auto& order : orders) {
+        if (order.order_id == trade.order_id) {
+            return order_leaves(order, table);
+        }
+    }
+    return trade.state == "filled" ? std::optional{QtyLots::from_raw(0)} : std::nullopt;
+}
+
+// One user.changes frame: the orders that moved and the trades that moved
+// them. The fills go out FIRST so an order that finished in the same frame
+// reaches the OMS already accounted for, and each fill's leaves comes from the
+// order row beside it rather than from a running total this process kept.
+void handle_changes(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local OrderBuffer orders;
+    static thread_local UserTradeBuffer trades;
+    const auto wire = parse_user_changes(frame, orders, trades);
+    if (!wire.has_value()) {
+        return;
+    }
+    for (const auto& trade : wire->trades) {
+        const auto leaves = leaves_for(trade, wire->orders, state.instruments);
+        if (!leaves.has_value()) {
+            // Deliberately silent. The channel's whole design is that an order
+            // and the trades that moved it travel together, so this is a shape
+            // Deribit does not emit — and a Filled carrying a guessed leaves
+            // would either close an order still working or leave a finished
+            // one open forever.
+            continue;
+        }
+        if (const auto event = map_fill(trade, state.instruments, *leaves, received);
+            event.has_value()) {
+            state.sink->on_order_event(*event);
+        }
+    }
+    for (const auto& order : wire->orders) {
+        if (const auto event = map_order_event(order, state.instruments, received);
+            event.has_value()) {
+            state.sink->on_order_event(*event);
+        }
     }
 }
 
@@ -135,6 +198,9 @@ void handle_frame(VenueState& state,
     }
     case EventKind::Book:
         handle_book(state, frame, received);
+        break;
+    case EventKind::UserChange:
+        handle_changes(state, frame, received);
         break;
     case EventKind::Heartbeat:
         // An unanswered test_request costs the connection.
@@ -284,67 +350,6 @@ private:
     bool started_{false};
 };
 
-// Read-only by design, not by omission: the caps row still describes what
-// Deribit OFFERS, and this refusal describes what we chose to build.
-exec::VenueError read_only() noexcept {
-    return exec::VenueError::make(
-        exec::ErrorClass::Terminal, 0, "deribit is a market-data-only venue");
-}
-
-class DeribitExec final : public exec::ExecutionClient {
-public:
-    explicit DeribitExec(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
-
-    std::expected<void, exec::VenueError> start() override { return {}; }
-
-    void stop() override {}
-
-    [[nodiscard]] bool connected() const noexcept override { return false; }
-
-    void submit(const OrderCmd& cmd) noexcept override { emit(cmd, OrderEventType::Rejected); }
-
-    void cancel(const OrderCmd& cmd) noexcept override {
-        emit(cmd, OrderEventType::CancelRejected);
-    }
-
-    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
-        return std::unexpected{read_only()};
-    }
-
-    std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
-        return std::unexpected{read_only()};
-    }
-
-    std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
-        return std::unexpected{exec::not_implemented("Deribit reconciliation pulls")};
-    }
-
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::unexpected{exec::not_implemented("Deribit reconciliation pulls")};
-    }
-
-private:
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
-        OrderEvent event{};
-        event.type = type;
-        event.side = cmd.side;
-        event.instrument = cmd.instrument;
-        event.client_order_id = cmd.client_order_id;
-        event.exchange_client_order_id = cmd.exchange_client_order_id;
-        event.qty = cmd.qty;
-        event.price = cmd.price;
-        event.ts_event = state_->clock->wall();
-        event.ts_init = event.ts_event;
-        state_->sink->on_order_event(event);
-    }
-
-    std::shared_ptr<VenueState> state_;
-};
-
 std::optional<net::RestResponse> await_response(VenueState& state,
                                                 net::RestClient& rest,
                                                 const net::RestRequest& request,
@@ -379,6 +384,397 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
     state.clock_offset_ns =
         static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
+
+
+// A refusal to build a request is terminal by construction: the same command
+// built again produces the same refusal.
+exec::VenueError build_failure(BuildError err) noexcept {
+    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
+                                                               : exec::ErrorClass::Terminal,
+                                  0,
+                                  to_string(err));
+}
+
+// The private socket. Deribit authenticates the CONNECTION rather than each
+// message: public/auth once, and every private call afterwards travels without
+// a token. The subscription that matters is only legal once that succeeded,
+// which is why it is sent from the auth reply and nowhere else.
+class PrivateHandler final : public net::WsHandler {
+public:
+    explicit PrivateHandler(VenueState& state) : state_{&state} {}
+
+    void on_open() override {
+        (void)client_->send(
+            state_->private_protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
+        const auto frame = state_->private_protocol.auth_frame(state_->signer,
+                                                               state_->venue_now());
+        if (!frame.has_value() || !client_->send(frame->text)) {
+            fail();
+            return;
+        }
+        auth_id_ = frame->id;
+        authenticated_ = false;
+    }
+
+    void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        const auto event = parse_event(payload);
+        if (!event.has_value()) {
+            return;
+        }
+        if (event->kind == EventKind::Response) {
+            const auto response = parse_response(payload);
+            if (response.has_value() && response->id == auth_id_) {
+                on_auth(*response);
+                return;
+            }
+        }
+        handle_frame(*state_, *client_, payload, received);
+    }
+
+    void on_close(net::WsCloseReason) override {
+        authenticated_ = false;
+        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void attach(net::WsClient& client) noexcept { client_ = &client; }
+
+    [[nodiscard]] bool authenticated() const noexcept { return authenticated_; }
+
+private:
+    void fail() {
+        state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void on_auth(const WireResponse& response) {
+        if (response.failed()) {
+            state_->last_error_code = response.error_code;
+            fail();
+            return;
+        }
+        authenticated_ = true;
+        // One channel per (kind, currency): the whole account in four, and a
+        // fill on an instrument nothing subscribed to still arrives.
+        std::array<std::array<char, k_max_channel_len>, 4> storage{};
+        std::array<Subscription, 4> channels{};
+        std::size_t count = 0;
+        for (const auto market : {MarketType::Perp, MarketType::Option}) {
+            for (const auto currency : k_currencies) {
+                const auto channel =
+                    user_changes_channel(kind_of(market), currency, storage[count]);
+                if (channel.empty()) {
+                    fail();
+                    return;
+                }
+                channels[count] = Subscription{.channel = channel};
+                ++count;
+            }
+        }
+        const auto frame =
+            state_->private_protocol.private_subscribe_frame(std::span{channels}.first(count));
+        if (!frame.has_value() || !client_->send(frame->text)) {
+            fail();
+            return;
+        }
+        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    VenueState* state_;
+    net::WsClient* client_{nullptr};
+    std::int64_t auth_id_{0};
+    bool authenticated_{false};
+};
+
+// Live order entry.
+//
+// Order entry rides REST while the LIFECYCLE rides the private socket, and the
+// division is deliberate: the socket is the single source of every order event,
+// so a fill can never be booked twice by arriving on both. The one thing REST
+// synthesizes is a rejection, because an order the venue refused produces no
+// push at all — there is nothing for the socket to say about an order that
+// never existed.
+class DeribitExec final : public exec::ExecutionClient {
+public:
+    explicit DeribitExec(std::shared_ptr<VenueState> state)
+        : state_{std::move(state)}, handler_{*state_},
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}},
+          client_{state_->io,
+                  net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                                .port = std::string{stream_port()},
+                                .target = std::string{stream_path()}},
+                  handler_},
+          builder_{state_->signer} {
+        handler_.attach(client_);
+    }
+
+    std::expected<void, exec::VenueError> start() override {
+        if (!state_->signer.has_credentials()) {
+            // Nothing below can work, and saying so here sends an operator to
+            // the config instead of to a venue status page.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::AuthFailure, 0, "deribit: no credentials configured")};
+        }
+        rest_.start();
+        sync_clock(*state_, rest_);
+        client_.start();
+        started_ = true;
+        return {};
+    }
+
+    void stop() override {
+        client_.stop();
+        rest_.stop();
+        started_ = false;
+    }
+
+    [[nodiscard]] bool connected() const noexcept override {
+        return started_ && client_.connected() && handler_.authenticated();
+    }
+
+    void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
+
+    void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
+
+    void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
+
+    std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
+    open_order_reports(MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        std::vector<exec::OrderStatusReport> reports;
+        for (const auto currency : k_currencies) {
+            const auto request = builder_.open_orders(market, currency, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            static thread_local OrderBuffer storage;
+            const auto orders = parse_orders(*body, storage);
+            if (!orders.has_value()) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+            }
+            for (const auto& wire : *orders) {
+                auto report = map_open_order(wire, state_->instruments);
+                // kind=future answers for the perpetual AND the dated series;
+                // the instrument table is what separates the two markets.
+                if (report.has_value() && report->instrument.market() == market) {
+                    reports.push_back(*report);
+                }
+            }
+        }
+        return reports;
+    }
+
+    std::expected<exec::OrderStatusReport, exec::VenueError>
+    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        // The ULID went out as the label and comes back as one, so no local
+        // table ties the OMS's id to the venue's — but the lookup is scoped by
+        // currency and nothing in an id says which coin it was for.
+        for (const auto currency : k_currencies) {
+            const auto request = builder_.order_state_by_label(id, currency, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            static thread_local OrderBuffer storage;
+            const auto orders = parse_orders(*body, storage);
+            if (!orders.has_value()) {
+                continue;
+            }
+            for (const auto& wire : *orders) {
+                auto report = map_open_order(wire, state_->instruments);
+                if (report.has_value() && report->instrument.market() == market) {
+                    return *report;
+                }
+            }
+        }
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "deribit: label not found")};
+    }
+
+    std::expected<std::vector<exec::FillReport>, exec::VenueError>
+    fill_reports(MarketType market, UnixNanos since) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        std::vector<exec::FillReport> reports;
+        for (const auto currency : k_currencies) {
+            const auto request =
+                builder_.user_trades(market, currency, since, state_->venue_now());
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            static thread_local UserTradeBuffer storage;
+            const auto trades = parse_user_trades(*body, storage);
+            if (!trades.has_value()) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, to_string(trades.error()))};
+            }
+            for (const auto& wire : *trades) {
+                auto report = map_fill_report(wire, state_->instruments);
+                if (report.has_value() && report->instrument.market() == market) {
+                    reports.push_back(*report);
+                }
+            }
+        }
+        return reports;
+    }
+
+    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
+    position_reports(MarketType market) override {
+        if (const auto refusal = market_refusal(market); refusal.has_value()) {
+            return std::unexpected{build_failure(*refusal)};
+        }
+        const auto now = state_->venue_now();
+        std::vector<exec::PositionReport> reports;
+        for (const auto currency : k_currencies) {
+            const auto request = builder_.positions(market, currency, now);
+            if (!request.has_value()) {
+                return std::unexpected{build_failure(request.error())};
+            }
+            const auto body = fetch(*request);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            static thread_local PositionBuffer storage;
+            const auto positions = parse_positions(*body, storage);
+            if (!positions.has_value()) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+            }
+            for (const auto& wire : *positions) {
+                // Deribit stamps no time on a position row, so the read's own
+                // clock is the only honest answer to "as of when".
+                auto report = map_position(wire, state_->instruments, now);
+                if (report.has_value() && report->instrument.market() == market) {
+                    reports.push_back(*report);
+                }
+            }
+        }
+        return reports;
+    }
+
+private:
+    enum class Kind : std::uint8_t { Create, Cancel, Amend };
+
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request) {
+        const auto response = await_response(*state_, rest_, request);
+        if (!response.has_value() || response->transport_failed()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+        }
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected{exec::VenueError::make(
+                classify_http(response->status), response->status, "http error")};
+        }
+        // A JSON-RPC error rides a 200, so the envelope decides, not the
+        // status line.
+        const auto envelope = parse_response(response->body);
+        if (!envelope.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+        }
+        if (envelope->failed()) {
+            return std::unexpected{exec::VenueError::make(
+                classify(envelope->error_code), envelope->error_code, envelope->error_message)};
+        }
+        return response->body;
+    }
+
+    void fire(const OrderCmd& cmd, Kind kind) noexcept {
+        const auto now = state_->venue_now();
+        const auto request =
+            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
+                                   : builder_.amend_order(cmd, state_->instruments, now);
+        if (!request.has_value()) {
+            emit_reject(cmd, kind);
+            return;
+        }
+        if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+                on_response(std::move(response), cmd, kind);
+            })) {
+            emit_reject(cmd, kind);
+        }
+    }
+
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
+        if (response.transport_failed()) {
+            emit_reject(cmd, kind); // no verdict from the venue at all
+            return;
+        }
+        const auto envelope = parse_response(response.body);
+        const bool http_ok = response.status >= 200 && response.status < 300;
+        if (http_ok && envelope.has_value() && !envelope->failed()) {
+            // The socket announces what actually happened; announcing it here
+            // as well is how one fill becomes two. That includes a
+            // cancel_by_label that matched NOTHING — its result is a count,
+            // and a count of zero means the order was already gone, which the
+            // socket has therefore already reported as terminal.
+            return;
+        }
+        if (kind != Kind::Create && envelope.has_value() &&
+            is_settled_order_refusal(envelope->error_code)) {
+            // The order finished between the decision and the request. The
+            // venue is agreeing with a state we had not heard about yet, and a
+            // CancelRejected here would be raised against an order the FSM has
+            // already closed.
+            return;
+        }
+        emit_reject(cmd, kind);
+    }
+
+    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+        OrderEvent event{};
+        event.type = kind == Kind::Create   ? OrderEventType::Rejected
+                     : kind == Kind::Cancel ? OrderEventType::CancelRejected
+                                            : OrderEventType::ModifyRejected;
+        event.side = cmd.side;
+        event.order_type = cmd.order_type;
+        event.tif = cmd.tif;
+        event.flags = cmd.flags;
+        event.instrument = cmd.instrument;
+        event.client_order_id = cmd.client_order_id;
+        event.exchange_client_order_id = cmd.exchange_client_order_id;
+        event.qty = cmd.qty;
+        event.price = cmd.price;
+        // A create that never reached the book leaves nothing behind; a
+        // refused cancel or amend leaves the order exactly as it was.
+        event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
+        event.ts_event = state_->clock->wall();
+        event.ts_init = event.ts_event;
+        state_->sink->on_order_event(event);
+    }
+
+    std::shared_ptr<VenueState> state_;
+    PrivateHandler handler_;
+    net::RestClient rest_;
+    net::WsClient client_;
+    SignedRequestBuilder builder_;
+    bool started_{false};
+};
 
 class DeribitInstruments final : public exec::InstrumentSource {
 public:
@@ -458,6 +854,24 @@ private:
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+
+    // Deribit's client_id is the api key and its client_secret the secret; the
+    // signer holds both under the names every other adapter uses.
+    config::DefaultSecretProvider provider;
+    if (!config.api_key_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
+            config::Secret key;
+            if (provider.resolve(*ref, key).has_value()) {
+                state->signer.set_api_key(key.view());
+            }
+        }
+    }
+    if (!config.api_secret_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
+            (void)provider.resolve(*ref, state->signer.secret());
+        }
+    }
+
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Deribit);
     adapter.data = std::make_unique<DeribitData>(state);
