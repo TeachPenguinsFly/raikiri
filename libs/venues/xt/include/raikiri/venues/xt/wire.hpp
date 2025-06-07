@@ -193,4 +193,247 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage);
 // `result`, not an object.
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
+// ---------------------------------------------------------- private ----
+//
+// TWO EXCHANGES UNDER ONE BRAND, and nothing may share a reader between them.
+// Futures states an order with long names on BOTH transports (`symbol`,
+// `origQty`, `orderSide`, `state`); spot states the same order with long names
+// over REST and with TWO-LETTER names over the socket (`s`, `oq`, `sd`, `st`).
+// A reader that guessed would read a resting order's price as its quantity.
+//
+// Numbers arrive in both encodings for the same field — /order/list ships
+// `price` as a bare JSON number while the socket quotes it — so every decimal
+// below is read with detail::opt_scalar, which keeps the token either way.
+
+// One state, resolved once per record so the mapper branches on an integer.
+// PARTIALLY_CANCELED is a cancel that took volume first: the fill was already
+// reported by its own trade, so the lifecycle event is a cancel.
+enum class WireOrderStatus : std::uint8_t {
+    New,
+    PartiallyFilled,
+    Filled,
+    Cancelled,
+    Rejected,
+    Expired,
+    Unknown,
+};
+
+[[nodiscard]] WireOrderStatus order_status(std::string_view text) noexcept;
+
+// A page of orders, deals or positions. XT caps `size` at 100 per read, so a
+// buffer this size can hold several pages without ever growing.
+inline constexpr std::size_t k_max_private_records = 512;
+
+// Futures ---------------------------------------------------------------
+//
+// `positionSide` is LONG/SHORT and is NOT the direction: a SELL that closes a
+// long carries positionSide LONG. `orderSide` is the direction, and it is the
+// only field that is.
+struct WireFuturesOrder {
+    std::string_view symbol;
+    std::string_view order_id;
+    std::string_view client_order_id;
+    std::string_view price;
+    std::string_view orig_qty;     // CONTRACTS
+    std::string_view executed_qty; // CONTRACTS
+    std::string_view avg_price;
+    std::string_view order_side;    // BUY | SELL
+    std::string_view position_side; // LONG | SHORT
+    std::string_view order_type;    // LIMIT | MARKET
+    std::string_view time_in_force; // GTC | IOC | FOK | GTX
+    WireOrderStatus state{WireOrderStatus::Unknown};
+    std::uint64_t created_ms{0};
+    std::uint64_t updated_ms{0};
+};
+
+struct FuturesOrderBuffer {
+    std::array<WireFuturesOrder, k_max_private_records> orders{};
+};
+
+// The two transports disagree about liquidity and about the trade id:
+// /order/trade-list ships `execId` plus `takerMaker` as TEXT, the socket ships
+// neither the id nor that field and says `isMaker` as a BOOLEAN instead. Both
+// are read; `liquidity_known` says whether either was present, because a fill
+// whose side of the book is guessed makes a maker strategy score itself
+// against a number it invented.
+struct WireFuturesDeal {
+    std::string_view symbol;
+    std::string_view exec_id; // empty on the socket push
+    std::string_view order_id;
+    std::string_view client_order_id;
+    std::string_view price;
+    std::string_view quantity; // CONTRACTS
+    std::string_view fee;
+    std::string_view order_side; // empty on /order/trade-list
+    bool maker{false};
+    bool liquidity_known{false};
+    std::uint64_t ts_ms{0};
+};
+
+struct FuturesDealBuffer {
+    std::array<WireFuturesDeal, k_max_private_records> deals{};
+};
+
+// `positionSize` is UNSIGNED; `positionSide` is the only thing that says which
+// way a position points.
+struct WireFuturesPosition {
+    std::string_view symbol;
+    std::string_view position_side; // LONG | SHORT
+    std::string_view position_size; // CONTRACTS, unsigned
+    std::string_view entry_price;
+    std::string_view contract_type;
+};
+
+struct FuturesPositionBuffer {
+    std::array<WireFuturesPosition, k_max_private_records> positions{};
+};
+
+// `result` as an ARRAY, or as `result.items` — the paged reads wrap the list
+// in a page object and the unpaged ones do not.
+[[nodiscard]] std::expected<std::span<const WireFuturesOrder>, WireError>
+parse_futures_orders(std::string_view body, FuturesOrderBuffer& storage);
+
+// `data` on the socket push, `result` on the single-order REST read.
+[[nodiscard]] std::expected<WireFuturesOrder, WireError>
+parse_futures_order(std::string_view body);
+
+[[nodiscard]] std::expected<std::span<const WireFuturesDeal>, WireError>
+parse_futures_deals(std::string_view body, FuturesDealBuffer& storage);
+
+[[nodiscard]] std::expected<WireFuturesDeal, WireError> parse_futures_deal(std::string_view frame);
+
+[[nodiscard]] std::expected<std::span<const WireFuturesPosition>, WireError>
+parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage);
+
+// The create/cancel/amend answers, whose `result` is the venue order id — a
+// BARE STRING on futures create and cancel, an object with `orderId` on the
+// futures amend and on every spot write. Empty when the venue named none.
+[[nodiscard]] std::expected<std::string_view, WireError>
+parse_order_ack(std::string_view body);
+
+// Spot ------------------------------------------------------------------
+
+struct WireSpotOrder {
+    std::string_view symbol;
+    std::string_view order_id;
+    std::string_view client_order_id;
+    std::string_view side; // BUY | SELL
+    std::string_view type; // LIMIT | MARKET
+    std::string_view time_in_force;
+    std::string_view price;
+    std::string_view orig_qty;
+    std::string_view executed_qty;
+    std::string_view leaving_qty; // XT states leaves outright; nothing is derived
+    std::string_view avg_price;
+    std::string_view fee;
+    WireOrderStatus state{WireOrderStatus::Unknown};
+    std::uint64_t ts_ms{0};
+};
+
+struct SpotOrderBuffer {
+    std::array<WireSpotOrder, k_max_private_records> orders{};
+};
+
+// `takerMaker` is the ACCOUNT's side of the book, and on the socket push it
+// arrives as `tm`: 1 taker, 2 maker.
+struct WireSpotTrade {
+    std::string_view symbol;
+    std::string_view trade_id;
+    std::string_view order_id;
+    std::string_view side; // BUY | SELL; empty on the socket push
+    std::string_view price;
+    std::string_view quantity;
+    std::string_view fee;
+    bool maker{false};
+    bool liquidity_known{false};
+    std::uint64_t ts_ms{0};
+};
+
+struct SpotTradeBuffer {
+    std::array<WireSpotTrade, k_max_private_records> trades{};
+};
+
+// REST: `result` as an array (open-order) or `result.items` (history/trade).
+[[nodiscard]] std::expected<std::span<const WireSpotOrder>, WireError>
+parse_spot_orders(std::string_view body, SpotOrderBuffer& storage);
+
+[[nodiscard]] std::expected<WireSpotOrder, WireError> parse_spot_order(std::string_view body);
+
+[[nodiscard]] std::expected<std::span<const WireSpotTrade>, WireError>
+parse_spot_trades(std::string_view body, SpotTradeBuffer& storage);
+
+// The socket pushes, whose keys are the two-letter set.
+[[nodiscard]] std::expected<WireSpotOrder, WireError> parse_spot_order_push(std::string_view frame);
+
+[[nodiscard]] std::expected<WireSpotTrade, WireError> parse_spot_trade_push(std::string_view frame);
+
+// Spot answers {"rc":0,"mc":"SUCCESS","ma":[],"result":...}: `rc` carries one
+// bit and `mc` carries the identity of the failure, which is what decides
+// retry from halt. Fails rather than reporting success when `rc` is missing.
+inline constexpr std::int64_t k_spot_ok = 0;
+
+struct SpotEnvelope {
+    std::int64_t rc{0};
+    std::string_view mc;
+};
+
+[[nodiscard]] std::expected<SpotEnvelope, WireError> parse_spot_envelope(std::string_view body);
+
+// The spot user-stream token, `result.accessToken`, and the futures one,
+// whose `result` is the listen key STRING itself.
+[[nodiscard]] std::expected<std::string_view, WireError>
+parse_spot_ws_token(std::string_view body);
+
+[[nodiscard]] std::expected<std::string_view, WireError> parse_listen_key(std::string_view body);
+
+// /v4/public/time answers `result.serverTime` as a JSON number — an object,
+// unlike the futures clock, whose `result` is the number itself.
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_spot_server_time(std::string_view body);
+
+// A private-stream frame: {"topic":"order","event":"order@<key>","data":{...}}.
+// The topic is what decides the reader; the event repeats it with the listen
+// key glued on and carries nothing else.
+enum class PrivateTopic : std::uint8_t {
+    Order,
+    Trade,
+    Position,
+    Balance,
+    Ack,     // {"id":..,"code":0,"msg":"success"} — a subscribe XT accepted
+    Refusal, // the same shape with a non-zero code; msg names the failure
+    Unknown,
+};
+
+struct PrivateFrame {
+    PrivateTopic topic{PrivateTopic::Unknown};
+    std::int64_t code{0};  // Ack and Refusal only
+    std::string_view msg;  // Ack and Refusal only
+};
+
+[[nodiscard]] std::expected<PrivateFrame, WireError> parse_private_frame(std::string_view frame);
+
+// Spot catalogue --------------------------------------------------------
+//
+// XT states spot precision as DIGIT COUNTS, like the futures catalogue, so the
+// step is derived the same way. `state` is the text "ONLINE"; the two booleans
+// beside it are the real gate — a pair listed and priced for the web UI is not
+// necessarily open to the API.
+struct WireSpotSymbol {
+    std::string_view symbol;
+    std::string_view state; // ONLINE | OFFLINE | ...
+    std::string_view min_quote_qty; // filters[QUOTE_QTY].min; empty when absent
+    std::int64_t price_precision{-1};
+    std::int64_t qty_precision{-1};
+    bool trading_enabled{false};
+    bool openapi_enabled{false};
+};
+
+inline constexpr std::size_t k_max_spot_symbols = 4096;
+
+struct SpotSymbolBuffer {
+    std::array<WireSpotSymbol, k_max_spot_symbols> symbols{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
+parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
+
 } // namespace raikiri::venues::xt

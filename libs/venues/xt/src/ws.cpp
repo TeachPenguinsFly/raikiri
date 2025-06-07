@@ -117,4 +117,97 @@ Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return method_frame("unsubscribe", subscriptions);
 }
 
+std::string_view private_stream_host() noexcept {
+    return k_host;
+}
+
+std::string_view private_stream_path() noexcept {
+    return "/ws/user";
+}
+
+std::string_view spot_private_stream_host() noexcept {
+    return "stream.xt.com";
+}
+
+std::string_view spot_private_stream_path() noexcept {
+    return "/private";
+}
+
+std::string_view PrivateProtocol::ping_frame() noexcept {
+    return "ping";
+}
+
+std::expected<std::string_view, WsBuildError>
+PrivateProtocol::futures_subscribe(std::string_view listen_key) {
+    if (listen_key.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    constexpr std::array<std::string_view, 2> k_topics{"order", "trade"};
+    put(R"({"method":"SUBSCRIBE","params":[)");
+    for (std::size_t i = 0; i < k_topics.size(); ++i) {
+        if (i != 0) {
+            put(",");
+        }
+        put("\"");
+        put(k_topics[i]);
+        put("@");
+        put(listen_key);
+        put("\"");
+    }
+    put(R"(],"id":")");
+    std::array<char, 24> id{};
+    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_);
+        ec == std::errc{}) {
+        put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
+    }
+    put(R"("})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    ++next_id_;
+    return std::string_view{frame_.data(), len};
+}
+
+std::expected<std::string_view, WsBuildError>
+PrivateProtocol::spot_subscribe(std::string_view access_token) {
+    if (access_token.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    // The topics carry NO key suffix here; the key rides beside them.
+    put(R"({"method":"subscribe","params":["order","trade"],"listenKey":")");
+    put(access_token);
+    put(R"(","id":")");
+    std::array<char, 24> id{};
+    if (const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_);
+        ec == std::errc{}) {
+        put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
+    }
+    put(R"("})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    ++next_id_;
+    return std::string_view{frame_.data(), len};
+}
+
 } // namespace raikiri::venues::xt

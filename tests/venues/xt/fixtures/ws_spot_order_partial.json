@@ -1,0 +1,1 @@
+{"topic":"order","event":"order","data":{"s":"btc_usdt","bc":"btc","qc":"usdt","t":1656043204763,"ct":1656043204663,"i":"6216559590087220004","ci":"02WP8qFtGJTkHk10j5u4aZ","st":"PARTIALLY_FILLED","sd":"BUY","tp":"LIMIT","oq":"4","oqq":48000,"eq":"2","lq":"2","p":"4000","ap":"3000","f":"0.002"}}

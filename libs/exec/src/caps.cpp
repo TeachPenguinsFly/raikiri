@@ -125,13 +125,21 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .perp = true,
         .ws_order_entry = false,
         .fix_order_entry = false,
-        .cancel_by_client_order_id = true, // VERIFIED: query+cancel by clientOrderId
+        // Spot cancels by path id and futures has no single by-client-id
+        // cancel — only a comma-separated batch. False is the honest reading.
+        .cancel_by_client_order_id = false, // VERIFIED: query+cancel by clientOrderId
         .batch_cancel = true,              // VERIFIED: batch-cancel endpoints exist
-        .amend_order = false,
-        .native_post_only = false, // provisional
+        .amend_order = true,
+        .native_post_only = true, // provisional
         .book_checksum = false,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::ListenKey,
-        .max_client_order_id_len = 32, // provisional
+        // XT's field is 4..22 chars, so a 26-char ULID does not fit as text.
+        // The adapter re-encodes its 128 bits as 22 base62 characters, a
+        // bijection — so 26 is what travels end to end, and 22 would refuse
+        // the adapter at registration for a limit the codec already clears.
+        .max_client_order_id_len = 26, // provisional
         .headline_order_rate_per_s = 10,
     };
     table[static_cast<std::size_t>(VenueId::Mexc)] = {
@@ -177,6 +185,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64, // `label`
         .headline_order_rate_per_s = 20,
@@ -205,18 +215,25 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .native_post_only = true,
         .user_stream = UserStreamModel::AuthSubscribe,
-        .max_client_order_id_len = 36, // UUID
+        // UUIDv4 and ONLY a UUIDv4: anything else is accepted by REST and
+        // then silently never processed. The ULID is converted, not sent.
+        .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 30,
     };
     table[static_cast<std::size_t>(VenueId::Kraken)] = {
         .venue = VenueId::Kraken,
-        .spot = true,
+        // FUTURES ONLY. Kraken's spot exchange is another host, another
+        // symbology and another signature; leaving this true lets a config
+        // enable spot and then fail one call at a time instead of at load.
+        .spot = false,
         .perp = true, // Kraken Futures, a separate API surface
         .ws_order_entry = true,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 100, // `cliOrdId`
         .headline_order_rate_per_s = 20,
@@ -230,6 +247,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36, // clOrdID
         .headline_order_rate_per_s = 10,
@@ -272,10 +291,13 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .spot = true,
         .perp = true,
         .ws_order_entry = true,
-        .cancel_by_client_order_id = true,
+        // Cancel-by-cid needs cid_date, which OrderCmd does not carry.
+        .cancel_by_client_order_id = false,
         .batch_cancel = true,
         .amend_order = true,
         .native_post_only = true,
+        .position_pull = true,
+        .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 10,

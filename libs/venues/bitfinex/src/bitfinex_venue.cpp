@@ -1,3 +1,4 @@
+#include <raikiri/config/secret.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -6,9 +7,11 @@
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
+#include <raikiri/venues/bitfinex/sign.hpp>
 #include <raikiri/venues/bitfinex/ws.hpp>
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -24,6 +27,13 @@ namespace {
 // carrying subscriptions is never silent. This covers the window before the
 // first one binds.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
+
+// Live orders tracked for their leaves and our own id. Far above any sane
+// working set; the cap exists so a venue incident cannot turn the map into the
+// heap.
+constexpr std::size_t k_max_live_orders = 8'192;
+
+constexpr std::uint32_t k_private_stream_id = 1;
 
 // A subscription the gateway asked for. The symbol is OWNED, not viewed: the
 // instrument table's views outlive nothing in particular, and an ack's buffer
@@ -71,6 +81,57 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
     std::uint64_t unbound_frames{0};
+
+    config::Secret api_secret;
+    std::string api_key;
+
+    // The execution client's per-tick work, registered here because
+    // ExecutionClient has no poll hook of its own.
+    std::function<void(UnixNanos)> private_poll;
+
+    // As much of a live order as Bitfinex states in any one frame. The
+    // execution rows carry no client order id at all, so a fill can only be
+    // attributed out of this. Keyed by the venue order id, the one field every
+    // private frame does carry.
+    std::unordered_map<std::string, OrderContext> live_orders;
+
+    // Our own id against the `cid` we derived from it. The derivation is one
+    // way — 128 bits do not fit in a day-scoped integer — so this map is the
+    // only route back, and it is what lets an order Bitfinex echoes before the
+    // REST answer lands still name the ULID that placed it.
+    std::unordered_map<std::int64_t, ExchangeClientOrderId> by_cid;
+
+    void remember(std::string_view order_id, const OrderContext& context) {
+        if (order_id.empty()) {
+            return;
+        }
+        auto key = std::string{order_id};
+        if (live_orders.size() >= k_max_live_orders && !live_orders.contains(key)) {
+            return; // a runaway order count must not become a runaway heap
+        }
+        live_orders[std::move(key)] = context;
+    }
+
+    [[nodiscard]] OrderContext context_for(std::string_view order_id) const {
+        const auto it = live_orders.find(std::string{order_id});
+        return it == live_orders.end() ? OrderContext{} : it->second;
+    }
+
+    void remember_cid(std::int64_t cid, const ExchangeClientOrderId& id) {
+        if (by_cid.size() >= k_max_live_orders && !by_cid.contains(cid)) {
+            return;
+        }
+        by_cid[cid] = id;
+    }
+
+    [[nodiscard]] ExchangeClientOrderId client_id_for(const WireOrder& order) const {
+        const auto memo = context_for(order.id);
+        if (!memo.client_order_id.empty()) {
+            return memo.client_order_id;
+        }
+        const auto it = by_cid.find(order.cid);
+        return it == by_cid.end() ? ExchangeClientOrderId{} : it->second;
+    }
 
     [[nodiscard]] std::span<const OwnedSubscription> subscriptions() const noexcept {
         return {desired.data(), desired_count};
@@ -267,6 +328,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case FrameKind::Auth:
+        // The public socket never authenticates; the execution client's does,
+        // and it reads this frame on its own handler.
+        break;
     case FrameKind::Heartbeat:
     case FrameKind::Unsubscribed:
     case FrameKind::Pong:
@@ -380,6 +445,12 @@ public:
             (void)client_.send(Protocol::ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
+        // The execution client's authenticated socket rides this timer too:
+        // ExecutionClient has no poll hook, and a socket with no public
+        // subscriptions receives no heartbeat to answer.
+        if (state_->private_poll) {
+            state_->private_poll(now);
+        }
     }
 
 private:
@@ -389,69 +460,392 @@ private:
     bool started_{false};
 };
 
-// Order entry is not implemented. Every path refuses with a terminal event so
-// an order can never sit open in the store waiting for a verdict that no code
-// will ever produce.
-class BitfinexExec final : public exec::ExecutionClient {
-public:
-    explicit BitfinexExec(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
+// Every market this adapter can act on, named exhaustively so Option is a case
+// the compiler forces a decision about rather than something a default arm
+// swallows. Answered BEFORE the instrument table is read: the table compares
+// the WHOLE id, so an id for a market that was never loaded resolves to nothing
+// and would otherwise be reported as an unknown instrument — blaming a stale
+// catalogue for a market this adapter simply does not serve.
+std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
+    switch (market) {
+    case MarketType::Spot:
+    case MarketType::Perp:
+        return std::nullopt;
+    case MarketType::Future:
+        return exec::not_implemented("bitfinex dated futures order entry");
+    case MarketType::Option:
+        return exec::not_implemented("bitfinex options order entry");
+    }
+    return exec::not_implemented("bitfinex: unknown market");
+}
 
-    std::expected<void, exec::VenueError> start() override { return {}; }
+// A refusal to build is terminal by construction: the same command built again
+// produces the same refusal. Missing credentials are the one exception worth
+// separating — that sends an operator to the config rather than to Bitfinex's
+// status page.
+exec::VenueError build_failure(BuildError err) noexcept {
+    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
+                                                                : exec::ErrorClass::Terminal,
+                                  0,
+                                  to_string(err));
+}
 
-    void stop() override {}
+// `["error",10100,"apikey: invalid"]` — an array, like everything else here,
+// so an error body and a data body are told apart by their first element.
+std::optional<exec::VenueError> rest_error(std::string_view body) {
+    if (!is_rest_error(body)) {
+        return std::nullopt;
+    }
+    const auto err = parse_rest_error(body);
+    if (!err.has_value()) {
+        return exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(err.error()));
+    }
+    return exec::VenueError::make(classify(err->code), err->code, err->msg);
+}
 
-    [[nodiscard]] bool connected() const noexcept override { return false; }
-
-    void submit(const OrderCmd& cmd) noexcept override { emit(cmd, OrderEventType::Rejected); }
-
-    void cancel(const OrderCmd& cmd) noexcept override {
-        // CancelRejected, not Rejected: the order this targets is still alive.
-        emit(cmd, OrderEventType::CancelRejected);
+// Routes one authenticated frame. Everything private rides CHANNEL 0 and is
+// told apart by its tag; a tag with no channel in GatewaySink is dropped rather
+// than parsed, which is what keeps the wallet and funding streams free.
+void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) noexcept {
+    const auto info = parse_frame(frame);
+    if (!info.has_value()) {
+        return;
+    }
+    if (info->kind == FrameKind::Auth) {
+        const auto ack = parse_auth_ack(frame);
+        const bool ok = ack.has_value() && ack->ok;
+        if (!ok && ack.has_value()) {
+            state.last_error_code = ack->code;
+        }
+        state.sink->on_connectivity(
+            {.state = ok ? exec::ConnState::Connected : exec::ConnState::AuthFailed,
+             .stream_id = k_private_stream_id,
+             .ts = state.clock->wall()});
+        return;
+    }
+    if (info->kind != FrameKind::Data || info->chan_id != 0) {
+        return;
     }
 
+    const auto remember = [&state](const WireOrder& order) {
+        const auto client_id = state.client_id_for(order);
+        auto context = OrderContext{.client_order_id = client_id, .leaves = QtyLots::from_raw(0)};
+        if (const auto report = map_open_order(order, state.instruments); report.has_value()) {
+            context.leaves = report->leaves;
+        }
+        state.remember(order.id, context);
+        return client_id;
+    };
+
+    if (info->tag == "on" || info->tag == "ou" || info->tag == "oc") {
+        const auto wire = parse_order(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        // Remembered BEFORE the event is emitted: an execution for the same
+        // order may already be queued behind this frame, and it can state
+        // neither whose it is nor what is left out of anything else.
+        const auto client_id = remember(*wire);
+        if (const auto event =
+                map_order_event(*wire, state.instruments, client_id, received);
+            event.has_value()) {
+            state.sink->on_order_event(*event);
+        }
+        return;
+    }
+    if (info->tag == "os") {
+        static thread_local OrderBuffer storage;
+        const auto orders = parse_orders(frame, storage);
+        if (!orders.has_value()) {
+            return;
+        }
+        // A snapshot is not a transition. It seeds the memo so the fills that
+        // follow can name their order, and the reconciler asks for the state
+        // through open_order_reports().
+        for (const auto& wire : *orders) {
+            (void)remember(wire);
+        }
+        return;
+    }
+    if (info->tag == "tu") {
+        // `te` and `tu` are the SAME fill twice — `te` arrives first with the
+        // fee still null and `tu` restates it once the fee is known. Only one
+        // may reach the sink or every fill is counted twice, and `tu` is the
+        // one that carries the fee.
+        const auto wire = parse_execution(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto event = map_execution(
+                *wire, state.instruments, state.context_for(wire->order_id), received);
+            event.has_value()) {
+            state.sink->on_order_event(*event);
+        }
+        return;
+    }
+    // Three tags are deliberately silent. `te` is the fill `tu` restates.
+    // `ps`/`pn`/`pu`/`pc` carry positions GatewaySink has no channel for, and
+    // the reconciler pulls those over REST. `n` is the verdict on a WRITE, and
+    // every write this adapter sends goes over REST and reads its own answer —
+    // a socket `n` would be a verdict on an order nothing here placed.
+}
+
+class PrivateHandler final : public net::WsHandler {
+public:
+    explicit PrivateHandler(VenueState& state) : state_{&state} {}
+
+    void on_open() override {
+        std::array<char, 512> buffer{};
+        const auto frame = ws_auth_frame(
+            state_->api_key, state_->api_secret.view(), nonces_.next(state_->clock->wall().ns),
+            buffer);
+        if (frame.empty() || client_ == nullptr || !client_->send(frame)) {
+            state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
+                                           .stream_id = k_private_stream_id,
+                                           .ts = state_->clock->wall()});
+            return;
+        }
+        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        handle_private_frame(*state_, payload, received);
+    }
+
+    void on_close(net::WsCloseReason) override {
+        state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
+                                       .stream_id = k_private_stream_id,
+                                       .ts = state_->clock->wall()});
+    }
+
+    void attach(net::WsClient& client) noexcept { client_ = &client; }
+
+private:
+    VenueState* state_;
+    net::WsClient* client_{nullptr};
+    NonceSource nonces_;
+};
+
+struct PrivateStream {
+    explicit PrivateStream(VenueState& state)
+        : handler{state}, client{state.io,
+                                 net::WsConfig{.host = std::string{stream_host()},
+                                               .port = std::string{stream_port()},
+                                               .target = std::string{stream_path()}},
+                                 handler} {
+        handler.attach(client);
+    }
+
+    PrivateHandler handler;
+    net::WsClient client;
+};
+
+// Order entry over REST, with the lifecycle arriving on the authenticated
+// socket. REST is the transport because every write here answers with the
+// notification that says whether it took — Bitfinex ANSWERS HTTP 200 TO A
+// REFUSED ORDER, and that array's STATUS field is the only verdict there is.
+// The websocket accepts the same writes at lower latency and is the obvious
+// next step; it answers on the same `n` frames, so the reader below already
+// handles what it would produce.
+class BitfinexExec final : public exec::ExecutionClient {
+public:
+    BitfinexExec(std::shared_ptr<VenueState> state, bool spot, bool perp);
+
+    ~BitfinexExec() override { state_->private_poll = nullptr; }
+
+    std::expected<void, exec::VenueError> start() override;
+
+    void stop() override;
+
+    [[nodiscard]] bool connected() const noexcept override;
+
+    void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
+
+    void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
+
+    void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
+
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
-    open_order_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
+    open_order_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.open_orders(market, state_->clock->wall());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local OrderBuffer storage;
+        const auto orders = parse_orders(*body, storage);
+        if (!orders.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
+        }
+        std::vector<exec::OrderStatusReport> reports;
+        reports.reserve(orders->size());
+        for (const auto& wire : *orders) {
+            auto report = map_open_order(wire, state_->instruments);
+            if (!report.has_value()) {
+                continue;
+            }
+            // /auth/r/orders is ACCOUNT-WIDE and names no market, so the sweep
+            // for one market must drop the other's rows rather than report
+            // them as belonging to the market that was asked for.
+            if (report->instrument.market() != market) {
+                continue;
+            }
+            report->exchange_client_order_id = state_->client_id_for(wire);
+            state_->remember(wire.id,
+                             {.client_order_id = report->exchange_client_order_id,
+                              .leaves = report->leaves});
+            reports.push_back(*report);
+        }
+        return reports;
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
-    query_order(const ExchangeClientOrderId&, MarketType) override {
-        return std::unexpected{unimplemented()};
+    query_order(const ExchangeClientOrderId& id, MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        // Bitfinex publishes no read keyed by a client id, and its `cid` is a
+        // derived integer this adapter cannot invert, so the open-order sweep
+        // is what answers this question at all.
+        const auto reports = open_order_reports(market);
+        if (!reports.has_value()) {
+            return std::unexpected{reports.error()};
+        }
+        for (const auto& report : *reports) {
+            if (report.exchange_client_order_id.view() == id.view()) {
+                return report;
+            }
+        }
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType, UnixNanos) override {
-        return std::unexpected{unimplemented()};
+    fill_reports(MarketType market, UnixNanos since) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.my_trades(market, since, state_->clock->wall());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local ExecutionBuffer storage;
+        const auto fills = parse_executions(*body, storage);
+        if (!fills.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(fills.error()))};
+        }
+        std::vector<exec::FillReport> reports;
+        reports.reserve(fills->size());
+        for (const auto& wire : *fills) {
+            const auto event = map_execution(
+                wire, state_->instruments, state_->context_for(wire.order_id), UnixNanos{});
+            if (!event.has_value() || event->instrument.market() != market) {
+                continue;
+            }
+            reports.push_back({.exec_id = event->exec_id,
+                               .exchange_order_id = event->exchange_order_id,
+                               .exchange_client_order_id = event->exchange_client_order_id,
+                               .instrument = event->instrument,
+                               .side = event->side,
+                               .price = event->price,
+                               .qty = event->qty,
+                               .fee = event->fee,
+                               .liquidity = event->liquidity,
+                               .ts_venue = event->ts_event});
+        }
+        return reports;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::unexpected{unimplemented()};
+    position_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // A spot balance is not a position. Answering "flat" would be a
+            // claim about a concept this API does not have.
+            return std::unexpected{exec::not_implemented("bitfinex spot position pull")};
+        }
+        const auto request = builder_.positions(market, state_->clock->wall());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local PositionBuffer storage;
+        const auto positions = parse_positions(*body, storage);
+        if (!positions.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+        }
+        std::vector<exec::PositionReport> reports;
+        reports.reserve(positions->size());
+        for (const auto& wire : *positions) {
+            if (auto report = map_position(wire, state_->instruments); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
     }
 
 private:
-    static exec::VenueError unimplemented() noexcept {
-        return exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, "bitfinex order entry not implemented");
-    }
+    enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request);
+
+    void fire(const OrderCmd& cmd, Kind kind) noexcept;
+
+    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind);
+
+    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
         OrderEvent event{};
-        event.type = type;
+        event.type = kind == Kind::Create   ? OrderEventType::Rejected
+                     : kind == Kind::Cancel ? OrderEventType::CancelRejected
+                                            : OrderEventType::ModifyRejected;
         event.side = cmd.side;
         event.order_type = cmd.order_type;
         event.tif = cmd.tif;
+        event.flags = cmd.flags;
         event.instrument = cmd.instrument;
         event.client_order_id = cmd.client_order_id;
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
+        // A create that never reached the book leaves nothing behind; a refused
+        // cancel or amend leaves the order exactly as it was.
+        event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
         state_->sink->on_order_event(event);
     }
 
+    void poll_private(UnixNanos now) noexcept;
+
     std::shared_ptr<VenueState> state_;
+    std::unique_ptr<PrivateStream> stream_;
+    net::RestClient rest_;
+    SignedRequestBuilder builder_;
+    NonceSource nonces_;
+    std::uint64_t next_ping_ns_{0};
+    bool spot_{false};
+    bool perp_{false};
+    bool started_{false};
 };
 
 std::optional<net::RestResponse> await_response(VenueState& state,
@@ -470,6 +864,115 @@ std::optional<net::RestResponse> await_response(VenueState& state,
         }
     }
     return result;
+}
+
+BitfinexExec::BitfinexExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    : state_{std::move(state)},
+      rest_{state_->io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
+      builder_{state_->api_key, state_->api_secret}, spot_{spot}, perp_{perp} {}
+
+std::expected<void, exec::VenueError> BitfinexExec::start() {
+    rest_.start();
+    // The socket only carries a lifecycle once it is authenticated, and it
+    // cannot authenticate without credentials — so an unconfigured venue keeps
+    // its REST pool and reports itself unconnected rather than opening a socket
+    // that will be refused on every reconnect.
+    if (!state_->api_key.empty() && !state_->api_secret.empty()) {
+        stream_ = std::make_unique<PrivateStream>(*state_);
+        stream_->client.start();
+    }
+    state_->private_poll = [this](UnixNanos now) { poll_private(now); };
+    started_ = true;
+    return {};
+}
+
+void BitfinexExec::stop() {
+    state_->private_poll = nullptr;
+    if (stream_) {
+        stream_->client.stop();
+    }
+    rest_.stop();
+    started_ = false;
+}
+
+bool BitfinexExec::connected() const noexcept {
+    return started_ && stream_ != nullptr && stream_->client.connected() && (spot_ || perp_);
+}
+
+std::expected<std::string, exec::VenueError>
+BitfinexExec::fetch(const net::RestRequest& request) {
+    const auto response = await_response(*state_, rest_, request);
+    if (!response.has_value() || response->transport_failed()) {
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
+    }
+    if (const auto failed = rest_error(response->body); failed.has_value()) {
+        return std::unexpected{*failed};
+    }
+    if (response->status < 200 || response->status >= 300) {
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, response->status, "http error")};
+    }
+    return response->body;
+}
+
+void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
+    const auto now = state_->clock->wall();
+    const auto request = kind == Kind::Create
+                             ? builder_.create_order(cmd, state_->instruments, now)
+                         : kind == Kind::Cancel
+                             ? builder_.cancel_order(cmd, state_->instruments, now)
+                             : builder_.amend_order(cmd, state_->instruments, now);
+    if (!request.has_value()) {
+        emit_reject(cmd, kind);
+        return;
+    }
+    if (kind == Kind::Create) {
+        // Recorded before the request goes out: an `on` push can beat the REST
+        // answer, and without the cid mapping it would arrive unattributable.
+        if (const auto cid = cid_from(cmd.exchange_client_order_id); cid.has_value()) {
+            state_->remember_cid(*cid, cmd.exchange_client_order_id);
+        }
+    }
+    if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+            on_response(std::move(response), cmd, kind);
+        })) {
+        emit_reject(cmd, kind);
+    }
+}
+
+void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
+    if (response.transport_failed()) {
+        emit_reject(cmd, kind); // no verdict from the venue at all
+        return;
+    }
+    // BITFINEX ANSWERS HTTP 200 TO A REFUSED ORDER. The notification's STATUS
+    // is the verdict, and an adapter that read the status code instead would
+    // report every rejection as an acceptance and leave the order open forever.
+    const auto notification = parse_notification(response.body);
+    if (!notification.has_value() || !notification_ok(*notification)) {
+        emit_reject(cmd, kind);
+        return;
+    }
+    if (kind == Kind::Create && notification->has_order) {
+        // The ack carries the order itself. Seeding the memo here is what lets
+        // a fill that overtakes the socket's `on` push still state its leaves.
+        state_->remember(notification->order.id,
+                         {.client_order_id = cmd.exchange_client_order_id, .leaves = cmd.qty});
+    }
+    // The socket's push carries the lifecycle.
+}
+
+void BitfinexExec::poll_private(UnixNanos now) noexcept {
+    if (stream_ == nullptr || now.ns < next_ping_ns_) {
+        return;
+    }
+    // An authenticated socket with no public subscriptions receives no
+    // heartbeat at all, so it has to speak first to stay open.
+    if (stream_->client.connected()) {
+        (void)stream_->client.send(Protocol::ping_frame());
+    }
+    next_ping_ns_ = now.ns + k_app_ping_interval_ns;
 }
 
 class BitfinexInstruments final : public exec::InstrumentSource {
@@ -561,12 +1064,30 @@ private:
     net::RestClient rest_;
 };
 
-exec::VenueAdapter make(const exec::VenueConfig&, exec::GatewaySink& sink, const Clock& clock) {
+exec::VenueAdapter
+make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
+
+    config::DefaultSecretProvider provider;
+    if (!config.api_key_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
+            config::Secret key;
+            if (provider.resolve(*ref, key).has_value()) {
+                state->api_key.assign(key.view());
+            }
+        }
+    }
+    if (!config.api_secret_env.empty()) {
+        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
+            (void)provider.resolve(*ref, state->api_secret);
+        }
+    }
+
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Bitfinex);
     adapter.data = std::make_unique<BitfinexData>(state);
-    adapter.execution = std::make_unique<BitfinexExec>(state);
+    adapter.execution =
+        std::make_unique<BitfinexExec>(state, config.enable_spot, config.enable_perp);
     adapter.instruments = std::make_unique<BitfinexInstruments>(state);
     return adapter;
 }

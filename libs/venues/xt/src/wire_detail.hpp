@@ -26,4 +26,21 @@ using namespace raikiri::wire;
 // exactly a run of digits yields 0.
 [[nodiscard]] std::expected<std::uint64_t, WireError> req_digits(ondemand::object& obj,
                                                                  std::string_view key);
+
+// Reads any scalar as a view over the caller's buffer: a number keeps its
+// token, a string loses its quotes, JSON null reads as empty. The private
+// tree needs both encodings for the SAME field — the socket quotes `price`
+// while /order/list ships it as a bare number — so one reader covers them.
+[[nodiscard]] std::expected<std::string_view, WireError> scalar_of(ondemand::value value);
+
+[[nodiscard]] std::expected<std::string_view, WireError> opt_scalar(ondemand::object& obj,
+                                                                    std::string_view key);
+
+// Signed, with a caller-chosen absent value: the private DTOs use negative
+// sentinels where a field may legitimately be missing.
+[[nodiscard]] std::expected<std::int64_t, WireError>
+opt_i64(ondemand::object& obj, std::string_view key, std::int64_t fallback);
+
+[[nodiscard]] std::expected<bool, WireError>
+opt_bool_or(ondemand::object& obj, std::string_view key, bool fallback);
 } // namespace raikiri::venues::xt::detail

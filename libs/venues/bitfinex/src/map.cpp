@@ -190,6 +190,56 @@ SignedToken split_sign(std::string_view text) noexcept {
     return out;
 }
 
+// Ids are FixedString and an oversize one is refused rather than truncated: a
+// truncated venue order id names a different order.
+bool copy_id(std::string_view text, ExchangeOrderId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExchangeOrderId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+bool copy_exec_id(std::string_view text, ExecId& out) {
+    if (text.empty()) {
+        return true;
+    }
+    const auto id = ExecId::from(text);
+    if (!id.has_value()) {
+        return false;
+    }
+    out = *id;
+    return true;
+}
+
+// Fees are neither a price nor a size, so they truncate at 1e-9 where those
+// refuse: dropping a whole fill over a rounding in the eleventh decimal place
+// would lose the fill, and the fee is the only field that can afford it.
+//
+// A Bitfinex fee is NEGATIVE when charged and positive when rebated, which is
+// the opposite of every other venue here, so the sign is flipped once — a
+// charge is a cost.
+FixedE9 fee_e9(std::string_view text) noexcept {
+    const auto value = to_rate_e9(text);
+    return value.has_value() ? FixedE9::from_raw(-value->raw) : FixedE9::from_raw(0);
+}
+
+const InstrumentBase* base_for(std::string_view symbol, const exec::InstrumentTable& table) {
+    const auto* instrument = table.find(symbol);
+    return instrument == nullptr ? nullptr : &base_of(*instrument);
+}
+
+// AMOUNT_ORIG, never AMOUNT. A fully executed order carries AMOUNT 0, and zero
+// has no sign — a reader taking the side from the remaining amount reports
+// every completed sale as a buy.
+Side side_of(std::string_view amount_orig) noexcept {
+    return split_sign(amount_orig).negative ? Side::Sell : Side::Buy;
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -335,6 +385,191 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
         return SpotInstrument{base};
     }
     return PerpInstrument{base, k_funding_interval_s};
+}
+
+std::optional<OrderEvent> map_order_event(const WireOrder& wire,
+                                          const exec::InstrumentTable& table,
+                                          const ExchangeClientOrderId& client_id,
+                                          UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    OrderEventType type{};
+    switch (wire.status) {
+    case WireOrderStatus::Active:
+        type = OrderEventType::Accepted;
+        break;
+    case WireOrderStatus::Canceled:
+        type = OrderEventType::Canceled;
+        break;
+    case WireOrderStatus::Rejected:
+        type = OrderEventType::Rejected;
+        break;
+    case WireOrderStatus::PartiallyFilled:
+    case WireOrderStatus::Executed:
+        // The `te`/`tu` execution is what reports a fill; restating it from
+        // the order record would count the same volume twice.
+        return std::nullopt;
+    case WireOrderStatus::Unknown:
+        return std::nullopt;
+    }
+
+    const auto ordered = split_sign(wire.amount_orig);
+    const auto qty = to_lots(ordered.magnitude, *base);
+    if (!qty.has_value() || qty->raw <= 0) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = type;
+    out.instrument = base->id;
+    out.side = side_of(wire.amount_orig);
+    out.order_type = wire.type.ends_with("MARKET") ? OrderType::Market : OrderType::Limit;
+    if ((wire.flags & k_flag_post_only) != 0) {
+        out.flags = OrderFlags::PostOnly;
+    }
+    out.exchange_client_order_id = client_id;
+    if (!copy_id(wire.id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, *base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = *qty;
+    // Nothing rests after a cancel or a rejection, whatever AMOUNT still says.
+    out.leaves_qty = QtyLots::from_raw(0);
+    if (type == OrderEventType::Accepted) {
+        const auto left = to_lots(split_sign(wire.amount).magnitude, *base);
+        out.leaves_qty = left.has_value() ? *left : *qty;
+    }
+    out.ts_event = ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
+                                                      const exec::InstrumentTable& table) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto qty = to_lots(split_sign(wire.amount_orig).magnitude, *base);
+    const auto left = to_lots(split_sign(wire.amount).magnitude, *base);
+    if (!qty.has_value() || qty->raw <= 0 || !left.has_value()) {
+        return std::nullopt;
+    }
+
+    exec::OrderStatusReport out{};
+    out.instrument = base->id;
+    out.side = side_of(wire.amount_orig);
+    out.exchange_client_order_id = {};
+    if (!copy_id(wire.id, out.exchange_order_id)) {
+        return std::nullopt;
+    }
+    if (const auto price = to_ticks(wire.price, *base); price.has_value()) {
+        out.price = *price;
+    }
+    out.qty = *qty;
+    out.leaves = *left;
+    switch (wire.status) {
+    case WireOrderStatus::Active:
+        out.status = left->raw < qty->raw ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
+        break;
+    case WireOrderStatus::PartiallyFilled:
+        out.status = OrderStatus::PartiallyFilled;
+        break;
+    case WireOrderStatus::Executed:
+        out.status = OrderStatus::Filled;
+        out.leaves = QtyLots::from_raw(0);
+        break;
+    case WireOrderStatus::Canceled:
+        out.status = OrderStatus::Canceled;
+        out.leaves = QtyLots::from_raw(0);
+        break;
+    case WireOrderStatus::Rejected:
+        out.status = OrderStatus::Rejected;
+        out.leaves = QtyLots::from_raw(0);
+        break;
+    case WireOrderStatus::Unknown:
+        return std::nullopt;
+    }
+    out.ts_venue = ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create,
+                              UnixNanos{0});
+    return out;
+}
+
+std::optional<OrderEvent> map_execution(const WireExecution& wire,
+                                        const exec::InstrumentTable& table,
+                                        const OrderContext& context,
+                                        UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    // EXEC_AMOUNT is signed and the sign is OUR side here — not the
+    // aggressor's, the way it is on the public trades channel.
+    const auto executed = split_sign(wire.amount);
+    const auto qty = to_lots(executed.magnitude, *base);
+    const auto price = to_ticks(wire.price, *base);
+    if (!qty.has_value() || qty->raw <= 0 || !price.has_value()) {
+        return std::nullopt;
+    }
+
+    OrderEvent out{};
+    out.type = OrderEventType::Filled;
+    out.instrument = base->id;
+    out.side = executed.negative ? Side::Sell : Side::Buy;
+    out.exchange_client_order_id = context.client_order_id;
+    if (!copy_id(wire.order_id, out.exchange_order_id) ||
+        !copy_exec_id(wire.id, out.exec_id)) {
+        return std::nullopt;
+    }
+    out.price = *price;
+    out.qty = *qty;
+    out.leaves_qty = context.leaves;
+    out.fee = fee_e9(wire.fee);
+    // MAKER is 1 or -1; a fill whose liquidity Bitfinex did not state stays
+    // Unknown rather than being guessed into a maker strategy's scorecard.
+    out.liquidity = wire.liquidity_known ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
+                                         : Liquidity::Unknown;
+    out.ts_event = ms_to_unix(wire.mts, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                 const exec::InstrumentTable& table) {
+    if (wire.status != "ACTIVE") {
+        return std::nullopt;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    // Bitfinex also keeps MARGIN positions on spot pairs, and this adapter
+    // opens none — every spot order it sends is an EXCHANGE order. Reporting
+    // one against a Spot instrument id would claim a position on a market that
+    // has no such concept here, so the row is left to whoever opened it.
+    if (base->id.market() != MarketType::Perp) {
+        return std::nullopt;
+    }
+    const auto amount = split_sign(wire.amount);
+    const auto size = to_lots(amount.magnitude, *base);
+    if (!size.has_value() || size->raw == 0) {
+        return std::nullopt; // absent means flat; a zero row states nothing
+    }
+
+    exec::PositionReport out{};
+    out.instrument = base->id;
+    // The sign IS the position: negative is short, and dropping it reports a
+    // short book as a long one of the same size.
+    out.net_qty = QtyLots::from_raw(amount.negative ? -size->raw : size->raw);
+    if (const auto entry = to_ticks(wire.base_price, *base); entry.has_value()) {
+        out.avg_entry = *entry;
+    }
+    out.ts_venue = ms_to_unix(wire.mts_update, UnixNanos{0});
+    return out;
 }
 
 } // namespace raikiri::venues::bitfinex

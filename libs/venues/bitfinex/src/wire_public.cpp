@@ -25,6 +25,9 @@ FrameKind kind_from_event(std::string_view event) noexcept {
     if (event == "pong") {
         return FrameKind::Pong;
     }
+    if (event == "auth") {
+        return FrameKind::Auth;
+    }
     return FrameKind::Unknown;
 }
 

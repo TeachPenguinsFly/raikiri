@@ -74,4 +74,48 @@ private:
     std::uint64_t next_id_{1};
 };
 
+// ---------------------------------------------------------- private ----
+//
+// The two private streams share nothing but the word "subscribe":
+//
+//   futures  wss://fstream.xt.com/ws/user, method "SUBSCRIBE" (uppercase),
+//            and the listen key is GLUED TO EACH TOPIC with `@`.
+//   spot     wss://stream.xt.com/private, method "subscribe" (lowercase), and
+//            the token is a SEPARATE TOP-LEVEL FIELD named `listenKey`.
+//
+// Sending one tree's frame to the other is answered `Invalid Parameter`, which
+// looks exactly like a malformed topic name.
+
+[[nodiscard]] std::string_view private_stream_host() noexcept;
+[[nodiscard]] std::string_view private_stream_path() noexcept;
+[[nodiscard]] std::string_view spot_private_stream_host() noexcept;
+[[nodiscard]] std::string_view spot_private_stream_path() noexcept;
+
+// The subscribe answer's `code`: 0 accepted, 1 refused, 2 the key is no longer
+// valid. 2 is the one that has a remedy — mint a new key and resubscribe —
+// so it is named rather than folded into "refused".
+inline constexpr std::int64_t k_listen_key_invalid = 2;
+
+class PrivateProtocol {
+public:
+    // order and trade only. `position`, `balance` and `notify` also stream,
+    // but GatewaySink carries no channel for any of them, and a subscription
+    // whose pushes are dropped is a hot loop's worth of parsing for nothing —
+    // positions are pulled over REST where the reconciler asks for them.
+    [[nodiscard]] std::expected<std::string_view, WsBuildError>
+    futures_subscribe(std::string_view listen_key);
+
+    [[nodiscard]] std::expected<std::string_view, WsBuildError>
+    spot_subscribe(std::string_view access_token);
+
+    // A TEXT frame, not a websocket ping: XT closes a connection that has sent
+    // no application ping for 30 s regardless of how much it received.
+    [[nodiscard]] static std::string_view ping_frame() noexcept;
+
+private:
+    // The spot token is a JWT and runs to several hundred bytes.
+    std::array<char, 2048> frame_{};
+    std::uint64_t next_id_{1};
+};
+
 } // namespace raikiri::venues::xt

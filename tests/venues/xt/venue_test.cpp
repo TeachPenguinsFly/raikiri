@@ -1,3 +1,5 @@
+#include <raikiri/net/signer.hpp>
+#include <raikiri/venues/xt/client_id.hpp>
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/venues/xt/map.hpp>
 #include <raikiri/venues/xt/rest.hpp>
@@ -7,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -46,6 +49,22 @@ void load_perp_table(exec::InstrumentTable& table) {
     for (const auto& entry : *wire) {
         if (const auto instrument = map_instrument(entry, MarketType::Perp);
             instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+}
+
+// The spot half, from the live /v4/public/symbol capture. Spot and perp are
+// loaded into SEPARATE tables in these tests: XT spells `btc_usdt` on both
+// markets, so one table cannot hold the pair and the contract sizes differ.
+void load_spot_table(exec::InstrumentTable& table) {
+    static thread_local SpotSymbolBuffer storage;
+    const auto body = fixture("rest_spot_symbol_list.json");
+    const auto wire = parse_spot_symbols(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    table.reserve(wire->size());
+    for (const auto& entry : *wire) {
+        if (const auto instrument = map_spot_instrument(entry); instrument.has_value()) {
             EXPECT_TRUE(table.add(*instrument).has_value());
         }
     }
@@ -100,7 +119,9 @@ TEST(XtVenue, OrderWithoutAnImplementationFailsLoudly) {
     EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
 }
 
-TEST(XtVenue, ExecutionPullsRefuseTerminally) {
+// A pull with no credentials must answer AuthFailure. Terminal would send an
+// operator to XT's status page for what is a line missing from the config.
+TEST(XtVenue, ExecutionPullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -109,9 +130,63 @@ TEST(XtVenue, ExecutionPullsRefuseTerminally) {
 
     const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
     ASSERT_FALSE(orders.has_value());
-    EXPECT_EQ(orders.error().cls, exec::ErrorClass::Terminal);
-    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Perp).has_value());
-    EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0}).has_value());
+    EXPECT_EQ(orders.error().cls, exec::ErrorClass::AuthFailure);
+
+    const auto positions = adapter->execution->position_reports(MarketType::Perp);
+    ASSERT_FALSE(positions.has_value());
+    EXPECT_EQ(positions.error().cls, exec::ErrorClass::AuthFailure);
+
+    const auto fills = adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0});
+    ASSERT_FALSE(fills.has_value());
+    EXPECT_EQ(fills.error().cls, exec::ErrorClass::AuthFailure);
+}
+
+// The refusal must come from the market check, BEFORE the instrument table is
+// consulted: an id for a market this adapter never loaded resolves to nothing
+// and would otherwise be blamed on a stale catalogue.
+TEST(XtVenue, UnservedMarketsRefuseWithTheirOwnName) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto options = adapter->execution->open_order_reports(MarketType::Option);
+    ASSERT_FALSE(options.has_value());
+    EXPECT_EQ(options.error().cls, exec::ErrorClass::Terminal);
+    EXPECT_EQ(options.error().message.view(), "xt options order entry");
+
+    const auto dated = adapter->execution->fill_reports(MarketType::Future, UnixNanos{0});
+    ASSERT_FALSE(dated.has_value());
+    EXPECT_EQ(dated.error().message.view(), "xt dated futures order entry");
+
+    // Every path, not just the sweep: a pull that skipped the check would read
+    // the table and answer UnknownInstrument instead.
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Option).has_value());
+    const auto query = adapter->execution->query_order(ExchangeClientOrderId{}, MarketType::Option);
+    ASSERT_FALSE(query.has_value());
+    EXPECT_EQ(query.error().message.view(), "xt options order entry");
+
+    // The builder refuses the same markets one layer down, so an order command
+    // naming one never reaches a signature.
+    EXPECT_EQ(market_refusal(MarketType::Option), BuildError::OptionsUnsupported);
+    EXPECT_EQ(market_refusal(MarketType::Future), BuildError::DatedFuturesUnsupported);
+    EXPECT_FALSE(market_refusal(MarketType::Spot).has_value());
+    EXPECT_FALSE(market_refusal(MarketType::Perp).has_value());
+}
+
+// A spot balance is not a position, and a spot fill sweep is a real answer:
+// the two pulls are independent and must not be conflated.
+TEST(XtVenue, SpotPositionPullSaysSoRatherThanAnsweringFlat) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_spot = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto positions = adapter->execution->position_reports(MarketType::Spot);
+    ASSERT_FALSE(positions.has_value());
+    EXPECT_EQ(positions.error().cls, exec::ErrorClass::Terminal);
 }
 
 // ------------------------------------------------------------ events ----
@@ -326,8 +401,63 @@ TEST(XtErrors, VerifiedCodesClassifyAndUnknownIsTerminal) {
     EXPECT_EQ(classify("something_xt_added_later"), exec::ErrorClass::Terminal);
 
     EXPECT_EQ(classify("401"), exec::ErrorClass::AuthFailure);
+    // 403 is a failed signature, an unwhitelisted IP or an expired window, and
+    // 405 a null Host: both are the key, not the venue.
+    EXPECT_EQ(classify("403"), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify("405"), exec::ErrorClass::AuthFailure);
     EXPECT_EQ(classify("429"), exec::ErrorClass::RateLimited);
     EXPECT_EQ(classify("503"), exec::ErrorClass::Retryable);
+    // GATEWAY_0006 and _0007 lock the ACCOUNT for minutes or hours; retrying
+    // into one extends the lock.
+    EXPECT_EQ(classify("GATEWAY_0003"), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify("GATEWAY_0006"), exec::ErrorClass::RateLimited);
+}
+
+// The two trees share not one code, so one classifier for both would read
+// AUTH_103 — a bad signature — as Terminal and hide it behind an order reject.
+TEST(XtErrors, SpotCodesAreTheirOwnVocabulary) {
+    EXPECT_EQ(classify_spot(k_spot_missing_key), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_spot("AUTH_103"), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_spot("AUTH_105"), exec::ErrorClass::AuthFailure);
+    EXPECT_EQ(classify_spot("GATEWAY_0001"), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify_spot("COMMON_002"), exec::ErrorClass::Retryable);
+    EXPECT_EQ(classify_spot("ORDER_002"), exec::ErrorClass::Terminal); // insufficient funds
+    EXPECT_EQ(classify_spot("SYMBOL_005"), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_spot("something_xt_added_later"), exec::ErrorClass::Terminal);
+
+    // Cross-tree confusion is the failure this separation exists to prevent.
+    EXPECT_EQ(classify("AUTH_103"), exec::ErrorClass::Terminal);
+}
+
+TEST(XtErrors, OnlyAMissingOrderMakesACancelFailureBenign) {
+    EXPECT_TRUE(is_benign_cancel_failure("ORDER_005"));
+    EXPECT_TRUE(is_benign_cancel_failure("invalid_order"));
+    // `invalid_params` names a missing order AND a genuine build bug; treating
+    // it as benign would swallow the second.
+    EXPECT_FALSE(is_benign_cancel_failure("invalid_params"));
+    EXPECT_FALSE(is_benign_cancel_failure("ORDER_002"));
+}
+
+TEST(XtErrors, LiveRefusalBodiesCarryTheirCode) {
+    const auto spot_body = fixture("rest_spot_error_auth.json");
+    const auto spot = parse_spot_envelope(spot_body);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_NE(spot->rc, k_spot_ok);
+    EXPECT_EQ(spot->mc, k_spot_missing_key);
+    EXPECT_EQ(classify_spot(spot->mc), exec::ErrorClass::AuthFailure);
+
+    const auto futures_body = fixture("rest_futures_error_no_key.json");
+    const auto futures = parse_rest_envelope(futures_body);
+    ASSERT_TRUE(futures.has_value());
+    EXPECT_NE(futures->return_code, k_ok);
+    EXPECT_EQ(futures->code, "400");
+
+    // A 404 is the one refusal spot answers with a non-200 status, and `mc`
+    // carries prose rather than a code there.
+    const auto missing_body = fixture("rest_spot_error_not_found.json");
+    const auto missing = parse_spot_envelope(missing_body);
+    ASSERT_TRUE(missing.has_value());
+    EXPECT_NE(missing->rc, k_spot_ok);
 }
 
 TEST(XtErrors, TextCodesSurviveAsZeroRatherThanGuessing) {
@@ -603,6 +733,844 @@ TEST(XtMap, VenueTimestampBeatsIngestTimeButZeroDoesNot) {
     const UnixNanos fallback{42ULL};
     EXPECT_EQ(ms_to_unix(0, fallback), fallback);
     EXPECT_EQ(ms_to_unix(1'786'394'629'290ULL, fallback).ns, 1'786'394'629'290'000'000ULL);
+}
+
+// ------------------------------------------------- client order ids ----
+
+// XT's clientOrderId is ^[a-zA-Z0-9_]{4,22}$ and the OMS mints 26-character
+// ULIDs. The codec re-encodes a ULID's 128 bits as 22 base62 characters, which
+// is a bijection — the point being that neither truncation nor omission is
+// involved, so the id the venue echoes is the id the OMS knows.
+TEST(XtClientId, EncodingIsLosslessAndFitsTheVenueField) {
+    const auto ulid = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    const auto encoded = encode_client_id(ulid);
+    ASSERT_TRUE(encoded.has_value());
+    EXPECT_EQ(encoded->view().size(), k_client_id_len);
+    EXPECT_EQ(encoded->view(), "02WP8qFtGJTkHk10j5u4aZ");
+
+    const auto decoded = decode_client_id(encoded->view());
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->view(), ulid.view());
+}
+
+TEST(XtClientId, EveryCharacterIsOneTheVenueAccepts) {
+    UlidGen gen{7};
+    for (int i = 0; i < 4096; ++i) {
+        const auto ulid = gen.next(UnixNanos{1'786'394'629'290'000'000ULL + std::uint64_t(i)});
+        const auto encoded = encode_client_id(ulid);
+        ASSERT_TRUE(encoded.has_value()) << ulid.view();
+        ASSERT_EQ(encoded->view().size(), k_client_id_len);
+        for (const char c : encoded->view()) {
+            const bool legal = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+                               (c >= 'A' && c <= 'Z') || c == '_';
+            ASSERT_TRUE(legal) << "illegal clientOrderId byte: " << c;
+        }
+        const auto decoded = decode_client_id(encoded->view());
+        ASSERT_TRUE(decoded.has_value());
+        ASSERT_EQ(decoded->view(), ulid.view());
+    }
+}
+
+// The extremes of the 128-bit range, because that is where a base-conversion
+// off-by-one lives: an all-zero id and the largest one a ULID can hold.
+TEST(XtClientId, TheBoundsOfTheUlidSpaceRoundTrip) {
+    for (const auto* text : {"00000000000000000000000000", "7ZZZZZZZZZZZZZZZZZZZZZZZZZ"}) {
+        const auto ulid = *ExchangeClientOrderId::from(text);
+        const auto encoded = encode_client_id(ulid);
+        ASSERT_TRUE(encoded.has_value()) << text;
+        const auto decoded = decode_client_id(encoded->view());
+        ASSERT_TRUE(decoded.has_value());
+        EXPECT_EQ(decoded->view(), ulid.view());
+    }
+    EXPECT_EQ(encode_client_id(*ExchangeClientOrderId::from("00000000000000000000000000"))->view(),
+              "0000000000000000000000");
+}
+
+TEST(XtClientId, ForeignIdsDecodeToNothingRatherThanToALookalike) {
+    // XT's own web orders carry ids like this; decoding one into a ULID would
+    // attribute someone else's order to a strategy of ours.
+    EXPECT_FALSE(decode_client_id("myOrder123").has_value());
+    EXPECT_FALSE(decode_client_id("").has_value());
+    EXPECT_FALSE(decode_client_id("02WP8qFtGJTkHk10j5u4a").has_value());  // 21
+    EXPECT_FALSE(decode_client_id("02WP8qFtGJTkHk10j5u4aZZ").has_value()); // 23
+    EXPECT_FALSE(decode_client_id("02WP8qFtGJTkHk10j5u4a-").has_value());  // not base62
+    // 62^22 exceeds 2^128, so a well-formed 22-character string can still name
+    // a number no ULID holds.
+    EXPECT_FALSE(decode_client_id("zzzzzzzzzzzzzzzzzzzzzz").has_value());
+
+    // And an id that is not a ULID has no encoding at all.
+    EXPECT_FALSE(encode_client_id(*ExchangeClientOrderId::from("short")).has_value());
+    EXPECT_FALSE(encode_client_id(*ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAU"))
+                     .has_value()); // U is not in Crockford base32
+}
+
+// -------------------------------------------------------- signatures ----
+
+namespace {
+
+// Self-computed vectors: XT's own published example does not reproduce (that
+// doc page quotes two different appkeys), so these are the reference and XT's
+// are decorative. Reproduced independently against XT's Go SDK's construction.
+constexpr std::string_view k_vec_secret = "bc6630d0231fda5cd98794f52c4998659beda290";
+constexpr std::string_view k_vec_appkey = "3976eb88-76d0-4f6e-a6b2-a57980770085";
+constexpr std::uint64_t k_vec_ts_ms = 1'641'446'237'201ULL;
+
+// The builder backdates by half a second — XT refuses a timestamp more than a
+// second AHEAD of its clock — so a request built at this instant signs
+// k_vec_ts_ms.
+constexpr UnixNanos k_vec_now{(k_vec_ts_ms + 500) * 1'000'000ULL};
+
+constexpr std::string_view k_vec_x_spot =
+    "validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085"
+    "&validate-recvwindow=5000&validate-timestamp=1641446237201";
+constexpr std::string_view k_vec_x_futures =
+    "validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp=1641446237201";
+
+void load_credentials(net::Signer& signer) {
+    signer.set_api_key(k_vec_appkey);
+    ASSERT_TRUE(signer.secret().assign(k_vec_secret).has_value());
+}
+
+std::string_view header_of(const net::RestRequest& request, std::string_view name) {
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+// The three vectors whose exact bytes this builder emits, end to end: message
+// and digest both. A change to the header order, the separator, or the
+// backdate breaks these rather than presenting as a revoked key in production.
+TEST(XtSign, BuilderReproducesTheVerifiedVectors) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto* spot = table.find("btc_usdt");
+    ASSERT_NE(spot, nullptr);
+
+    OrderCmd cancel{};
+    cancel.instrument = base_of(*spot).id;
+    cancel.target_exchange_order_id = *ExchangeOrderId::from("123");
+    const auto delete_request = builder.cancel_order(cancel, table, k_vec_now);
+    ASSERT_TRUE(delete_request.has_value()) << to_string(delete_request.error());
+    EXPECT_EQ(builder.last_sign_message(), std::string{k_vec_x_spot} + "#DELETE#/v4/order/123");
+    EXPECT_EQ(header_of(*delete_request, "validate-signature"),
+              "62a0f896fa78a84769d91751e5edae294f2f709b626d09c6ef11a59ef7fc36a7");
+    EXPECT_EQ(delete_request->target, "/v4/order/123");
+    EXPECT_TRUE(delete_request->body.empty());
+
+    const auto open_request = builder.open_orders(MarketType::Spot, "btc_usdt", k_vec_now);
+    ASSERT_TRUE(open_request.has_value());
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_vec_x_spot} + "#GET#/v4/open-order#bizType=SPOT&symbol=btc_usdt");
+    EXPECT_EQ(header_of(*open_request, "validate-signature"),
+              "6f41a6c1e465d2c8ade96bd0e5d7079d67556b4c3092279c2cd0169537faf380");
+
+    const auto key_request = builder.listen_key(k_vec_now);
+    ASSERT_TRUE(key_request.has_value());
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_vec_x_futures} + "#/future/user/v1/user/listen-key");
+    EXPECT_EQ(header_of(*key_request, "validate-signature"),
+              "9784e9dfc2c62fac8904eea27724e2a3a54db0d2cdb187e2010a6c1b0f67c382");
+}
+
+// The remaining three vectors pin the SCHEME rather than this builder's
+// payloads: XT's docs cannot be used as the reference here, so the digests are
+// the thing that has to be checked against something.
+TEST(XtSign, TheVerifiedVectorsAreWhatHmacSha256Produces) {
+    struct Vector {
+        std::string_view message;
+        std::string_view digest;
+    };
+    const std::array<Vector, 3> vectors{
+        Vector{std::string_view{
+                   "validate-algorithms=HmacSHA256&validate-appkey=3976eb88-76d0-4f6e-a6b2-"
+                   "a57980770085&validate-recvwindow=5000&validate-timestamp=1641446237201#POST#"
+                   "/v4/order#{\"symbol\":\"btc_usdt\",\"side\":\"BUY\",\"type\":\"LIMIT\","
+                   "\"timeInForce\":\"GTC\",\"bizType\":\"SPOT\",\"price\":39000,\"quantity\":2}"},
+               "0ae356200e986654d47482b36e22a33530ba68ad5f446c94618db4f7245f7ee5"},
+        Vector{std::string_view{
+                   "validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-timestamp="
+                   "1641446237201#/future/trade/v1/order/create#{\"symbol\":\"btc_usdt\","
+                   "\"orderSide\":\"BUY\",\"orderType\":\"LIMIT\",\"origQty\":1,\"price\":39000,"
+                   "\"positionSide\":\"LONG\",\"timeInForce\":\"GTC\"}"},
+               "d38ebccc98597f30c2ad0f0533d80ef57083ca0a7f3d61719da4a7055d6b63ec"},
+        Vector{std::string_view{"validate-appkey=3976eb88-76d0-4f6e-a6b2-a57980770085&validate-"
+                                "timestamp=1641446237201#/future/trade/v1/order/detail#orderId=123"},
+               "ff5dd36741fdcfcf6c02905d3fadfe7911d41e7d51fc5adf5b2e84716f46f9fe"},
+    };
+    std::array<char, net::k_hex_bytes> out{};
+    for (const auto& vector : vectors) {
+        EXPECT_EQ(net::hmac_sha256_hex(k_vec_secret, vector.message, out), vector.digest);
+    }
+}
+
+// The three differences that present as a revoked key rather than as a build
+// bug: the futures prefix carries two fields where spot carries four, the
+// futures Y omits the HTTP METHOD, and an absent component disappears from Y
+// instead of leaving an empty segment.
+TEST(XtSign, TheTwoTreesSignDifferentlyOnPurpose) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    ASSERT_TRUE(builder.positions(MarketType::Perp, k_vec_now).has_value());
+    const std::string futures{builder.last_sign_message()};
+    EXPECT_TRUE(futures.starts_with(k_vec_x_futures));
+    EXPECT_EQ(futures.find("validate-recvwindow"), std::string::npos);
+    EXPECT_EQ(futures.find("validate-algorithms"), std::string::npos);
+    EXPECT_EQ(futures.find("#GET#"), std::string::npos);
+    EXPECT_EQ(futures, std::string{k_vec_x_futures} + "#/future/user/v1/position/list");
+
+    ASSERT_TRUE(builder.my_trades(MarketType::Perp, UnixNanos{0}, k_vec_now).has_value());
+    // One parameter slot on futures, and no empty segment where startTime was
+    // not asked for.
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_vec_x_futures} + "#/future/trade/v1/order/trade-list#page=1&size=100");
+
+    exec::InstrumentTable spot_table;
+    load_spot_table(spot_table);
+    ASSERT_TRUE(builder.my_trades(MarketType::Spot, UnixNanos{0}, k_vec_now).has_value());
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_vec_x_spot} + "#GET#/v4/trade#bizType=SPOT&limit=100");
+}
+
+TEST(XtSign, WithoutCredentialsNothingIsBuilt) {
+    net::Signer signer;
+    SignedRequestBuilder builder{signer};
+    const auto request = builder.listen_key(k_vec_now);
+    ASSERT_FALSE(request.has_value());
+    EXPECT_EQ(request.error(), BuildError::NotSigned);
+}
+
+// ---------------------------------------------------- request bodies ----
+
+TEST(XtRest, FuturesOrderNamesTheContractsAndThePositionItOpens) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto* perp = table.find("btc_usdt");
+    ASSERT_NE(perp, nullptr);
+    const auto& base = base_of(*perp);
+
+    OrderCmd cmd{};
+    cmd.instrument = base.id;
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.price = PriceTicks::from_raw(641'181); // 64118.1 at a 0.1 tick
+    cmd.qty = QtyLots::from_raw(12);           // 12 contracts at a lot of 1
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    const auto request = builder.create_order(cmd, table, k_vec_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_EQ(request->target, "/future/trade/v1/order/create");
+    EXPECT_EQ(request->body,
+              R"({"symbol":"btc_usdt","orderSide":"BUY","orderType":"LIMIT","origQty":12,)"
+              R"("price":64118.1,"timeInForce":"GTC","positionSide":"LONG",)"
+              R"("clientOrderId":"02WP8qFtGJTkHk10j5u4aZ"})");
+    // The whole body rides the digest, so a re-ordered field is a bad signature
+    // rather than a silently different order.
+    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}),
+              std::string::npos);
+}
+
+// positionSide is NOT the direction: a SELL that reduces is closing a LONG.
+// Reading orderSide as the position side opens the opposite side instead.
+TEST(XtRest, ReduceOnlyFlipsThePositionSideNotTheOrderSide) {
+    EXPECT_EQ(position_side(Side::Buy, OrderFlags::None), "LONG");
+    EXPECT_EQ(position_side(Side::Sell, OrderFlags::None), "SHORT");
+    EXPECT_EQ(position_side(Side::Sell, OrderFlags::ReduceOnly), "LONG");
+    EXPECT_EQ(position_side(Side::Buy, OrderFlags::ReduceOnly), "SHORT");
+}
+
+TEST(XtRest, PostOnlyIsATimeInForceHereRatherThanAFlag) {
+    EXPECT_EQ(time_in_force(TimeInForce::Gtc, OrderFlags::None), "GTC");
+    EXPECT_EQ(time_in_force(TimeInForce::Ioc, OrderFlags::None), "IOC");
+    EXPECT_EQ(time_in_force(TimeInForce::Fok, OrderFlags::None), "FOK");
+    EXPECT_EQ(time_in_force(TimeInForce::Gtc, OrderFlags::PostOnly), "GTX");
+    // Post-only displaces the tif entirely; XT has no field carrying both.
+    EXPECT_EQ(time_in_force(TimeInForce::Ioc, OrderFlags::PostOnly), "GTX");
+}
+
+// A fractional contract count is answered invalid_quantity_scale, and rounding
+// it here would place a position of a size nobody asked for.
+TEST(XtRest, AFractionalContractCountIsRefusedNotRounded) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto* perp = table.find("btc_usdt");
+    ASSERT_NE(perp, nullptr);
+    // A lot of 1 makes every QtyLots whole, so the refusal is provoked with an
+    // instrument whose lot is finer than a contract.
+    auto forged = base_of(*perp);
+    forged.lot_size = FixedE9::from_raw(k_e9 / 10);
+    exec::InstrumentTable fine;
+    forged.exchange_symbol = *SymbolText::from("frac_usdt");
+    forged.local_symbol = forged.exchange_symbol;
+    forged.id = InstrumentId::make(VenueId::Xt, MarketType::Perp, SymbolId{0});
+    const auto id = fine.add(PerpInstrument{forged, 0});
+    ASSERT_TRUE(id.has_value());
+
+    OrderCmd cmd{};
+    cmd.instrument = *id;
+    cmd.price = PriceTicks::from_raw(641'181);
+    cmd.qty = QtyLots::from_raw(15); // 1.5 contracts
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    const auto request = builder.create_order(cmd, fine, k_vec_now);
+    ASSERT_FALSE(request.has_value());
+    EXPECT_EQ(request.error(), BuildError::FractionalContracts);
+}
+
+TEST(XtRest, SpotOrderCarriesBizTypeAndTheEncodedClientId) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto* spot = table.find("btc_usdt");
+    ASSERT_NE(spot, nullptr);
+
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*spot).id;
+    cmd.side = Side::Sell;
+    cmd.order_type = OrderType::Limit;
+    cmd.price = PriceTicks::from_raw(4'000'000); // 40000 at a 0.01 tick
+    cmd.qty = QtyLots::from_raw(200'000);        // 2 at a 0.00001 lot
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    const auto request = builder.create_order(cmd, table, k_vec_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->body,
+              R"({"symbol":"btc_usdt","clientOrderId":"02WP8qFtGJTkHk10j5u4aZ","side":"SELL",)"
+              R"("type":"LIMIT","timeInForce":"GTC","bizType":"SPOT","price":40000,"quantity":2})");
+
+    // A market BUY is sized in QUOTE units on this venue and OrderCmd carries a
+    // base size, so it is refused rather than converted at an invented price.
+    cmd.order_type = OrderType::Market;
+    cmd.side = Side::Buy;
+    const auto market_buy = builder.create_order(cmd, table, k_vec_now);
+    ASSERT_FALSE(market_buy.has_value());
+    EXPECT_EQ(market_buy.error(), BuildError::MarketBuyNeedsQuoteQty);
+
+    // A market SELL is sized in base units and goes out without a price.
+    cmd.side = Side::Sell;
+    const auto market_sell = builder.create_order(cmd, table, k_vec_now);
+    ASSERT_TRUE(market_sell.has_value());
+    EXPECT_EQ(std::string{market_sell->body}.find("price"), std::string::npos);
+}
+
+// Both trees cancel by VENUE order id only — futures has no single
+// cancel-by-client-id endpoint and spot puts the id in the path — so a cancel
+// that knows only our own id must be refused rather than sent somewhere it
+// would quietly cancel nothing.
+TEST(XtRest, ACancelWithoutTheVenueOrderIdIsRefused) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto* perp = table.find("btc_usdt");
+    ASSERT_NE(perp, nullptr);
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*perp).id;
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_vec_now).error(), BuildError::NoOrderTarget);
+
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("538511221008857280");
+    const auto request = builder.cancel_order(cmd, table, k_vec_now);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->target, "/future/trade/v1/order/cancel");
+    EXPECT_EQ(request->body, R"({"orderId":538511221008857280})");
+}
+
+TEST(XtRest, AmendRestatesBothLegsOnEitherTree) {
+    exec::InstrumentTable perp_table;
+    load_perp_table(perp_table);
+    exec::InstrumentTable spot_table;
+    load_spot_table(spot_table);
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*perp_table.find("btc_usdt")).id;
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("538511221008857280");
+    cmd.price = PriceTicks::from_raw(641'181);
+    cmd.qty = QtyLots::from_raw(12);
+    const auto perp = builder.amend_order(cmd, perp_table, k_vec_now);
+    ASSERT_TRUE(perp.has_value()) << to_string(perp.error());
+    EXPECT_EQ(perp->target, "/future/trade/v1/order/update");
+    EXPECT_EQ(perp->body,
+              R"({"orderId":538511221008857280,"price":64118.1,"origQty":12})");
+
+    cmd.instrument = base_of(*spot_table.find("btc_usdt")).id;
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("6216559590087220004");
+    cmd.price = PriceTicks::from_raw(4'000'000);
+    cmd.qty = QtyLots::from_raw(200'000);
+    const auto spot = builder.amend_order(cmd, spot_table, k_vec_now);
+    ASSERT_TRUE(spot.has_value()) << to_string(spot.error());
+    EXPECT_EQ(spot->method, net::HttpMethod::Put);
+    EXPECT_EQ(spot->target, "/v4/order/6216559590087220004");
+}
+
+// ------------------------------------------------------ private wire ----
+
+TEST(XtWire, FuturesOrdersArriveAsAnArrayOrAsAPage) {
+    static thread_local FuturesOrderBuffer storage;
+    const auto array_body = fixture("rest_futures_open_orders.json");
+    const auto unpaged = parse_futures_orders(array_body, storage);
+    ASSERT_TRUE(unpaged.has_value());
+    ASSERT_EQ(unpaged->size(), 2U);
+    EXPECT_EQ((*unpaged)[0].order_id, "538511221008857280");
+    EXPECT_EQ((*unpaged)[0].price, "64118.1");
+    EXPECT_EQ((*unpaged)[0].state, WireOrderStatus::New);
+    EXPECT_EQ((*unpaged)[1].state, WireOrderStatus::PartiallyFilled);
+    EXPECT_EQ((*unpaged)[1].executed_qty, "5");
+    EXPECT_EQ((*unpaged)[1].position_side, "SHORT");
+
+    // The paged read quotes NOTHING: orderId, price and origQty are all JSON
+    // numbers there, and the token is kept either way.
+    const auto page_body = fixture("rest_futures_order_list.json");
+    const auto paged = parse_futures_orders(page_body, storage);
+    ASSERT_TRUE(paged.has_value());
+    ASSERT_EQ(paged->size(), 1U);
+    EXPECT_EQ((*paged)[0].order_id, "538511221008857280");
+    EXPECT_EQ((*paged)[0].price, "64200.5");
+    EXPECT_EQ((*paged)[0].orig_qty, "3");
+}
+
+TEST(XtWire, FuturesDealsCarryLiquidityInEitherSpelling) {
+    static thread_local FuturesDealBuffer storage;
+    const auto body = fixture("rest_futures_trade_list.json");
+    const auto deals = parse_futures_deals(body, storage);
+    ASSERT_TRUE(deals.has_value());
+    ASSERT_EQ(deals->size(), 2U);
+    EXPECT_EQ((*deals)[0].exec_id, "690000000000001");
+    EXPECT_TRUE((*deals)[0].liquidity_known);
+    EXPECT_TRUE((*deals)[0].maker);
+    EXPECT_TRUE((*deals)[1].liquidity_known);
+    EXPECT_FALSE((*deals)[1].maker);
+    // The REST page states no side at all; that is the memo's job.
+    EXPECT_TRUE((*deals)[0].order_side.empty());
+
+    const auto push_body = fixture("ws_futures_trade.json");
+    const auto push = parse_futures_deal(push_body);
+    ASSERT_TRUE(push.has_value());
+    EXPECT_TRUE(push->liquidity_known);
+    EXPECT_TRUE(push->maker); // `isMaker`, a boolean, not `takerMaker`
+    EXPECT_EQ(push->order_side, "BUY");
+    EXPECT_EQ(push->fee, "0.0512944");
+}
+
+TEST(XtWire, TheSpotSocketSpeaksTwoLetterKeys) {
+    const auto body = fixture("ws_spot_order_partial.json");
+    const auto wire = parse_spot_order_push(body);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "btc_usdt");
+    EXPECT_EQ(wire->order_id, "6216559590087220004");
+    EXPECT_EQ(wire->client_order_id, "02WP8qFtGJTkHk10j5u4aZ");
+    EXPECT_EQ(wire->state, WireOrderStatus::PartiallyFilled);
+    EXPECT_EQ(wire->side, "BUY");
+    EXPECT_EQ(wire->orig_qty, "4");   // `oq`, not `oqq`
+    EXPECT_EQ(wire->executed_qty, "2");
+    EXPECT_EQ(wire->leaving_qty, "2");
+    EXPECT_EQ(wire->price, "4000");
+    EXPECT_EQ(wire->avg_price, "3000");
+
+    // `i` is the TRADE id on the fill push and the ORDER id on the order push.
+    const auto trade_body = fixture("ws_spot_trade.json");
+    const auto trade = parse_spot_trade_push(trade_body);
+    ASSERT_TRUE(trade.has_value());
+    EXPECT_EQ(trade->trade_id, "6316559590087222000");
+    EXPECT_EQ(trade->order_id, "6616559590087222666");
+    EXPECT_TRUE(trade->liquidity_known);
+    EXPECT_TRUE(trade->maker); // tm 2
+    EXPECT_TRUE(trade->side.empty());
+}
+
+TEST(XtWire, OrderAcksNameTheOrderInEitherShape) {
+    const auto bare = fixture("rest_futures_order_ack.json");
+    const auto futures = parse_order_ack(bare);
+    ASSERT_TRUE(futures.has_value());
+    EXPECT_EQ(*futures, "538511221008857280");
+
+    const auto created = fixture("rest_spot_order_ack.json");
+    const auto spot = parse_order_ack(created);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(*spot, "6216559590087220004");
+
+    const auto cancelled = fixture("rest_spot_cancel_ack.json");
+    const auto cancel = parse_order_ack(cancelled);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(*cancel, "6216559590087220004");
+}
+
+TEST(XtWire, PrivateFramesSeparateAnAckFromADeadKey) {
+    const auto ack_body = fixture("ws_private_ack.json");
+    const auto ack = parse_private_frame(ack_body);
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->topic, PrivateTopic::Ack);
+    EXPECT_EQ(ack->code, 0);
+
+    const auto dead_body = fixture("ws_private_listen_key_invalid.json");
+    const auto dead = parse_private_frame(dead_body);
+    ASSERT_TRUE(dead.has_value());
+    EXPECT_EQ(dead->topic, PrivateTopic::Refusal);
+    EXPECT_EQ(dead->code, k_listen_key_invalid);
+
+    const auto order_body = fixture("ws_futures_order_new.json");
+    const auto order = parse_private_frame(order_body);
+    ASSERT_TRUE(order.has_value());
+    EXPECT_EQ(order->topic, PrivateTopic::Order);
+
+    const auto trade_body = fixture("ws_spot_trade.json");
+    const auto trade = parse_private_frame(trade_body);
+    ASSERT_TRUE(trade.has_value());
+    EXPECT_EQ(trade->topic, PrivateTopic::Trade);
+
+    // The heartbeat answer is bare text, not JSON, and must not be fatal.
+    EXPECT_FALSE(parse_private_frame("pong").has_value());
+}
+
+TEST(XtWire, StreamKeysComeOutOfTheirOwnEnvelopes) {
+    const auto key_body = fixture("rest_listen_key.json");
+    const auto key = parse_listen_key(key_body);
+    ASSERT_TRUE(key.has_value());
+    EXPECT_EQ(*key, "A246C3DF8EE532DC75007BC5D86698541678596355681");
+
+    const auto token_body = fixture("rest_ws_token.json");
+    const auto token = parse_spot_ws_token(token_body);
+    ASSERT_TRUE(token.has_value());
+    EXPECT_TRUE(token->starts_with("eyJhb"));
+    // `refreshToken` sits beside it and is NOT the one the socket takes.
+    EXPECT_GT(token->size(), 100U);
+}
+
+TEST(XtWire, TheSpotEnvelopeIsWhatSaysACallFailed) {
+    const auto ok_body = fixture("rest_spot_open_orders.json");
+    const auto ok = parse_spot_envelope(ok_body);
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_EQ(ok->rc, k_spot_ok);
+    EXPECT_EQ(ok->mc, k_spot_success);
+
+    // A body with no `rc` must FAIL rather than read as a success: spot
+    // answers HTTP 200 to a refusal, so nothing else says the call worked.
+    EXPECT_FALSE(parse_spot_envelope(R"({"mc":"SUCCESS"})").has_value());
+}
+
+TEST(XtWire, SpotServerTimeIsAnObjectUnlikeTheFuturesOne) {
+    const auto spot_body = fixture("rest_spot_server_time.json");
+    const auto spot = parse_spot_server_time(spot_body);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_GT(*spot, 1'700'000'000'000ULL);
+
+    const auto futures_body = fixture("rest_server_time.json");
+    const auto futures = parse_server_time(futures_body);
+    ASSERT_TRUE(futures.has_value());
+    EXPECT_GT(*futures, 1'700'000'000'000ULL);
+}
+
+// ----------------------------------------------------- private mapping ----
+
+TEST(XtMap, SpotCatalogueAcceptsOnlyPairsTheApiMayTrade) {
+    static thread_local SpotSymbolBuffer storage;
+    const auto body = fixture("rest_spot_symbol_list.json");
+    const auto wire = parse_spot_symbols(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 6U);
+
+    std::vector<std::string_view> accepted;
+    for (const auto& row : *wire) {
+        if (map_spot_instrument(row).has_value()) {
+            accepted.push_back(row.symbol);
+        }
+    }
+    // sss_usdt isolates tradingEnabled, btx_usdt isolates openapiEnabled,
+    // sats_usdt isolates a pricePrecision finer than FixedE9 carries, and
+    // tora_usdt is OFFLINE.
+    EXPECT_EQ(accepted, (std::vector<std::string_view>{"btc_usdt", "eth_usdt"}));
+
+    const auto btc = map_spot_instrument((*wire)[0]);
+    ASSERT_TRUE(btc.has_value());
+    const auto& base = base_of(*btc);
+    EXPECT_EQ(base.id.market(), MarketType::Spot);
+    EXPECT_EQ(base.tick_size.raw, k_e9 / 100);      // pricePrecision 2
+    EXPECT_EQ(base.lot_size.raw, k_e9 / 100'000);   // quantityPrecision 5
+    EXPECT_EQ(base.min_notional.raw, k_e9);         // QUOTE_QTY min "1"
+    EXPECT_EQ(base.contract_value.raw, k_e9);       // spot quotes base units
+}
+
+TEST(XtMap, FuturesOrderPushBecomesALifecycleEvent) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+
+    const auto new_body = fixture("ws_futures_order_new.json");
+    const auto wire = parse_futures_order(new_body);
+    ASSERT_TRUE(wire.has_value());
+    // The push carries no clientOrderId at all, so the memo is the only thing
+    // that can attribute it.
+    EXPECT_TRUE(wire->client_order_id.empty());
+    const auto remembered = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    const auto accepted = map_futures_order_event(*wire, table, remembered, UnixNanos{7});
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->side, Side::Buy);
+    EXPECT_EQ(accepted->price.raw, 641'181);
+    EXPECT_EQ(accepted->qty.raw, 12);
+    EXPECT_EQ(accepted->leaves_qty.raw, 12);
+    EXPECT_EQ(accepted->exchange_client_order_id.view(), remembered.view());
+    EXPECT_EQ(accepted->exchange_order_id.view(), "538511221008857280");
+
+    // PARTIALLY_CANCELED exists on futures only and is terminal: the volume it
+    // took was already announced by its own trade, so nothing rests after it.
+    const auto cancelled_body = fixture("ws_futures_order_partially_canceled.json");
+    const auto cancelled_wire = parse_futures_order(cancelled_body);
+    ASSERT_TRUE(cancelled_wire.has_value());
+    EXPECT_EQ(cancelled_wire->state, WireOrderStatus::Cancelled);
+    const auto cancelled =
+        map_futures_order_event(*cancelled_wire, table, remembered, UnixNanos{7});
+    ASSERT_TRUE(cancelled.has_value());
+    EXPECT_EQ(cancelled->type, OrderEventType::Canceled);
+    EXPECT_EQ(cancelled->leaves_qty.raw, 0);
+}
+
+// A fill is the trade record's to report. Re-announcing it from the order
+// record double-counts the volume.
+TEST(XtMap, AFilledOrderRecordProducesNoLifecycleEvent) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    static thread_local FuturesOrderBuffer storage;
+    const auto body = fixture("rest_futures_open_orders.json");
+    const auto orders = parse_futures_orders(body, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 2U);
+    EXPECT_FALSE(
+        map_futures_order_event((*orders)[1], table, ExchangeClientOrderId{}, UnixNanos{1})
+            .has_value());
+
+    // It is still a status the reconciler has to see.
+    const auto report = map_futures_open_order((*orders)[1], table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(report->qty.raw, 12);
+    EXPECT_EQ(report->leaves.raw, 7); // 12 ordered, 5 executed
+    EXPECT_EQ(report->side, Side::Sell);
+    EXPECT_EQ(report->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+}
+
+TEST(XtMap, AFillWithoutASideIsDroppedRatherThanGuessed) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    static thread_local FuturesDealBuffer storage;
+    const auto body = fixture("rest_futures_trade_list.json");
+    const auto deals = parse_futures_deals(body, storage);
+    ASSERT_TRUE(deals.has_value());
+
+    // /order/trade-list states no side; with nothing remembered the fill has no
+    // honest direction, and a fill on the wrong side moves the position twice.
+    EXPECT_FALSE(map_futures_deal((*deals)[0], table, OrderContext{}, UnixNanos{1}).has_value());
+
+    const OrderContext context{
+        .client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+        .leaves = QtyLots::from_raw(7),
+        .side = Side::Buy,
+        .side_known = true};
+    const auto fill = map_futures_deal((*deals)[0], table, context, UnixNanos{1});
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->side, Side::Buy);
+    EXPECT_EQ(fill->price.raw, 641'181);
+    EXPECT_EQ(fill->qty.raw, 5);
+    EXPECT_EQ(fill->leaves_qty.raw, 7);
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+    EXPECT_EQ(fill->fee.raw, 51'294'400);
+    EXPECT_EQ(fill->exec_id.view(), "690000000000001");
+    EXPECT_EQ(fill->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    // The socket push DOES state a side, and the record's word beats the memo.
+    const auto push_body = fixture("ws_futures_trade.json");
+    const auto push = parse_futures_deal(push_body);
+    ASSERT_TRUE(push.has_value());
+    const auto pushed = map_futures_deal(*push, table, OrderContext{}, UnixNanos{1});
+    ASSERT_TRUE(pushed.has_value());
+    EXPECT_EQ(pushed->side, Side::Buy);
+    // Its clientOrderId decodes back into the ULID the OMS minted.
+    EXPECT_EQ(pushed->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+}
+
+TEST(XtMap, PositionSideIsTheOnlyThingThatSignsAPosition) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    static thread_local FuturesPositionBuffer storage;
+    const auto body = fixture("rest_futures_positions.json");
+    const auto positions = parse_futures_positions(body, storage);
+    ASSERT_TRUE(positions.has_value());
+    ASSERT_EQ(positions->size(), 2U);
+
+    const auto shorted = map_futures_position((*positions)[0], table);
+    ASSERT_TRUE(shorted.has_value());
+    // positionSize is UNSIGNED; dropping positionSide reads a short as a long.
+    EXPECT_EQ(shorted->net_qty.raw, -12);
+    EXPECT_EQ(shorted->avg_entry.raw, 641'181);
+
+    // A row XT keeps at size zero states nothing; absent is what means flat.
+    EXPECT_FALSE(map_futures_position((*positions)[1], table).has_value());
+}
+
+TEST(XtMap, SpotRecordsMapThroughTheUppercaseEcho) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    static thread_local SpotOrderBuffer storage;
+    const auto body = fixture("rest_spot_open_orders.json");
+    const auto orders = parse_spot_orders(body, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 2U);
+    // The catalogue says `btc_usdt` and the private tree echoes `BTC_USDT`; a
+    // lookup that did not fold case would miss every private record.
+    EXPECT_EQ((*orders)[0].symbol, "BTC_USDT");
+
+    const auto partial = map_spot_open_order((*orders)[0], table);
+    ASSERT_TRUE(partial.has_value());
+    EXPECT_EQ(partial->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(partial->qty.raw, 200'000);    // 2 at a 0.00001 lot
+    EXPECT_EQ(partial->leaves.raw, 80'000);  // XT states `leavingQty` outright
+    EXPECT_EQ(partial->price.raw, 4'000'000);
+    EXPECT_EQ(partial->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    // A foreign id leaves the field UNSET rather than being decoded into a
+    // lookalike: the order is still one the reconciler has to see.
+    const auto foreign = map_spot_open_order((*orders)[1], table);
+    ASSERT_TRUE(foreign.has_value());
+    EXPECT_TRUE(foreign->exchange_client_order_id.empty());
+    EXPECT_EQ(foreign->status, OrderStatus::Accepted);
+    EXPECT_EQ(foreign->side, Side::Sell);
+
+    static thread_local SpotTradeBuffer trades_storage;
+    const auto trades_body = fixture("rest_spot_trades.json");
+    const auto trades = parse_spot_trades(trades_body, trades_storage);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U);
+    const auto fill = map_spot_trade(
+        (*trades)[0], table, {.leaves = QtyLots::from_raw(80'000)}, UnixNanos{1});
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->side, Side::Buy); // /v4/trade states `orderSide`
+    EXPECT_EQ(fill->qty.raw, 120'000);
+    EXPECT_EQ(fill->leaves_qty.raw, 80'000);
+    EXPECT_EQ(fill->liquidity, Liquidity::Taker); // `takerMaker` is lowercase here
+    EXPECT_EQ(fill->exec_id.view(), "6316559590087222001");
+}
+
+TEST(XtMap, TheSpotSocketFillTakesItsSideFromTheMemo) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    const auto body = fixture("ws_spot_trade.json");
+    const auto wire = parse_spot_trade_push(body);
+    ASSERT_TRUE(wire.has_value());
+    // `b` says whether the print's BUYER was the maker — a fact about the
+    // trade, not about us — so with nothing remembered there is no side.
+    EXPECT_FALSE(map_spot_trade(*wire, table, OrderContext{}, UnixNanos{1}).has_value());
+
+    const auto fill = map_spot_trade(
+        *wire, table, {.leaves = QtyLots::from_raw(179'000), .side = Side::Sell,
+                       .side_known = true}, UnixNanos{1});
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->side, Side::Sell);
+    EXPECT_EQ(fill->qty.raw, 21'000); // 0.21 at a 0.00001 lot
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+}
+
+TEST(XtMap, SpotOrderPushBecomesAnAcceptedAndThenNothing) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+
+    const auto new_body = fixture("ws_spot_order_new.json");
+    const auto fresh = parse_spot_order_push(new_body);
+    ASSERT_TRUE(fresh.has_value());
+    const auto accepted = map_spot_order_event(*fresh, table, UnixNanos{3});
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->qty.raw, 400'000);
+    EXPECT_EQ(accepted->leaves_qty.raw, 400'000);
+    EXPECT_EQ(accepted->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    // A partial fill is the trade push's to announce; the order push restating
+    // it would double the volume.
+    const auto partial_body = fixture("ws_spot_order_partial.json");
+    const auto partial = parse_spot_order_push(partial_body);
+    ASSERT_TRUE(partial.has_value());
+    EXPECT_FALSE(map_spot_order_event(*partial, table, UnixNanos{3}).has_value());
+}
+
+// XT spells a spot pair and a perpetual identically, so one instrument table
+// holds at most one of them. Attributing a spot record to a perpetual would
+// scale it by another contract's size and move the wrong position.
+TEST(XtMap, PrivateRecordsRefuseTheOtherMarketsInstrument) {
+    exec::InstrumentTable perp_only;
+    load_perp_table(perp_only);
+    const auto body = fixture("ws_spot_order_partial.json");
+    const auto wire = parse_spot_order_push(body);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_NE(perp_only.find(wire->symbol), nullptr); // the name resolves...
+    EXPECT_FALSE(map_spot_open_order(*wire, perp_only).has_value()); // ...to a perp
+
+    exec::InstrumentTable spot_only;
+    load_spot_table(spot_only);
+    const auto perp_body = fixture("ws_futures_order_new.json");
+    const auto perp_wire = parse_futures_order(perp_body);
+    ASSERT_TRUE(perp_wire.has_value());
+    EXPECT_FALSE(map_futures_open_order(*perp_wire, spot_only).has_value());
+}
+
+// ----------------------------------------------------------- private ws ----
+
+TEST(XtWs, TheTwoPrivateTreesSubscribeDifferently) {
+    PrivateProtocol protocol;
+    const auto futures = protocol.futures_subscribe("LISTENKEY123");
+    ASSERT_TRUE(futures.has_value());
+    // Uppercase method, and the key glued onto EVERY topic.
+    EXPECT_EQ(*futures,
+              R"({"method":"SUBSCRIBE","params":["order@LISTENKEY123","trade@LISTENKEY123"],)"
+              R"("id":"1"})");
+
+    const auto spot = protocol.spot_subscribe("ACCESSTOKEN123");
+    ASSERT_TRUE(spot.has_value());
+    // Lowercase method, bare topics, and the key as its own field.
+    EXPECT_EQ(*spot,
+              R"({"method":"subscribe","params":["order","trade"],)"
+              R"("listenKey":"ACCESSTOKEN123","id":"2"})");
+
+    EXPECT_FALSE(protocol.futures_subscribe({}).has_value());
+    EXPECT_FALSE(protocol.spot_subscribe({}).has_value());
+    // A TEXT ping, not a websocket control frame: XT counts only application
+    // messages toward its 30 s idle timer.
+    EXPECT_EQ(PrivateProtocol::ping_frame(), "ping");
+}
+
+TEST(XtWs, PrivateHostsAreNotThePublicOnes) {
+    EXPECT_EQ(private_stream_host(), "fstream.xt.com");
+    EXPECT_EQ(private_stream_path(), "/ws/user");
+    EXPECT_EQ(spot_private_stream_host(), "stream.xt.com");
+    EXPECT_EQ(spot_private_stream_path(), "/private");
+    EXPECT_NE(private_stream_path(), stream_path());
 }
 
 } // namespace

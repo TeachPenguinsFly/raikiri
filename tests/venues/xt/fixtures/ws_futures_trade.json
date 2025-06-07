@@ -1,0 +1,1 @@
+{"topic":"trade","event":"trade@A246C3DF8EE532DC75007BC5D86698541678596355681","data":{"orderId":"538511221008857280","clientOrderId":"02WP8qFtGJTkHk10j5u4aZ","price":"64118.1","quantity":"5","marginUnfrozen":"33.5","timestamp":1758093090000,"symbol":"btc_usdt","orderSide":"BUY","positionSide":"LONG","isMaker":true,"fee":0.0512944}}

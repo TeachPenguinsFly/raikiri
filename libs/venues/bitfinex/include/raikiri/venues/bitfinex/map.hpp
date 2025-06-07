@@ -7,6 +7,8 @@
 // magnitude plus a flag rather than a negative quantity.
 
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/bitfinex/wire.hpp>
 
@@ -87,5 +89,45 @@ inline constexpr std::uint32_t k_funding_interval_s = 28800;
 // and REST path wants "tBTCUSD", so the prefix is added here rather than at
 // each of the four call sites that would otherwise have to remember.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType market);
+
+// Private -----------------------------------------------------------------
+//
+// Every signed field below is split into a Side plus a POSITIVE magnitude
+// before it reaches the domain. That is the whole of this section's risk: a
+// negative QtyLots is not caught anywhere downstream, and a fill booked to the
+// wrong side moves the position by twice its size.
+
+// What the caller already knows about an order the venue is now reporting a
+// fill for. Bitfinex's execution rows carry no client order id — the docs
+// place a CID at index 11 that its own model does not read — so the ULID
+// arrives only out of the memo the caller keeps against the venue order id.
+struct OrderContext {
+    ExchangeClientOrderId client_order_id{};
+    // NOT a default-constructed QtyLots: that is the UNDEF sentinel, and an
+    // undefined leaves reaching shm is worse than the honest zero a fill for an
+    // order nothing remembers can claim.
+    QtyLots leaves{QtyLots::from_raw(0)};
+};
+
+// A lifecycle transition, or nullopt when the record carries none of its own.
+// A fill is NOT one: the `te`/`tu` execution reports it, and announcing it
+// again from the order record double-counts the volume.
+[[nodiscard]] std::optional<OrderEvent> map_order_event(const WireOrder& wire,
+                                                        const exec::InstrumentTable& table,
+                                                        const ExchangeClientOrderId& client_id,
+                                                        UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
+
+[[nodiscard]] std::optional<OrderEvent> map_execution(const WireExecution& wire,
+                                                      const exec::InstrumentTable& table,
+                                                      const OrderContext& context,
+                                                      UnixNanos ts_init);
+
+// Returns nullopt for a closed or flat row rather than a zero position:
+// absent means flat, and a row Bitfinex keeps at amount 0 states nothing.
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bitfinex

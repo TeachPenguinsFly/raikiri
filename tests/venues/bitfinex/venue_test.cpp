@@ -1,8 +1,11 @@
+#include <raikiri/config/secret.hpp>
+#include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
+#include <raikiri/venues/bitfinex/sign.hpp>
 #include <raikiri/venues/bitfinex/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -84,7 +87,10 @@ TEST(BitfinexVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->data, nullptr);
 }
 
-TEST(BitfinexVenue, OrderWithoutAnImplementationFailsLoudly) {
+// An order naming an instrument no catalogue ever loaded must come back as a
+// Rejected EVENT, not as a silence: the order store would otherwise hold it
+// open waiting for a verdict no code will produce.
+TEST(BitfinexVenue, AnUnbuildableOrderComesBackAsARejectedEvent) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -97,6 +103,76 @@ TEST(BitfinexVenue, OrderWithoutAnImplementationFailsLoudly) {
     adapter->execution->submit(cmd);
     ASSERT_EQ(sink.events.size(), 1U);
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
+    EXPECT_EQ(sink.events[0].leaves_qty.raw, 0);
+
+    // A refused cancel leaves the order exactly as it was, so it reports
+    // CancelRejected with the size still resting.
+    cmd.kind = CmdKind::Cancel;
+    cmd.qty = QtyLots::from_raw(500);
+    adapter->execution->cancel(cmd);
+    ASSERT_EQ(sink.events.size(), 2U);
+    EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
+    EXPECT_EQ(sink.events[1].leaves_qty.raw, 500);
+}
+
+// The refusal must come from the market check, BEFORE the instrument table is
+// consulted: an id for a market this adapter never loaded resolves to nothing
+// and would otherwise be blamed on a stale catalogue.
+TEST(BitfinexVenue, UnservedMarketsRefuseWithTheirOwnName) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto options = adapter->execution->open_order_reports(MarketType::Option);
+    ASSERT_FALSE(options.has_value());
+    EXPECT_EQ(options.error().cls, exec::ErrorClass::Terminal);
+    EXPECT_EQ(options.error().message.view(), "bitfinex options order entry");
+
+    const auto dated = adapter->execution->fill_reports(MarketType::Future, UnixNanos{0});
+    ASSERT_FALSE(dated.has_value());
+    EXPECT_EQ(dated.error().message.view(), "bitfinex dated futures order entry");
+
+    const auto query = adapter->execution->query_order(ExchangeClientOrderId{}, MarketType::Option);
+    ASSERT_FALSE(query.has_value());
+    EXPECT_EQ(query.error().message.view(), "bitfinex options order entry");
+    EXPECT_FALSE(adapter->execution->position_reports(MarketType::Option).has_value());
+
+    // A spot balance is not a position; answering "flat" would be a claim about
+    // a concept this API does not have.
+    const auto spot = adapter->execution->position_reports(MarketType::Spot);
+    ASSERT_FALSE(spot.has_value());
+    EXPECT_EQ(spot.error().message.view(), "bitfinex spot position pull");
+
+    // The builder refuses the same markets one layer down, so an order command
+    // naming one never reaches a signature.
+    EXPECT_EQ(market_refusal(MarketType::Option), BuildError::OptionsUnsupported);
+    EXPECT_EQ(market_refusal(MarketType::Future), BuildError::DatedFuturesUnsupported);
+    EXPECT_FALSE(market_refusal(MarketType::Spot).has_value());
+    EXPECT_FALSE(market_refusal(MarketType::Perp).has_value());
+}
+
+// A pull with no credentials answers AuthFailure. Terminal would send an
+// operator to Bitfinex's status page for what is a line missing from the config.
+TEST(BitfinexVenue, PullsWithoutCredentialsAnswerAuthFailure) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    for (const auto& pull : {adapter->execution->open_order_reports(MarketType::Perp)}) {
+        ASSERT_FALSE(pull.has_value());
+        EXPECT_EQ(pull.error().cls, exec::ErrorClass::AuthFailure);
+    }
+    const auto positions = adapter->execution->position_reports(MarketType::Perp);
+    ASSERT_FALSE(positions.has_value());
+    EXPECT_EQ(positions.error().cls, exec::ErrorClass::AuthFailure);
+
+    const auto fills = adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0});
+    ASSERT_FALSE(fills.has_value());
+    EXPECT_EQ(fills.error().cls, exec::ErrorClass::AuthFailure);
 }
 
 // ---------------------------------------------------------- dispatch ----
@@ -976,6 +1052,514 @@ TEST(BitfinexRest, PublicReadsTargetTheirEndpoints) {
     EXPECT_EQ(builder.pair_info(true).target, "/v2/conf/pub:info:pair:futures");
     EXPECT_EQ(builder.book("tBTCUSD", 25).target, "/v2/book/tBTCUSD/P0?len=25");
     EXPECT_EQ(builder.tickers().target, "/v2/tickers?symbols=ALL");
+}
+
+// ------------------------------------------------------- signing ----
+
+namespace {
+
+// A key and a secret that never existed. The digests below are RFC 4231's,
+// not Bitfinex's — the venue publishes no signature vector, so the algorithm
+// is pinned against the standard and the MESSAGE SHAPE against its own SDK.
+constexpr std::string_view k_api_key = "bfx-test-key";
+constexpr std::string_view k_api_secret = "bfx-test-secret";
+
+// A wall clock chosen so the nonce is exact: NonceSource takes microseconds,
+// so this instant is nonce 1700000000000000.
+constexpr UnixNanos k_sign_now{1'700'000'000'000'000'000ULL};
+constexpr std::string_view k_nonce = "1700000000000000";
+
+std::string_view header_of(const net::RestRequest& request, std::string_view name) {
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+std::string digest_of(std::string_view message) {
+    std::array<char, k_hex384_bytes> out{};
+    return std::string{hmac_sha384_hex(k_api_secret, message, out)};
+}
+
+} // namespace
+
+// RFC 4231 test case 1. SHA-384 is the reason this file exists: libs/net
+// carries SHA-256 and SHA-512 and nothing between.
+TEST(BitfinexSign, HmacSha384MatchesTheStandardVector) {
+    const std::string key(20, '\x0b');
+    std::array<char, k_hex384_bytes> out{};
+    EXPECT_EQ(hmac_sha384_hex(key, "Hi There", out),
+              "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59c"
+              "faea9ea9076ede7f4af152e8b2fa9cb6");
+
+    // A short buffer must produce nothing rather than a truncated signature.
+    std::array<char, k_hex384_bytes - 1> small{};
+    EXPECT_TRUE(hmac_sha384_hex(key, "Hi There", small).empty());
+}
+
+// SHA-384 is NOT SHA-512 cut in half — it has a different initial state — so a
+// caller that reached for the SHA-512 already in libs/net would produce a
+// signature Bitfinex answers 10100 to.
+TEST(BitfinexSign, Sha384IsNotTruncatedSha512) {
+    const std::string key(20, '\x0b');
+    std::array<char, k_hex384_bytes> sha384{};
+    std::array<char, net::k_hex512_bytes> sha512{};
+    const auto short_digest = hmac_sha384_hex(key, "Hi There", sha384);
+    const auto long_digest = net::hmac_sha512_hex(key, "Hi There", sha512);
+    ASSERT_EQ(short_digest.size(), k_hex384_bytes);
+    ASSERT_EQ(long_digest.size(), net::k_hex512_bytes);
+    EXPECT_NE(short_digest, long_digest.substr(0, k_hex384_bytes));
+}
+
+// The nonce is microseconds and must STRICTLY increase per key: Bitfinex
+// answers 10114 to one that does not, and two requests inside the same
+// microsecond are ordinary on a warm connection pool.
+TEST(BitfinexSign, NoncesStrictlyIncreaseEvenWithinOneMicrosecond) {
+    NonceSource nonces;
+    const auto first = nonces.next(k_sign_now.ns);
+    EXPECT_EQ(first, 1'700'000'000'000'000ULL);
+    const auto second = nonces.next(k_sign_now.ns);
+    EXPECT_EQ(second, first + 1);
+    // A clock that goes backwards must not take the nonce with it.
+    EXPECT_GT(nonces.next(k_sign_now.ns - 1'000'000'000ULL), second);
+}
+
+// The websocket payload is AUTH + nonce + THE SAME NONCE AGAIN. Sending it once
+// is answered 10100, which reads as a revoked key rather than a bad payload.
+TEST(BitfinexSign, TheWebsocketAuthPayloadRepeatsTheNonce) {
+    std::array<char, 512> buffer{};
+    const auto frame = ws_auth_frame(k_api_key, k_api_secret, 1'700'000'000'000'000ULL, buffer);
+    ASSERT_FALSE(frame.empty());
+
+    const std::string payload = std::string{"AUTH"} + std::string{k_nonce} + std::string{k_nonce};
+    const auto expected = digest_of(payload);
+    EXPECT_EQ(std::string{frame},
+              std::string{R"({"event":"auth","apiKey":"bfx-test-key","authSig":")"} + expected +
+                  R"(","authPayload":"AUTH17000000000000001700000000000000",)"
+                  R"("authNonce":1700000000000000})");
+
+    // Half a credential is no credential.
+    EXPECT_TRUE(ws_auth_frame({}, k_api_secret, 1, buffer).empty());
+    EXPECT_TRUE(ws_auth_frame(k_api_key, {}, 1, buffer).empty());
+}
+
+// The REST digest covers `/api` + path + nonce + THE EXACT BODY BYTES, and the
+// prefix it signs is not the target it sends.
+TEST(BitfinexSign, TheRestDigestCoversAPrefixThatIsNotSent) {
+    config::Secret secret;
+    ASSERT_TRUE(secret.assign(k_api_secret).has_value());
+    SignedRequestBuilder builder{k_api_key, secret};
+
+    const auto request = builder.open_orders(MarketType::Perp, k_sign_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_EQ(request->target, "/v2/auth/r/orders");
+    // An empty payload is `{}`, not nothing: the SDK signs and sends two bytes
+    // and an empty body produces a digest Bitfinex refuses.
+    EXPECT_EQ(request->body, "{}");
+    EXPECT_EQ(header_of(*request, "bfx-nonce"), k_nonce);
+    EXPECT_EQ(header_of(*request, "bfx-apikey"), k_api_key);
+
+    const std::string message =
+        std::string{"/api/v2/auth/r/orders"} + std::string{k_nonce} + std::string{"{}"};
+    EXPECT_EQ(builder.last_sign_message(), message);
+    EXPECT_EQ(header_of(*request, "bfx-signature"), digest_of(message));
+}
+
+TEST(BitfinexSign, WithoutCredentialsNothingIsBuilt) {
+    const config::Secret empty;
+    SignedRequestBuilder unsigned_builder{k_api_key, empty};
+    const auto request = unsigned_builder.open_orders(MarketType::Perp, k_sign_now);
+    ASSERT_FALSE(request.has_value());
+    EXPECT_EQ(request.error(), BuildError::NotSigned);
+}
+
+// ------------------------------------------------- client order ids ----
+
+// Bitfinex's `cid` is a NUMBER scoped to the day it was placed, so 128 bits of
+// ULID have nowhere to go. The low 48 — the ULID's own randomness, not a hash
+// of its text — are what rides, which keeps a retried submit idempotent inside
+// the day. It is NOT invertible; the ULID comes back through the venue order id.
+TEST(BitfinexClientId, TheCidIsDerivedFromTheUlidAndFitsTheField) {
+    const auto ulid = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    const auto cid = cid_from(ulid);
+    ASSERT_TRUE(cid.has_value());
+    EXPECT_GE(*cid, 0);
+    EXPECT_LT(*cid, std::int64_t{1} << k_cid_bits);
+    // Deterministic: the same order retried names the same cid, which is what
+    // makes the venue's duplicate check useful.
+    EXPECT_EQ(cid_from(ulid), cid);
+
+    // Distinct ids stay distinct across the low bits, which is where a ULID's
+    // randomness lives.
+    UlidGen gen{11};
+    std::vector<std::int64_t> seen;
+    for (int i = 0; i < 2048; ++i) {
+        const auto id = gen.next(UnixNanos{1'700'000'000'000'000'000ULL + std::uint64_t(i)});
+        const auto derived = cid_from(id);
+        ASSERT_TRUE(derived.has_value());
+        seen.push_back(*derived);
+    }
+    std::ranges::sort(seen);
+    EXPECT_EQ(std::ranges::unique(seen).begin(), seen.end());
+
+    // An id that is not a ULID has no derivation at all.
+    EXPECT_FALSE(cid_from(*ExchangeClientOrderId::from("short")).has_value());
+    EXPECT_FALSE(cid_from(*ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAU")).has_value());
+}
+
+// ---------------------------------------------------- request bodies ----
+
+namespace {
+
+OrderCmd order_for(const exec::InstrumentTable& table, std::string_view symbol, Side side) {
+    OrderCmd cmd{};
+    cmd.instrument = base_of(*table.find(symbol)).id;
+    cmd.side = side;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    // The grid is 1e-8, so these are exact: 63947.0 and 0.1.
+    cmd.price = PriceTicks::from_raw(6'394'700'000'000);
+    cmd.qty = QtyLots::from_raw(10'000'000);
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    return cmd;
+}
+
+} // namespace
+
+// THE SIGN IS THE SIDE. There is no side field beside `amount`: a sell sent
+// with a positive amount BUYS, and the venue accepts it.
+TEST(BitfinexRest, ASellIsANegativeAmountAndNothingElse) {
+    const auto table = table_with_btc();
+    config::Secret secret;
+    ASSERT_TRUE(secret.assign(k_api_secret).has_value());
+    SignedRequestBuilder builder{k_api_key, secret};
+
+    const auto buy = builder.create_order(order_for(table, "tBTCUSD", Side::Buy), table, k_sign_now);
+    ASSERT_TRUE(buy.has_value()) << to_string(buy.error());
+    EXPECT_EQ(buy->target, "/v2/auth/w/order/submit");
+    EXPECT_NE(std::string{buy->body}.find(R"("amount":"0.1")"), std::string::npos) << buy->body;
+
+    const auto sell =
+        builder.create_order(order_for(table, "tBTCUSD", Side::Sell), table, k_sign_now);
+    ASSERT_TRUE(sell.has_value());
+    EXPECT_NE(std::string{sell->body}.find(R"("amount":"-0.1")"), std::string::npos) << sell->body;
+}
+
+// The "EXCHANGE " prefix is what makes an order a SPOT order. Without it the
+// same request opens a MARGIN position — not a refusal, a different trade that
+// succeeds.
+TEST(BitfinexRest, SpotAndDerivativesTakeDifferentTypeNames) {
+    EXPECT_EQ(order_type(MarketType::Spot, OrderType::Limit, TimeInForce::Gtc), "EXCHANGE LIMIT");
+    EXPECT_EQ(order_type(MarketType::Perp, OrderType::Limit, TimeInForce::Gtc), "LIMIT");
+    EXPECT_EQ(order_type(MarketType::Spot, OrderType::Market, TimeInForce::Gtc), "EXCHANGE MARKET");
+    EXPECT_EQ(order_type(MarketType::Perp, OrderType::Market, TimeInForce::Gtc), "MARKET");
+    // The time in force is a TYPE here, not a field beside one.
+    EXPECT_EQ(order_type(MarketType::Spot, OrderType::Limit, TimeInForce::Ioc), "EXCHANGE IOC");
+    EXPECT_EQ(order_type(MarketType::Perp, OrderType::Limit, TimeInForce::Fok), "FOK");
+
+    // Post-only and reduce-only are the two that stay flags.
+    EXPECT_EQ(order_flags(OrderFlags::None), 0);
+    EXPECT_EQ(order_flags(OrderFlags::PostOnly), k_flag_post_only);
+    EXPECT_EQ(order_flags(OrderFlags::ReduceOnly), k_flag_reduce_only);
+}
+
+TEST(BitfinexRest, TheWholeCreateBodyRidesTheSignature) {
+    const auto table = table_with_btc();
+    config::Secret secret;
+    ASSERT_TRUE(secret.assign(k_api_secret).has_value());
+    SignedRequestBuilder builder{k_api_key, secret};
+
+    auto cmd = order_for(table, "tBTCF0:USTF0", Side::Sell);
+    cmd.flags = OrderFlags::PostOnly;
+    const auto request = builder.create_order(cmd, table, k_sign_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    const auto cid = *cid_from(cmd.exchange_client_order_id);
+    EXPECT_EQ(std::string{request->body},
+              std::string{R"({"type":"LIMIT","symbol":"tBTCF0:USTF0","amount":"-0.1",)"
+                          R"("price":"63947","cid":)"} +
+                  std::to_string(cid) + R"(,"flags":4096})");
+    EXPECT_NE(std::string{builder.last_sign_message()}.find(std::string{request->body}),
+              std::string::npos);
+}
+
+// Both writes name the order by its VENUE id: Bitfinex will cancel by `cid`
+// only together with `cid_date`, and OrderCmd carries no placement date.
+TEST(BitfinexRest, CancelAndAmendNeedTheVenueOrderId) {
+    const auto table = table_with_btc();
+    config::Secret secret;
+    ASSERT_TRUE(secret.assign(k_api_secret).has_value());
+    SignedRequestBuilder builder{k_api_key, secret};
+
+    auto cmd = order_for(table, "tBTCUSD", Side::Sell);
+    EXPECT_EQ(builder.cancel_order(cmd, table, k_sign_now).error(), BuildError::NoOrderTarget);
+    EXPECT_EQ(builder.amend_order(cmd, table, k_sign_now).error(), BuildError::NoOrderTarget);
+
+    cmd.target_exchange_order_id = *ExchangeOrderId::from("1234567891");
+    const auto cancel = builder.cancel_order(cmd, table, k_sign_now);
+    ASSERT_TRUE(cancel.has_value());
+    EXPECT_EQ(cancel->target, "/v2/auth/w/order/cancel");
+    EXPECT_EQ(cancel->body, R"({"id":1234567891})");
+
+    // The amend restates the SIGNED amount: one that forgot the sign would
+    // flip a resting sell into a buy at the new price.
+    const auto amend = builder.amend_order(cmd, table, k_sign_now);
+    ASSERT_TRUE(amend.has_value());
+    EXPECT_EQ(amend->target, "/v2/auth/w/order/update");
+    EXPECT_EQ(amend->body, R"({"id":1234567891,"amount":"-0.1","price":"63947"})");
+}
+
+// ------------------------------------------------------ private wire ----
+
+TEST(BitfinexWire, TheAuthAckSeparatesOkFromRefused) {
+    const auto ok = parse_auth_ack(fixture("ws_auth_ok.json"));
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_TRUE(ok->ok);
+
+    const auto failed = parse_auth_ack(fixture("ws_auth_failed.json"));
+    ASSERT_TRUE(failed.has_value());
+    EXPECT_FALSE(failed->ok);
+    EXPECT_EQ(failed->code, k_auth_failed);
+    EXPECT_EQ(classify(failed->code), exec::ErrorClass::AuthFailure);
+
+    // The auth answer is an OBJECT and every private push an array, so the
+    // frame reader has to name it rather than fall through to Unknown.
+    const auto info = parse_frame(fixture("ws_auth_ok.json"));
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->kind, FrameKind::Auth);
+}
+
+// The status is PROSE with the fill glued on. Comparing it for equality matches
+// only ACTIVE and CANCELED and drops every completed order into Unknown.
+TEST(BitfinexWire, OrderStatusIsMatchedByPrefix) {
+    EXPECT_EQ(order_status("ACTIVE"), WireOrderStatus::Active);
+    EXPECT_EQ(order_status("EXECUTED @ 63951.0(-0.1)"), WireOrderStatus::Executed);
+    EXPECT_EQ(order_status("PARTIALLY FILLED @ 63951.0(-0.05)"),
+              WireOrderStatus::PartiallyFilled);
+    EXPECT_EQ(order_status("CANCELED"), WireOrderStatus::Canceled);
+    // "POSTONLY CANCELED" does not START with CANCELED, and reading it as
+    // anything else leaves a post-only rejection sitting open forever.
+    EXPECT_EQ(order_status("POSTONLY CANCELED"), WireOrderStatus::Canceled);
+    EXPECT_EQ(order_status("INSUFFICIENT MARGIN was: 0.0 : 100.0"), WireOrderStatus::Rejected);
+    EXPECT_EQ(order_status("RSN_DUST"), WireOrderStatus::Rejected);
+    EXPECT_EQ(order_status("SOMETHING BITFINEX ADDED"), WireOrderStatus::Unknown);
+}
+
+TEST(BitfinexWire, OrdersArriveOneAtATimeAndAsASnapshot) {
+    const auto one = parse_order(fixture("ws_order_new.json"));
+    ASSERT_TRUE(one.has_value());
+    EXPECT_EQ(one->id, "1234567890");
+    EXPECT_EQ(one->symbol, "tBTCUSD");
+    EXPECT_EQ(one->amount, "0.1");
+    EXPECT_EQ(one->amount_orig, "0.1");
+    EXPECT_EQ(one->type, "EXCHANGE LIMIT");
+    EXPECT_EQ(one->price, "63947");
+    EXPECT_EQ(one->status, WireOrderStatus::Active);
+    EXPECT_EQ(one->cid, 987654321);
+    EXPECT_EQ(one->mts_update, 1700000000100U);
+
+    static thread_local OrderBuffer storage;
+    const auto snapshot = parse_orders(fixture("ws_orders_snapshot.json"), storage);
+    ASSERT_TRUE(snapshot.has_value());
+    ASSERT_EQ(snapshot->size(), 3U);
+    EXPECT_EQ((*snapshot)[1].amount, "-0.05");
+    EXPECT_EQ((*snapshot)[2].symbol, "tBTCF0:USTF0");
+    EXPECT_EQ((*snapshot)[2].flags, k_flag_reduce_only);
+
+    // The same rows arrive bare from REST, with no socket envelope around them.
+    const auto rest = parse_orders(fixture("rest_orders.json"), storage);
+    ASSERT_TRUE(rest.has_value());
+    EXPECT_EQ(rest->size(), 3U);
+    EXPECT_EQ((*rest)[0].id, "1234567890");
+}
+
+TEST(BitfinexWire, ExecutionsStateTheirFeeOnlyOnTheSecondFrame) {
+    const auto te = parse_execution(fixture("ws_exec_te.json"));
+    ASSERT_TRUE(te.has_value());
+    EXPECT_EQ(te->id, "1111");
+    EXPECT_EQ(te->order_id, "1234567891");
+    EXPECT_EQ(te->amount, "-0.05");
+    EXPECT_TRUE(te->fee.empty()); // `te` arrives before the fee is known
+    EXPECT_TRUE(te->liquidity_known);
+    EXPECT_TRUE(te->maker);
+
+    const auto tu = parse_execution(fixture("ws_exec_tu.json"));
+    ASSERT_TRUE(tu.has_value());
+    EXPECT_EQ(tu->fee, "-0.0639");
+    EXPECT_EQ(tu->fee_currency, "USD");
+
+    static thread_local ExecutionBuffer storage;
+    const auto rest = parse_executions(fixture("rest_trades.json"), storage);
+    ASSERT_TRUE(rest.has_value());
+    ASSERT_EQ(rest->size(), 2U);
+    // MAKER is 1 or -1, not a boolean.
+    EXPECT_TRUE((*rest)[0].maker);
+    EXPECT_TRUE((*rest)[1].liquidity_known);
+    EXPECT_FALSE((*rest)[1].maker);
+}
+
+TEST(BitfinexWire, PositionsAndNotificationsCarryTheirVerdicts) {
+    static thread_local PositionBuffer storage;
+    const auto positions = parse_positions(fixture("ws_positions_snapshot.json"), storage);
+    ASSERT_TRUE(positions.has_value());
+    ASSERT_EQ(positions->size(), 2U);
+    EXPECT_EQ((*positions)[0].amount, "-0.5");
+    EXPECT_EQ((*positions)[0].status, "ACTIVE");
+    EXPECT_EQ((*positions)[1].status, "CLOSED");
+
+    const auto ok = parse_notification(fixture("rest_order_submit.json"));
+    ASSERT_TRUE(ok.has_value());
+    EXPECT_EQ(ok->type, "on-req");
+    EXPECT_TRUE(notification_ok(*ok));
+    ASSERT_TRUE(ok->has_order);
+    EXPECT_EQ(ok->order.id, "1234567890");
+
+    // Bitfinex answers HTTP 200 to a refused order; STATUS is the verdict.
+    const auto refused = parse_notification(fixture("rest_order_error.json"));
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_FALSE(notification_ok(*refused));
+    EXPECT_EQ(refused->code, k_unknown_pair);
+    EXPECT_FALSE(refused->text.empty());
+
+    // The same array arrives on the socket wrapped as [0,"n",[...]].
+    const auto pushed = parse_notification(fixture("ws_notification_error.json"));
+    ASSERT_TRUE(pushed.has_value());
+    EXPECT_EQ(pushed->type, "on-req");
+    EXPECT_FALSE(notification_ok(*pushed));
+}
+
+// ----------------------------------------------------- private mapping ----
+
+// A fully executed order carries AMOUNT 0, and zero has no sign — so the side
+// must come from AMOUNT_ORIG or every completed sale reads as a buy.
+TEST(BitfinexMap, TheSideComesFromTheOriginalAmountNotTheRemainder) {
+    const auto table = table_with_btc();
+    const auto executed = parse_order(fixture("ws_order_executed.json"));
+    ASSERT_TRUE(executed.has_value());
+    EXPECT_EQ(executed->amount, "0"); // nothing left, and no sign left either
+    EXPECT_EQ(executed->amount_orig, "-0.1");
+
+    const auto report = map_open_order(*executed, table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->side, Side::Sell);
+    EXPECT_EQ(report->status, OrderStatus::Filled);
+    EXPECT_EQ(report->qty.raw, 10'000'000);
+    EXPECT_EQ(report->leaves.raw, 0);
+
+    // And the fill itself is the execution's to report, never the order's.
+    EXPECT_FALSE(
+        map_order_event(*executed, table, ExchangeClientOrderId{}, k_ingest).has_value());
+}
+
+TEST(BitfinexMap, AnActiveOrderBecomesAcceptedAndACancelClosesIt) {
+    const auto table = table_with_btc();
+    const auto id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+
+    const auto fresh = parse_order(fixture("ws_order_new.json"));
+    ASSERT_TRUE(fresh.has_value());
+    const auto accepted = map_order_event(*fresh, table, id, k_ingest);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->type, OrderEventType::Accepted);
+    EXPECT_EQ(accepted->side, Side::Buy);
+    EXPECT_EQ(accepted->qty.raw, 10'000'000);
+    EXPECT_EQ(accepted->leaves_qty.raw, 10'000'000);
+    EXPECT_EQ(accepted->price.raw, 6'394'700'000'000);
+    EXPECT_EQ(accepted->exchange_order_id.view(), "1234567890");
+    EXPECT_EQ(accepted->exchange_client_order_id.view(), id.view());
+
+    const auto cancelled = parse_order(fixture("ws_order_canceled.json"));
+    ASSERT_TRUE(cancelled.has_value());
+    const auto event = map_order_event(*cancelled, table, id, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->type, OrderEventType::Canceled);
+    EXPECT_EQ(event->side, Side::Sell);
+    // Nothing rests after a cancel, whatever AMOUNT still says.
+    EXPECT_EQ(event->leaves_qty.raw, 0);
+
+    // A post-only refusal is a cancel too, and reading it as anything else
+    // leaves the order open forever.
+    const auto postonly = parse_order(fixture("ws_order_postonly_canceled.json"));
+    ASSERT_TRUE(postonly.has_value());
+    const auto refused = map_order_event(*postonly, table, id, k_ingest);
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(refused->type, OrderEventType::Canceled);
+    EXPECT_EQ(refused->flags, OrderFlags::PostOnly);
+}
+
+// EXEC_AMOUNT is signed and the sign is OUR side — not the aggressor's, the
+// way it is on the public trades channel.
+TEST(BitfinexMap, AFillTakesItsSideAndItsCostFromTheExecution) {
+    const auto table = table_with_btc();
+    const auto tu = parse_execution(fixture("ws_exec_tu.json"));
+    ASSERT_TRUE(tu.has_value());
+
+    const OrderContext context{
+        .client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+        .leaves = QtyLots::from_raw(5'000'000)};
+    const auto fill = map_execution(*tu, table, context, k_ingest);
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->type, OrderEventType::Filled);
+    EXPECT_EQ(fill->side, Side::Sell);
+    EXPECT_EQ(fill->qty.raw, 5'000'000); // 0.05 on a 1e-8 grid
+    EXPECT_EQ(fill->leaves_qty.raw, 5'000'000);
+    EXPECT_EQ(fill->liquidity, Liquidity::Maker);
+    EXPECT_EQ(fill->exec_id.view(), "1111");
+    EXPECT_EQ(fill->exchange_order_id.view(), "1234567891");
+    EXPECT_EQ(fill->exchange_client_order_id.view(), "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    // A Bitfinex fee is NEGATIVE when charged, the opposite of every other
+    // venue here, so a charge has to come out positive.
+    EXPECT_EQ(fill->fee.raw, 63'900'000);
+
+    // `te` states no fee at all; reporting the fill twice would double both
+    // the volume and the cost, which is why only `tu` reaches the sink.
+    const auto te = parse_execution(fixture("ws_exec_te.json"));
+    ASSERT_TRUE(te.has_value());
+    const auto early = map_execution(*te, table, context, k_ingest);
+    ASSERT_TRUE(early.has_value());
+    EXPECT_EQ(early->fee.raw, 0);
+}
+
+// AMOUNT IS SIGNED AND THAT SIGN IS THE WHOLE POSITION. There is no side field
+// to cross-check it against.
+TEST(BitfinexMap, APositionsSignIsTheOnlyThingThatSaysWhichWay) {
+    const auto table = table_with_btc();
+    static thread_local PositionBuffer storage;
+    const auto positions = parse_positions(fixture("rest_positions.json"), storage);
+    ASSERT_TRUE(positions.has_value());
+    ASSERT_EQ(positions->size(), 2U);
+
+    const auto shorted = map_position((*positions)[0], table);
+    ASSERT_TRUE(shorted.has_value());
+    EXPECT_EQ(shorted->net_qty.raw, -50'000'000); // -0.5 on a 1e-8 grid
+    EXPECT_EQ(shorted->avg_entry.raw, 6'394'700'000'000);
+
+    // Bitfinex also keeps MARGIN positions on SPOT pairs and this adapter opens
+    // none — every spot order it sends is an EXCHANGE order. Reporting one
+    // against a Spot instrument id would claim a position on a market that has
+    // no such concept here.
+    EXPECT_FALSE(map_position((*positions)[1], table).has_value());
+
+    // A closed row states nothing; absent is what means flat.
+    static thread_local PositionBuffer snapshot_storage;
+    const auto snapshot = parse_positions(fixture("ws_positions_snapshot.json"), snapshot_storage);
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_FALSE(map_position((*snapshot)[1], table).has_value());
+}
+
+TEST(BitfinexErrors, TheLiveAuthRefusalClassifiesAsACredentialProblem) {
+    // Captured 2026-08-26 against api.bitfinex.com with no headers at all. Note
+    // the HTTP status is 500, so an adapter that read the status code would
+    // call a bad key a venue outage and retry into it.
+    const auto& body = fixture("rest_auth_error.json");
+    ASSERT_TRUE(is_rest_error(body));
+    const auto err = parse_rest_error(body);
+    ASSERT_TRUE(err.has_value());
+    EXPECT_EQ(err->code, k_auth_failed);
+    EXPECT_EQ(classify(err->code), exec::ErrorClass::AuthFailure);
+    // A stale nonce is the one auth-shaped code that IS worth retrying.
+    EXPECT_EQ(classify(k_auth_nonce), exec::ErrorClass::Retryable);
 }
 
 } // namespace

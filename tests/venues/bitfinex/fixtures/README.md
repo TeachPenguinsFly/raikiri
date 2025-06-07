@@ -3,9 +3,13 @@
 Provenance matters here: a parser test is only evidence if the bytes are the
 bytes the venue actually sends.
 
-Every file below was **captured live** from production Bitfinex on 2026-08-11.
-No credentials are involved — all of these are public endpoints and the public
-websocket. Nothing in this directory is hand-written or reshaped from docs.
+Every file in the PUBLIC sections below was **captured live** from production
+Bitfinex on 2026-08-11 — public endpoints and the public websocket, no
+credentials involved, and nothing hand-written or reshaped from docs.
+
+Order entry cannot be captured without credentials. The **private** section at
+the end says, file by file, which bytes came off the wire anyway and which were
+assembled from Bitfinex's own SDK models.
 
 Files were spliced out of the captures **textually** (`sed -n 'Np'`), never
 re-serialized through a JSON library. A round trip rewrites `1e-8` as `1.0e-08`
@@ -117,3 +121,87 @@ behind the derived step in `map.hpp`.
 `rest_ticker.json` is kept because the REST ticker's eleventh slot is an
 integer where the websocket's is `null` — the clearest single illustration
 that the documented ten-field ticker is not what either transport sends.
+
+
+## Private — order entry
+
+Bitfinex serves the authenticated half from a DIFFERENT host,
+`api.bitfinex.com`, and every authenticated call is a POST with a JSON body:
+no GETs, no query strings. The private websocket is the same
+`api-pub.bitfinex.com/ws/2` socket after an `auth` event.
+
+### Captured live, unauthenticated
+
+| file | how |
+| --- | --- |
+| `rest_auth_error.json` | `POST api.bitfinex.com/v2/auth/r/orders` with no headers at all |
+
+That one file earns two tests. Its code is `10100`, which classifies as
+AuthFailure — and **the HTTP status beside it is 500**, so an adapter that read
+the status code would call a bad key a venue outage and retry into it.
+
+The five endpoints this adapter posts to were each probed the same way on
+2026-08-26 and each answered `["error",10100,"apikey: invalid"]`, while
+`/v2/auth/r/nope` answered a **404 with an HTML body** — which is what makes
+the probe evidence that the paths are right rather than merely reachable:
+
+    /v2/auth/w/order/submit   /v2/auth/w/order/cancel   /v2/auth/w/order/update
+    /v2/auth/r/orders         /v2/auth/r/positions      /v2/auth/r/trades/hist
+
+### Built from Bitfinex's own models
+
+No credentials exist to capture these, so they are assembled from the field
+maps in Bitfinex's own SDK — `bfx-api-node-models/lib/{order,trade,position,
+notification}.js`, which is the authoritative statement of these positional
+schemas — and marked as such. Every INDEX is the model's; the symbols, prices
+and sizes were chosen to be ones `rest_conf_pair.json` above actually lists, so
+the mapper divides by the same derived 1e-8 grid the live captures do.
+
+| file | shape |
+| --- | --- |
+| `ws_auth_ok.json`, `ws_auth_failed.json` | the `auth` acknowledgement, which is an OBJECT where every push is an array |
+| `ws_order_new.json` | `[0,"on",[...]]`, an ACTIVE spot buy |
+| `ws_order_executed.json` | `[0,"oc",[...]]` at `EXECUTED @ 63951.0(-0.1)` |
+| `ws_order_canceled.json` | the same order at `CANCELED` |
+| `ws_order_postonly_canceled.json` | a perpetual at `POSTONLY CANCELED`, flags 4096 |
+| `ws_orders_snapshot.json` | `[0,"os",[[...],[...],[...]]]` across both markets |
+| `ws_exec_te.json`, `ws_exec_tu.json` | the SAME fill twice — see below |
+| `ws_positions_snapshot.json` | `[0,"ps",[...]]`, one ACTIVE short and one CLOSED row |
+| `ws_notification_error.json` | `[0,"n",[...]]`, a refused submit |
+| `rest_order_submit.json`, `rest_order_error.json` | the notification a write answers with, at SUCCESS and at ERROR |
+| `rest_order_cancel.json` | the `oc-req` notification |
+| `rest_orders.json`, `rest_trades.json`, `rest_positions.json` | the same rows bare, with no socket envelope |
+
+Five properties these carry, each pinned by a test rather than left as a
+comment:
+
+- **A fully executed order has AMOUNT 0** (`ws_order_executed.json`), and zero
+  has no sign. `AMOUNT_ORIG` is the only field that still says which way the
+  order went, and a reader taking the side from `AMOUNT` reports every
+  completed sale as a buy.
+- **`POSTONLY CANCELED` does not start with `CANCELED`.** The status is prose
+  with the fill glued on, so it is matched by prefix; equality would leave a
+  post-only refusal sitting open forever.
+- **`te` and `tu` are the same fill twice.** `te` arrives immediately with FEE
+  null and `tu` restates it once the fee is known — same id, same order id,
+  same amount. Publishing both double-counts every fill and every fee, so only
+  `tu` reaches the sink.
+- **The fee is NEGATIVE when charged** (`-0.0639` in `ws_exec_tu.json`), which
+  is the opposite of every other venue in this repo, so the sign is flipped
+  once on the way in.
+- **`rest_positions.json` holds a margin position on a SPOT pair**
+  (`tBTCUSD`). This adapter opens none — every spot order it sends carries the
+  `EXCHANGE ` prefix — so that row is dropped rather than reported against a
+  Spot instrument id, which would claim a position on a market that has no
+  such concept here.
+
+### Signature vectors
+
+Bitfinex publishes none, so the algorithm and the message shape are pinned
+separately. HMAC-SHA384 is checked against **RFC 4231 test case 1**, and a
+second test asserts it is not SHA-512 truncated — SHA-384 has a different
+initial state, so a caller reaching for the SHA-512 already in `libs/net` would
+produce a digest the venue answers `10100` to. The message shapes come from
+Bitfinex's own SDK (`bfx-api-node-util/lib/gen_auth_sig.js` and
+`bfx-api-node-rest/lib/rest2.js`): `/api` + path + nonce + body for REST, and
+`AUTH` + nonce + **the same nonce again** for the socket.
