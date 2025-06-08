@@ -25,8 +25,8 @@ constexpr std::string_view k_hdr_timestamp = "Timestamp";
 // the wrong sub-account.
 constexpr std::string_view k_spot_account = "spot";
 
-// Both list endpoints cap at 1000 and default to 100. Reconciliation wants the
-// whole picture in one round trip, not a paginated approximation of it.
+// Both list endpoints cap at 1000 and default to 100; reconciliation wants the
+// whole picture, not a paginated approximation of it.
 constexpr std::string_view k_page_limit = "1000";
 
 // Fills the builder's target buffer. A part that would overflow is dropped
@@ -298,9 +298,11 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     return request;
 }
 
-// Gate serves spot and perpetuals here. Dated futures live under /delivery and
-// options under /options, each with its own model; both get their own name so a
-// refusal says which surface is missing rather than blaming the catalogue.
+// Gate serves spot and perpetuals here; dated futures live under /delivery and
+// options under /options, each with its own model. Callers ask BEFORE reading
+// the instrument table, which resolves an id by its whole value and would
+// otherwise answer UnknownInstrument — blaming the catalogue for a market this
+// adapter never served.
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -316,10 +318,6 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
-    // Named BEFORE the table is read. The table resolves an id by its whole
-    // value, so an id for a market this adapter never loaded finds nothing and
-    // would otherwise answer UnknownInstrument — a refusal that says the
-    // catalogue is stale when the truth is that the market is not served here.
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -415,10 +413,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
-    // Named BEFORE the table is read. The table resolves an id by its whole
-    // value, so an id for a market this adapter never loaded finds nothing and
-    // would otherwise answer UnknownInstrument — a refusal that says the
-    // catalogue is stale when the truth is that the market is not served here.
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -460,10 +454,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
-    // Named BEFORE the table is read. The table resolves an id by its whole
-    // value, so an id for a market this adapter never loaded finds nothing and
-    // would otherwise answer UnknownInstrument — a refusal that says the
-    // catalogue is stale when the truth is that the market is not served here.
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -502,8 +492,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
         break;
     }
     case MarketType::Spot: {
-        // Spot amend is the one PATCH in this adapter; Gate offers no PUT for
-        // it and the batch endpoint is a different contract.
+        // The one PATCH here: Gate offers no PUT for a spot amend.
         method = net::HttpMethod::Patch;
         json.obj_begin();
         if (!cmd.qty.is_undef()) {
@@ -645,8 +634,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
 
 std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos now) {
-    // Both windows are SECONDS, unlike the millisecond timestamps the same
-    // responses carry back.
+    // SECONDS, unlike the millisecond stamps the same responses carry back.
     const auto from_s = static_cast<std::int64_t>(since.ns / 1'000'000'000ULL);
 
     Appender path{path_};
@@ -686,9 +674,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     switch (market) {
     case MarketType::Perp:
         path << k_prefix << "/futures/" << k_settle_usdt << "/positions";
-        // holding=true drops the rows Gate keeps at size 0 for every contract
-        // the account has ever touched; absent then means flat, which is the
-        // reading PositionReport already carries.
+        // holding=true drops the size-0 rows Gate keeps for every contract the
+        // account ever touched; absent then means flat, as PositionReport reads.
         query << "holding=true&limit=" << k_page_limit;
         break;
     case MarketType::Spot:

@@ -105,3 +105,86 @@ Three facts the capture pins down, all measured rather than read off the docs:
   refusal carries a **string label**. They do not share a vocabulary.
 - **A successful REST body has no envelope**: the catalogue is a top-level
   array, so the HTTP status is the only success signal.
+
+## Order entry
+
+Added 2026-08 with the execution client. Gate's private endpoints need
+credentials this work had none of, so the split below is the important part of
+this section: three files are live captures, the rest are **assembled**.
+
+### Live
+
+| File | Provenance |
+| --- | --- |
+| `rest_currency_pairs.json` | live — `GET /api/v4/spot/currency_pairs`, trimmed from 2230 rows to four, unedited |
+| `rest_error_invalid_key.json` | live — `POST /api/v4/futures/usdt/orders` with a fabricated `KEY`/`SIGN` |
+| `rest_error_request_expired.json` | live — the same call with a `Timestamp` an hour stale |
+
+`rest_currency_pairs.json` keeps four rows on purpose: BTC_USDT (`precision` 1,
+`amount_precision` 6), ETH_USDT (2 and 4), ALEPH_USDT (`amount_precision` **0**,
+which is the whole-units encoding the mapper has to survive) and XAR_USDT
+(`trade_status: untradable` — a row the loader must skip).
+
+The two error bodies are what pinned the header contract down, and both are
+worth not rediscovering:
+
+- **The `Timestamp` header is SECONDS.** A millisecond value is answered
+  `REQUEST_EXPIRED`, not accepted. The window is **60 s** either way, and the
+  message quotes both clocks.
+- **Header names are `KEY`, `SIGN`, `Timestamp`**, and Gate validates them in
+  that order — a request missing all three complains about `Timestamp` first.
+- `REQUEST_EXPIRED` is our clock, not our key. Filing it under `AuthFailure`
+  (where Gate's own docs and ccxt put it) halts a venue whose keys are fine.
+
+### Assembled
+
+No credentials, so nothing below was observed on a socket. Field names, types
+and enumerations come from Gate's own published SDK models — `gateapi-python`'s
+`FuturesOrder` / `Order` / `Position` / `MyFuturesTrade` / `Trade`, and
+`gatews`'s `response_future.go`, which is the websocket shape rather than the
+REST one. Values are internally consistent with `rest_contracts.json`
+(BTC_USDT: 0.1 tick, one contract a lot) and `rest_currency_pairs.json`
+(BTC_USDT spot: 0.1 tick, 0.000001 lot).
+
+| File | Shape it pins |
+| --- | --- |
+| `ws_futures_order_new.json` | `futures.orders`, `finish_as: "_new"` — the acceptance |
+| `ws_futures_order_partial.json` | `finish_as: "_update"`, `left` 5 of `size` 10 |
+| `ws_futures_order_cancelled.json` | `finish_as: "cancelled"`, `status: "finished"` |
+| `ws_futures_order_poc_rejected.json` | `finish_as: "poc"` — an expiry, not a cancel |
+| `ws_futures_order_short.json` | `size` and `left` both **negative** |
+| `ws_futures_usertrade.json` | `futures.usertrades` — and no `left` anywhere on it |
+| `ws_spot_order_put.json`, `ws_spot_order_finished.json`, `ws_spot_order_cancelled.json` | `spot.orders` with its per-order `event`: `put` / `finish` |
+| `ws_spot_usertrade.json` | `spot.usertrades`, millisecond stamps as **strings** |
+| `rest_futures_order.json` | the body a successful `POST /futures/usdt/orders` returns |
+| `rest_futures_open_orders.json` | `status=open` list; the second row's `text` is `api`, i.e. not ours |
+| `rest_spot_open_orders.json` | `GET /spot/open_orders` — grouped **per currency pair** |
+| `rest_futures_positions.json` | a short position: `size: -30` |
+| `rest_futures_my_trades.json` | `create_time` as **fractional seconds** |
+| `rest_spot_my_trades.json` | the same pull on spot, with `create_time_ms` as a string |
+| `rest_futures_account.json` | `user`, which the futures private socket demands |
+
+These prove the parsers read the documented shapes; they do not prove those
+shapes are what production sends. Replace them with captures the first time
+this adapter runs against a real key.
+
+### Field notes worth not rediscovering
+
+- **`_new` and `_update` are websocket-only `finish_as` values.** They mean
+  "created" and "filled, partially filled, or amended" — not finish reasons.
+  Reading them as terminal closes an order that is still working. No REST body
+  ever carries them.
+- **A user trade never states the remaining size**, on either API. `left` lives
+  on the orders channel only, so the two frames have to be joined by venue
+  order id before a fill can state the leaves the OMS treats as authoritative.
+- **Futures carries the side in the SIGN of `size` and `left`**; spot has a
+  `side` field and unsigned decimals. The same struct has to hold both.
+- **Gate's `text` is not only ours.** `api`, `web`, `app`, `liquidation` and
+  `liq-...` are reserved source labels on orders nobody here placed, which is
+  why only a `t-` prefix counts as a client order id.
+- **`t-` plus a 26-char ULID is 28 bytes**, and Gate's limit is 28 bytes
+  *after* the prefix. It fits with room to spare, and every Crockford base32
+  character is inside Gate's allowed set.
+- **The spot open-order body wraps orders in objects that also carry
+  `currency_pair`.** A reader that does not require `id` reads the wrappers as
+  orders and reports a list of empty ones instead of failing.

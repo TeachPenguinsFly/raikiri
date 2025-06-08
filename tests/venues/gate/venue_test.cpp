@@ -1857,6 +1857,24 @@ TEST(GateMapPrivate, SpotFillsMapThroughTheSameShape) {
     EXPECT_EQ(event->ts_event.ns, 1'787'670'011'222'000'000ULL);
 }
 
+TEST(GateMapPrivate, TheSpotFillPullReadsTheSameShapeAsTheSocket) {
+    // Spot REST types create_time_ms as a STRING where the futures REST body
+    // types create_time as fractional seconds; one reader has to survive both.
+    const auto table = spot_table_with_btc();
+    UserTradeBuffer storage;
+    const auto body = fixture("rest_spot_my_trades.json");
+    const auto trades = parse_rest_user_trades(body, storage, MarketType::Spot);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U);
+    EXPECT_EQ(trades->front().order_id, "1036717689726");
+    const auto event = map_user_trade(
+        trades->front(), table, QtyLots::from_raw(200'000), ExchangeClientOrderId{}, k_ingest);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->qty.raw, 300'000);
+    EXPECT_EQ(event->exec_id.view(), "7654321");
+    EXPECT_EQ(event->ts_event.ns, 1'787'670'011'222'000'000ULL);
+}
+
 TEST(GateMapPrivate, SpotCatalogueTurnsPrecisionDigitsIntoSteps) {
     // Gate states spot precision as a DIGIT COUNT, not a step. Reading it as a
     // step makes every price 6 ticks wide.
