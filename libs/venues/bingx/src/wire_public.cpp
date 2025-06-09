@@ -81,8 +81,12 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
 
 } // namespace
 
+bool is_ping(std::string_view frame) noexcept {
+    return detail::trim(frame) == k_ping;
+}
+
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
-    if (detail::trim(frame) == k_ping) {
+    if (is_ping(frame)) {
         return EventInfo{.kind = EventKind::Ping, .symbol = {}};
     }
     return guarded([&]() -> std::expected<EventInfo, WireError> {

@@ -15,6 +15,7 @@
 // budget. `id` comes back in the answer and any string works (VERIFIED: "1" is
 // acknowledged), so a counter stands in for the uuid the examples show.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/net/inflater.hpp>
 
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace raikiri::venues::bingx {
@@ -38,6 +40,18 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_host() noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
+
+// The user stream. The perpetual one is the SAME host and path as the public
+// market stream with a listenKey on the query, and it takes no subscription at
+// all — every account event follows the connection. Spot lives on its own host
+// and DOES need one, so a spot socket that connects and then says nothing is a
+// missing subscribe rather than a quiet account.
+[[nodiscard]] std::string_view private_stream_host(MarketType market) noexcept;
+[[nodiscard]] std::string_view private_stream_path(MarketType market) noexcept;
+
+// "/swap-market?listenKey=<key>" — the key rides the URL, so a fresh key only
+// takes effect on a fresh connection.
+[[nodiscard]] std::string private_stream_target(MarketType market, std::string_view key);
 
 // The part after the '@'. Empty for a kind BingX does not stream under these
 // names — including Funding, which has no channel at all (VERIFIED:
@@ -58,6 +72,10 @@ public:
     // VERIFIED: "unsub" is acknowledged and the stream stops.
     [[nodiscard]] std::expected<Frame, WsBuildError> unsubscribe_frame(std::string_view symbol,
                                                                        std::string_view suffix);
+
+    // A whole-channel subscription: the spot user stream names a dataType with
+    // no symbol in it, which the symbol+suffix form cannot express.
+    [[nodiscard]] std::expected<Frame, WsBuildError> subscribe_channel(std::string_view data_type);
 
     [[nodiscard]] static std::string_view pong_frame() noexcept { return "Pong"; }
 

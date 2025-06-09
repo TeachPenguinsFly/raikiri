@@ -1,10 +1,12 @@
 add_library(raikiri_venue_bingx STATIC
   src/bingx_venue.cpp
+  src/client_id.cpp
   src/errors.cpp
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
   src/wire_detail.cpp
+  src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
 )

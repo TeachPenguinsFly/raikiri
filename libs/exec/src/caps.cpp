@@ -112,11 +112,19 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .fix_order_entry = false,
         .cancel_by_client_order_id = true,
         .batch_cancel = true, // VERIFIED: batch create <=5, batch cancel <=10
+        // BingX's amend moves QUANTITY only. OrderCmd restates the price on
+        // every amend, and sending a size change that silently leaves the
+        // price put is worse than refusing.
         .amend_order = false,
-        .native_post_only = true, // provisional
+        .native_post_only = true, // VERIFIED: timeInForce=PostOnly, both trees
         .book_checksum = false,
+        .position_pull = true,
+        // /allFillOrders states neither a trade id nor a side: a FillReport
+        // without an exec_id cannot be deduplicated and one without a side
+        // cannot be netted. Live fills carry both; the pull does not.
+        .fill_pull = false,
         .user_stream = UserStreamModel::ListenKey,
-        .max_client_order_id_len = 40, // provisional
+        .max_client_order_id_len = 40, // VERIFIED: ^[a-zA-Z0-9]{1,40}$
         .headline_order_rate_per_s = 10,
     };
     table[static_cast<std::size_t>(VenueId::Xt)] = {

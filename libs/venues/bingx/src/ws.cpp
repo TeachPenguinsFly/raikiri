@@ -2,12 +2,19 @@
 
 #include <charconv>
 #include <cstring>
+#include <string>
 
 namespace raikiri::venues::bingx {
 
 namespace {
 
 constexpr std::string_view k_host = "open-api-swap.bingx.com";
+
+// Spot's user stream is a different deployment entirely; the perpetual one
+// shares the public market host.
+constexpr std::string_view k_spot_private_host = "open-api-ws.bingx.com";
+constexpr std::string_view k_spot_private_path = "/market";
+
 } // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
@@ -32,6 +39,21 @@ std::string_view stream_path() noexcept {
     return "/swap-market";
 }
 
+std::string_view private_stream_host(MarketType market) noexcept {
+    return market == MarketType::Spot ? k_spot_private_host : k_host;
+}
+
+std::string_view private_stream_path(MarketType market) noexcept {
+    return market == MarketType::Spot ? k_spot_private_path : stream_path();
+}
+
+std::string private_stream_target(MarketType market, std::string_view key) {
+    std::string target{private_stream_path(market)};
+    target += "?listenKey=";
+    target.append(key);
+    return target;
+}
+
 std::string_view data_type_suffix(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
@@ -53,7 +75,7 @@ std::string_view data_type_suffix(exec::SubKind kind) noexcept {
 
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::request(std::string_view req_type, std::string_view symbol, std::string_view suffix) {
-    if (symbol.empty() || suffix.empty()) {
+    if (symbol.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t len = 0;
@@ -78,8 +100,10 @@ Protocol::request(std::string_view req_type, std::string_view symbol, std::strin
     put(req_type);
     put(R"(","dataType":")");
     put(symbol);
-    put("@");
-    put(suffix);
+    if (!suffix.empty()) {
+        put("@");
+        put(suffix);
+    }
     put(R"("})");
     if (overflow) {
         return std::unexpected{WsBuildError::BufferTooSmall};
@@ -89,12 +113,26 @@ Protocol::request(std::string_view req_type, std::string_view symbol, std::strin
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::string_view symbol,
                                                                        std::string_view suffix) {
+    // A kind with no channel behind it (Funding, Kline) has no frame to build,
+    // and a dataType of "BTC-USDT@" is one BingX refuses with 80015.
+    if (suffix.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
     return request("sub", symbol, suffix);
 }
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::string_view symbol,
                                                                          std::string_view suffix) {
+    if (suffix.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
     return request("unsub", symbol, suffix);
+}
+
+// No '@' and no symbol: "spot.executionReport" is the whole dataType.
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::subscribe_channel(std::string_view data_type) {
+    return request("sub", data_type, {});
 }
 
 } // namespace raikiri::venues::bingx

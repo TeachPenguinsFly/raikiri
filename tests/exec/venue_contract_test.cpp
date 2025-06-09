@@ -206,7 +206,8 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     // to sit in the VenueId enum.
     std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
-              (std::vector<std::string_view>{"binance", "bitfinex", "bitget", "bitmex", "bybit",
+              (std::vector<std::string_view>{"binance", "bingx", "bitfinex", "bitget", "bitmex",
+                                             "bybit",
                                              "deribit", "gate", "htx", "hyperliquid",
                                              "kraken", "kucoin", "mexc", "okx", "xt"}));
 }

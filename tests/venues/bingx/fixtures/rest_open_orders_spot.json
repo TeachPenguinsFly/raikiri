@@ -1,0 +1,1 @@
+{"code":0,"msg":"","debugMsg":"","data":{"orders":[{"symbol":"BTC-USDT","orderId":1514073325788200960,"price":"44459.60","StopPrice":"0","origQty":"0.003000","executedQty":"0","cummulativeQuoteQty":"0","status":"PENDING","type":"LIMIT","side":"BUY","time":1649818185647,"updateTime":1649818185647,"origQuoteOrderQty":"0","fee":0,"clientOrderID":"01JD7Q0M9WKE6Q3N2F4H8ZT5XT"}]}}

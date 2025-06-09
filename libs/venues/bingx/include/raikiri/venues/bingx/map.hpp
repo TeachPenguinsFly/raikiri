@@ -12,6 +12,8 @@
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/market_data.hpp>
+#include <raikiri/domain/order_events.hpp>
+#include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/venues/bingx/wire.hpp>
 
@@ -54,5 +56,32 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
 // Returns nullopt for anything not online, anything that is not the requested
 // market, and any row whose precisions yield no usable step.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
+
+// Returns nullopt for anything not online, anything closed to API orders, and
+// any row whose tick or step is finer than FixedE9 represents.
+[[nodiscard]] std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire);
+
+// Private ------------------------------------------------------------------
+
+// BingX spells a spot pair and a perpetual IDENTICALLY ("BTC-USDT" on both),
+// so the by-symbol lookup answers with whichever market loaded first. Every
+// private mapper therefore states the market it is reading and refuses a row
+// the table holds under the other one: an order event attributed to the wrong
+// market moves the wrong position.
+[[nodiscard]] std::optional<exec::OrderStatusReport>
+map_open_order(const WireOrder& wire, const exec::InstrumentTable& table, MarketType market);
+
+// `fallback_client_id` is what the memo remembers for this order id: the SPOT
+// push carries no client order id at all, so without it every spot fill would
+// be unattributable.
+[[nodiscard]] std::optional<OrderEvent>
+map_order_update(const WireOrderUpdate& wire,
+                 const exec::InstrumentTable& table,
+                 MarketType market,
+                 const ExchangeClientOrderId& fallback_client_id,
+                 UnixNanos ts_init);
+
+[[nodiscard]] std::optional<exec::PositionReport>
+map_position(const WirePosition& wire, const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bingx
