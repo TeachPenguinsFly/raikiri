@@ -298,5 +298,63 @@ TEST_F(VenueContract, AWrongMarketIdResolvesToNothingRatherThanTheWrongInstrumen
               nullptr);
 }
 
+
+TEST_F(VenueContract, OneTableHoldsBothMarketsOfASharedSymbol) {
+    // Most venues spell a spot pair and its perpetual identically. Keying the
+    // index on the symbol alone made add() refuse the second as a duplicate, so
+    // a gateway with both markets enabled loaded whichever catalogue ran first
+    // and silently listed none of the other.
+    const auto row = [](MarketType market) {
+        InstrumentBase base{};
+        base.id = InstrumentId::make(VenueId::Gate, market, SymbolId{0});
+        base.local_symbol = *SymbolText::from("BTC_USDT");
+        base.exchange_symbol = *SymbolText::from("BTC_USDT");
+        base.tick_size = *parse_decimal_e9("0.1");
+        base.lot_size = *parse_decimal_e9("0.001");
+        base.contract_value = *parse_decimal_e9("1");
+        base.kind = ContractKind::Linear;
+        return base;
+    };
+    InstrumentTable table;
+    const auto spot = table.add(SpotInstrument{row(MarketType::Spot)});
+    const auto perp = table.add(PerpInstrument{row(MarketType::Perp), 28'800});
+    ASSERT_TRUE(spot.has_value());
+    ASSERT_TRUE(perp.has_value()) << "the second market must not read as a duplicate";
+    EXPECT_EQ(table.size(), 2U);
+
+    // Named with its market, each resolves to its own row.
+    EXPECT_EQ(table.find("BTC_USDT", MarketType::Spot), table.find(*spot));
+    EXPECT_EQ(table.find("BTC_USDT", MarketType::Perp), table.find(*perp));
+    EXPECT_NE(table.find(*spot), table.find(*perp));
+
+    // Named without one, the answer is a refusal — never a coin flip between
+    // two instruments whose lot and contract sizes differ.
+    EXPECT_EQ(table.find("BTC_USDT"), nullptr);
+
+    // The same symbol in the same market is still a duplicate.
+    EXPECT_FALSE(table.add(SpotInstrument{row(MarketType::Spot)}).has_value());
+}
+
+TEST_F(VenueContract, ASingleMarketTableStillAnswersOnTheSymbolAlone) {
+    // Every gateway today hosts one market, and that path must stay exactly as
+    // it was: the bare lookup is the hot path for every inbound frame.
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Gate, MarketType::Perp, SymbolId{0});
+    base.local_symbol = *SymbolText::from("BTC_USDT");
+    base.exchange_symbol = *SymbolText::from("BTC_USDT");
+    base.tick_size = *parse_decimal_e9("0.1");
+    base.lot_size = *parse_decimal_e9("0.001");
+    base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
+
+    InstrumentTable table;
+    const auto id = table.add(PerpInstrument{base, 28'800});
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(table.find("BTC_USDT"), table.find(*id));
+    EXPECT_EQ(table.find("BTC_USDT", MarketType::Perp), table.find(*id));
+    EXPECT_EQ(table.find("BTC_USDT", MarketType::Spot), nullptr);
+    EXPECT_EQ(table.find("NOSUCH"), nullptr);
+}
+
 } // namespace
 } // namespace raikiri::exec

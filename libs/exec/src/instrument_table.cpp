@@ -37,8 +37,16 @@ std::expected<InstrumentId, TableError> InstrumentTable::add(Instrument instrume
         return std::unexpected{TableError::Full};
     }
     const auto symbol_text = std::string{base.exchange_symbol.view()};
-    if (by_exchange_symbol_.contains(symbol_text)) {
-        return std::unexpected{TableError::DuplicateSymbol};
+    // A duplicate is the same symbol in the same MARKET. Refusing on the symbol
+    // alone silently dropped every spot instrument on a venue whose perpetual
+    // shares the ticker — which is most of them — and left the gateway holding
+    // whichever catalogue happened to load first.
+    if (const auto it = by_exchange_symbol_.find(symbol_text); it != by_exchange_symbol_.end()) {
+        for (const auto slot : it->second) {
+            if (base_of(instruments_[slot]).id.market() == base.id.market()) {
+                return std::unexpected{TableError::DuplicateSymbol};
+            }
+        }
     }
 
     const auto index = static_cast<std::uint32_t>(instruments_.size());
@@ -47,13 +55,30 @@ std::expected<InstrumentId, TableError> InstrumentTable::add(Instrument instrume
 
     instruments_.push_back(std::move(instrument));
     exchange_symbols_.push_back(symbol_text);
-    by_exchange_symbol_.emplace(exchange_symbols_.back(), index);
+    by_exchange_symbol_[exchange_symbols_.back()].push_back(index);
     return id;
 }
 
 const Instrument* InstrumentTable::find(std::string_view exchange_symbol) const noexcept {
     const auto it = by_exchange_symbol_.find(exchange_symbol);
-    return it == by_exchange_symbol_.end() ? nullptr : &instruments_[it->second];
+    if (it == by_exchange_symbol_.end() || it->second.size() != 1) {
+        return nullptr; // absent, or ambiguous across markets — never a guess
+    }
+    return &instruments_[it->second.front()];
+}
+
+const Instrument* InstrumentTable::find(std::string_view exchange_symbol,
+                                        MarketType market) const noexcept {
+    const auto it = by_exchange_symbol_.find(exchange_symbol);
+    if (it == by_exchange_symbol_.end()) {
+        return nullptr;
+    }
+    for (const auto slot : it->second) {
+        if (base_of(instruments_[slot]).id.market() == market) {
+            return &instruments_[slot];
+        }
+    }
+    return nullptr;
 }
 
 const Instrument* InstrumentTable::find(InstrumentId id) const noexcept {

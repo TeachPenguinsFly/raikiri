@@ -614,12 +614,11 @@ struct PrivateStream {
 
 class GateExec final : public exec::ExecutionClient {
 public:
-    // WARNING: spot and perp share one InstrumentTable, and Gate names both
-    // markets' BTC_USDT identically. InstrumentTable::add refuses the second
-    // one as a duplicate exchange symbol, so a process with BOTH markets
-    // enabled loads whichever catalogue ran first and silently lists none of
-    // the other. Until the table keys on (market, symbol), run one gateway per
-    // market — the request builders below are already market-correct.
+    // Gate names both markets' BTC_USDT identically, so the bare
+    // InstrumentTable::find(symbol) cannot answer once both are loaded and
+    // returns nullptr rather than guessing a market. The mappers below name
+    // the market they came from; a new one that does not will drop its frames
+    // rather than price them by the other market's lot size.
     GateExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
         : state_{std::move(state)},
           rest_{state_->io,

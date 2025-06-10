@@ -23,7 +23,7 @@
 namespace raikiri::exec {
 
 enum class TableError : std::uint8_t {
-    DuplicateSymbol,
+    DuplicateSymbol, // same symbol AND market already loaded
     InvalidInstrument, // failed domain validation (zero tick/lot, empty symbol)
     Full,              // more instruments than SymbolId space allows in practice
 };
@@ -38,7 +38,18 @@ public:
     [[nodiscard]] std::expected<InstrumentId, TableError> add(Instrument instrument);
 
     // Hot path: inbound frames carry the venue's own symbol text.
+    //
+    // Most venues spell a spot pair and its perpetual IDENTICALLY — binance,
+    // gate, bitget, xt, mexc and kucoin all call both BTCUSDT or BTC_USDT — so
+    // a symbol alone does not name an instrument once both markets are loaded.
+    // This overload answers only when the name is unambiguous, and returns
+    // nullptr rather than picking a market when it is not. A gateway hosting
+    // both markets must use the overload below; a gateway hosting one, which is
+    // every gateway today, is unaffected.
     [[nodiscard]] const Instrument* find(std::string_view exchange_symbol) const noexcept;
+
+    [[nodiscard]] const Instrument* find(std::string_view exchange_symbol,
+                                         MarketType market) const noexcept;
 
     // Warm path: outbound orders need the text back.
     [[nodiscard]] const Instrument* find(InstrumentId id) const noexcept;
@@ -54,7 +65,10 @@ public:
 private:
     std::vector<Instrument> instruments_; // indexed by SymbolId
     std::deque<std::string> exchange_symbols_;
-    std::unordered_map<std::string_view, std::uint32_t> by_exchange_symbol_;
+    // Keyed on the symbol alone, holding EVERY market that carries it, because
+    // the question asked on the hot path is "which instrument is this text" and
+    // the answer is a set until a market narrows it.
+    std::unordered_map<std::string_view, std::vector<std::uint32_t>> by_exchange_symbol_;
 };
 
 } // namespace raikiri::exec
