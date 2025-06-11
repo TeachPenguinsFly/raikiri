@@ -505,9 +505,26 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "gatewayd: adapter build failed\n");
         return 1;
     }
-    if (!adapter->data->start().has_value() || !adapter->execution->start().has_value()) {
-        fmt::print(stderr, "gatewayd: adapter start failed\n");
+    if (const auto started = adapter->data->start(); !started.has_value()) {
+        fmt::print(stderr, "gatewayd: market data failed to start — {}\n", started.error().message.view());
         return 1;
+    }
+    // Order entry is allowed to refuse when no key was configured, and that is
+    // NOT fatal: the whole repository is meant to clone and run against live
+    // venues with no credentials at all, and tools/venue_smoke.sh does exactly
+    // that. What would be fatal is a gateway that accepted orders it could not
+    // sign, so the command rings are only drained once execution is up.
+    const bool credentials_configured = !api_key_ref.empty() && !api_secret_ref.empty();
+    bool can_trade = false;
+    if (const auto started = adapter->execution->start(); started.has_value()) {
+        can_trade = true;
+    } else if (credentials_configured) {
+        fmt::print(stderr,
+                   "gatewayd: order entry failed to start — {}\n",
+                   started.error().message.view());
+        return 1;
+    } else {
+        fmt::print("gatewayd[{}]: market data only — {}\n", venue_name, started.error().message.view());
     }
     // The catalogue must load before any subscription: an adapter cannot map
     // a single inbound frame without the tick and lot sizes, and a gateway
@@ -583,9 +600,20 @@ int main(int argc, char** argv) {
         // Cancels first: the escape hatch never queues behind new risk.
         OrderCmd cmd{};
         while (cancels.try_pop(cmd)) {
+            if (!can_trade) {
+                sink.reject(cmd, "venue is running market-data only");
+                continue;
+            }
             adapter->execution->cancel(cmd);
         }
         while (creates.try_pop(cmd)) {
+            // Refused, never dropped. A command that vanishes leaves a strategy
+            // waiting on a verdict that is not coming; a rejection reaches a
+            // terminal state and the order store retires it.
+            if (!can_trade) {
+                sink.reject(cmd, "venue is running market-data only");
+                continue;
+            }
             switch (cmd.kind) {
             case CmdKind::Create:
                 if (g_halted.contains(cmd.instrument.packed)) {
