@@ -19,7 +19,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Binance)] = {
         .venue = VenueId::Binance,
-        .spot = true,
+        // USD-M FUTURES ONLY. Every path in the adapter targets
+        // fapi.binance.com and create_order never reads the market at all;
+        // binance spot is another host and another API. Left true, a config
+        // enables spot and then fails one call at a time instead of at load.
+        .spot = false,
         .perp = true,
         .ws_order_entry = true, // VERIFIED: ws-fapi (futures) + ws-api (spot)
         .fix_order_entry = true,
@@ -95,6 +99,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .fix_order_entry = false,
         .cancel_by_client_order_id = true, // clientOid
         .batch_cancel = true,
+        // Understated, and a single boolean cannot say better: spot amend is
+        // real (/api/v1/hf/orders/alter), futures has none. False is the safe
+        // reading — callers fall back to cancel-and-replace on both.
         .amend_order = false, // provisional
         .native_post_only = true,
         .book_checksum = false,
@@ -162,6 +169,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true, // provisional
         .book_checksum = false,
         .position_pull = true,
+        // Holds for perp, not for spot: fill_reports(Spot) refuses because
+        // MEXC's spot history is per-symbol. The reconciler reads this bit
+        // BEFORE calling, so a spot gateway pulls and always fails. One
+        // market per process (see gatewayd --market) is what settles it.
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // VERIFIED: futures externalOid max 32 (error 2030 beyond).
@@ -269,7 +280,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .ws_order_entry = true,
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
-        .amend_order = true,
+        // No in-place amend on either API; bitget_venue.cpp answers every
+        // amend with ModifyRejected and there is no amend_order builder at
+        // all. Callers cancel and replace.
+        .amend_order = false,
         .native_post_only = true,
         .position_pull = true,
         .fill_pull = true,

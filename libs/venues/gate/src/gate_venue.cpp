@@ -614,11 +614,12 @@ struct PrivateStream {
 
 class GateExec final : public exec::ExecutionClient {
 public:
-    // Gate names both markets' BTC_USDT identically, so the bare
-    // InstrumentTable::find(symbol) cannot answer once both are loaded and
-    // returns nullptr rather than guessing a market. The mappers below name
-    // the market they came from; a new one that does not will drop its frames
-    // rather than price them by the other market's lot size.
+    // WARNING: Gate names both markets' BTC_USDT identically, and the mappers
+    // below do NOT name a market — map_bbo, map_trade, map_order_event and
+    // map_user_trade all take (wire, table, ts), and WireOrder carries no
+    // market field. So a process with BOTH catalogues loaded would have every
+    // one of them answer nullptr and drop every frame, silently. Run one
+    // gateway per market; the request builders are already market-correct.
     GateExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
         : state_{std::move(state)},
           rest_{state_->io,

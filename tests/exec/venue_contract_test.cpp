@@ -169,6 +169,20 @@ TEST_F(VenueContract, UnknownAndUnsupportedConfigsRefusedAtStartup) {
     EXPECT_EQ(spot_on_sim.error(), MakeError::UnsupportedMarket);
 }
 
+TEST_F(VenueContract, AdapterHostsExactlyOneMarket) {
+    // Sim serves perp, so neither of these refusals is a caps refusal — they
+    // are the arity rule itself. Two markets in one adapter used to start and
+    // then quietly serve one of them; none is a config that asks for nothing.
+    const auto both =
+        make_venue({.venue = VenueId::Sim, .enable_spot = true, .enable_perp = true}, sink, clock);
+    ASSERT_FALSE(both.has_value());
+
+    const auto neither =
+        make_venue({.venue = VenueId::Sim, .enable_spot = false, .enable_perp = false}, sink, clock);
+    ASSERT_FALSE(neither.has_value());
+    EXPECT_EQ(neither.error(), MakeError::NoMarketSelected);
+}
+
 TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
     // The whole three-ID recovery scheme rides on 26-char ids fitting every
     // venue we ship. Gate is the tightest fit — this is the tripwire that

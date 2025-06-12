@@ -150,7 +150,7 @@ TEST(BingxVenue, PullsSayWhyTheyCannotAnswer) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // No credentials is an AuthFailure, not a Terminal one: the gateway halts
@@ -181,7 +181,7 @@ TEST(BingxVenue, RefusesToSubscribeASpotInstrumentToTheSwapSocket) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto spot = adapter->data->subscribe(

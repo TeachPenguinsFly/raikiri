@@ -101,7 +101,7 @@ TEST(BitmexVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bitmex, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Future, MarketType::Option}) {

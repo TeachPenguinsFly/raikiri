@@ -16,6 +16,7 @@
 #include <expected>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace raikiri::exec {
 
@@ -44,7 +45,11 @@ enum class MakeError : std::uint8_t {
     UnknownVenue,
     UnsupportedMarket,        // config enables a market the caps row denies
     ClientOrderIdTooShort,    // caps row cannot carry a 26-char ULID
+    TwoMarketsAtOnce,         // one adapter, one market — see the comment below
+    NoMarketSelected,         // neither flag set: nothing to load or subscribe
 };
+
+[[nodiscard]] std::string_view to_string(MakeError error) noexcept;
 
 using VenueFactory = VenueAdapter (*)(const VenueConfig&, GatewaySink&, const Clock&);
 

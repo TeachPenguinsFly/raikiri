@@ -133,10 +133,24 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
+    // USD-M FUTURES ONLY. The rows come from /fapi/v1/exchangeInfo and the
+    // whole adapter speaks to fapi.binance.com; binance spot is another host
+    // and another API. Admitting a Spot id here would intern every futures
+    // row — perpetuals AND dated quarterlies — as a SpotInstrument with a
+    // pinned contract_value, which is worse than refusing because it looks
+    // like it worked.
+    switch (market) {
+    case MarketType::Perp:
+        break;
+    case MarketType::Spot:
+    case MarketType::Future:
+    case MarketType::Option:
+        return std::nullopt;
+    }
     if (wire.status != "TRADING") {
         return std::nullopt; // SETTLING, PENDING_TRADING, CLOSE: not tradable now
     }
-    if (market == MarketType::Perp && wire.contract_type != "PERPETUAL") {
+    if (wire.contract_type != "PERPETUAL") {
         return std::nullopt;
     }
 
@@ -160,9 +174,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
-    if (market == MarketType::Spot) {
-        return SpotInstrument{base};
-    }
     return PerpInstrument{base, /*funding_interval_s=*/28'800};
 }
 

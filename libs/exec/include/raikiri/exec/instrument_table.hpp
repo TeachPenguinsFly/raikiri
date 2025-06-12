@@ -39,9 +39,12 @@ public:
 
     // Hot path: inbound frames carry the venue's own symbol text.
     //
-    // Most venues spell a spot pair and its perpetual IDENTICALLY — binance,
-    // gate, bitget, xt, mexc and kucoin all call both BTCUSDT or BTC_USDT — so
-    // a symbol alone does not name an instrument once both markets are loaded.
+    // Six venues spell a spot pair and its perpetual IDENTICALLY — binance,
+    // bybit, bitget, gate, xt and bingx — so a symbol alone does not name an
+    // instrument once both markets are loaded. The others disambiguate in the
+    // text itself (okx BTC-USDT-SWAP, kucoin XBTUSDTM, mexc BTC_USDT vs
+    // BTCUSDT, bitfinex tBTCF0:USTF0), which is why the bare form still works
+    // for them.
     // This overload answers only when the name is unambiguous, and returns
     // nullptr rather than picking a market when it is not. A gateway hosting
     // both markets must use the overload below; a gateway hosting one, which is

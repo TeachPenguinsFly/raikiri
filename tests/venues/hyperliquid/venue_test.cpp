@@ -87,7 +87,7 @@ TEST(HyperliquidVenue, OrderEntryWithoutAKeyRefusesThroughTheSink) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Hyperliquid, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -124,7 +124,7 @@ TEST(HyperliquidVenue, ReconciliationPullsRefuseRatherThanReportFlat) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Hyperliquid, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Perp}) {
@@ -162,7 +162,7 @@ TEST(HyperliquidVenue, UnservedMarketsRefuseBeforeAnythingElseIsConsulted) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .enable_spot = true, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Hyperliquid, .enable_perp = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& [market, message] :

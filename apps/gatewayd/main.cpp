@@ -502,7 +502,7 @@ int main(int argc, char** argv) {
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
-        fmt::print(stderr, "gatewayd: adapter build failed\n");
+        fmt::print(stderr, "gatewayd: adapter build failed — {}\n", exec::to_string(adapter.error()));
         return 1;
     }
     if (const auto started = adapter->data->start(); !started.has_value()) {

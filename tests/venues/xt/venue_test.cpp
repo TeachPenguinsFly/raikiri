@@ -181,7 +181,7 @@ TEST(XtVenue, SpotPositionPullSaysSoRatherThanAnsweringFlat) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_spot = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_spot = true, .enable_perp = false}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto positions = adapter->execution->position_reports(MarketType::Spot);
