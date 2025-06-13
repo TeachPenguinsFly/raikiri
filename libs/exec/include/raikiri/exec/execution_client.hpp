@@ -7,6 +7,7 @@
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/error.hpp>
 
 #include <expected>
@@ -40,12 +41,9 @@ struct FillReport {
     UnixNanos ts_venue{};
 };
 
-struct PositionReport {
-    InstrumentId instrument{};
-    QtyLots net_qty{}; // signed: positive long, negative short
-    PriceTicks avg_entry{};
-    UnixNanos ts_venue{};
-};
+// Lives in domain: the shm transport carries it too, and transport cannot
+// depend on this layer. Spelled exec::PositionReport everywhere it is used.
+using PositionReport = raikiri::PositionReport;
 
 // An adapter that does not implement a pull must SAY SO. An empty vector is a
 // legitimate answer meaning "flat", and a reconciler cannot tell the two apart:

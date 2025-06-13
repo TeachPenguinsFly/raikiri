@@ -202,5 +202,18 @@ TEST(RiskGate, NoLimitConfiguredMeansNoLimitApplied) {
         gate.check(cmd, Exposure{.position_lots = QtyLots::from_raw(1'000'000'000)}).has_value());
 }
 
+// A break refuses before any other field is consulted: the position both
+// sides disagree about is the one every other limit is measured against.
+TEST(Risk, AReconciliationBreakRefusesEverythingItGates) {
+    const RiskGate gate;
+    const auto res = gate.check(valid_limit(), Exposure{.reconciliation_break = true});
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), RiskReject::ReconBreak);
+
+    // Same command, same gate, break cleared — so the refusal above was the
+    // break and not something else about the order.
+    EXPECT_TRUE(gate.check(valid_limit(), Exposure{}).has_value());
+}
+
 } // namespace
 } // namespace raikiri::oms

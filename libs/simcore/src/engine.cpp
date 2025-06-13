@@ -285,6 +285,12 @@ std::optional<std::uint64_t> Engine::resolve_target(const OrderCmd& cmd) const {
     return it->second;
 }
 
+void Engine::fold_position(InstrumentId instrument, Side side, QtyLots qty) {
+    auto& held = positions_[instrument];
+    const auto base = held.is_undef() ? 0 : held.raw; // default-constructed is undef, not flat
+    held = QtyLots::from_raw(base + (side == Side::Buy ? qty.raw : -qty.raw));
+}
+
 void Engine::emit_fills(const ClientOrderMeta* taker,
                         QtyLots taker_leaves_start,
                         Side taker_side,
@@ -297,6 +303,7 @@ void Engine::emit_fills(const ClientOrderMeta* taker,
         taker_left -= fill.qty.raw;
 
         if (taker != nullptr) {
+            fold_position(instrument, taker_side, fill.qty);
             OrderEvent ev = make_event(*taker, OrderEventType::Filled, now);
             ev.liquidity = Liquidity::Taker;
             ev.price = fill.price; // executions happen at RESTING prices
@@ -310,6 +317,7 @@ void Engine::emit_fills(const ClientOrderMeta* taker,
             const auto maker_it = client_orders_.find(fill.maker_id);
             if (maker_it != client_orders_.end()) {
                 ClientOrderMeta& maker = maker_it->second;
+                fold_position(instrument, maker.side, fill.qty);
                 maker.leaves = fill.maker_leaves;
                 OrderEvent ev = make_event(maker, OrderEventType::Filled, now);
                 ev.liquidity = Liquidity::Maker;

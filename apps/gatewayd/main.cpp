@@ -15,7 +15,6 @@
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
-#include <raikiri/exec/reconcile.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -48,7 +47,6 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -64,8 +62,10 @@ using msgs = raikiri_journal::schema::messages;
 // Adapter events -> shm channels + journal. Single-threaded by contract.
 class ShmSink final : public raikiri::exec::GatewaySink {
 public:
-    ShmSink(raikiri::shm::GatewayChannels channels, raikiri::journal::JournalWriter& journal)
-        : ch_{channels}, journal_{&journal} {}
+    ShmSink(raikiri::VenueId venue,
+            raikiri::shm::GatewayChannels channels,
+            raikiri::journal::JournalWriter& journal)
+        : venue_{venue}, ch_{channels}, journal_{&journal} {}
 
     void on_bbo(const raikiri::Bbo& bbo) noexcept override {
         ++counts_.bbo;
@@ -148,15 +148,6 @@ public:
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
         ++counts_.order_events;
-        // Netted per instrument, the way the venue sees it: the venue has no
-        // idea our book is split by strategy, so a comparison against its
-        // report has to be against the sum. Quantity only — cost basis lives
-        // in strategyd and is never reconciled against a venue anyway.
-        if (event.type == raikiri::OrderEventType::Filled) {
-            const auto signed_qty = event.side == raikiri::Side::Buy ? event.qty.raw
-                                                                     : -event.qty.raw;
-            net_qty_[event.instrument.packed] += signed_qty;
-        }
         ch_.exec_events->publish({event});
         (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
             *journal_, event.ts_init.ns, [&](auto m) {
@@ -181,15 +172,6 @@ public:
             });
     }
 
-    [[nodiscard]] raikiri::QtyLots net_qty(raikiri::InstrumentId id) const noexcept {
-        const auto it = net_qty_.find(id.packed);
-        return raikiri::QtyLots::from_raw(it == net_qty_.end() ? 0 : it->second);
-    }
-
-    [[nodiscard]] const std::unordered_map<std::uint64_t, std::int64_t>& net_qty() const noexcept {
-        return net_qty_;
-    }
-
     struct Counts {
         std::uint64_t bbo{0};
         std::uint64_t trades{0};
@@ -205,7 +187,7 @@ public:
         (void)raikiri::schema::append_msg<msgs::ConnectivityMsg>(
             *journal_, event.ts.ns, [&](auto m) {
                 namespace jt = raikiri_journal::types;
-                m.venue(jt::venueIdEnum::Sim);
+                m.venue(static_cast<jt::venueIdEnum>(venue_));
                 m.event(static_cast<jt::connEventEnum>(event.state));
                 m.streamId(event.stream_id);
                 m.tsInit(jt::timestampNs{event.ts.ns});
@@ -213,7 +195,7 @@ public:
     }
 
 private:
-    std::unordered_map<std::uint64_t, std::int64_t> net_qty_;
+    raikiri::VenueId venue_;
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
     std::uint64_t md_seq_{0};
@@ -226,48 +208,26 @@ private:
 // authoritative check that the fast path is still telling the truth.
 constexpr std::uint64_t k_recon_interval_ns = 30ULL * 1'000'000'000ULL;
 
-// Compares what this gateway has published against what the venue says it
-// holds. Quantity only: the venue is authoritative on whether a position
-// exists and never on what it cost, so nothing here writes back a cost basis.
-// Instruments this gateway has stopped opening on, because the venue and this
-// process disagree about what is held. Cancels are NEVER halted — the escape
-// hatch has to work precisely when something is wrong — and the halt is
-// cleared only by an operator restart, not by one agreeing pull: an automatic
-// clear on a single agreement re-opens the window the break was reporting.
-std::unordered_set<std::uint64_t> g_halted;
-
-// A break is journalled, not just printed: stderr scrolls away, and the one
-// question asked afterwards is always "when did it start", which only a durable
-// row can answer.
-void journal_break(raikiri::journal::JournalWriter& journal,
-                   raikiri::VenueId venue,
-                   raikiri::InstrumentId instrument,
-                   std::string_view symbol,
-                   const raikiri::exec::ReconResult& result,
-                   raikiri::UnixNanos now) {
-    (void)raikiri::schema::append_msg<msgs::ReconBreakMsg>(journal, now.ns, [&](auto m) {
-        namespace jt = raikiri_journal::types;
-        m.verdict(result.verdict == raikiri::exec::ReconVerdict::Unknown
-                      ? jt::reconVerdictEnum::Unknown
-                      : jt::reconVerdictEnum::Break);
-        m.venue(static_cast<jt::venueIdEnum>(venue));
-        m.instrument(jt::instrumentId{instrument.packed});
-        m.symbol().assign_range(symbol);
-        m.localQty(jt::qtyLots{result.local_qty.raw});
-        m.venueQty(jt::qtyLots{result.venue_qty.raw});
-        m.tsSeen(jt::timestampNs{now.ns});
-    });
-}
-
-void reconcile(const raikiri::exec::VenueAdapter& adapter,
-               const ShmSink& sink,
-               raikiri::MarketType market,
-               const raikiri::shm::CatalogueTable& catalogue,
-               raikiri::journal::JournalWriter& journal,
-               raikiri::UnixNanos now) {
+// Publishes what the venue says it holds, and nothing else.
+//
+// The comparison used to live here, against a quantity this process netted
+// from its own event stream. That number was derived by a different rule than
+// the one strategyd uses for the same events, so two processes disagreed about
+// what "we" hold and the venue was compared against the wrong one. The book
+// has exactly one owner; this gateway is not it. So the pull is published as
+// state and the verdict is reached where the book is.
+//
+// A SUCCESSFUL pull writes every catalogued instrument, zeros included: that
+// is what makes a fresh zero mean "the venue says flat" rather than "nobody
+// asked". A pull that fails writes nothing at all, leaving the cells stale,
+// which is how the reader reaches Unknown without a flag saying so.
+void publish_positions(const raikiri::exec::VenueAdapter& adapter,
+                       raikiri::MarketType market,
+                       const raikiri::shm::CatalogueTable& catalogue,
+                       raikiri::shm::PositionTable& table,
+                       raikiri::UnixNanos now) {
     static bool announced = false;
-    const bool can_report = adapter.caps.position_pull;
-    if (!can_report) {
+    if (!adapter.caps.position_pull) {
         if (!announced) {
             // Said once, at start, and never again: a venue that cannot answer
             // is a standing condition, not an event, and repeating it every
@@ -280,54 +240,42 @@ void reconcile(const raikiri::exec::VenueAdapter& adapter,
     }
 
     const auto reports = adapter.execution->position_reports(market);
+    if (!reports.has_value()) {
+        // Not a break and not flatness — the venue declined to answer this
+        // round. Publishing nothing is the whole point: the cells age out and
+        // the reader sees Unknown.
+        fmt::print(stderr,
+                   "gatewayd[{}]: position pull failed — {}\n",
+                   raikiri::to_string(adapter.caps.venue),
+                   reports.error().message.view());
+        return;
+    }
+
     std::unordered_map<std::uint64_t, raikiri::exec::PositionReport> by_instrument;
-    if (reports.has_value()) {
-        for (const auto& report : *reports) {
-            by_instrument[report.instrument.packed] = report;
-        }
+    for (const auto& report : *reports) {
+        by_instrument[report.instrument.packed] = report;
     }
-
-    for (const auto& [packed, local] : sink.net_qty()) {
-        std::optional<raikiri::exec::PositionReport> report;
-        if (const auto it = by_instrument.find(packed); it != by_instrument.end()) {
-            report = it->second;
-        }
-        const auto result = raikiri::exec::reconcile_position(
-            reports.has_value(), report, raikiri::QtyLots::from_raw(local));
-        if (result.verdict == raikiri::exec::ReconVerdict::Agree) {
+    for (const auto& listed : catalogue.all()) {
+        const auto id = raikiri::base_of(listed).id;
+        const auto idx = id.symbol().raw;
+        if (idx >= raikiri::shm::k_position_cells) {
             continue;
         }
-        const auto id = raikiri::InstrumentId{packed};
-        std::string_view symbol;
-        if (const auto* listed = catalogue.find(id); listed != nullptr) {
-            symbol = raikiri::base_of(*listed).exchange_symbol.view();
+        raikiri::shm::PositionCell cell{};
+        if (const auto it = by_instrument.find(id.packed); it != by_instrument.end()) {
+            cell.report = it->second;
+        } else {
+            // The venue answered and did not name this instrument, which on a
+            // complete snapshot means flat. Written out field by field because
+            // a default-constructed QtyLots is `undef`, not zero: leaving it
+            // alone would publish INT64_MIN as a position.
+            cell.report.instrument = id;
+            cell.report.net_qty = raikiri::QtyLots::from_raw(0);
+            cell.report.avg_entry = raikiri::PriceTicks::from_raw(0);
+            cell.report.ts_venue = now;
         }
-        journal_break(journal, adapter.caps.venue, id, symbol, result, now);
-        if (result.verdict == raikiri::exec::ReconVerdict::Break) {
-            g_halted.insert(packed);
-        }
-        fmt::print(stderr,
-                   "gatewayd[{}]: RECON {} instrument={:#x} local={} venue={} — {}\n",
-                   raikiri::to_string(adapter.caps.venue),
-                   raikiri::exec::to_string(result.verdict),
-                   packed,
-                   result.local_qty.raw,
-                   result.venue_qty.raw,
-                   result.detail);
-    }
-
-    // A position on the venue that this gateway never published is the one
-    // that goes unwatched: an orphan from a previous process generation.
-    for (const auto& [packed, report] : by_instrument) {
-        if (sink.net_qty().contains(packed) || report.net_qty.raw == 0) {
-            continue;
-        }
-        fmt::print(stderr,
-                   "gatewayd[{}]: RECON break instrument={:#x} local=0 venue={} — "
-                   "venue holds a position we do not know about\n",
-                   raikiri::to_string(adapter.caps.venue),
-                   packed,
-                   report.net_qty.raw);
+        cell.ts_pulled = now;
+        table.write(idx, cell);
     }
 }
 
@@ -453,7 +401,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ShmSink sink{*channels, *journal_writer};
+    ShmSink sink{venue, *channels, *journal_writer};
 
     venues::sim::register_adapter();
     venues::bybit::register_adapter();
@@ -614,16 +562,12 @@ int main(int argc, char** argv) {
                 sink.reject(cmd, "venue is running market-data only");
                 continue;
             }
+            // No reconciliation halt here. It used to sit on Create only,
+            // which let an Amend through on an instrument the halt existed to
+            // freeze. The halt now lives in strategyd's risk gate, which sees
+            // every command kind and is the only writer these rings have.
             switch (cmd.kind) {
             case CmdKind::Create:
-                if (g_halted.contains(cmd.instrument.packed)) {
-                    // Refused here rather than upstream because the disagreement
-                    // is this gateway's knowledge: strategyd cannot see it, and
-                    // an order sent while the two sides disagree about the
-                    // position is the one that turns a break into a loss.
-                    sink.reject(cmd, "instrument halted by position reconciliation");
-                    break;
-                }
                 adapter->execution->submit(cmd);
                 break;
             case CmdKind::Amend:
@@ -636,8 +580,8 @@ int main(int argc, char** argv) {
         }
         adapter->data->poll(clock.wall());
         if (mono.ns >= recon_due) {
-            reconcile(*adapter, sink, market, *channels->catalogue, *journal_writer,
-                      clock.wall());
+            publish_positions(
+                *adapter, market, *channels->catalogue, *channels->positions, clock.wall());
             recon_due = mono.ns + k_recon_interval_ns;
         }
         owner->beat(mono.ns);

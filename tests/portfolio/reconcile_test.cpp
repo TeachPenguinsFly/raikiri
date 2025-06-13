@@ -1,8 +1,8 @@
-#include <raikiri/exec/reconcile.hpp>
+#include <raikiri/portfolio/reconcile.hpp>
 
 #include <gtest/gtest.h>
 
-namespace raikiri::exec {
+namespace raikiri::portfolio {
 namespace {
 
 constexpr auto k_instrument =
@@ -70,4 +70,4 @@ TEST(Reconcile, TheVenuesAverageEntryIsRecordedNeverAdopted) {
 }
 
 } // namespace
-} // namespace raikiri::exec
+} // namespace raikiri::portfolio

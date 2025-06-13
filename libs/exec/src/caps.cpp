@@ -190,6 +190,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .book_checksum = false,
+        // The matching engine printed the fills, so it can be asked. Fills
+        // themselves are not pullable: the engine keeps no execution history
+        // once an order retires, and inventing one would make the demo prove
+        // something the code does not do.
+        .position_pull = true,
         .user_stream = UserStreamModel::None, // in-process events
         .max_client_order_id_len = 40,
         .headline_order_rate_per_s = 0,

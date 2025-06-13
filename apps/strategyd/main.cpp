@@ -18,6 +18,7 @@
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
 #include <raikiri/portfolio/position_book.hpp>
+#include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/schema/codec.hpp>
@@ -35,6 +36,7 @@
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -80,7 +82,8 @@ public:
         cmd.qty = order.qty;
         cmd.ts_created = clock_->wall();
 
-        oms::Exposure exposure{.open_orders = store_->open_count()};
+        oms::Exposure exposure{.reconciliation_break = halted.contains(order.instrument.packed),
+                               .open_orders = store_->open_count()};
         if (const auto* held = position(order.instrument); held != nullptr) {
             exposure.position_lots = held->qty();
         }
@@ -218,6 +221,41 @@ public:
 
     std::vector<Timer> timers;
     portfolio::PositionBook positions;
+    // Instruments this process has stopped opening on. Cleared only by a
+    // restart, never by one agreeing pull: an automatic clear on a single
+    // agreement re-opens the window the break was reporting.
+    std::unordered_set<std::uint64_t> halted;
+    // Last verdict per instrument, so a standing condition is reported once
+    // rather than every read. A break that persists is not new information,
+    // and a line repeated every five seconds trains an operator to skip it.
+    std::unordered_map<std::uint64_t, portfolio::ReconVerdict> recon_seen;
+    // Counted per comparison, not per instrument: a run that agrees prints
+    // nothing, and "nothing" has to be distinguishable from "never ran".
+    std::uint64_t recon_agreed{0};
+    std::uint64_t recon_unknown{0};
+    std::uint64_t recon_broken{0};
+
+    // Signed fill deltas with the venue's own timestamp, kept long enough to
+    // rewind the book to any snapshot still worth comparing against. A venue
+    // snapshot describes an instant; the book has moved since. Comparing the
+    // two directly reports a break on every instrument that traded, which is
+    // an alarm that fires whenever the system is working.
+    struct FillDelta {
+        std::uint64_t ts_ns{0};
+        std::int64_t lots{0};
+    };
+    std::unordered_map<std::uint64_t, std::vector<FillDelta>> fills_after;
+    // Which snapshot first disagreed about an instrument. A fill that lands in
+    // the round trip around the venue's own timestamp falls on the wrong side
+    // of the rewind boundary and disagrees exactly once; a real break survives
+    // the next independent pull. Halting on the first would mean a busy
+    // instrument freezes itself on network jitter, and the halt does not clear.
+    std::unordered_map<std::uint64_t, std::uint64_t> break_since;
+
+    void record_fill(InstrumentId instrument, Side side, QtyLots delta, UnixNanos ts) {
+        fills_after[instrument.packed].push_back(
+            {.ts_ns = ts.ns, .lots = side == Side::Buy ? delta.raw : -delta.raw});
+    }
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
     observ::Histogram submit_hist;
 
@@ -280,6 +318,153 @@ private:
 };
 
 } // namespace
+
+// How long a published snapshot stays worth comparing against. The gateway
+// pulls every 30s; anything older than two rounds means it stopped answering,
+// and a comparison against a number from five minutes ago is not a check.
+constexpr std::uint64_t k_snapshot_max_age_ns = 90ULL * 1'000'000'000ULL;
+
+// Read every 5s. The pull behind it is far slower, but a break should surface
+// on the first loop after it becomes visible rather than on the next pull.
+constexpr std::uint64_t k_recon_read_interval_ns = 5ULL * 1'000'000'000ULL;
+
+// A break is journalled, not just printed: stderr scrolls away, and the one
+// question asked afterwards is always "when did it start", which only a
+// durable row can answer.
+void journal_break(raikiri::journal::JournalWriter& journal,
+                   raikiri::VenueId venue,
+                   raikiri::InstrumentId instrument,
+                   std::string_view symbol,
+                   const raikiri::portfolio::ReconResult& result,
+                   raikiri::UnixNanos now) {
+    (void)raikiri::schema::append_msg<msgs::ReconBreakMsg>(journal, now.ns, [&](auto m) {
+        namespace jt = raikiri_journal::types;
+        m.verdict(result.verdict == raikiri::portfolio::ReconVerdict::Unknown
+                      ? jt::reconVerdictEnum::Unknown
+                      : jt::reconVerdictEnum::Break);
+        m.venue(static_cast<jt::venueIdEnum>(venue));
+        m.instrument(jt::instrumentId{instrument.packed});
+        m.symbol().assign_range(symbol);
+        m.localQty(jt::qtyLots{result.local_qty.raw});
+        m.venueQty(jt::qtyLots{result.venue_qty.raw});
+        m.tsSeen(jt::timestampNs{now.ns});
+    });
+}
+
+// Compares what the venue published against the book, and halts what disagrees.
+//
+// This runs HERE and not in the gateway because this process owns the book.
+// The gateway sees the same event stream but has to re-derive a position from
+// it, and its rule for "how much filled" was not this one — so the venue got
+// compared against a number nobody was trading on. The gateway now publishes
+// only what the venue said, and the arithmetic happens once, where the answer
+// already exists.
+//
+// The book is split by strategy and the venue is not, so the local side is the
+// sum across strategies. One gateway has exactly one command producer — the
+// rings are SPSC — so that sum is the whole book for this venue, not a share
+// of it.
+void reconcile_against_venue(KernelContext& ctx,
+                             raikiri::VenueId venue,
+                             const raikiri::shm::CatalogueTable& catalogue,
+                             const raikiri::shm::PositionTable& table,
+                             raikiri::journal::JournalWriter& journal,
+                             raikiri::UnixNanos now) {
+    using namespace raikiri;
+
+    std::unordered_map<std::uint64_t, std::int64_t> book;
+    for (const auto& held : ctx.positions.all()) {
+        book[held.key().instrument.packed] += held.qty().raw;
+    }
+    // Fills older than any snapshot we would still compare against can never
+    // be rewound past again.
+    for (auto& [packed, deltas] : ctx.fills_after) {
+        const auto cutoff = now.ns > k_snapshot_max_age_ns ? now.ns - k_snapshot_max_age_ns : 0;
+        std::erase_if(deltas, [cutoff](const auto& d) { return d.ts_ns < cutoff; });
+    }
+
+    for (const auto& listed : catalogue.all()) {
+        const auto id = base_of(listed).id;
+        const auto idx = id.symbol().raw;
+        if (idx >= shm::k_position_cells) {
+            continue;
+        }
+        shm::PositionCell cell{};
+        const bool written = table.read(idx, cell) != 0;
+        // The book AS OF THE SNAPSHOT, not as of now: every fill the venue had
+        // not yet seen when it answered is rewound back out. The venue's own
+        // stamp is the boundary where it gave one, since the fills being
+        // rewound carry venue timestamps too and the two clocks must be the
+        // same clock for the subtraction to mean anything.
+        const auto boundary =
+            cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
+        auto local_raw = book.contains(id.packed) ? book[id.packed] : 0;
+        if (const auto it = ctx.fills_after.find(id.packed); it != ctx.fills_after.end()) {
+            for (const auto& delta : it->second) {
+                if (delta.ts_ns > boundary) {
+                    local_raw -= delta.lots;
+                }
+            }
+        }
+        const auto local = QtyLots::from_raw(local_raw);
+        // Never written, or written and gone stale: the venue has said nothing
+        // recent. That is Unknown, and Unknown about a flat instrument is not
+        // worth a line — we are not holding anything for it to be wrong about.
+        const bool answered = written && !cell.report.net_qty.is_undef() &&
+                              cell.ts_pulled.ns != 0 &&
+                              now.ns - cell.ts_pulled.ns <= k_snapshot_max_age_ns;
+        if (!answered && local.raw == 0 && (!written || cell.report.net_qty.raw == 0)) {
+            continue;
+        }
+
+        std::optional<PositionReport> report;
+        if (answered && cell.report.net_qty.raw != 0) {
+            report = cell.report;
+        }
+        const auto result = portfolio::reconcile_position(answered, report, local);
+        switch (result.verdict) {
+        case portfolio::ReconVerdict::Agree:
+            ++ctx.recon_agreed;
+            break;
+        case portfolio::ReconVerdict::Unknown:
+            ++ctx.recon_unknown;
+            break;
+        case portfolio::ReconVerdict::Break:
+            ++ctx.recon_broken;
+            break;
+        }
+        bool confirmed = false;
+        if (result.verdict == portfolio::ReconVerdict::Break) {
+            const auto first = ctx.break_since.find(id.packed);
+            if (first == ctx.break_since.end()) {
+                ctx.break_since.emplace(id.packed, boundary);
+            } else if (first->second != boundary) {
+                confirmed = true;
+                ctx.halted.insert(id.packed);
+            }
+        } else if (result.verdict == portfolio::ReconVerdict::Agree) {
+            ctx.break_since.erase(id.packed);
+        }
+        const auto seen = ctx.recon_seen.find(id.packed);
+        const bool changed = seen == ctx.recon_seen.end() || seen->second != result.verdict;
+        ctx.recon_seen[id.packed] = result.verdict;
+        // The moment the halt engages is the one an operator needs, and it is
+        // the SECOND break — where the verdict has not changed — so it has to
+        // survive the gate that keeps a standing condition from repeating.
+        if (result.verdict == portfolio::ReconVerdict::Agree || (!changed && !confirmed)) {
+            continue;
+        }
+        journal_break(journal, venue, id, base_of(listed).exchange_symbol.view(), result, now);
+        fmt::print(stderr,
+                   "strategyd: RECON {}{} {} local={} venue={} — {}\n",
+                   portfolio::to_string(result.verdict),
+                   confirmed ? " (halted)" : "",
+                   base_of(listed).exchange_symbol.view(),
+                   result.local_qty.raw,
+                   result.venue_qty.raw,
+                   result.detail);
+    }
+}
 
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
@@ -373,6 +558,21 @@ int main(int argc, char** argv) {
     std::uint64_t position_refusals = 0;  // position book full: must stay 0
     std::uint64_t funding_ticks = 0;
 
+    const auto venue = venue_from_string(venue_name);
+    std::uint64_t recon_due = clock.mono().ns; // once at start, then on the interval
+
+    // Watch the OWNER, not the generation. A restarting gateway unlinks the
+    // segment and creates a new file, so this process keeps its mapping of the
+    // old inode alive and the generation it can see never changes — while the
+    // new gateway serves a different file entirely. What does change is the
+    // heartbeat in the mapping we hold: nobody stamps it any more.
+    //
+    // When that happens every ring cursor, every instrument id and the whole
+    // order store belong to a world that no longer exists, and commands pushed
+    // into these rings reach nobody. There is no sound way to keep going, so
+    // this stops and says why.
+    bool gateway_gone = false;
+
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
         // Verdicts drain before market data: a strategy must never act on a price
@@ -411,6 +611,7 @@ int main(int argc, char** argv) {
                 const auto* listed = ctx.instrument(event.instrument);
                 if (listed != nullptr && delta.raw > 0) {
                     const auto& base = base_of(*listed);
+                    ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
                     const auto applied = ctx.positions.on_fill(base, event, delta);
                     if (!applied.has_value()) {
                         ++position_refusals;
@@ -472,9 +673,29 @@ int main(int argc, char** argv) {
                 active.on_timer(ctx, timer.id);
             }
         }
+        // Monotonic, because that is the clock the gateway stamps the
+        // heartbeat with; asking in wall time makes every owner look stale.
+        if (!client->owner_alive(now_ns)) {
+            gateway_gone = true;
+            break;
+        }
+        if (now_ns >= recon_due) {
+            reconcile_against_venue(ctx,
+                                    venue,
+                                    *channels->catalogue,
+                                    *channels->positions,
+                                    *journal_writer,
+                                    clock.wall());
+            recon_due = now_ns + k_recon_read_interval_ns;
+        }
     }
     active.on_stop(ctx);
     journal_writer->flush();
+    if (gateway_gone) {
+        fmt::print(stderr,
+                   "strategyd: the gateway that owns this segment stopped answering — cursors "
+                   "and book belong to a dead generation, stopping\n");
+    }
 
     const auto tick = tick_hist.snapshot();
     const auto submit = ctx.submit_hist.snapshot();
@@ -508,6 +729,11 @@ int main(int argc, char** argv) {
                exec_overruns,
                bad_transitions,
                position_refusals);
+    fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
+               ctx.recon_agreed,
+               ctx.recon_unknown,
+               ctx.recon_broken,
+               ctx.halted.size());
 
     if (ctx.positions.size() > 0) {
         fmt::print("\n{:<16}{:>12}{:>16}{:>16}{:>16}\n",
@@ -542,5 +768,5 @@ int main(int argc, char** argv) {
                                      : fixed(portfolio::unrealized_pnl(base, position, mark)));
         }
     }
-    return 0;
+    return gateway_gone ? 1 : 0;
 }

@@ -19,7 +19,7 @@ raikiri_add_test(identifiers_test SRCS domain/identifiers_test.cpp LIBS raikiri:
 raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::domain)
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
 
-raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema)
+raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
 
 raikiri_add_test(mapper_test SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema)
 target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE_DIR}/sql")
@@ -68,7 +68,7 @@ target_link_libraries(ws_client_test PRIVATE Boost::headers OpenSSL::SSL OpenSSL
 target_link_libraries(rest_client_test PRIVATE Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 
 raikiri_add_test(venue_contract_test SRCS exec/venue_contract_test.cpp LIBS raikiri::exec)
-raikiri_add_test(reconcile_test SRCS exec/reconcile_test.cpp LIBS raikiri::exec)
+raikiri_add_test(reconcile_test SRCS portfolio/reconcile_test.cpp LIBS raikiri::portfolio)
 
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)
 raikiri_add_test(oms_risk_test SRCS oms/risk_test.cpp LIBS raikiri::oms)
@@ -82,6 +82,7 @@ raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)
 raikiri_add_test(broadcast_ring_test SRCS shm/broadcast_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(segment_test SRCS shm/segment_test.cpp LIBS raikiri::shm)
+raikiri_add_test(positions_test SRCS shm/positions_test.cpp LIBS raikiri::shm)
 raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 
 raikiri_add_test(sim_book_test SRCS simcore/book_test.cpp LIBS raikiri::simcore)

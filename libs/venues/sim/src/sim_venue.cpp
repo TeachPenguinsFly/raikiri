@@ -160,9 +160,26 @@ public:
         return std::unexpected{exec::not_implemented("sim reconciliation pulls")};
     }
 
+    // Sim answers this one. It is the matching engine: it printed the fills,
+    // so it knows the position the way a venue does, and answering makes the
+    // reconciliation path something `make demo` actually walks rather than
+    // something only live keys can reach.
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
-    position_reports(MarketType) override {
-        return std::unexpected{exec::not_implemented("sim reconciliation pulls")};
+    position_reports(MarketType market) override {
+        if (market != MarketType::Perp) {
+            return std::unexpected{exec::not_implemented("sim spot")};
+        }
+        std::vector<exec::PositionReport> out;
+        for (const auto& [instrument, qty] : state_->engine.positions()) {
+            if (qty.is_undef() || qty.raw == 0) {
+                continue; // flat is the absence of a row, as on a real venue
+            }
+            out.push_back({.instrument = instrument,
+                           .net_qty = qty,
+                           .avg_entry = PriceTicks::from_raw(0),
+                           .ts_venue = clock_->wall()});
+        }
+        return out;
     }
 
 private:

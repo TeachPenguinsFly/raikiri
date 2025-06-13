@@ -8,6 +8,12 @@
 // exits (golden-replay tests, backfills); without it the process follows the
 // journal tail. All writes are idempotent; the cursor advances in the same
 // transaction as each batch.
+//
+// ONE PER JOURNAL, and every process writes its own. The split is not
+// arbitrary: order events and connectivity come from the gateway's journal,
+// while the PnL ledger and reconciliation breaks come from strategyd's,
+// because those are written by the process that did the arithmetic. Pointing
+// this at only one directory persists half the record.
 
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/persist/mapper.hpp>

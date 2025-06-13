@@ -10,17 +10,19 @@
 //
 // Deliberately a pure comparison. It performs no I/O, so the awkward part (what
 // the venue said) is supplied by the caller and the decision is testable
-// without a socket or a clock.
+// without a socket or a clock. It lives beside the book rather than beside the
+// adapters because the book is the side it compares against; the gateway that
+// performs the pull reaches no verdict at all.
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
-#include <raikiri/exec/execution_client.hpp>
+#include <raikiri/domain/position_report.hpp>
 
 #include <cstdint>
 #include <optional>
 #include <string_view>
 
-namespace raikiri::exec {
+namespace raikiri::portfolio {
 
 enum class ReconVerdict : std::uint8_t {
     Agree,   // both sides say the same quantity
@@ -37,16 +39,22 @@ struct ReconResult {
     std::string_view detail;
 };
 
-// `report` is nullopt when the pull was not performed or failed. `local` is the
-// sum across strategies for this instrument: the venue nets, and has no idea
-// the book is split by strategy.
+// `venue_answered` is the caller's answer to one question: did a complete
+// snapshot arrive recently. It deliberately does NOT distinguish "this venue
+// has no position endpoint" from "the pull failed this round" — both mean
+// nobody said anything, and a comparison that guessed between them would be
+// stating a cause it cannot observe. `report` is nullopt when that snapshot
+// carried no row for this instrument, which on an answering venue means flat.
+//
+// `local` is the sum across strategies for this instrument: the venue nets,
+// and has no idea the book is split by strategy.
 //
 // The venue's avg_entry is read for the record and never adopted. It is
 // authoritative on whether a position exists and never on what it cost — it
 // recomputes an average by its own rules, with or without leverage, with fees
 // inside or outside, and two queries can disagree.
-[[nodiscard]] ReconResult reconcile_position(bool venue_can_report,
+[[nodiscard]] ReconResult reconcile_position(bool venue_answered,
                                              const std::optional<PositionReport>& report,
                                              QtyLots local) noexcept;
 
-} // namespace raikiri::exec
+} // namespace raikiri::portfolio

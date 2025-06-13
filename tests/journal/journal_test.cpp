@@ -1,5 +1,6 @@
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/schema/codec.hpp>
 
 #include <gtest/gtest.h>
@@ -204,6 +205,34 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
     EXPECT_EQ(writer->next_seq(), expect);
+}
+
+struct VenueProbe {
+    bool known{true};
+    template <typename E, typename Tag> void on_enum_value(E, Tag) noexcept {}
+    template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept {
+        known = false;
+    }
+};
+
+// Every venue the code can name must be a value the schema can encode.
+//
+// It was not: the enum stopped at Sim while VenueId grew to seventeen, so the
+// eight venues added since encoded out of range in every record that carries
+// one, and nothing complained — a cast to an enum is always well-formed. This
+// asks sbepp instead, which knows which values the schema actually declares.
+TEST(JournalSchema, EveryVenueIdIsEncodable) {
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        VenueProbe probe{};
+        ::sbepp::visit(static_cast<raikiri_journal::types::venueIdEnum>(v), probe);
+        EXPECT_TRUE(probe.known) << "no schema value for " << to_string(static_cast<VenueId>(v));
+    }
+
+    // And the probe can say no — a tripwire that cannot fire is worse than
+    // none, because it reads as coverage.
+    VenueProbe absent{};
+    ::sbepp::visit(static_cast<raikiri_journal::types::venueIdEnum>(200), absent);
+    EXPECT_FALSE(absent.known);
 }
 
 } // namespace

@@ -44,6 +44,14 @@
       <validValue name="Xt">7</validValue>
       <validValue name="Mexc">8</validValue>
       <validValue name="Sim">9</validValue>
+      <validValue name="Deribit">10</validValue>
+      <validValue name="Hyperliquid">11</validValue>
+      <validValue name="Coinbase">12</validValue>
+      <validValue name="Kraken">13</validValue>
+      <validValue name="Bitmex">14</validValue>
+      <validValue name="Bitget">15</validValue>
+      <validValue name="Htx">16</validValue>
+      <validValue name="Bitfinex">17</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

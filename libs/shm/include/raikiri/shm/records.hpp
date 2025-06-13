@@ -11,12 +11,14 @@
 //   depth        SeqlockTable   state: the adapter's current book, not deltas
 //   md_events    BroadcastRing  stream: lossy-with-gap-detect -> resync
 //   exec_events  BroadcastRing  critical: overrun => halt venue + reconcile
+//   positions    SeqlockTable   state: what the VENUE says it holds
 //   cmd_*        SpscRing       command: lossless; Full = venue down
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/position_report.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>
 #include <raikiri/shm/segment.hpp>
@@ -59,6 +61,22 @@ struct ExecEventRec {
 static_assert(sizeof(ExecEventRec) == 192);
 static_assert(std::is_trivially_copyable_v<ExecEventRec>);
 
+// What the venue says it holds, as of the pull that wrote it.
+//
+// ts_pulled is the whole design. A pull that succeeds writes EVERY catalogued
+// instrument, zeros included, so a fresh cell of zero is the venue saying flat
+// — a real answer. A pull that fails, or a venue with no position endpoint,
+// writes NOTHING, so the cell goes stale and a reader that checks freshness
+// reaches Unknown without anyone having to encode it. Absence of evidence
+// stays absence of evidence instead of decaying into evidence of flatness.
+struct PositionCell {
+    PositionReport report{};
+    UnixNanos ts_pulled{};
+};
+
+static_assert(sizeof(PositionCell) == 40);
+static_assert(std::is_trivially_copyable_v<PositionCell>);
+
 // The command slot is the domain OrderCmd verbatim (defined in
 // raikiri/domain/order_cmd.hpp — the shm layer transports vocabulary, it does
 // not define it). Slot-property asserts live here where the ring needs them.
@@ -70,6 +88,7 @@ static_assert(std::is_trivially_copyable_v<OrderCmd>);
 inline constexpr std::size_t k_bbo_cells = 4096;
 inline constexpr std::size_t k_funding_cells = 4096;
 inline constexpr std::size_t k_depth_cells = 4096;
+inline constexpr std::size_t k_position_cells = 4096;
 inline constexpr std::size_t k_md_ring = 65536;
 inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
@@ -83,10 +102,12 @@ inline constexpr std::size_t k_gateway_segment_bytes = 64ULL << 20;
 // quote from.
 static_assert(k_catalogue_cells == k_bbo_cells);
 static_assert(k_depth_cells == k_bbo_cells);
+static_assert(k_position_cells == k_bbo_cells);
 
 using BboTable = SeqlockTable<Bbo, k_bbo_cells>;
 using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
 using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
+using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
@@ -100,6 +121,7 @@ struct GatewayChannels {
     FundingTable* funding{nullptr};
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};
+    PositionTable* positions{nullptr};
     CmdRing* cmd_create{nullptr};
     CmdRing* cmd_cancel{nullptr};
 };

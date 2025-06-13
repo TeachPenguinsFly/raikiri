@@ -223,7 +223,7 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
               (std::vector<std::string_view>{"binance", "bingx", "bitfinex", "bitget", "bitmex",
                                              "bybit",
                                              "deribit", "gate", "htx", "hyperliquid",
-                                             "kraken", "kucoin", "mexc", "okx", "xt"}));
+                                             "kraken", "kucoin", "mexc", "okx", "sim", "xt"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {

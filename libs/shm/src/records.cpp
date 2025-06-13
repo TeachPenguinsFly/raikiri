@@ -11,11 +11,13 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.funding = owner.create_channel<FundingTable>("funding");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
+    ch.positions = owner.create_channel<PositionTable>("positions");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.cmd_create == nullptr || ch.cmd_cancel == nullptr) {
+        ch.positions == nullptr || ch.cmd_create == nullptr ||
+        ch.cmd_cancel == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
     return ch;
@@ -46,6 +48,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!exec) {
         return std::unexpected{exec.error()};
     }
+    const auto positions = client.open_channel<PositionTable>("positions");
+    if (!positions) {
+        return std::unexpected{positions.error()};
+    }
     const auto create = client.open_channel<CmdRing>("cmd_create");
     if (!create) {
         return std::unexpected{create.error()};
@@ -54,7 +60,8 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!cancel) {
         return std::unexpected{cancel.error()};
     }
-    return GatewayChannels{*catalogue, *bbo, *depth, *funding, *md, *exec, *create, *cancel};
+    return GatewayChannels{
+        *catalogue, *bbo, *depth, *funding, *md, *exec, *positions, *create, *cancel};
 }
 
 std::string gateway_segment_path(std::string_view venue_name) {

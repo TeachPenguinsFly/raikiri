@@ -78,6 +78,15 @@ public:
 
     bool cancel_background(InstrumentId instrument, std::uint64_t sim_id, SimResult* out = nullptr);
 
+    // The venue's own book: signed lots per instrument, folded from the fills
+    // this engine printed for client orders. Background liquidity is the rest
+    // of the market and never counts. Derived here, from fills, and not from
+    // the event stream a consumer sees — a reconciliation where both sides run
+    // the same arithmetic checks nothing.
+    [[nodiscard]] const std::unordered_map<InstrumentId, QtyLots>& positions() const noexcept {
+        return positions_;
+    }
+
     // nullptr / nullopt when the instrument has never traded here.
     [[nodiscard]] const Book* book(InstrumentId instrument) const noexcept;
     [[nodiscard]] std::optional<Book::BboLevels> bbo(InstrumentId instrument) const;
@@ -94,6 +103,7 @@ private:
     void handle_cancel(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     // taker == nullptr for background aggressors (no taker events emitted).
+    void fold_position(InstrumentId instrument, Side side, QtyLots qty);
     void emit_fills(const ClientOrderMeta* taker,
                     QtyLots taker_leaves_start,
                     Side taker_side,
@@ -103,6 +113,7 @@ private:
                     SimResult& out);
 
     std::unordered_map<InstrumentId, Book> books_;
+    std::unordered_map<InstrumentId, QtyLots> positions_;
     std::unordered_map<std::uint64_t, ClientOrderMeta> client_orders_; // sim id -> meta
     std::unordered_map<ExchangeClientOrderId, std::uint64_t> by_exch_client_;
     std::uint64_t next_sim_id_{1};   // ExchangeOrderId is this, as decimal text

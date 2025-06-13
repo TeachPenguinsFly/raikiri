@@ -22,6 +22,7 @@
 namespace raikiri::oms {
 
 enum class RiskReject : std::uint8_t {
+    ReconBreak, // venue and book disagree about this instrument
     TooManyOpen,
     BadQty,
     QtyTooLarge,
@@ -43,6 +44,11 @@ struct RiskConfig {
 
 // The mutable state the gate needs, assembled by the caller.
 struct Exposure {
+    // Set when reconciliation found this instrument's position in dispute.
+    // Only opening commands pass through this gate at all — cancels never
+    // consult it, because the escape hatch has to work precisely when
+    // something is wrong.
+    bool reconciliation_break{false};
     std::size_t open_orders{0};
     QtyLots position_lots{QtyLots::from_raw(0)};     // signed: + long, - short
     QtyLots working_buy_lots{QtyLots::from_raw(0)};  // leaves over live buys
@@ -59,6 +65,13 @@ public:
 
     [[nodiscard]] std::expected<void, RiskReject> check(const OrderCmd& cmd,
                                                         const Exposure& exposure) const noexcept {
+        // First, and not negotiable by any other field: while the venue and
+        // the book disagree about what is held, every quantity the rest of
+        // this function reasons about is a number one of the two sides does
+        // not recognise.
+        if (exposure.reconciliation_break) {
+            return std::unexpected{RiskReject::ReconBreak};
+        }
         if (!cmd.instrument.valid()) {
             return std::unexpected{RiskReject::BadInstrument};
         }
