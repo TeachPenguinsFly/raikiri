@@ -29,12 +29,30 @@ TEST(VenueNames, RoundTrip) {
     EXPECT_EQ(venue_from_string("invalid"), VenueId::Invalid);
 }
 
-TEST(AccountId, FormatsGoCompatible) {
+TEST(AccountId, PerpKeepsThePlainVenueName) {
     char buf[16];
+    // The unsuffixed form is not cosmetic: it is what lets a perpetual gateway
+    // keep the segment and journal paths it had before markets were split out.
     EXPECT_EQ(format_account({VenueId::Bybit, MarketType::Perp}, buf, sizeof buf), "bybit");
     EXPECT_EQ(format_account({VenueId::Bybit, MarketType::Spot}, buf, sizeof buf), "bybit-spot");
     EXPECT_EQ(format_account({VenueId::Binance, MarketType::Future}, buf, sizeof buf),
               "binance-fut");
+}
+
+TEST(AccountId, ParsesBackToWhatItFormatted) {
+    char buf[16];
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        for (const auto market : {MarketType::Perp, MarketType::Spot, MarketType::Future,
+                                  MarketType::Option}) {
+            const AccountId account{static_cast<VenueId>(v), market};
+            const auto text = format_account(account, buf, sizeof buf);
+            EXPECT_EQ(account_from_string(text), account) << text;
+        }
+    }
+    // An unparseable name yields an invalid venue rather than venue 0 wearing
+    // a market, so a caller that forgets to check gets a refusal.
+    EXPECT_EQ(account_from_string("nope-spot").venue, VenueId::Invalid);
+    EXPECT_EQ(account_from_string("").venue, VenueId::Invalid);
 }
 
 TEST(ClientOrderId, PackRoundTrip) {

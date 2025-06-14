@@ -207,6 +207,29 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
     EXPECT_EQ(writer->next_seq(), expect);
 }
 
+// Two writers on one journal is the configuration that loses data silently:
+// the first run is guarded by O_EXCL, and every run after it is not, because
+// both processes take the recovery path over files that already exist.
+TEST(JournalWriterLock, ASecondWriterIsRefusedOnTheRecoveryPathToo) {
+    const auto dir = fresh_dir("writer-lock");
+
+    {
+        auto first = JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(first.has_value());
+        auto second = JournalWriter::open(dir, "journal");
+        ASSERT_FALSE(second.has_value());
+        EXPECT_EQ(second.error(), JournalError::AlreadyWriting);
+    }
+
+    // The segments exist now, so a fresh writer takes the RECOVERY path — the
+    // one that opens O_RDWR and used to let anyone in.
+    auto reopened = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(reopened.has_value());
+    auto intruder = JournalWriter::open(dir, "journal");
+    ASSERT_FALSE(intruder.has_value());
+    EXPECT_EQ(intruder.error(), JournalError::AlreadyWriting);
+}
+
 struct VenueProbe {
     bool known{true};
     template <typename E, typename Tag> void on_enum_value(E, Tag) noexcept {}

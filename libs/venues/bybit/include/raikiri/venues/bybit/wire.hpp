@@ -12,6 +12,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <span>
@@ -240,7 +241,7 @@ struct WireInstrument {
 inline constexpr std::size_t k_max_instruments = 2048;
 
 struct InstrumentBuffer {
-    WireInstrument instruments[k_max_instruments];
+    std::array<WireInstrument, k_max_instruments> instruments{};
 };
 
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>

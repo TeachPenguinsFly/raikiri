@@ -255,6 +255,13 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
+        if (instrument.market() != MarketType::Perp) {
+            // fstream.xt.com is the futures stream; XT's spot socket is a
+            // different host with a different dialect. XT also spells a spot
+            // pair and its perpetual the same way, so the futures socket
+            // accepts the symbol and returns perpetual prints under a spot id.
+            return std::unexpected{exec::not_implemented("xt spot market data")};
+        }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{

@@ -4,6 +4,7 @@
 
 #include <crc32c/crc32c.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -19,10 +20,38 @@ JournalWriter::JournalWriter(JournalWriter&& other) noexcept
     : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)},
       segment_bytes_{other.segment_bytes_}, header_{std::exchange(other.header_, nullptr)},
       base_{std::exchange(other.base_, nullptr)}, fd_{std::exchange(other.fd_, -1)},
-      write_off_{other.write_off_}, segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_} {}
+      lock_fd_{std::exchange(other.lock_fd_, -1)}, write_off_{other.write_off_},
+      segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_} {}
 
 JournalWriter::~JournalWriter() {
     close_segment();
+    if (lock_fd_ >= 0) {
+        ::close(lock_fd_); // closing releases the flock
+        lock_fd_ = -1;
+    }
+}
+
+// TWO WRITERS IS THE ONE UNRECOVERABLE CONFIGURATION. Creating a segment uses
+// O_EXCL, which refuses a second creator — but that only guards the first run.
+// On every run after it the files exist, so both processes take the recovery
+// path, both mmap MAP_SHARED, and both append from their own cached offset:
+// each overwrites the other's frames with no diagnostic anywhere. An advisory
+// lock on a file beside the segments closes that, and it is on the journal
+// rather than the current segment because the writer rolls segments and a lock
+// that moves would leave a window mid-roll.
+std::expected<void, JournalError> JournalWriter::claim(const std::string& dir,
+                                                       const std::string& prefix) noexcept {
+    const std::string path = dir + "/" + prefix + ".lock";
+    lock_fd_ = ::open(path.c_str(), O_RDWR | O_CREAT, 0600);
+    if (lock_fd_ < 0) {
+        return std::unexpected{JournalError::OpenFailed};
+    }
+    if (::flock(lock_fd_, LOCK_EX | LOCK_NB) != 0) {
+        ::close(lock_fd_);
+        lock_fd_ = -1;
+        return std::unexpected{JournalError::AlreadyWriting};
+    }
+    return {};
 }
 
 void JournalWriter::close_segment() noexcept {
@@ -46,6 +75,9 @@ JournalWriter::open(std::string dir, std::string prefix, std::size_t segment_byt
 
     if (!detail::mkdir_p(w.dir_)) {
         return std::unexpected{JournalError::OpenFailed};
+    }
+    if (auto claimed = w.claim(w.dir_, w.prefix_); !claimed.has_value()) {
+        return std::unexpected{claimed.error()};
     }
 
     const auto segments = detail::list_segments(w.dir_, w.prefix_);

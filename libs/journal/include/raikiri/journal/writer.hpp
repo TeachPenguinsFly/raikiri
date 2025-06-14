@@ -55,6 +55,11 @@ private:
     [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq,
                                                                  bool recover) noexcept;
     void close_segment() noexcept;
+    // Whole-journal exclusion, held for this writer's life. Not per segment:
+    // the writer rolls segments, and a lock that moves with the current file
+    // leaves a window during the roll where a second writer can take over.
+    [[nodiscard]] std::expected<void, JournalError> claim(const std::string& dir,
+                                                          const std::string& prefix) noexcept;
 
     std::string dir_;
     std::string prefix_;
@@ -63,6 +68,7 @@ private:
     FileHeader* header_{nullptr};
     std::byte* base_{nullptr};
     int fd_{-1};
+    int lock_fd_{-1};
     std::uint64_t write_off_{0}; // == committed_bytes, writer's cached copy
     std::uint64_t segment_seq_{0};
     std::uint64_t next_seq_{1};

@@ -88,8 +88,9 @@ struct InstrumentId {
     friend constexpr auto operator<=>(InstrumentId, InstrumentId) noexcept = default;
 };
 
-// One trading account per (venue, market) pair, mirroring the Go system's
-// accountId routing: perp = "bybit", spot = "bybit-spot".
+// One trading account per (venue, market) pair. It is the routing key for
+// everything a process owns per market — its shm segment, its journal, its
+// credentials: perp = "bybit", spot = "bybit-spot".
 struct AccountId {
     VenueId venue{VenueId::Invalid};
     MarketType market{MarketType::Perp};
@@ -101,6 +102,10 @@ struct AccountId {
 // "bybit-opt"); buf must hold >= 16 bytes.
 [[nodiscard]] std::string_view
 format_account(AccountId account, char* buf, std::size_t buf_len) noexcept;
+
+// The inverse. Invalid venue when the name does not parse, so a caller that
+// forgets to check gets a refusal rather than venue 0 wearing a market.
+[[nodiscard]] AccountId account_from_string(std::string_view name) noexcept;
 
 // Strategy-minted order handle: {strategy_id:16 | seq:48}.
 struct ClientOrderId {

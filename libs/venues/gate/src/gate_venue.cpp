@@ -418,6 +418,15 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
+        if (instrument.market() != MarketType::Perp) {
+            // This socket is fx-ws.gateio.ws /v4/ws/usdt — the futures stream.
+            // Gate's spot host appears in this adapter only for the PRIVATE
+            // stream; there is no public spot path here. Gate also spells a
+            // spot pair and its perpetual the same way, so the futures socket
+            // would accept the symbol and return perpetual prints under a spot
+            // id, which is worse than no data.
+            return std::unexpected{exec::not_implemented("gate spot market data")};
+        }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{

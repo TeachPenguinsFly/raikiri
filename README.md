@@ -25,7 +25,8 @@ the kernel process (cross-process, via seqlock table). submit-call: risk gate
 
 ## Design in one paragraph
 
-Each exchange gateway is its own process (`gatewayd --venue=...`) owning a
+Each exchange gateway is its own process, one per venue AND market
+(`gatewayd --venue=bybit --market=spot`), owning a
 shared-memory segment: seqlock tables for best-bid/offer state (overwrite-newest),
 broadcast rings for market-data and execution events, and lossless SPSC rings for
 order commands. A single-threaded strategy kernel (`strategyd`) busy-polls all

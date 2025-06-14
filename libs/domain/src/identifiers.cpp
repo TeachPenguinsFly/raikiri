@@ -64,7 +64,8 @@ std::string_view to_string(Side side) noexcept {
 
 std::string_view format_account(AccountId account, char* buf, std::size_t buf_len) noexcept {
     const auto venue = to_string(account.venue);
-    // Perp is the unsuffixed default for Go-system compatibility.
+    // Perp is the unsuffixed default, so the perpetual gateway keeps the plain
+    // venue name it has always had and only the other markets gain a suffix.
     std::string_view suffix;
     switch (account.market) {
     case MarketType::Perp:
@@ -86,6 +87,25 @@ std::string_view format_account(AccountId account, char* buf, std::size_t buf_le
     std::memcpy(buf, venue.data(), venue.size());
     std::memcpy(buf + venue.size(), suffix.data(), suffix.size());
     return {buf, venue.size() + suffix.size()};
+}
+
+AccountId account_from_string(std::string_view name) noexcept {
+    // Longest suffix first: no two of these are prefixes of each other today,
+    // but the order is what keeps that from mattering.
+    struct Suffix {
+        std::string_view text;
+        MarketType market;
+    };
+    static constexpr std::array<Suffix, 3> k_suffixes{{{"-spot", MarketType::Spot},
+                                                       {"-fut", MarketType::Future},
+                                                       {"-opt", MarketType::Option}}};
+    for (const auto& suffix : k_suffixes) {
+        if (name.ends_with(suffix.text)) {
+            const auto venue = venue_from_string(name.substr(0, name.size() - suffix.text.size()));
+            return {.venue = venue, .market = suffix.market};
+        }
+    }
+    return {.venue = venue_from_string(name), .market = MarketType::Perp};
 }
 
 } // namespace raikiri

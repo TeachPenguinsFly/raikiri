@@ -32,6 +32,7 @@ enum class JournalError : std::uint8_t {
     PayloadTooLarge,
     RotateFailed,
     NoSegments,
+    AlreadyWriting, // another live process holds this journal
 };
 
 // Total on-disk size of a frame carrying `payload_len` bytes.

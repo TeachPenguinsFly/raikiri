@@ -104,17 +104,33 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             if (auto lot_filter = detail::req_object(entry, "lotSizeFilter");
                 lot_filter.has_value()) {
                 auto filter = *lot_filter;
+                // The spot category spells the same two facts differently:
+                // basePrecision for the lot step and minOrderAmt for the
+                // minimum notional. Reading only the derivatives names left
+                // every spot row without a lot size, and a row with no lot
+                // size is dropped — which is why a spot catalogue used to load
+                // zero instruments while the caps row claimed the market.
                 out.qty_step = detail::opt_str(filter, "qtyStep").value_or(std::string_view{});
+                if (out.qty_step.empty()) {
+                    filter.reset();
+                    out.qty_step =
+                        detail::opt_str(filter, "basePrecision").value_or(std::string_view{});
+                }
                 filter.reset();
                 out.min_order_qty =
                     detail::opt_str(filter, "minOrderQty").value_or(std::string_view{});
                 filter.reset();
                 out.min_notional =
                     detail::opt_str(filter, "minNotionalValue").value_or(std::string_view{});
+                if (out.min_notional.empty()) {
+                    filter.reset();
+                    out.min_notional =
+                        detail::opt_str(filter, "minOrderAmt").value_or(std::string_view{});
+                }
             }
             storage.instruments[count++] = out;
         }
-        return std::span<const WireInstrument>{storage.instruments, count};
+        return std::span<const WireInstrument>{storage.instruments.data(), count};
     });
 }
 

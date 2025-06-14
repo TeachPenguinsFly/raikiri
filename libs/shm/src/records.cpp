@@ -64,8 +64,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
         *catalogue, *bbo, *depth, *funding, *md, *exec, *positions, *create, *cancel};
 }
 
-std::string gateway_segment_path(std::string_view venue_name) {
-    return platform::runtime_dir() + "/shm/gw." + std::string{venue_name};
+std::string gateway_segment_path(AccountId account) {
+    char buf[16];
+    const auto name = format_account(account, buf, sizeof buf);
+    return platform::runtime_dir() + "/shm/gw." + std::string{name};
 }
 
 } // namespace raikiri::shm

@@ -365,6 +365,14 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
+        if (instrument.market() != MarketType::Perp) {
+            // api.hbdm.com is the futures tree. The spot host this adapter
+            // knows is reached only for the private v2 stream — no public spot
+            // market data is wired, and HTX spells the two markets
+            // differently, so a spot code sent here is simply refused by the
+            // venue after the subscription has been counted as successful.
+            return std::unexpected{exec::not_implemented("htx spot market data")};
+        }
         const auto code = state_->instruments.exchange_symbol(instrument);
         if (code.empty()) {
             return std::unexpected{

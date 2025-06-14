@@ -295,7 +295,12 @@ struct WireInstrument {
     std::string_view ct_type; // linear | inverse; empty on SPOT and OPTION rows
 };
 
-inline constexpr std::size_t k_max_instruments = 1024;
+// Sized for the SPOT catalogue, which is roughly triple the swap one: 1383
+// rows live today against 457 swaps. Sized for the swaps alone, a spot
+// gateway refused its whole catalogue with TooManyEntries and started with
+// nothing. The buffer is static thread_local, so this is one allocation for
+// the process and not a stack frame.
+inline constexpr std::size_t k_max_instruments = 4096;
 
 struct InstrumentBuffer {
     std::array<WireInstrument, k_max_instruments> instruments{};

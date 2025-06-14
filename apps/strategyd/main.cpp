@@ -1,8 +1,15 @@
 // strategyd — the strategy kernel (demo wiring).
 //
-//   strategyd [--venue=<name>] [--duration <sec>] [--strategy-id=<n>]
+//   strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
 //
-// Attaches a gateway's segment, adopts the instrument numbering it published,
+// --gateway is repeatable and takes an account name, which is also the segment
+// name: "bybit" is the perpetual gateway, "bybit-spot" the spot one beside it.
+// --venue is the same flag under its older name. One kernel holds ONE book
+// across every market it attaches to, because a position is a position
+// wherever it was opened; the (venue, market) prefix of an instrument id is
+// what routes a command back to the gateway that can fill it.
+//
+// Attaches each gateway's segment, adopts the instrument numbering it published,
 // runs a strategy through the OMS and prints the latency table at exit — the
 // `make demo` money-shot:
 //   tick-to-callback   BBO publish (gatewayd) -> strategy callback
@@ -17,10 +24,10 @@
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
+#include <raikiri/oms/risk.hpp>
 #include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
-#include <raikiri/oms/risk.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/strategies/demo_maker.hpp>
@@ -54,16 +61,60 @@ using namespace raikiri;
 // needs no separate code path.
 class Observer final : public strategy::Strategy {};
 
+// One attached gateway — everything that is per-(venue, market).
+//
+// A gateway serves exactly one market, so anything scoped to a segment is
+// scoped to an account: the catalogue that mints the instrument ids, the
+// tables those ids index, the rings, and the change-gate cursors over them.
+// The book, the order store and the risk gate are NOT here: they span venues
+// on purpose, because a position is a position wherever it was opened.
+struct Gateway {
+    AccountId account{};
+    std::string name;
+    shm::SegmentClient client;
+    shm::GatewayChannels ch{};
+    shm::ExecReader exec;
+    shm::MdReader md;
+    shm::CmdProducer creates;
+    shm::CmdProducer cancels;
+    std::vector<std::uint32_t> bbo_seen;
+    std::vector<std::uint32_t> funding_seen;
+    std::uint64_t recon_due{0};
+
+    Gateway(AccountId id,
+            std::string display,
+            shm::SegmentClient attached,
+            shm::GatewayChannels channels)
+        : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
+          exec{channels.exec_events}, md{channels.md_events}, creates{channels.cmd_create},
+          cancels{channels.cmd_cancel},
+          bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
+          funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
+};
+
 class KernelContext final : public strategy::Context {
 public:
-    KernelContext(shm::GatewayChannels channels,
+    KernelContext(std::vector<Gateway>& gateways,
                   oms::OrderStore& store,
                   oms::RiskGate& risk,
                   oms::IdGen& ids,
                   journal::JournalWriter& journal,
                   const Clock& clock)
-        : ch_{channels}, creates_{channels.cmd_create}, cancels_{channels.cmd_cancel},
-          store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal}, clock_{&clock} {}
+        : gateways_{&gateways}, store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal},
+          clock_{&clock} {}
+
+    // The (venue, market) prefix of an InstrumentId IS the routing key — it is
+    // why the id carries one. Linear over a handful of attached gateways; a
+    // map would cost more than the scan it replaces.
+    [[nodiscard]] Gateway* gateway_for(InstrumentId id) const noexcept {
+        const AccountId want{.venue = id.venue(), .market = id.market()};
+        for (auto& gw : *gateways_) {
+            if (gw.account == want) {
+                return &gw;
+            }
+        }
+        return nullptr;
+    }
 
     std::expected<ClientOrderId, strategy::RejectReason>
     submit(const strategy::NewOrder& order) noexcept override {
@@ -82,6 +133,13 @@ public:
         cmd.qty = order.qty;
         cmd.ts_created = clock_->wall();
 
+        auto* gw = gateway_for(order.instrument);
+        if (gw == nullptr) {
+            // No gateway is attached for this instrument's market. Refusing as
+            // VenueDown is exact: the venue is not down, but from here it is
+            // unreachable, and both mean the order never gets to the wire.
+            return std::unexpected{strategy::RejectReason::VenueDown};
+        }
         oms::Exposure exposure{.reconciliation_break = halted.contains(order.instrument.packed),
                                .open_orders = store_->open_count()};
         if (const auto* held = position(order.instrument); held != nullptr) {
@@ -98,7 +156,7 @@ public:
         }
         // Intent journaled BEFORE the wire: the crash-recovery invariant.
         journal_cmd(cmd);
-        if (!creates_.try_push(cmd).has_value()) {
+        if (!gw->creates.try_push(cmd).has_value()) {
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
         // The order is on the wire: apply the local Submitted transition.
@@ -136,8 +194,12 @@ public:
         cmd.exchange_client_order_id = order->exchange_client_order_id();
         cmd.target_exchange_order_id = order->exchange_order_id();
         cmd.ts_created = clock_->wall();
+        auto* gw = gateway_for(cmd.instrument);
+        if (gw == nullptr) {
+            return false;
+        }
         journal_cmd(cmd);
-        return cancels_.try_push(cmd).has_value();
+        return gw->cancels.try_push(cmd).has_value();
     }
 
     void cancel_all(InstrumentId instrument) noexcept override {
@@ -150,29 +212,30 @@ public:
 
     std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override {
         const auto idx = instrument.symbol().raw;
-        if (idx >= shm::k_bbo_cells) {
+        const auto* gw = gateway_for(instrument);
+        if (gw == nullptr || idx >= shm::k_bbo_cells) {
             return std::nullopt;
         }
         Bbo out{};
-        if (ch_.bbo->read(idx, out) == 0) {
+        if (gw->ch.bbo->read(idx, out) == 0) {
             return std::nullopt;
         }
         return out;
     }
 
     const Instrument* instrument(InstrumentId id) const noexcept override {
-        return ch_.catalogue->find(id);
+        const auto* gw = gateway_for(id);
+        return gw != nullptr ? gw->ch.catalogue->find(id) : nullptr;
     }
 
-    std::optional<ClientOrderId> set_target(const portfolio::PortfolioTarget& target) noexcept
-        override {
+    std::optional<ClientOrderId>
+    set_target(const portfolio::PortfolioTarget& target) noexcept override {
         auto held = QtyLots::from_raw(0);
         if (const auto* p = position(target.instrument); p != nullptr) {
             held = p->qty();
         }
         const auto working = oms::working_lots(*store_, target.instrument);
-        const auto move =
-            portfolio::delta_to_target(target.qty, held, working.buy, working.sell);
+        const auto move = portfolio::delta_to_target(target.qty, held, working.buy, working.sell);
         if (move.qty.raw == 0) {
             return std::nullopt;
         }
@@ -244,6 +307,7 @@ public:
         std::uint64_t ts_ns{0};
         std::int64_t lots{0};
     };
+
     std::unordered_map<std::uint64_t, std::vector<FillDelta>> fills_after;
     // Which snapshot first disagreed about an instrument. A fill that lands in
     // the round trip around the venue's own timestamp falls on the wrong side
@@ -256,6 +320,7 @@ public:
         fills_after[instrument.packed].push_back(
             {.ts_ns = ts.ns, .lots = side == Side::Buy ? delta.raw : -delta.raw});
     }
+
     std::unordered_map<std::uint64_t, std::uint64_t> inflight_; // coid -> submit mono ns
     observ::Histogram submit_hist;
 
@@ -307,9 +372,7 @@ private:
         });
     }
 
-    shm::GatewayChannels ch_;
-    shm::SpscProducer<OrderCmd, shm::k_cmd_ring> creates_;
-    shm::SpscProducer<OrderCmd, shm::k_cmd_ring> cancels_;
+    std::vector<Gateway>* gateways_;
     oms::OrderStore* store_;
     oms::RiskGate* risk_;
     oms::IdGen* ids_;
@@ -468,7 +531,10 @@ void reconcile_against_venue(KernelContext& ctx,
 
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
-    std::string venue_name = "sim";
+    // Account names, which are also the segment names: "bybit" is bybit perp,
+    // "bybit-spot" is the spot gateway beside it. Repeatable, because one
+    // kernel holds one book across every market it trades.
+    std::vector<std::string> wanted;
     // Names this strategy's book and rides in the top 16 bits of every
     // ClientOrderId, so it reaches the ledger without extra plumbing. Two
     // strategies that share it net into one position; distinct ones do not.
@@ -477,39 +543,63 @@ int main(int argc, char** argv) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
             duration_s = static_cast<std::uint64_t>(std::atoll(argv[++i]));
-        } else if (arg.starts_with("--venue=")) {
-            venue_name = arg.substr(8);
+        } else if (arg.starts_with("--venue=") || arg.starts_with("--gateway=")) {
+            wanted.emplace_back(arg.substr(arg.find('=') + 1));
         } else if (arg.starts_with("--strategy-id=")) {
             strategy_id = static_cast<std::uint16_t>(std::atoi(arg.substr(14).data()));
         }
+    }
+    if (wanted.empty()) {
+        wanted.emplace_back("sim");
     }
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
     const LiveClock clock;
 
-    // Attach the gateway segment (retry: the gateway may still be coming up).
-    const auto seg_path = shm::gateway_segment_path(venue_name);
-    std::expected<shm::SegmentClient, shm::SegError> client =
-        std::unexpected{shm::SegError::MapFailed};
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        client = shm::SegmentClient::attach(seg_path);
-        if (client.has_value()) {
-            break;
+    // Attach every requested gateway. Reserved up front: the readers and
+    // producers below hold pointers into shm, not into this vector, but a
+    // reallocation would still move segment clients that own mappings.
+    std::vector<Gateway> gateways;
+    gateways.reserve(wanted.size());
+    for (const auto& name : wanted) {
+        const auto account = account_from_string(name);
+        if (account.venue == VenueId::Invalid) {
+            fmt::print(stderr, "strategyd: unknown gateway {}\n", name);
+            return 2;
         }
-        ::usleep(50'000);
+        for (const auto& existing : gateways) {
+            if (existing.account == account) {
+                fmt::print(stderr, "strategyd: {} named twice\n", name);
+                return 2;
+            }
+        }
+        // Retry: the gateway may still be coming up.
+        const auto seg_path = shm::gateway_segment_path(account);
+        std::expected<shm::SegmentClient, shm::SegError> client =
+            std::unexpected{shm::SegError::MapFailed};
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            client = shm::SegmentClient::attach(seg_path);
+            if (client.has_value()) {
+                break;
+            }
+            ::usleep(50'000);
+        }
+        if (!client.has_value()) {
+            fmt::print(stderr, "strategyd: cannot attach {}\n", seg_path);
+            return 1;
+        }
+        auto channels = shm::open_gateway_channels(*client);
+        if (!channels.has_value()) {
+            fmt::print(stderr,
+                       "strategyd: channel open failed on {} ({})\n",
+                       seg_path,
+                       static_cast<int>(channels.error()));
+            return 1;
+        }
+        (void)client->register_reader(::getpid());
+        gateways.emplace_back(account, name, std::move(*client), *channels);
     }
-    if (!client.has_value()) {
-        fmt::print(stderr, "strategyd: cannot attach {}\n", seg_path);
-        return 1;
-    }
-    auto channels = shm::open_gateway_channels(*client);
-    if (!channels.has_value()) {
-        fmt::print(
-            stderr, "strategyd: channel open failed ({})\n", static_cast<int>(channels.error()));
-        return 1;
-    }
-    (void)client->register_reader(::getpid());
 
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
@@ -522,11 +612,14 @@ int main(int argc, char** argv) {
     oms::OrderStore store{4096};
     oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000)}};
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
-    KernelContext ctx{*channels, store, risk, ids, *journal_writer, clock};
+    KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
 
-    const auto instrument_count = channels->catalogue->size();
+    std::size_t instrument_count = 0;
+    for (const auto& gw : gateways) {
+        instrument_count += gw.ch.catalogue->size();
+    }
     if (instrument_count == 0) {
-        fmt::print(stderr, "strategyd: gateway published an empty catalogue\n");
+        fmt::print(stderr, "strategyd: every attached gateway published an empty catalogue\n");
         return 1;
     }
 
@@ -535,31 +628,30 @@ int main(int argc, char** argv) {
     // journal and the latency table are identical either way.
     strategies::DemoMaker maker;
     Observer observer;
-    const bool quoting = venue_name == "sim";
+    const bool quoting = gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
     strategy::Strategy& active = quoting ? static_cast<strategy::Strategy&>(maker) : observer;
+    std::string attached;
+    for (const auto& gw : gateways) {
+        attached += (attached.empty() ? "" : ", ") + gw.name;
+    }
     fmt::print("strategyd: attached to {}, {} instruments, running {} for {}s\n",
-               venue_name,
+               attached,
                instrument_count,
                quoting ? "DemoMaker" : "observer",
                duration_s);
     active.on_start(ctx);
 
-    shm::BroadcastReader exec_reader{channels->exec_events};
-    shm::BroadcastReader md_reader{channels->md_events};
-    std::vector<std::uint32_t> bbo_seen(std::min<std::size_t>(instrument_count, shm::k_bbo_cells));
-    std::vector<std::uint32_t> funding_seen(
-        std::min<std::size_t>(instrument_count, shm::k_funding_cells));
-
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
     std::uint64_t fills = 0;
-    std::uint64_t bad_transitions = 0;    // FSM refusals: must stay 0
-    std::uint64_t position_refusals = 0;  // position book full: must stay 0
+    std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
+    std::uint64_t position_refusals = 0; // position book full: must stay 0
     std::uint64_t funding_ticks = 0;
 
-    const auto venue = venue_from_string(venue_name);
-    std::uint64_t recon_due = clock.mono().ns; // once at start, then on the interval
+    for (auto& gw : gateways) {
+        gw.recon_due = clock.mono().ns; // once at start, then on the interval
+    }
 
     // Watch the OWNER, not the generation. A restarting gateway unlinks the
     // segment and creates a new file, so this process keeps its mapping of the
@@ -571,99 +663,107 @@ int main(int argc, char** argv) {
     // order store belong to a world that no longer exists, and commands pushed
     // into these rings reach nobody. There is no sound way to keep going, so
     // this stops and says why.
-    bool gateway_gone = false;
+    std::string gateway_gone;
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
-        // Verdicts drain before market data: a strategy must never act on a price
-        // tick while its own order state is a poll behind.
+        // Verdicts drain before market data, across EVERY gateway: a strategy
+        // must never act on a price tick while its own order state is a poll
+        // behind, and the order it is behind on may be on another venue.
         shm::ExecEventRec rec{};
-        for (;;) {
-            const auto poll = exec_reader.poll(rec);
-            if (poll == shm::PollResult::Empty) {
-                break;
-            }
-            if (poll == shm::PollResult::Overrun) {
-                ++exec_overruns; // policy: halt+reconcile; demo just counts
-                continue;
-            }
-            const auto& event = rec.event;
-            if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
-                it != ctx.inflight_.end()) {
-                rt_hist.record(clock.mono().ns - it->second);
-                ctx.inflight_.erase(it);
-            }
-            // Read leaves BEFORE the FSM moves it: the fill quantity is the
-            // drop in leaves, never the event's own qty. A venue that resends
-            // a fill notification then derives zero and moves no money.
-            QtyLots prev_leaves = QtyLots::from_raw(0);
-            if (const auto* order = store.find(event.client_order_id); order != nullptr) {
-                prev_leaves = order->leaves();
-            }
-            if (const auto applied = store.apply_event(event);
-                !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
-                ++bad_transitions;
-            }
-            if (event.type == OrderEventType::Filled) {
-                ++fills;
-                const auto delta =
-                    QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
-                const auto* listed = ctx.instrument(event.instrument);
-                if (listed != nullptr && delta.raw > 0) {
-                    const auto& base = base_of(*listed);
-                    ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
-                    const auto applied = ctx.positions.on_fill(base, event, delta);
-                    if (!applied.has_value()) {
-                        ++position_refusals;
-                    } else {
-                        namespace jt = raikiri_journal::types;
-                        // One increment per kind per exec_id: a flipped fill is
-                        // still ONE realizing event to the venue, and the
-                        // ledger's grain has to match the grain every
-                        // reconciliation query joins on.
-                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Realized, applied->realized);
-                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, event.fee);
+        for (auto& gw : gateways) {
+            for (;;) {
+                const auto poll = gw.exec.poll(rec);
+                if (poll == shm::PollResult::Empty) {
+                    break;
+                }
+                if (poll == shm::PollResult::Overrun) {
+                    ++exec_overruns; // policy: halt+reconcile; demo just counts
+                    continue;
+                }
+                const auto& event = rec.event;
+                if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
+                    it != ctx.inflight_.end()) {
+                    rt_hist.record(clock.mono().ns - it->second);
+                    ctx.inflight_.erase(it);
+                }
+                // Read leaves BEFORE the FSM moves it: the fill quantity is the
+                // drop in leaves, never the event's own qty. A venue that resends
+                // a fill notification then derives zero and moves no money.
+                QtyLots prev_leaves = QtyLots::from_raw(0);
+                if (const auto* order = store.find(event.client_order_id); order != nullptr) {
+                    prev_leaves = order->leaves();
+                }
+                if (const auto applied = store.apply_event(event);
+                    !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
+                    ++bad_transitions;
+                }
+                if (event.type == OrderEventType::Filled) {
+                    ++fills;
+                    const auto delta = QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
+                    const auto* listed = ctx.instrument(event.instrument);
+                    if (listed != nullptr && delta.raw > 0) {
+                        const auto& base = base_of(*listed);
+                        ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
+                        const auto applied = ctx.positions.on_fill(base, event, delta);
+                        if (!applied.has_value()) {
+                            ++position_refusals;
+                        } else {
+                            namespace jt = raikiri_journal::types;
+                            // One increment per kind per exec_id: a flipped fill is
+                            // still ONE realizing event to the venue, and the
+                            // ledger's grain has to match the grain every
+                            // reconciliation query joins on.
+                            ctx.journal_pnl(
+                                event, base, jt::pnlKindEnum::Realized, applied->realized);
+                            ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, event.fee);
+                        }
                     }
                 }
+                active.on_order_event(ctx, event);
             }
-            active.on_order_event(ctx, event);
         }
         shm::MdEvent md{};
-        while (md_reader.poll(md) == shm::PollResult::Item) {
-            TradeTick trade{};
-            trade.instrument = md.instrument;
-            trade.price = md.price;
-            trade.qty = md.qty;
-            trade.aggressor = md.aggressor;
-            trade.ts_event = md.ts_event;
-            trade.ts_init = md.ts_init;
-            active.on_trade(ctx, trade);
-        }
-        for (std::uint32_t sym = 0; sym < bbo_seen.size(); ++sym) {
-            const auto version = channels->bbo->cells[sym].version_now();
-            if (version == bbo_seen[sym] || (version & 1U) != 0) {
-                continue;
-            }
-            Bbo bbo{};
-            if (channels->bbo->read(sym, bbo) != 0) {
-                bbo_seen[sym] = version;
-                tick_hist.record(clock.wall().ns - bbo.ts_init.ns);
-                active.on_bbo(ctx, bbo);
+        for (auto& gw : gateways) {
+            while (gw.md.poll(md) == shm::PollResult::Item) {
+                TradeTick trade{};
+                trade.instrument = md.instrument;
+                trade.price = md.price;
+                trade.qty = md.qty;
+                trade.aggressor = md.aggressor;
+                trade.ts_event = md.ts_event;
+                trade.ts_init = md.ts_init;
+                active.on_trade(ctx, trade);
             }
         }
-        // Funding changes on the venue's schedule — eight hours on most perps —
-        // so the gate matters more here than for BBO: without it every poll
-        // would re-deliver the same rate thousands of times a second.
-        for (std::uint32_t sym = 0; sym < funding_seen.size(); ++sym) {
-            const auto version = channels->funding->cells[sym].version_now();
-            if (version == funding_seen[sym] || (version & 1U) != 0) {
-                continue;
+        for (auto& gw : gateways) {
+            for (std::uint32_t sym = 0; sym < gw.bbo_seen.size(); ++sym) {
+                const auto version = gw.ch.bbo->cells[sym].version_now();
+                if (version == gw.bbo_seen[sym] || (version & 1U) != 0) {
+                    continue;
+                }
+                Bbo bbo{};
+                if (gw.ch.bbo->read(sym, bbo) != 0) {
+                    gw.bbo_seen[sym] = version;
+                    tick_hist.record(clock.wall().ns - bbo.ts_init.ns);
+                    active.on_bbo(ctx, bbo);
+                }
             }
-            FundingUpdate funding{};
-            if (channels->funding->read(sym, funding) != 0) {
-                funding_seen[sym] = version;
-                ++funding_ticks;
-                active.on_funding(ctx, funding);
+            // Funding changes on the venue's schedule — eight hours on most
+            // perps — so the gate matters more here than for BBO: without it
+            // every poll would re-deliver the same rate thousands of times a
+            // second.
+            for (std::uint32_t sym = 0; sym < gw.funding_seen.size(); ++sym) {
+                const auto version = gw.ch.funding->cells[sym].version_now();
+                if (version == gw.funding_seen[sym] || (version & 1U) != 0) {
+                    continue;
+                }
+                FundingUpdate funding{};
+                if (gw.ch.funding->read(sym, funding) != 0) {
+                    gw.funding_seen[sym] = version;
+                    ++funding_ticks;
+                    active.on_funding(ctx, funding);
+                }
             }
         }
         const auto now_ns = clock.mono().ns;
@@ -673,35 +773,40 @@ int main(int argc, char** argv) {
                 active.on_timer(ctx, timer.id);
             }
         }
-        // Monotonic, because that is the clock the gateway stamps the
-        // heartbeat with; asking in wall time makes every owner look stale.
-        if (!client->owner_alive(now_ns)) {
-            gateway_gone = true;
-            break;
+        for (auto& gw : gateways) {
+            // Monotonic, because that is the clock the gateway stamps the
+            // heartbeat with; asking in wall time makes every owner look stale.
+            if (!gw.client.owner_alive(now_ns)) {
+                gateway_gone = gw.name;
+                break;
+            }
+            if (now_ns >= gw.recon_due) {
+                reconcile_against_venue(ctx,
+                                        gw.account.venue,
+                                        *gw.ch.catalogue,
+                                        *gw.ch.positions,
+                                        *journal_writer,
+                                        clock.wall());
+                gw.recon_due = now_ns + k_recon_read_interval_ns;
+            }
         }
-        if (now_ns >= recon_due) {
-            reconcile_against_venue(ctx,
-                                    venue,
-                                    *channels->catalogue,
-                                    *channels->positions,
-                                    *journal_writer,
-                                    clock.wall());
-            recon_due = now_ns + k_recon_read_interval_ns;
+        if (!gateway_gone.empty()) {
+            break;
         }
     }
     active.on_stop(ctx);
     journal_writer->flush();
-    if (gateway_gone) {
+    if (!gateway_gone.empty()) {
         fmt::print(stderr,
-                   "strategyd: the gateway that owns this segment stopped answering — cursors "
-                   "and book belong to a dead generation, stopping\n");
+                   "strategyd: gateway {} stopped answering — cursors and book belong to a dead "
+                   "generation, stopping\n",
+                   gateway_gone);
     }
 
     const auto tick = tick_hist.snapshot();
     const auto submit = ctx.submit_hist.snapshot();
     const auto rt = rt_hist.snapshot();
-    fmt::print(
-        "\n===== raikiri: {} venue, {}s, single unpinned core =====\n", venue_name, duration_s);
+    fmt::print("\n===== raikiri: {}, {}s, single unpinned core =====\n", attached, duration_s);
     fmt::print("{:<22}{:>10}{:>12}{:>12}{:>12}{:>12}\n",
                "metric (ns)",
                "count",
@@ -768,5 +873,5 @@ int main(int argc, char** argv) {
                                      : fixed(portfolio::unrealized_pnl(base, position, mark)));
         }
     }
-    return gateway_gone ? 1 : 0;
+    return gateway_gone.empty() ? 0 : 1;
 }

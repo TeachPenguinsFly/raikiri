@@ -111,6 +111,9 @@ using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
+using MdReader = BroadcastReader<MdEvent, k_md_ring>;
+using ExecReader = BroadcastReader<ExecEventRec, k_exec_ring>;
+using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 
 // Resolved channel pointers of one gateway segment. Owner and client views
 // are structurally identical; ownership semantics differ (segment.hpp).
@@ -129,7 +132,10 @@ struct GatewayChannels {
 [[nodiscard]] std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner);
 [[nodiscard]] std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& client);
 
-// <runtime_dir>/shm/gw.<venue> — one segment per gateway process.
-[[nodiscard]] std::string gateway_segment_path(std::string_view venue_name);
+// <runtime_dir>/shm/gw.<account> — one segment per gateway process, and one
+// gateway process per market. The account name carries the market, so the
+// perpetual gateway keeps the path it always had ("gw.bybit") and a spot one
+// takes "gw.bybit-spot" instead of colliding with it.
+[[nodiscard]] std::string gateway_segment_path(AccountId account);
 
 } // namespace raikiri::shm

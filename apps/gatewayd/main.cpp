@@ -1,6 +1,13 @@
-// gatewayd — one venue per process.
+// gatewayd — one venue AND ONE MARKET per process.
 //
-//   gatewayd --venue=sim [--duration <sec>]
+//   gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
+//
+// Every adapter is single-market by construction — several collapse the two
+// market flags into one MarketType and never look again — so a second market
+// is a second process, not a second code path. The account name carries the
+// market and names everything this process owns: segment "gw.bybit-spot",
+// journal "gatewayd-bybit-spot". Perp is unsuffixed, so the perpetual gateway
+// keeps the paths it always had.
 //
 // Owns the venue's shm segment, hosts the adapter, and runs the hot loop:
 //   drain cancel ring -> drain create ring -> adapter poll -> heartbeat.
@@ -226,6 +233,9 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        const raikiri::shm::CatalogueTable& catalogue,
                        raikiri::shm::PositionTable& table,
                        raikiri::UnixNanos now) {
+    char buf[16];
+    const auto who =
+        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     if (!adapter.caps.position_pull) {
         if (!announced) {
@@ -233,8 +243,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
             // is a standing condition, not an event, and repeating it every
             // 30s would train an operator to ignore the line that matters.
             announced = true;
-            fmt::print("gatewayd[{}]: position reconciliation unavailable for this venue\n",
-                       raikiri::to_string(adapter.caps.venue));
+            fmt::print("gatewayd[{}]: position reconciliation unavailable for this venue\n", who);
         }
         return;
     }
@@ -244,9 +253,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         // Not a break and not flatness — the venue declined to answer this
         // round. Publishing nothing is the whole point: the cells age out and
         // the reader sees Unknown.
-        fmt::print(stderr,
-                   "gatewayd[{}]: position pull failed — {}\n",
-                   raikiri::to_string(adapter.caps.venue),
+        fmt::print(stderr, "gatewayd[{}]: position pull failed — {}\n", who,
                    reports.error().message.view());
         return;
     }
@@ -374,8 +381,35 @@ int main(int argc, char** argv) {
 
     const LiveClock clock;
 
+    // Which market this gateway serves. A venue that lists no perpetuals —
+    // coinbase exchange is spot only — cannot be asked for one, and asking
+    // used to fail as "adapter build failed" with nothing naming the market.
+    const auto& caps = exec::caps_of(venue);
+    MarketType market = MarketType::Perp;
+    if (market_arg == "spot") {
+        market = MarketType::Spot;
+    } else if (market_arg == "perp" || market_arg.empty()) {
+        market = caps.perp ? MarketType::Perp : MarketType::Spot;
+    } else {
+        fmt::print(stderr, "gatewayd: --market must be spot or perp\n");
+        return 2;
+    }
+    if ((market == MarketType::Perp && !caps.perp) || (market == MarketType::Spot && !caps.spot)) {
+        fmt::print(stderr,
+                   "gatewayd[{}]: venue does not list {} instruments\n",
+                   venue_name,
+                   market == MarketType::Spot ? "spot" : "perpetual");
+        return 2;
+    }
+
+    // This process serves exactly one market, and the account name is how
+    // every path it owns says so — segment, journal, and the log prefix.
+    const AccountId account{.venue = venue, .market = market};
+    char account_buf[16];
+    const auto account_name = std::string{format_account(account, account_buf, sizeof account_buf)};
+
     // shm segment (owner side).
-    const auto seg_path = shm::gateway_segment_path(venue_name);
+    const auto seg_path = shm::gateway_segment_path(account);
     if (!journal::detail::mkdir_p(platform::runtime_dir() + "/shm")) {
         fmt::print(stderr, "gatewayd: cannot create runtime dir\n");
         return 1;
@@ -395,9 +429,17 @@ int main(int argc, char** argv) {
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
     auto journal_writer =
-        journal::JournalWriter::open(data_dir + "/journal/gatewayd-" + venue_name, "journal");
+        journal::JournalWriter::open(data_dir + "/journal/gatewayd-" + account_name, "journal");
     if (!journal_writer.has_value()) {
-        fmt::print(stderr, "gatewayd: journal open failed\n");
+        // AlreadyWriting is the interesting one: another gatewayd for this
+        // same account is live, and the segment did not catch it because that
+        // process may own a different path under an older naming.
+        fmt::print(stderr,
+                   "gatewayd[{}]: journal open failed{}\n",
+                   account_name,
+                   journal_writer.error() == journal::JournalError::AlreadyWriting
+                       ? " — another process is already writing it"
+                       : "");
         return 1;
     }
 
@@ -420,27 +462,6 @@ int main(int argc, char** argv) {
     venues::xt::register_adapter();
     venues::mexc::register_adapter();
     venues::okx::register_adapter();
-    // Which market this gateway serves. A venue that lists no perpetuals —
-    // coinbase exchange is spot only — cannot be asked for one, and asking
-    // used to fail as "adapter build failed" with nothing naming the market.
-    const auto& caps = exec::caps_of(venue);
-    MarketType market = MarketType::Perp;
-    if (market_arg == "spot") {
-        market = MarketType::Spot;
-    } else if (market_arg == "perp" || market_arg.empty()) {
-        market = caps.perp ? MarketType::Perp : MarketType::Spot;
-    } else {
-        fmt::print(stderr, "gatewayd: --market must be spot or perp\n");
-        return 2;
-    }
-    if ((market == MarketType::Perp && !caps.perp) || (market == MarketType::Spot && !caps.spot)) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: venue does not list {} instruments\n",
-                   venue_name,
-                   market == MarketType::Spot ? "spot" : "perpetual");
-        return 2;
-    }
-
     auto adapter = exec::make_venue({.venue = venue,
                                      .enable_spot = market == MarketType::Spot,
                                      .enable_perp = market == MarketType::Perp,
@@ -472,7 +493,7 @@ int main(int argc, char** argv) {
                    started.error().message.view());
         return 1;
     } else {
-        fmt::print("gatewayd[{}]: market data only — {}\n", venue_name, started.error().message.view());
+        fmt::print("gatewayd[{}]: market data only — {}\n", account_name, started.error().message.view());
     }
     // The catalogue must load before any subscription: an adapter cannot map
     // a single inbound frame without the tick and lot sizes, and a gateway
@@ -486,14 +507,14 @@ int main(int argc, char** argv) {
         if (!loaded.has_value()) {
             fmt::print(stderr,
                        "gatewayd[{}]: catalogue load failed: {} (code {})\n",
-                       venue_name,
+                       account_name,
                        loaded.error().message.view(),
                        loaded.error().venue_code);
             return 1;
         }
         catalogue = std::move(*loaded);
     }
-    fmt::print("gatewayd[{}]: {} instruments loaded\n", venue_name, catalogue.size());
+    fmt::print("gatewayd[{}]: {} instruments loaded\n", account_name, catalogue.size());
 
     // Publish the numbering before the segment goes Ready, so a consumer that
     // can attach at all can resolve every id the gateway will ever send.
@@ -501,13 +522,15 @@ int main(int argc, char** argv) {
         if (const auto pushed = channels->catalogue->push(instrument); !pushed.has_value()) {
             fmt::print(stderr,
                        "gatewayd[{}]: catalogue publish refused symbol {}\n",
-                       venue_name,
+                       account_name,
                        base_of(instrument).exchange_symbol.view());
             return 1;
         }
     }
 
+    std::size_t matched = 0;
     std::size_t subscribed = 0;
+    std::string first_refusal;
     for (const auto& instrument : catalogue) {
         const auto& base = base_of(instrument);
         const auto wanted = symbols.empty() ||
@@ -517,21 +540,41 @@ int main(int argc, char** argv) {
         if (!wanted) {
             continue;
         }
-        (void)adapter->data->subscribe(exec::SubKind::Bbo, base.id);
+        ++matched;
+        // The BBO result is the one that decides. Trades, depth and funding are
+        // allowed to be missing on a venue that publishes none of them, but an
+        // adapter with no top-of-book has no market data at all — and this
+        // count used to be of instruments CONSIDERED, so a gateway whose every
+        // subscription was refused still announced that it had subscribed.
+        const auto bbo = adapter->data->subscribe(exec::SubKind::Bbo, base.id);
+        if (!bbo.has_value()) {
+            if (first_refusal.empty()) {
+                first_refusal = std::string{bbo.error().message.view()};
+            }
+            continue;
+        }
+        ++subscribed;
         (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
         (void)adapter->data->subscribe(exec::SubKind::Depth, base.id);
         if (venue != VenueId::Sim) {
             (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
         }
-        ++subscribed;
     }
-    if (subscribed == 0) {
-        fmt::print(stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n", venue_name);
+    if (matched == 0) {
+        fmt::print(
+            stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n", account_name);
         return 1;
     }
-    fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", venue_name, subscribed);
+    if (subscribed == 0) {
+        fmt::print(stderr,
+                   "gatewayd[{}]: every subscription was refused — {}\n",
+                   account_name,
+                   first_refusal.empty() ? "no reason given" : first_refusal);
+        return 1;
+    }
+    fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", account_name, subscribed);
     owner->publish();
-    fmt::print("gatewayd[{}]: up, segment {}\n", venue_name, seg_path);
+    fmt::print("gatewayd[{}]: up, segment {}\n", account_name, seg_path);
 
     shm::SpscConsumer creates{channels->cmd_create};
     shm::SpscConsumer cancels{channels->cmd_cancel};
@@ -597,7 +640,7 @@ int main(int argc, char** argv) {
     const auto& counts = sink.counts();
     fmt::print(
         "gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} order-events={}\n",
-        venue_name,
+        account_name,
         counts.bbo,
         counts.depth,
         counts.depth_levels,

@@ -369,6 +369,14 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
+        if (instrument.market() != MarketType::Perp) {
+            // The bullet this client connects with comes from
+            // api-futures.kucoin.com, so the socket only carries the futures
+            // topics. Spot needs a second bullet against api.kucoin.com and a
+            // different topic set; until that exists, refusing beats
+            // subscribing to a topic nothing will ever publish.
+            return std::unexpected{exec::not_implemented("kucoin spot market data")};
+        }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{
