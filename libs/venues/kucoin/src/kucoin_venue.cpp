@@ -375,7 +375,7 @@ public:
             // topics. Spot needs a second bullet against api.kucoin.com and a
             // different topic set; until that exists, refusing beats
             // subscribing to a topic nothing will ever publish.
-            return std::unexpected{exec::not_implemented("kucoin spot market data")};
+            return std::unexpected{exec::not_implemented("kucoin spot market data: the bullet is the futures one")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {

@@ -461,7 +461,7 @@ public:
             // Both public endpoints this client uses are the swap market's, and
             // BingX spells a spot pair the same way — a spot id subscribed here
             // would be fed perpetual prints, which is worse than no data.
-            return std::unexpected{exec::not_implemented("bingx spot market data")};
+            return std::unexpected{exec::not_implemented("bingx spot market data: both public endpoints are the swap's")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {

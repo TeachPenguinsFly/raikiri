@@ -332,7 +332,7 @@ public:
             // api.mexc.com, so a spot gateway can trade and see nothing —
             // saying so here is what keeps that from looking like a quiet
             // market.
-            return std::unexpected{exec::not_implemented("mexc spot market data")};
+            return std::unexpected{exec::not_implemented("mexc spot market data: contract.mexc.com is futures only")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {

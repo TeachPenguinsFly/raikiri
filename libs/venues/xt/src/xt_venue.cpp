@@ -260,7 +260,7 @@ public:
             // different host with a different dialect. XT also spells a spot
             // pair and its perpetual the same way, so the futures socket
             // accepts the symbol and returns perpetual prints under a spot id.
-            return std::unexpected{exec::not_implemented("xt spot market data")};
+            return std::unexpected{exec::not_implemented("xt spot market data: fstream.xt.com is the futures stream")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {

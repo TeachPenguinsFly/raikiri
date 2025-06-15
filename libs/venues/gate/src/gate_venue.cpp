@@ -425,7 +425,7 @@ public:
             // spot pair and its perpetual the same way, so the futures socket
             // would accept the symbol and return perpetual prints under a spot
             // id, which is worse than no data.
-            return std::unexpected{exec::not_implemented("gate spot market data")};
+            return std::unexpected{exec::not_implemented("gate spot market data: this socket is the futures stream")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {

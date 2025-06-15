@@ -187,7 +187,11 @@ TEST(BingxVenue, RefusesToSubscribeASpotInstrumentToTheSwapSocket) {
     const auto spot = adapter->data->subscribe(
         exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0}));
     ASSERT_FALSE(spot.has_value());
-    EXPECT_EQ(spot.error().message.view(), "bingx spot market data");
+    // Prefix, not equality: what must hold is that the refusal names the
+    // market it will not serve. The clause after it explains why, and that
+    // explanation is allowed to get better.
+    EXPECT_TRUE(spot.error().message.view().starts_with("bingx spot market data"))
+        << spot.error().message.view();
 }
 
 // ------------------------------------------------------- decompression ----
