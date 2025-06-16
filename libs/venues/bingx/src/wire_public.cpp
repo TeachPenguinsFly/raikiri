@@ -155,6 +155,10 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
         out.bid_qty = *bid_qty;
         out.ask_price = *ask;
         out.ask_qty = *ask_qty;
+        // opt_* answers 0 for a field that is not there, which is what makes
+        // this frame readable on both trees: the swap carries u and T, spot
+        // carries neither, and only E is common. A zero here means ABSENT and
+        // must not be read as a sequence number or a timestamp.
         const auto update_id = detail::opt_u64(*data, "u");
         const auto transaction = detail::opt_u64(*data, "T");
         const auto event = detail::opt_u64(*data, "E");
@@ -175,19 +179,9 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
-        if (!array.has_value()) {
-            return std::unexpected(array.error());
-        }
         std::size_t count = 0;
-        for (auto entry : *array) {
-            if (count == k_max_trades) {
-                return std::unexpected(WireError::TooManyEntries);
-            }
-            detail::ondemand::object obj;
-            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
-            }
+        const auto read_one = [&](detail::ondemand::object& obj)
+            -> std::expected<void, WireError> {
             WireTrade out{};
             const auto symbol = detail::req_str(obj, "s");
             const auto price = detail::req_str(obj, "p");
@@ -207,6 +201,46 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             out.buyer_is_maker = *maker;
             storage.trades[count] = out;
             ++count;
+            return {};
+        };
+
+        // The swap tree sends an array of prints under "data"; the spot tree
+        // sends ONE object under the same key. Same envelope, same field
+        // names, different arity — so the shape is read off the raw text and
+        // then decoded once. Asking for an array and falling back on failure
+        // does not work: a refused type conversion leaves the On-Demand
+        // document somewhere a rewind cannot recover.
+        const auto raw = detail::opt_raw(*root, "data");
+        if (!raw.has_value()) {
+            return std::unexpected(raw.error());
+        }
+        const auto text = detail::trim(*raw);
+        root->reset();
+        if (text.starts_with('[')) {
+            auto array = detail::req_array(*root, "data");
+            if (!array.has_value()) {
+                return std::unexpected(array.error());
+            }
+            for (auto entry : *array) {
+                if (count == k_max_trades) {
+                    return std::unexpected(WireError::TooManyEntries);
+                }
+                detail::ondemand::object obj;
+                if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                    return std::unexpected(detail::map_error(ec));
+                }
+                if (const auto one = read_one(obj); !one.has_value()) {
+                    return std::unexpected(one.error());
+                }
+            }
+            return std::span<const WireTrade>{storage.trades.data(), count};
+        }
+        auto single = detail::req_object(*root, "data");
+        if (!single.has_value()) {
+            return std::unexpected(single.error());
+        }
+        if (const auto one = read_one(*single); !one.has_value()) {
+            return std::unexpected(one.error());
         }
         return std::span<const WireTrade>{storage.trades.data(), count};
     });
@@ -239,15 +273,18 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
     });
 }
 
-std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage) {
+std::expected<WireDepth, WireError>
+parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
     return guarded([&]() -> std::expected<WireDepth, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
         const auto data_type = detail::req_str(*root, "dataType");
+        // The swap envelope stamps "ts"; the spot one stamps "timestamp".
         const auto ts = detail::opt_u64(*root, "ts");
-        if (!data_type.has_value() || !ts.has_value()) {
+        const auto stamp = detail::opt_u64(*root, "timestamp");
+        if (!data_type.has_value() || !ts.has_value() || !stamp.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         auto data = detail::req_object(*root, "data");
@@ -267,7 +304,14 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         if (out.symbol.empty()) {
             return std::unexpected(WireError::MissingField); // nothing else names it
         }
-        out.ts_ms = *ts;
+        out.ts_ms = *ts != 0 ? *ts : *stamp;
+        // SPOT SENDS ASKS WORST FIRST. Both trees send bids best-first, so the
+        // asymmetry reads as a normal book right up to the point where the top
+        // of it is a hundred dollars away from the bid — and crossed against
+        // it, which is a signal every strategy acts on.
+        if (market == MarketType::Spot) {
+            std::reverse(storage.asks.begin(), storage.asks.begin() + static_cast<long>(*asks));
+        }
         out.bids = {storage.bids.data(), *bids};
         out.asks = {storage.asks.data(), *asks};
         return out;

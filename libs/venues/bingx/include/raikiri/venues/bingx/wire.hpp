@@ -1,11 +1,17 @@
 #pragma once
 
-// BingX USDT-perpetual wire types and parsers.
+// BingX wire types and parsers, for both markets.
+//
+// The swap and spot trees are separate deployments that happen to share an
+// envelope. Where a frame differs, it is called out on the type: the shapes
+// look close enough to read one as the other, and every place they diverge is
+// somewhere a wrong read is silent rather than loud.
 //
 // The keepalive is the literal text "Ping" after inflation and must be answered
 // with "Pong". It is not JSON, so parse_event resolves it before opening a
 // document.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/wire/json.hpp>
 
 #include <array>
@@ -63,6 +69,8 @@ struct WireBookTicker {
     std::string_view bid_qty;
     std::string_view ask_price;
     std::string_view ask_qty;
+    // Swap only. The spot frame carries neither, so both stay zero there and
+    // nothing downstream may treat zero as a real sequence or timestamp.
     std::uint64_t update_id{0};
     std::uint64_t transaction_ms{0};
     std::uint64_t event_ms{0};
@@ -89,7 +97,9 @@ struct TradeBuffer {
     std::array<WireTrade, k_max_trades> trades{};
 };
 
-// One frame can carry several prints, hence a span.
+// One frame can carry several prints, hence a span — the swap tree sends an
+// array. Spot sends a single object under the same key, which is why this
+// accepts either rather than two functions telling the caller apart.
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
 parse_trades(std::string_view frame, TradeBuffer& storage);
 
@@ -118,15 +128,20 @@ struct LevelBuffer {
 // A complete snapshot of the top N levels with NO sequence number and no delta
 // chain, so there is no continuity to validate. `ts` sits beside `data`, and
 // the payload never names the symbol — that comes from `dataType`.
+// Both sides come out BEST FIRST, whatever the wire did. That normalisation is
+// the reason this takes a market: the swap tree sends asks ascending, and the
+// spot tree sends them DESCENDING, so a spot book read the swap way puts the
+// worst offer at the top — a hundred dollars wide on BTC and inverted against
+// its own bid.
 struct WireDepth {
     std::string_view symbol;
     std::uint64_t ts_ms{0};
-    std::span<const WireLevel> bids; // descending
-    std::span<const WireLevel> asks; // ascending
+    std::span<const WireLevel> bids; // descending: best bid first
+    std::span<const WireLevel> asks; // ascending: best ask first
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError>
+parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market);
 
 // ------------------------------------------------------------- rest ----
 

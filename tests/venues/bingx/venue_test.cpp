@@ -173,7 +173,7 @@ TEST(BingxVenue, PullsSayWhyTheyCannotAnswer) {
     EXPECT_FALSE(adapter->execution->connected());
 }
 
-TEST(BingxVenue, RefusesToSubscribeASpotInstrumentToTheSwapSocket) {
+TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     // Both public endpoints are the swap market's and BingX spells a spot pair
     // the same way, so a spot id subscribed here would be fed perpetual prints
     // under a spot instrument — worse than no data at all.
@@ -187,11 +187,19 @@ TEST(BingxVenue, RefusesToSubscribeASpotInstrumentToTheSwapSocket) {
     const auto spot = adapter->data->subscribe(
         exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0}));
     ASSERT_FALSE(spot.has_value());
-    // Prefix, not equality: what must hold is that the refusal names the
-    // market it will not serve. The clause after it explains why, and that
-    // explanation is allowed to get better.
-    EXPECT_TRUE(spot.error().message.view().starts_with("bingx spot market data"))
-        << spot.error().message.view();
+    EXPECT_EQ(spot.error().cls, exec::ErrorClass::Terminal);
+
+    // And the mirror, which is the half that matters: a spot socket must
+    // refuse a perpetual id just as hard. BingX spells the two markets with
+    // the same ticker, so a wrong-market id is not rejected by the venue —
+    // it comes back subscribed, to the other tree's prices.
+    auto spot_adapter = exec::make_venue(
+        {.venue = VenueId::Bingx, .enable_spot = true, .enable_perp = false}, sink, clock);
+    ASSERT_TRUE(spot_adapter.has_value());
+    const auto perp = spot_adapter->data->subscribe(
+        exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Perp, SymbolId{0}));
+    ASSERT_FALSE(perp.has_value());
+    EXPECT_EQ(perp.error().cls, exec::ErrorClass::Terminal);
 }
 
 // ------------------------------------------------------- decompression ----
@@ -350,7 +358,7 @@ TEST(BingxWire, ParsesTrades) {
 TEST(BingxWire, ParsesDepthSnapshot) {
     LevelBuffer storage;
     const auto frame = load("ws_depth100.json");
-    const auto wire = parse_depth(frame, storage);
+    const auto wire = parse_depth(frame, storage, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "BTC-USDT");
     EXPECT_EQ(wire->ts_ms, 1786983056064ULL); // beside `data`, not inside it
@@ -372,7 +380,7 @@ TEST(BingxWire, RefusesAFrameOfTheWrongShape) {
     EXPECT_FALSE(parse_event("").has_value());
 
     LevelBuffer storage;
-    EXPECT_FALSE(parse_depth(load("ws_book_ticker.json"), storage).has_value());
+    EXPECT_FALSE(parse_depth(load("ws_book_ticker.json"), storage, MarketType::Perp).has_value());
 }
 
 TEST(BingxWire, ParsesMarkPrice) {
@@ -503,7 +511,7 @@ TEST(BingxMap, MapsBbo) {
     const auto frame = load("ws_book_ticker.json");
     const auto wire = parse_book_ticker(frame);
     ASSERT_TRUE(wire.has_value());
-    const auto bbo = map_bbo(*wire, table, UnixNanos{99});
+    const auto bbo = map_bbo(*wire, table, MarketType::Perp, UnixNanos{99});
     ASSERT_TRUE(bbo.has_value());
     const auto& base = base_for(table, "BTC-USDT");
     EXPECT_EQ(bbo->instrument.packed, base.id.packed);
@@ -520,10 +528,10 @@ TEST(BingxMap, BookSnapshotCrossesIntoTheDomain) {
     const auto table = catalogue();
     LevelBuffer storage;
     const auto frame = load("ws_depth100.json");
-    const auto wire = parse_depth(frame, storage);
+    const auto wire = parse_depth(frame, storage, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
 
-    const auto book = map_book(*wire, table, UnixNanos{99});
+    const auto book = map_book(*wire, table, MarketType::Perp, UnixNanos{99});
     ASSERT_TRUE(book.has_value());
     EXPECT_EQ(book->instrument.packed, base_for(table, "BTC-USDT").id.packed);
     // Every level the subscription asked for reaches the domain snapshot; a
@@ -561,13 +569,13 @@ TEST(BingxMap, ALevelOffTheStepTruncatesTheBookRatherThanRoundingIt) {
     WireDepth wire{};
     wire.symbol = "BTC-USDT";
     wire.bids = bids;
-    const auto book = map_book(wire, table, UnixNanos{1});
+    const auto book = map_book(wire, table, MarketType::Perp, UnixNanos{1});
     ASSERT_TRUE(book.has_value());
     EXPECT_EQ(book->bid_count, 1U); // the level below the bad one is unreachable
     EXPECT_EQ(book->ask_count, 0U);
 
     wire.symbol = "NCCOCOFFEE2USD-USDT"; // never loaded, so no step to divide by
-    EXPECT_FALSE(map_book(wire, table, UnixNanos{1}).has_value());
+    EXPECT_FALSE(map_book(wire, table, MarketType::Perp, UnixNanos{1}).has_value());
 }
 
 TEST(BingxMap, DropsAQuoteThatDoesNotDivideByTheStep) {
@@ -578,16 +586,16 @@ TEST(BingxMap, DropsAQuoteThatDoesNotDivideByTheStep) {
     wire.bid_qty = "11.6832";
     wire.ask_price = "64120.2";
     wire.ask_qty = "136.1929";
-    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+    EXPECT_FALSE(map_bbo(wire, table, MarketType::Perp, UnixNanos{1}).has_value());
 
     wire.bid_price = "64120.1";
     wire.bid_qty = "11.68325"; // finer than the 0.0001 lot
-    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+    EXPECT_FALSE(map_bbo(wire, table, MarketType::Perp, UnixNanos{1}).has_value());
 
     // An instrument the catalogue never loaded has no step to divide by.
     wire.bid_qty = "11.6832";
     wire.symbol = "NCCOCOFFEE2USD-USDT";
-    EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
+    EXPECT_FALSE(map_bbo(wire, table, MarketType::Perp, UnixNanos{1}).has_value());
 }
 
 TEST(BingxMap, TakesTheAggressorFromTheMakerFlag) {
@@ -599,7 +607,7 @@ TEST(BingxMap, TakesTheAggressorFromTheMakerFlag) {
     ASSERT_EQ(wire->size(), 1U);
 
     // m == false: the buyer took the offer.
-    const auto bought = map_trade((*wire)[0], table, UnixNanos{7});
+    const auto bought = map_trade((*wire)[0], table, MarketType::Perp, UnixNanos{7});
     ASSERT_TRUE(bought.has_value());
     EXPECT_EQ(bought->aggressor, Side::Buy);
     EXPECT_EQ(bought->price.raw, 641202);
@@ -608,7 +616,7 @@ TEST(BingxMap, TakesTheAggressorFromTheMakerFlag) {
 
     WireTrade maker = (*wire)[0];
     maker.buyer_is_maker = true;
-    const auto sold = map_trade(maker, table, UnixNanos{7});
+    const auto sold = map_trade(maker, table, MarketType::Perp, UnixNanos{7});
     ASSERT_TRUE(sold.has_value());
     EXPECT_EQ(sold->aggressor, Side::Sell);
 }
@@ -639,17 +647,17 @@ TEST(BingxMap, MapsFundingFromThePremiumIndexPoll) {
 
 TEST(BingxWs, BuildsSubscriptionFrames) {
     Protocol protocol;
-    const auto first = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Bbo));
+    const auto first = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->text, R"({"id":"1","reqType":"sub","dataType":"BTC-USDT@bookTicker"})");
 
     // The id is echoed in the answer, so it has to move.
     const auto second =
-        protocol.subscribe_frame("ETH-USDT", data_type_suffix(exec::SubKind::Trades));
+        protocol.subscribe_frame("ETH-USDT", data_type_suffix(exec::SubKind::Trades, MarketType::Perp));
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->text, R"({"id":"2","reqType":"sub","dataType":"ETH-USDT@trade"})");
 
-    const auto depth = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Depth));
+    const auto depth = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
     ASSERT_TRUE(depth.has_value());
     EXPECT_EQ(depth->text, R"({"id":"3","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
@@ -664,8 +672,8 @@ TEST(BingxWs, RefusesToBuildAFrameItCannotName) {
     Protocol protocol;
     // Funding has no channel; sending "" would subscribe to nothing and earn
     // an 80015.
-    EXPECT_TRUE(data_type_suffix(exec::SubKind::Funding).empty());
-    EXPECT_TRUE(data_type_suffix(exec::SubKind::Kline).empty());
+    EXPECT_TRUE(data_type_suffix(exec::SubKind::Funding, MarketType::Perp).empty());
+    EXPECT_TRUE(data_type_suffix(exec::SubKind::Kline, MarketType::Perp).empty());
     EXPECT_EQ(protocol.subscribe_frame("BTC-USDT", {}).error(), WsBuildError::UnsupportedKind);
     EXPECT_EQ(protocol.subscribe_frame({}, "trade").error(), WsBuildError::UnsupportedKind);
 
@@ -674,9 +682,9 @@ TEST(BingxWs, RefusesToBuildAFrameItCannotName) {
 }
 
 TEST(BingxWs, NamesTheOneMarketDataEndpoint) {
-    EXPECT_EQ(stream_host(), "open-api-swap.bingx.com");
+    EXPECT_EQ(stream_host(MarketType::Perp), "open-api-swap.bingx.com");
     EXPECT_EQ(stream_port(), "443");
-    EXPECT_EQ(stream_path(), "/swap-market");
+    EXPECT_EQ(stream_path(MarketType::Perp), "/swap-market");
     EXPECT_EQ(rest_host(), "open-api.bingx.com");
 }
 
@@ -753,6 +761,72 @@ exec::InstrumentTable spot_catalogue() {
         }
     }
     return table;
+}
+
+// ------------------------------------------------- spot market data ----
+
+TEST(BingxSpotWire, TheSpotBookArrivesWithItsBestOfferLast) {
+    // The whole reason parse_depth takes a market. BingX sends spot asks
+    // DESCENDING while bids stay descending, so reading the spot tree the swap
+    // way puts the worst offer at the top of the book — crossed against its own
+    // bid, by a hundred dollars on BTC, and every strategy acts on that.
+    LevelBuffer storage;
+    const auto frame = load("ws_spot_depth20.json");
+
+    const auto wrong = parse_depth(frame, storage, MarketType::Perp);
+    ASSERT_TRUE(wrong.has_value());
+    ASSERT_GE(wrong->asks.size(), 2U);
+    EXPECT_GT(wrong->asks[0].price, wrong->asks[1].price) << "the wire really is worst-first";
+
+    const auto right = parse_depth(frame, storage, MarketType::Spot);
+    ASSERT_TRUE(right.has_value());
+    ASSERT_GE(right->asks.size(), 2U);
+    EXPECT_LT(right->asks[0].price, right->asks[1].price);
+    EXPECT_GT(right->bids[0].price, right->bids[1].price);
+    EXPECT_LT(right->bids[0].price, right->asks[0].price) << "an uncrossed book";
+}
+
+TEST(BingxSpotWire, ASingleTradeObjectReadsLikeAnArrayOfOne) {
+    // The swap tree sends an array under "data"; spot sends one object. Both
+    // reach the same span, so nothing downstream knows which socket it is on.
+    TradeBuffer storage;
+    // Bound, not inlined: the parsers return views INTO this text.
+    const auto frame = load("ws_spot_trade.json");
+    const auto trades = parse_trades(frame, storage);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U);
+    EXPECT_EQ((*trades)[0].symbol, "BTC-USDT");
+    EXPECT_FALSE((*trades)[0].price.empty());
+    EXPECT_NE((*trades)[0].trade_ms, 0U);
+}
+
+TEST(BingxSpotWire, TheSpotQuoteCarriesNoSequenceAndSaysSo) {
+    // Spot omits u and T entirely. Zero here means ABSENT — the swap tree's
+    // parse would have refused the frame outright if these were required.
+    const auto frame = load("ws_spot_book_ticker.json");
+    const auto quote = parse_book_ticker(frame);
+    ASSERT_TRUE(quote.has_value());
+    EXPECT_EQ(quote->symbol, "BTC-USDT");
+    EXPECT_EQ(quote->update_id, 0U);
+    EXPECT_EQ(quote->transaction_ms, 0U);
+    EXPECT_NE(quote->event_ms, 0U);
+}
+
+TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {
+    const auto table = spot_catalogue();
+    const auto frame = load("ws_spot_book_ticker.json");
+    const auto quote = parse_book_ticker(frame);
+    ASSERT_TRUE(quote.has_value());
+
+    // Asked for the perpetual, the same frame resolves to nothing: BingX
+    // spells both markets "BTC-USDT", so the market is the only thing keeping
+    // a spot print off a perpetual instrument.
+    EXPECT_FALSE(map_bbo(*quote, table, MarketType::Perp, UnixNanos{1}).has_value());
+
+    const auto bbo = map_bbo(*quote, table, MarketType::Spot, UnixNanos{1});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
+    EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
 }
 
 OrderCmd limit_buy(const exec::InstrumentTable& table, std::string_view symbol,

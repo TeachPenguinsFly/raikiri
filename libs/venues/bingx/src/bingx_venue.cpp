@@ -60,6 +60,12 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
 
+    // The one market this process serves. BingX puts the two on separate
+    // deployments with different frame shapes, so almost everything below
+    // reads it: the host, the path, the dataType, and how a depth frame is
+    // ordered.
+    MarketType market{MarketType::Perp};
+
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
@@ -135,7 +141,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
+        if (const auto bbo = map_bbo(*wire, state.instruments, state.market, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
         break;
@@ -147,7 +153,7 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
             return;
         }
         for (const auto& entry : *wire) {
-            if (const auto trade = map_trade(entry, state.instruments, received);
+            if (const auto trade = map_trade(entry, state.instruments, state.market, received);
                 trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
@@ -156,11 +162,11 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
     }
     case EventKind::Depth: {
         static thread_local LevelBuffer levels;
-        const auto wire = parse_depth(frame, levels);
+        const auto wire = parse_depth(frame, levels, state.market);
         if (!wire.has_value()) {
             return;
         }
-        if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+        if (const auto book = map_book(*wire, state.instruments, state.market, received); book.has_value()) {
             state.sink->on_depth(*book);
         }
         break;
@@ -432,9 +438,9 @@ public:
     explicit BingxData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host()},
+                  net::WsConfig{.host = std::string{stream_host(state_->market)},
                                 .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
+                                .target = std::string{stream_path(state_->market)}},
                   handler_},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
         handler_.attach(client_);
@@ -457,11 +463,12 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // Both public endpoints this client uses are the swap market's, and
-            // BingX spells a spot pair the same way — a spot id subscribed here
-            // would be fed perpetual prints, which is worse than no data.
-            return std::unexpected{exec::not_implemented("bingx spot market data: both public endpoints are the swap's")};
+        if (instrument.market() != state_->market) {
+            // This socket is one deployment's, and BingX spells a spot pair
+            // and its perpetual identically — an id from the other market
+            // subscribed here would be fed the wrong tree's prints under the
+            // right-looking symbol, which is worse than no data.
+            return std::unexpected{exec::not_implemented("bingx: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
@@ -478,7 +485,7 @@ public:
             state_->funding_symbols.emplace_back(symbol);
             return {};
         }
-        const auto suffix = data_type_suffix(kind);
+        const auto suffix = data_type_suffix(kind, state_->market);
         if (suffix.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -1102,6 +1109,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     }
 
     exec::VenueAdapter adapter{};
+    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
     adapter.caps = exec::caps_of(VenueId::Bingx);
     adapter.data = std::make_unique<BingxData>(state);
     adapter.execution = std::make_unique<BingxExec>(state, config.enable_spot, config.enable_perp);

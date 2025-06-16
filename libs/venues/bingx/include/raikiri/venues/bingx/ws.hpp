@@ -35,17 +35,19 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// BingX serves market data from one host and one path; the config's testnet
-// flag has nothing to select, so it is not consulted.
-[[nodiscard]] std::string_view stream_host() noexcept;
+// Two deployments, one per market: the swap tree and the spot tree share no
+// host, no path and — see the parsers — no frame shape. The config's testnet
+// flag has nothing to select on either, so it is not consulted.
+[[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
-[[nodiscard]] std::string_view stream_path() noexcept;
+[[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
 
 // The user stream. The perpetual one is the SAME host and path as the public
 // market stream with a listenKey on the query, and it takes no subscription at
-// all — every account event follows the connection. Spot lives on its own host
-// and DOES need one, so a spot socket that connects and then says nothing is a
-// missing subscribe rather than a quiet account.
+// all — every account event follows the connection. Spot needs one, so a spot
+// socket that connects and then says nothing is a missing subscribe rather
+// than a quiet account. Both markets put the user stream on the same host as
+// their public one.
 [[nodiscard]] std::string_view private_stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view private_stream_path(MarketType market) noexcept;
 
@@ -57,7 +59,8 @@ enum class WsBuildError : std::uint8_t {
 // names — including Funding, which has no channel at all (VERIFIED:
 // @fundingRate, @premiumIndex and @markPriceAndFundingRate are each refused
 // with 80015), and which the adapter serves by polling REST instead.
-[[nodiscard]] std::string_view data_type_suffix(exec::SubKind kind) noexcept;
+[[nodiscard]] std::string_view data_type_suffix(exec::SubKind kind,
+                                               MarketType market) noexcept;
 
 class Protocol {
 public:

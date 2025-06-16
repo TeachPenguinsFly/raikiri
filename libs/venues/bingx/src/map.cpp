@@ -52,10 +52,11 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
-// BingX names a spot pair and a perpetual IDENTICALLY, and one table holds
-// whichever market loaded first, so every mapper states the market it reads.
-// The public socket and the premiumIndex poll are the swap market's; a frame
-// resolved against the other one would move the wrong position.
+// BingX names a spot pair and a perpetual IDENTICALLY, so every mapper states
+// the market it reads and a frame that resolves to the other one is dropped
+// rather than mapped. The market-data mappers take it from the caller — the
+// socket knows which tree it connected to. Funding and positions pin the swap:
+// a spot pair has neither.
 const InstrumentBase*
 base_for_market(std::string_view symbol, const exec::InstrumentTable& table, MarketType market) {
     const auto* instrument = table.find(symbol);
@@ -117,8 +118,9 @@ std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
 }
 
 std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    const auto* base_ptr = base_for_market(wire.symbol, table, MarketType::Perp);
+map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketType market,
+         UnixNanos ts_init) {
+    const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
     }
@@ -143,8 +145,9 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
 }
 
 std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    const auto* base_ptr = base_for_market(wire.symbol, table, MarketType::Perp);
+map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType market,
+         UnixNanos ts_init) {
+    const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
     }
@@ -167,8 +170,9 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 }
 
 std::optional<BookSnapshot>
-map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    const auto* base_ptr = base_for_market(wire.symbol, table, MarketType::Perp);
+map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType market,
+         UnixNanos ts_init) {
+    const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
     }

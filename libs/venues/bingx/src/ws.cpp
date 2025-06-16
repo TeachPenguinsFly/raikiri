@@ -10,10 +10,10 @@ namespace {
 
 constexpr std::string_view k_host = "open-api-swap.bingx.com";
 
-// Spot's user stream is a different deployment entirely; the perpetual one
-// shares the public market host.
-constexpr std::string_view k_spot_private_host = "open-api-ws.bingx.com";
-constexpr std::string_view k_spot_private_path = "/market";
+// Spot is a different deployment entirely — one host and one path for both its
+// public and its private stream, where the perpetual tree splits them.
+constexpr std::string_view k_spot_host = "open-api-ws.bingx.com";
+constexpr std::string_view k_spot_path = "/market";
 
 } // namespace
 
@@ -27,24 +27,24 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host() noexcept {
-    return k_host;
+std::string_view stream_host(MarketType market) noexcept {
+    return market == MarketType::Spot ? k_spot_host : k_host;
 }
 
 std::string_view stream_port() noexcept {
     return "443";
 }
 
-std::string_view stream_path() noexcept {
-    return "/swap-market";
+std::string_view stream_path(MarketType market) noexcept {
+    return market == MarketType::Spot ? k_spot_path : "/swap-market";
 }
 
 std::string_view private_stream_host(MarketType market) noexcept {
-    return market == MarketType::Spot ? k_spot_private_host : k_host;
+    return stream_host(market);
 }
 
 std::string_view private_stream_path(MarketType market) noexcept {
-    return market == MarketType::Spot ? k_spot_private_path : stream_path();
+    return stream_path(market);
 }
 
 std::string private_stream_target(MarketType market, std::string_view key) {
@@ -54,18 +54,21 @@ std::string private_stream_target(MarketType market, std::string_view key) {
     return target;
 }
 
-std::string_view data_type_suffix(exec::SubKind kind) noexcept {
+std::string_view data_type_suffix(exec::SubKind kind, MarketType market) noexcept {
+    const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
         return "bookTicker";
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        // 100 is BingX's deepest tier: depth200 is refused outright with
-        // 80015 "dataType not support" rather than downgraded.
-        return "depth100@100ms";
+        // 100 is BingX's deepest tier on both trees: depth200 is refused
+        // outright with 80015 "dataType not support" rather than downgraded.
+        // Spot takes no interval — "depth100@100ms" there is rejected as
+        // 100400 "dataType is error".
+        return spot ? "depth100" : "depth100@100ms";
     case exec::SubKind::MarkPrice:
-        return "markPrice";
+        return spot ? std::string_view{} : "markPrice"; // no mark on a spot pair
     case exec::SubKind::Funding:
     case exec::SubKind::Kline:
         return {};
