@@ -27,9 +27,9 @@ enum class WsBuildError : std::uint8_t {
 
 // XT publishes no futures testnet endpoint, so unlike okx there is no flag:
 // the demo host documented for spot does not serve fstream.
-[[nodiscard]] std::string_view stream_host() noexcept;
+[[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
-[[nodiscard]] std::string_view stream_path() noexcept;
+[[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
 
 // A topic is the channel plus whatever XT requires after the symbol. `params`
 // is empty for most channels and ",5,100ms" for depth — VERIFIED: levels must
@@ -40,7 +40,7 @@ struct Topic {
     std::string_view params;
 };
 
-[[nodiscard]] Topic topic_for(exec::SubKind kind) noexcept;
+[[nodiscard]] Topic topic_for(exec::SubKind kind, MarketType market) noexcept;
 
 struct Subscription {
     std::string_view channel;

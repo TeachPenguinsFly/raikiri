@@ -24,31 +24,36 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host() noexcept {
-    return k_host;
+std::string_view stream_host(MarketType market) noexcept {
+    // Two deployments. Spot's public socket is the same host as its private
+    // one, which this adapter already knew about.
+    return market == MarketType::Spot ? spot_private_stream_host() : k_host;
 }
 
 std::string_view stream_port() noexcept {
     return "443";
 }
 
-std::string_view stream_path() noexcept {
-    return "/ws/market";
+std::string_view stream_path(MarketType market) noexcept {
+    return market == MarketType::Spot ? "/public" : "/ws/market";
 }
 
-Topic topic_for(exec::SubKind kind) noexcept {
+Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
+    const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
         // Also the book: `depth_update` is subscribed but not applied, so this
-        // snapshot is the only thing that reaches shm. 50 is XT's ceiling —
-        // 60, 80, 99, 100 and 200 are each refused with `levels error`.
-        return {.channel = "depth", .params = ",50,100ms"};
+        // snapshot is the only thing that reaches shm. 50 is XT's ceiling on
+        // both trees — 60, 80, 99, 100 and 200 are each refused with `levels
+        // error`. Spot takes no interval: ",50,100ms" there is `args error`.
+        return {.channel = "depth", .params = spot ? ",50" : ",50,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
     case exec::SubKind::Depth:
         return {.channel = "depth_update", .params = {}};
     case exec::SubKind::MarkPrice:
-        return {.channel = "mark_price", .params = {}};
+        // A spot pair has no mark price, and the spot tree refuses the topic.
+        return spot ? Topic{} : Topic{.channel = "mark_price", .params = {}};
     case exec::SubKind::Funding:
         return {}; // no such topic; polled over REST
     case exec::SubKind::Kline:

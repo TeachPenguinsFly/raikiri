@@ -6,6 +6,7 @@
 // channel, which carries exactly one print per frame. There is no data[0] to
 // unwrap and no multi-trade buffer.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/wire/json.hpp>
 
 #include <array>
@@ -79,8 +80,8 @@ struct WireDepth {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
-                                                              LevelBuffer& storage);
+[[nodiscard]] std::expected<WireDepth, WireError>
+parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market);
 
 // Continuity on depth_update is the u/pu chain: a delta applies when its
 // prev_update_id equals the previous message's update_id. `fu` is the first
@@ -113,7 +114,8 @@ struct WireTrade {
     std::uint64_t ts_ms{0};
 };
 
-[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame);
+[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
+                                                             MarketType market);
 
 struct WireMarkPrice {
     std::string_view symbol;

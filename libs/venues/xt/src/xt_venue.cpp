@@ -62,6 +62,12 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
 
+    // The one market this process serves. XT puts the two on separate
+    // deployments — different host, different path, different depth params —
+    // and spells their symbols identically, so this decides both where the
+    // socket points and which catalogue a frame may resolve against.
+    MarketType market{MarketType::Perp};
+
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
@@ -111,8 +117,11 @@ struct VenueState {
             std::string{topic.channel}, std::string{symbol}, std::string{topic.params});
     }
 
-    [[nodiscard]] UnixNanos venue_now(MarketType market) const noexcept {
-        const auto offset = market == MarketType::Spot ? spot_clock_offset_ns : clock_offset_ns;
+    // Takes the tree explicitly rather than reading `market`: the two XT
+    // deployments run their own clocks and drift apart, and the caller knows
+    // which one the timestamp it is stamping came from.
+    [[nodiscard]] UnixNanos venue_now(MarketType tree) const noexcept {
+        const auto offset = tree == MarketType::Spot ? spot_clock_offset_ns : clock_offset_ns;
         const auto local = clock->wall();
         return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + offset)};
     }
@@ -144,7 +153,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     switch (event->kind) {
     case EventKind::Depth: {
         static thread_local LevelBuffer levels;
-        const auto wire = parse_depth(frame, levels);
+        const auto wire = parse_depth(frame, levels, state.market);
         if (!wire.has_value()) {
             return;
         }
@@ -157,7 +166,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Trade: {
-        const auto wire = parse_trade(frame);
+        const auto wire = parse_trade(frame, state.market);
         if (!wire.has_value()) {
             return;
         }
@@ -230,9 +239,9 @@ public:
     explicit XtData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host()},
+                  net::WsConfig{.host = std::string{stream_host(state_->market)},
                                 .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
+                                .target = std::string{stream_path(state_->market)}},
                   handler_},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
         handler_.attach(client_);
@@ -255,12 +264,11 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // fstream.xt.com is the futures stream; XT's spot socket is a
-            // different host with a different dialect. XT also spells a spot
-            // pair and its perpetual the same way, so the futures socket
-            // accepts the symbol and returns perpetual prints under a spot id.
-            return std::unexpected{exec::not_implemented("xt spot market data: fstream.xt.com is the futures stream")};
+        if (instrument.market() != state_->market) {
+            // One socket, one deployment. XT spells a spot pair and its
+            // perpetual identically, so an id from the other market would be
+            // accepted here and answered with the wrong tree's prices.
+            return std::unexpected{exec::not_implemented("xt: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
@@ -268,9 +276,15 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
+            if (state_->market != MarketType::Perp) {
+                // A spot pair pays no funding. The poll is a REST call on the
+                // futures tree, and left unguarded it answered a spot gateway
+                // with the PERPETUAL's rate under a spot instrument id.
+                return std::unexpected{exec::not_implemented("xt: spot pays no funding")};
+            }
             return watch_funding(symbol);
         }
-        const auto topic = topic_for(kind);
+        const auto topic = topic_for(kind, state_->market);
         if (topic.channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -1286,6 +1300,8 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
             (void)provider.resolve(*ref, state->signer.secret());
         }
     }
+
+    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Xt);

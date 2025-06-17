@@ -70,6 +70,59 @@ void load_spot_table(exec::InstrumentTable& table) {
     }
 }
 
+// ------------------------------------------------- spot market data ----
+
+TEST(XtSpotWire, TheSnapshotIdIsANumberOnSpotAndDigitsOnFutures) {
+    // Futures stamp "id" as a digit string; spot stamps "i" as a JSON number.
+    // Reading only the futures spelling refused every spot snapshot, and the
+    // refusal was silent — the socket stayed up and the book never appeared.
+    LevelBuffer levels;
+    const auto body = fixture("ws_spot_depth.json");
+
+    EXPECT_FALSE(parse_depth(body, levels, MarketType::Perp).has_value());
+
+    const auto wire = parse_depth(body, levels, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "btc_usdt");
+    EXPECT_NE(wire->update_id, 0U);
+    ASSERT_FALSE(wire->bids.empty());
+    ASSERT_FALSE(wire->asks.empty());
+    EXPECT_LT(wire->bids[0].price, wire->asks[0].price) << "an uncrossed book";
+}
+
+TEST(XtSpotWire, TheSpotAggressorIsTheOppositeOfTheFlag) {
+    // `b` says the BUYER was the maker, so the aggressor is the other side —
+    // the inverse of the futures tree's `m`, which names the taker directly.
+    const auto body = fixture("ws_spot_public_trade.json");
+    const auto wire = parse_trade(body, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "btc_usdt");
+    EXPECT_FALSE(wire->qty.empty()) << "spot names the size q, futures a";
+    EXPECT_NE(wire->ts_ms, 0U);
+
+    // Read as a futures frame the same bytes have no size field at all.
+    EXPECT_FALSE(parse_trade(body, MarketType::Perp).has_value());
+}
+
+TEST(XtSpotMap, ASpotSnapshotCrossesIntoTheDomain) {
+    exec::InstrumentTable table;
+    load_spot_table(table);
+    LevelBuffer levels;
+    const auto body = fixture("ws_spot_depth.json");
+    const auto wire = parse_depth(body, levels, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto bbo = map_bbo(*wire, table, UnixNanos{7});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
+    EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
+
+    const auto book = map_book(*wire, table, UnixNanos{7});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_GT(book->bid_count, 0U);
+    EXPECT_GT(book->ask_count, 0U);
+}
+
 class CaptureSink final : public exec::GatewaySink {
 public:
     void on_bbo(const Bbo&) noexcept override {}
@@ -260,7 +313,7 @@ TEST(XtWire, NonJsonFrameIsIgnoredNotFatal) {
 TEST(XtWire, DepthSnapshotParsesTopOfBook) {
     const auto body = fixture("ws_depth.json");
     LevelBuffer levels;
-    const auto wire = parse_depth(body, levels);
+    const auto wire = parse_depth(body, levels, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "btc_usdt");
     EXPECT_EQ(wire->bids.size(), k_xt_depth);
@@ -296,12 +349,12 @@ TEST(XtWire, DepthUpdateChainsOnPrevUpdateId) {
 // direction is pinned to the live correlation that established it.
 TEST(XtWire, TradeSideIsTheAggressorNotTheMaker) {
     const auto buy_body = fixture("ws_trade_buy.json");
-    const auto bought = parse_trade(buy_body);
+    const auto bought = parse_trade(buy_body, MarketType::Perp);
     ASSERT_TRUE(bought.has_value());
     EXPECT_TRUE(bought->aggressor_bought); // m == "BID": taker lifted the ask
 
     const auto sell_body = fixture("ws_trade_sell.json");
-    const auto sold = parse_trade(sell_body);
+    const auto sold = parse_trade(sell_body, MarketType::Perp);
     ASSERT_TRUE(sold.has_value());
     EXPECT_FALSE(sold->aggressor_bought); // m == "ASK": taker hit the bid
     EXPECT_EQ(sold->symbol, "btc_usdt");
@@ -313,7 +366,7 @@ TEST(XtWire, UnknownTradeSideIsRefused) {
     // rather than reporting that the schema moved.
     const auto frame =
         R"({"topic":"trade","event":"trade@btc_usdt","data":{"s":"btc_usdt","p":"1.0","a":"2","m":"MID","t":1786394642785}})";
-    const auto wire = parse_trade(frame);
+    const auto wire = parse_trade(frame, MarketType::Perp);
     ASSERT_FALSE(wire.has_value());
     EXPECT_EQ(wire.error(), WireError::WrongType);
 }
@@ -329,9 +382,9 @@ TEST(XtWire, MarkPriceParses) {
 
 // A truncated frame must not yield a struct full of plausible zeros.
 TEST(XtWire, MalformedFrameIsAnError) {
-    EXPECT_FALSE(parse_trade(R"({"topic":"trade","event":"x","data":{"s":"btc_usdt")").has_value());
+    EXPECT_FALSE(parse_trade(R"({"topic":"trade","event":"x","data":{"s":"btc_usdt")", MarketType::Perp).has_value());
     LevelBuffer levels;
-    EXPECT_FALSE(parse_depth(R"({"topic":"depth","data":{"s":"btc_usdt"}})", levels).has_value());
+    EXPECT_FALSE(parse_depth(R"({"topic":"depth","data":{"s":"btc_usdt"}})", levels, MarketType::Perp).has_value());
 }
 
 // ------------------------------------------------------------- rest ----
@@ -470,14 +523,14 @@ TEST(XtErrors, TextCodesSurviveAsZeroRatherThanGuessing) {
 
 TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
     // depth, not agg_ticker: agg_ticker publishes no sizes.
-    EXPECT_EQ(topic_for(exec::SubKind::Bbo).channel, "depth");
-    EXPECT_EQ(topic_for(exec::SubKind::Bbo).params, ",50,100ms");
-    EXPECT_EQ(topic_for(exec::SubKind::Trades).channel, "trade");
-    EXPECT_EQ(topic_for(exec::SubKind::Depth).channel, "depth_update");
-    EXPECT_EQ(topic_for(exec::SubKind::MarkPrice).channel, "mark_price");
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).channel, "depth");
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).params, ",50,100ms");
+    EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp).channel, "trade");
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp).channel, "depth_update");
+    EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp).channel, "mark_price");
     // No funding topic exists on this venue at all.
-    EXPECT_TRUE(topic_for(exec::SubKind::Funding).channel.empty());
-    EXPECT_TRUE(topic_for(exec::SubKind::Kline).channel.empty());
+    EXPECT_TRUE(topic_for(exec::SubKind::Funding, MarketType::Perp).channel.empty());
+    EXPECT_TRUE(topic_for(exec::SubKind::Kline, MarketType::Perp).channel.empty());
 }
 
 TEST(XtWs, SubscribeFrameJoinsTopicWithAtSign) {
@@ -576,7 +629,7 @@ TEST(XtMap, BboComesFromTheTopOfTheDepthSnapshot) {
     load_perp_table(table);
     const auto body = fixture("ws_depth.json");
     LevelBuffer levels;
-    const auto wire = parse_depth(body, levels);
+    const auto wire = parse_depth(body, levels, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
 
     const UnixNanos received{123'456'789ULL};
@@ -596,7 +649,7 @@ TEST(XtMap, BookSnapshotCrossesIntoTheDomain) {
     load_perp_table(table);
     const auto body = fixture("ws_depth.json");
     LevelBuffer levels;
-    const auto wire = parse_depth(body, levels);
+    const auto wire = parse_depth(body, levels, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
 
     const UnixNanos received{123'456'789ULL};
@@ -633,7 +686,7 @@ TEST(XtMap, AnUnknownSymbolYieldsNoBook) {
     load_perp_table(table);
     const auto body = fixture("ws_depth.json");
     LevelBuffer levels;
-    auto wire = parse_depth(body, levels);
+    auto wire = parse_depth(body, levels, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     wire->symbol = "not_listed";
     EXPECT_FALSE(map_book(*wire, table, UnixNanos{1}).has_value());
@@ -644,7 +697,7 @@ TEST(XtMap, UnknownSymbolAndEmptySideAreDropped) {
     load_perp_table(table);
     const auto body = fixture("ws_depth.json");
     LevelBuffer levels;
-    auto wire = parse_depth(body, levels);
+    auto wire = parse_depth(body, levels, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
 
     auto foreign = *wire;
@@ -662,7 +715,7 @@ TEST(XtMap, TradeMapsToAggressorSide) {
     exec::InstrumentTable table;
     load_perp_table(table);
     const auto buy_body = fixture("ws_trade_buy.json");
-    const auto bought = parse_trade(buy_body);
+    const auto bought = parse_trade(buy_body, MarketType::Perp);
     ASSERT_TRUE(bought.has_value());
     const auto buy = map_trade(*bought, table, UnixNanos{7});
     ASSERT_TRUE(buy.has_value());
@@ -670,7 +723,7 @@ TEST(XtMap, TradeMapsToAggressorSide) {
     EXPECT_GT(buy->qty.raw, 0); // a count of contracts, lot size 1
 
     const auto sell_body = fixture("ws_trade_sell.json");
-    const auto sold = parse_trade(sell_body);
+    const auto sold = parse_trade(sell_body, MarketType::Perp);
     ASSERT_TRUE(sold.has_value());
     const auto sell = map_trade(*sold, table, UnixNanos{7});
     ASSERT_TRUE(sell.has_value());
@@ -683,7 +736,7 @@ TEST(XtMap, PriceOffTheTickIsDroppedNotRounded) {
     exec::InstrumentTable table;
     load_perp_table(table);
     const auto body = fixture("ws_trade_buy.json");
-    auto wire = parse_trade(body);
+    auto wire = parse_trade(body, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     auto off_tick = *wire;
     off_tick.price = "64161.75"; // btc_usdt steps by 0.1
@@ -1570,7 +1623,7 @@ TEST(XtWs, PrivateHostsAreNotThePublicOnes) {
     EXPECT_EQ(private_stream_path(), "/ws/user");
     EXPECT_EQ(spot_private_stream_host(), "stream.xt.com");
     EXPECT_EQ(spot_private_stream_path(), "/private");
-    EXPECT_NE(private_stream_path(), stream_path());
+    EXPECT_NE(private_stream_path(), stream_path(MarketType::Perp));
 }
 
 } // namespace
