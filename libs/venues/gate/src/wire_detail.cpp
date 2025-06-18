@@ -117,4 +117,43 @@ read_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> in
     return count;
 }
 
+// The spot book spells a level as a two-element ARRAY, ["79520","0.054448"],
+// where the futures deltas spell it as an object {"p":...,"s":...}. Same
+// numbers, same order, no shared reader.
+std::expected<std::size_t, WireError>
+read_pair_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        ondemand::array pair;
+        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+            return std::unexpected(map_error(ec));
+        }
+        std::string_view fields[2];
+        std::size_t seen = 0;
+        for (auto field : pair) {
+            if (seen == 2) {
+                return std::unexpected(WireError::WrongType);
+            }
+            const auto text = num_of(field.value());
+            if (!text.has_value()) {
+                return std::unexpected(text.error());
+            }
+            fields[seen++] = *text;
+        }
+        if (seen != 2) {
+            return std::unexpected(WireError::MissingField);
+        }
+        into[count] = WireLevel{.price = fields[0], .qty = fields[1]};
+        ++count;
+    }
+    return count;
+}
+
 } // namespace raikiri::venues::gate::detail

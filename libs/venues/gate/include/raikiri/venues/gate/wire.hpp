@@ -25,10 +25,11 @@ using WireError = wire::Error;
 // Resolved from the frame's channel and event once, so downstream dispatch is
 // an integer compare rather than a string compare per message.
 enum class EventKind : std::uint8_t {
-    BookTicker, // futures.book_ticker — top of book
-    Trade,      // futures.trades
-    Ticker,     // futures.tickers — carries funding rate AND mark price
-    BookUpdate, // futures.order_book_update — depth deltas
+    BookTicker,   // {futures,spot}.book_ticker — top of book
+    Trade,        // {futures,spot}.trades
+    Ticker,       // futures.tickers — carries funding rate AND mark price
+    BookUpdate,   // futures.order_book_update — depth deltas, needs a seed
+    BookSnapshot, // spot.order_book — a complete book, no chain to keep
     OrderUpdate, // futures.orders / spot.orders — private
     UserTrade,   // futures.usertrades / spot.usertrades — private
     SubscribeAck,
@@ -97,7 +98,7 @@ struct TradeBuffer {
 // One frame can carry several prints, so this returns a span where the other
 // channels return one struct.
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
-parse_trades(std::string_view frame, TradeBuffer& storage);
+parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market);
 
 // futures.tickers is the funding channel AND the mark-price channel: one
 // subscription carries both, unlike okx. The interval is stated outright, so
@@ -148,6 +149,12 @@ struct WireBookUpdate {
 
 [[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
                                                                          LevelBuffer& storage);
+
+// spot.order_book: a whole book, not a delta. Reported through the same type
+// with both ids set to `lastUpdateId`, because nothing downstream chains it —
+// the point of the snapshot channel is that there is no chain to break.
+[[nodiscard]] std::expected<WireBookUpdate, WireError>
+parse_book_snapshot(std::string_view frame, LevelBuffer& storage);
 
 // From GET /futures/{settle}/order_book, and only usable as a seed when that
 // request carried `with_id=true`: without it the body has no `id`, and levels

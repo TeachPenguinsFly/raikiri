@@ -36,6 +36,12 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// A whole book straight into the domain, for the spot snapshot channel. The
+// futures deltas do NOT come through here: they are folded by Book, which owns
+// the seed and the update chain and publishes its own snapshot.
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireBookUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Returns nullopt when the frame quotes no rate at all — a contract without
 // funding must not be reported as one funding at zero. Unlike okx, mark price
 // rides the same channel and is filled in when it lands on the price grid.

@@ -17,6 +17,7 @@ constexpr std::string_view k_spot_host_live = "api.gateio.ws";
 constexpr std::string_view k_spot_host_testnet = "ws-testnet.gate.com";
 
 constexpr std::string_view k_channel_depth = "futures.order_book_update";
+constexpr std::string_view k_channel_spot_depth = "spot.order_book";
 
 // Writes into a caller-owned buffer, refusing rather than truncating: a
 // half-written frame would subscribe to something other than what was asked.
@@ -139,17 +140,22 @@ std::string_view user_trades_channel(MarketType market) noexcept {
     return {};
 }
 
-std::string_view channel_for(exec::SubKind kind) noexcept {
+std::string_view channel_for(exec::SubKind kind, MarketType market) noexcept {
+    const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        return "futures.book_ticker";
+        return spot ? "spot.book_ticker" : "futures.book_ticker";
     case exec::SubKind::Trades:
-        return "futures.trades";
+        return spot ? "spot.trades" : "futures.trades";
     case exec::SubKind::Depth:
-        return k_channel_depth;
+        // Spot takes the SNAPSHOT channel, not the delta one. Gate publishes a
+        // complete book every interval there, so the whole seed-and-chain
+        // machinery the futures deltas need has nothing to do — and a chain
+        // that cannot desynchronise cannot silently serve a stale book.
+        return spot ? k_channel_spot_depth : k_channel_depth;
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        return "futures.tickers";
+        return spot ? std::string_view{} : "futures.tickers"; // a spot pair has neither
     case exec::SubKind::Kline:
         return {}; // needs an interval in the payload; no consumer yet
     }
@@ -166,7 +172,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t batch = 1;
-    if (channel != k_channel_depth) {
+    if (channel != k_channel_depth && channel != k_channel_spot_depth) {
         const auto limit = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
         while (batch < limit && subscriptions[batch].channel == channel &&
                !subscriptions[batch].contract.empty()) {
@@ -190,11 +196,21 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
         writer.put(subscriptions[i].contract);
         writer.put("\"");
     }
+    // Both depth channels take the same two extra arguments IN OPPOSITE
+    // ORDER: futures is [contract, interval, level] and spot is
+    // [contract, level, interval]. Getting it backwards is refused outright —
+    // "incorrect level provided: 100ms" — rather than quietly served.
     if (channel == k_channel_depth) {
         writer.put(",\"");
         writer.put(k_depth_interval);
         writer.put("\",\"");
         writer.put(k_depth_level);
+        writer.put("\"");
+    } else if (channel == k_channel_spot_depth) {
+        writer.put(",\"");
+        writer.put(k_depth_level);
+        writer.put("\",\"");
+        writer.put(k_depth_interval);
         writer.put("\"");
     }
     writer.put("]}");

@@ -80,6 +80,52 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
+namespace {
+
+// Levels stop at the domain's ceiling rather than failing: a book truncated to
+// what the consumer can hold is still a correct top-of-book, and the count
+// says how much of it is real.
+std::uint32_t fill_levels(std::span<const WireLevel> from,
+                          const InstrumentBase& base,
+                          std::array<BookLevel, k_book_levels>& into) {
+    std::uint32_t count = 0;
+    for (const auto& level : from) {
+        if (count == k_book_levels) {
+            break;
+        }
+        const auto price = to_ticks(level.price, base);
+        const auto qty = to_lots(level.qty, base);
+        if (!price.has_value() || !qty.has_value()) {
+            return 0; // a level that will not convert makes the whole book a guess
+        }
+        into[count] = BookLevel{.price = *price, .qty = *qty};
+        ++count;
+    }
+    return count;
+}
+
+} // namespace
+
+std::optional<BookSnapshot>
+map_book(const WireBookUpdate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+    BookSnapshot out{};
+    out.instrument = base.id;
+    out.bid_count = fill_levels(wire.bids, base, out.bids);
+    out.ask_count = fill_levels(wire.asks, base, out.asks);
+    if (out.bid_count == 0 && out.ask_count == 0) {
+        return std::nullopt;
+    }
+    out.venue_seq = wire.last_update_id;
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract);

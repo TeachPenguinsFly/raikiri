@@ -52,6 +52,12 @@ struct VenueState {
     const Clock* clock;
     bool testnet;
 
+    // The one market this process serves. Gate names a spot pair and its
+    // perpetual identically and puts them behind different hosts, channels and
+    // frame shapes, so this decides where the socket points, what it asks for,
+    // and how the answers are read.
+    MarketType market{MarketType::Perp};
+
     net::IoContext io;
     net::Signer signer;
     exec::InstrumentTable instruments;
@@ -212,6 +218,21 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
     }
 }
 
+// A whole book off spot.order_book. No seed, no chain, no BookSync: Gate
+// republishes the complete depth every interval there, so the only thing that
+// can go wrong is a frame that does not parse — and that is silence, not a
+// stale book presented as current.
+void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local LevelBuffer storage;
+    const auto wire = parse_book_snapshot(frame, storage);
+    if (!wire.has_value()) {
+        return;
+    }
+    if (const auto book = map_book(*wire, state.instruments, received); book.has_value()) {
+        state.sink->on_depth(*book);
+    }
+}
+
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -231,7 +252,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     case EventKind::Trade: {
         static thread_local TradeBuffer trades;
-        const auto wire = parse_trades(frame, trades);
+        const auto wire = parse_trades(frame, trades, state.market);
         if (!wire.has_value()) {
             return;
         }
@@ -256,6 +277,9 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     case EventKind::BookUpdate:
         handle_book_update(state, frame, received);
+        break;
+    case EventKind::BookSnapshot:
+        handle_book_snapshot(state, frame, received);
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
@@ -339,6 +363,7 @@ void handle_private_frame(VenueState& state,
     case EventKind::Trade:
     case EventKind::Ticker:
     case EventKind::BookUpdate:
+    case EventKind::BookSnapshot:
     case EventKind::Pong:
     case EventKind::SubscribeAck:
     case EventKind::Unknown:
@@ -394,9 +419,9 @@ public:
     explicit GateData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                  net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
                                 .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
+                                .target = std::string{private_path(state_->testnet, state_->market)}},
                   handler_} {
         handler_.attach(client_);
     }
@@ -418,21 +443,18 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // This socket is fx-ws.gateio.ws /v4/ws/usdt — the futures stream.
-            // Gate's spot host appears in this adapter only for the PRIVATE
-            // stream; there is no public spot path here. Gate also spells a
-            // spot pair and its perpetual the same way, so the futures socket
-            // would accept the symbol and return perpetual prints under a spot
-            // id, which is worse than no data.
-            return std::unexpected{exec::not_implemented("gate spot market data: this socket is the futures stream")};
+        if (instrument.market() != state_->market) {
+            // One socket, one tree. Gate spells a spot pair and its perpetual
+            // identically, so an id from the other market would be accepted
+            // here and answered with the wrong tree's prices.
+            return std::unexpected{exec::not_implemented("gate: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        const auto channel = channel_for(kind);
+        const auto channel = channel_for(kind, state_->market);
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -1083,6 +1105,8 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
             (void)provider.resolve(*ref, state->signer.secret());
         }
     }
+
+    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Gate);

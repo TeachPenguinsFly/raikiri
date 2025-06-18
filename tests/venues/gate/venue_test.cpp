@@ -179,7 +179,7 @@ TEST(GateWire, TradeSignCarriesTheAggressorSide) {
     // flattens every signed flow series to one direction.
     auto storage = std::make_unique<TradeBuffer>();
     const auto sell_frame = fixture("ws_trades.json");
-    const auto sells = parse_trades(sell_frame, *storage);
+    const auto sells = parse_trades(sell_frame, *storage, MarketType::Perp);
     ASSERT_TRUE(sells.has_value());
     ASSERT_FALSE(sells->empty());
     const auto& sell = sells->front();
@@ -194,7 +194,7 @@ TEST(GateWire, TradeSignCarriesTheAggressorSide) {
 
     auto buy_storage = std::make_unique<TradeBuffer>();
     const auto buy_frame = fixture("ws_trades_buy.json");
-    const auto buys = parse_trades(buy_frame, *buy_storage);
+    const auto buys = parse_trades(buy_frame, *buy_storage, MarketType::Perp);
     ASSERT_TRUE(buys.has_value());
     ASSERT_FALSE(buys->empty());
     EXPECT_TRUE(buys->front().aggressor_bought);
@@ -351,7 +351,7 @@ TEST(GateWire, GarbageIsRefusedRatherThanPartiallyRead) {
         const std::string_view frame{junk};
         (void)parse_event(frame);
         EXPECT_FALSE(parse_book_ticker(frame).has_value()) << junk;
-        EXPECT_FALSE(parse_trades(frame, *trades).has_value()) << junk;
+        EXPECT_FALSE(parse_trades(frame, *trades, MarketType::Perp).has_value()) << junk;
         EXPECT_FALSE(parse_ticker(frame).has_value()) << junk;
         EXPECT_FALSE(parse_book_update(frame, *levels).has_value()) << junk;
         EXPECT_FALSE(parse_server_time(frame).has_value()) << junk;
@@ -661,7 +661,7 @@ TEST(GateMap, LiveCaptureFlowsFromFrameToDomain) {
 
     auto trades_storage = std::make_unique<TradeBuffer>();
     const auto trade_frame = fixture("ws_trades.json");
-    const auto trades = parse_trades(trade_frame, *trades_storage);
+    const auto trades = parse_trades(trade_frame, *trades_storage, MarketType::Perp);
     ASSERT_TRUE(trades.has_value());
     ASSERT_FALSE(trades->empty());
     const auto trade = map_trade(trades->front(), table, k_ingest);
@@ -728,9 +728,9 @@ TEST(GateWs, DepthChannelSpendsItsPayloadOnIntervalAndLevel) {
 }
 
 TEST(GateWs, FundingAndMarkPriceShareOneChannel) {
-    EXPECT_EQ(channel_for(exec::SubKind::Funding), channel_for(exec::SubKind::MarkPrice));
-    EXPECT_EQ(channel_for(exec::SubKind::Funding), "futures.tickers");
-    EXPECT_TRUE(channel_for(exec::SubKind::Kline).empty());
+    EXPECT_EQ(channel_for(exec::SubKind::Funding, MarketType::Perp), channel_for(exec::SubKind::MarkPrice, MarketType::Perp));
+    EXPECT_EQ(channel_for(exec::SubKind::Funding, MarketType::Perp), "futures.tickers");
+    EXPECT_TRUE(channel_for(exec::SubKind::Kline, MarketType::Perp).empty());
 }
 
 TEST(GateWs, EmptyChannelIsRefusedRatherThanSent) {
@@ -2015,6 +2015,74 @@ TEST(GateErrors, LiveRefusalBodiesClassifyAsCaptured) {
     ASSERT_TRUE(expired.has_value());
     EXPECT_EQ(expired->label, k_request_expired);
     EXPECT_EQ(classify(expired->label), exec::ErrorClass::Retryable);
+}
+
+// ------------------------------------------------- spot market data ----
+
+TEST(GateSpotWire, TheSpotPrintNamesItsTakerWhereFuturesSignTheSize) {
+    // Every field is spelled differently: amount for size, currency_pair for
+    // the symbol, and `side` naming the TAKER outright — so there is no sign
+    // to split. Read as a futures frame the same bytes have no size at all.
+    auto storage = std::make_unique<TradeBuffer>();
+    const auto frame = fixture("ws_spot_public_trades.json");
+
+    EXPECT_FALSE(parse_trades(frame, *storage, MarketType::Perp).has_value());
+
+    const auto trades = parse_trades(frame, *storage, MarketType::Spot);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U) << "spot sends one print, not a batch";
+    EXPECT_EQ((*trades)[0].contract, "BTC_USDT");
+    EXPECT_FALSE((*trades)[0].qty.empty());
+    // create_time_ms arrives as a decimal STRING with a fraction; the
+    // milliseconds are what survives.
+    EXPECT_GT((*trades)[0].ts_ms, 1'000'000'000'000ULL);
+    EXPECT_LT((*trades)[0].ts_ms, 100'000'000'000'000ULL);
+}
+
+TEST(GateSpotWire, TheSpotBookIsAWholeBookAndNotADelta) {
+    // Levels are two-element arrays here and objects on the futures deltas.
+    // Both ids are the same number because a snapshot is its own first and
+    // last update — there is no chain for a consumer to join.
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_spot_order_book.json");
+    const auto wire = parse_book_snapshot(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract, "BTC_USDT");
+    EXPECT_EQ(wire->first_update_id, wire->last_update_id);
+    ASSERT_FALSE(wire->bids.empty());
+    ASSERT_FALSE(wire->asks.empty());
+
+    const auto table = spot_table_with_btc();
+    const auto book = map_book(*wire, table, UnixNanos{5});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->instrument.market(), MarketType::Spot);
+    EXPECT_GT(book->bid_count, 0U);
+    EXPECT_GT(book->ask_count, 0U);
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw) << "an uncrossed book";
+}
+
+TEST(GateSpotWs, TheTwoDepthChannelsTakeTheirArgumentsInOppositeOrders) {
+    // Gate refuses the wrong order outright — "incorrect level provided:
+    // 100ms" — so this is a startup failure rather than a quiet one, but only
+    // if the frame is built per channel.
+    Protocol protocol;
+    const std::array<Subscription, 1> one{Subscription{.channel = "spot.order_book",
+                                                       .contract = "BTC_USDT"}};
+    const auto spot = protocol.subscribe_frame(one, 1);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_NE(spot->text.find(R"(["BTC_USDT",")" + std::string{k_depth_level} + R"(",")" +
+                              std::string{k_depth_interval} + R"("])"),
+              std::string_view::npos)
+        << spot->text;
+
+    const std::array<Subscription, 1> perp{Subscription{.channel = "futures.order_book_update",
+                                                        .contract = "BTC_USDT"}};
+    const auto futures = protocol.subscribe_frame(perp, 1);
+    ASSERT_TRUE(futures.has_value());
+    EXPECT_NE(futures->text.find(R"(["BTC_USDT",")" + std::string{k_depth_interval} + R"(",")" +
+                                 std::string{k_depth_level} + R"("])"),
+              std::string_view::npos)
+        << futures->text;
 }
 
 } // namespace

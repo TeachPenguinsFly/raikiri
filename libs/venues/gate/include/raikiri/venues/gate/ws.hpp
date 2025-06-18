@@ -57,7 +57,7 @@ enum class WsBuildError : std::uint8_t {
 inline constexpr std::string_view k_all_symbols = "!all";
 
 // Returns empty for a kind Gate does not stream under these names.
-[[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
+[[nodiscard]] std::string_view channel_for(exec::SubKind kind, MarketType market) noexcept;
 
 // futures.order_book_update needs both in its payload. Gate accepts 20ms and
 // 100ms (both verified live); 100 ms is chosen because a finer cadence would

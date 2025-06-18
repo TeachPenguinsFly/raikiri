@@ -20,6 +20,15 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "futures.order_book_update") {
         return EventKind::BookUpdate;
     }
+    if (channel == "spot.book_ticker") {
+        return EventKind::BookTicker;
+    }
+    if (channel == "spot.trades") {
+        return EventKind::Trade;
+    }
+    if (channel == "spot.order_book") {
+        return EventKind::BookSnapshot;
+    }
     if (channel == "futures.orders" || channel == "spot.orders") {
         return EventKind::OrderUpdate;
     }
@@ -156,12 +165,81 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
     });
 }
 
-std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_view frame,
-                                                                  TradeBuffer& storage) {
+namespace {
+
+std::expected<WireTrade, WireError> read_futures_trade(detail::ondemand::object& obj) {
+    WireTrade out{};
+    const auto trade_id = detail::opt_u64(obj, "id");
+    const auto size = detail::req_num(obj, "size");
+    // create_time_ms, not create_time: the latter is whole seconds.
+    const auto ts = detail::opt_u64(obj, "create_time_ms");
+    const auto price = detail::req_num(obj, "price");
+    const auto contract = detail::req_str(obj, "contract");
+    if (!trade_id.has_value() || !size.has_value() || !ts.has_value() || !price.has_value() ||
+        !contract.has_value()) {
+        return std::unexpected(WireError::MissingField);
+    }
+    // The SIGN of the size is the side; there is no side field.
+    const auto signed_size = split_sign(*size);
+    out.trade_id = static_cast<std::int64_t>(*trade_id);
+    out.qty = signed_size.magnitude;
+    out.aggressor_bought = signed_size.positive;
+    out.ts_ms = *ts;
+    out.price = *price;
+    out.contract = *contract;
+    return out;
+}
+
+// Spot renames every field the futures print uses and says the side outright:
+// `amount` for size, `currency_pair` for the symbol, and `side` naming the
+// TAKER — so no sign to split. Its create_time_ms is a decimal STRING with a
+// fractional part ("1787832783276.263"), which whole_u64 truncates at the dot.
+std::expected<WireTrade, WireError> read_spot_trade(detail::ondemand::object& obj) {
+    WireTrade out{};
+    const auto trade_id = detail::opt_u64(obj, "id");
+    const auto amount = detail::req_num(obj, "amount");
+    const auto ts = detail::req_num(obj, "create_time_ms");
+    const auto price = detail::req_num(obj, "price");
+    const auto pair = detail::req_str(obj, "currency_pair");
+    const auto side = detail::req_str(obj, "side");
+    if (!trade_id.has_value() || !amount.has_value() || !ts.has_value() || !price.has_value() ||
+        !pair.has_value() || !side.has_value()) {
+        return std::unexpected(WireError::MissingField);
+    }
+    if (*side != "buy" && *side != "sell") {
+        return std::unexpected(WireError::WrongType);
+    }
+    out.trade_id = static_cast<std::int64_t>(*trade_id);
+    out.qty = *amount;
+    out.aggressor_bought = *side == "buy";
+    out.ts_ms = detail::whole_u64(*ts);
+    out.price = *price;
+    out.contract = *pair;
+    return out;
+}
+
+} // namespace
+
+std::expected<std::span<const WireTrade>, WireError>
+parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
+    const bool spot = market == MarketType::Spot;
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
             return std::unexpected(root.error());
+        }
+        // Futures batch prints into an array; spot sends one object.
+        if (spot) {
+            auto obj = detail::req_object(*root, "result");
+            if (!obj.has_value()) {
+                return std::unexpected(obj.error());
+            }
+            const auto one = read_spot_trade(*obj);
+            if (!one.has_value()) {
+                return std::unexpected(one.error());
+            }
+            storage.trades[0] = *one;
+            return std::span<const WireTrade>{storage.trades.data(), 1};
         }
         auto array = detail::req_array(*root, "result");
         if (!array.has_value()) {
@@ -176,25 +254,11 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                 return std::unexpected(detail::map_error(ec));
             }
-            WireTrade out{};
-            const auto trade_id = detail::opt_u64(obj, "id");
-            const auto size = detail::req_num(obj, "size");
-            // create_time_ms, not create_time: the latter is whole seconds.
-            const auto ts = detail::opt_u64(obj, "create_time_ms");
-            const auto price = detail::req_num(obj, "price");
-            const auto contract = detail::req_str(obj, "contract");
-            if (!trade_id.has_value() || !size.has_value() || !ts.has_value() ||
-                !price.has_value() || !contract.has_value()) {
-                return std::unexpected(WireError::MissingField);
+            const auto one = read_futures_trade(obj);
+            if (!one.has_value()) {
+                return std::unexpected(one.error());
             }
-            const auto signed_size = split_sign(*size);
-            out.trade_id = static_cast<std::int64_t>(*trade_id);
-            out.qty = signed_size.magnitude;
-            out.aggressor_bought = signed_size.positive;
-            out.ts_ms = *ts;
-            out.price = *price;
-            out.contract = *contract;
-            storage.trades[count] = out;
+            storage.trades[count] = *one;
             ++count;
         }
         return std::span<const WireTrade>{storage.trades.data(), count};
@@ -274,6 +338,43 @@ std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view fram
                     return std::unexpected(asks.error());
                 }
                 const auto bids = detail::read_levels(obj, "b", storage.bids);
+                if (!bids.has_value()) {
+                    return std::unexpected(bids.error());
+                }
+                out.asks = {storage.asks.data(), *asks};
+                out.bids = {storage.bids.data(), *bids};
+                return out;
+            });
+    });
+}
+
+std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
+                                                             LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireBookUpdate, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return detail::with_result_object(
+            *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
+                WireBookUpdate out{};
+                const auto ts = detail::opt_u64(obj, "t");
+                const auto last = detail::opt_u64(obj, "lastUpdateId");
+                const auto contract = detail::req_str(obj, "s");
+                if (!ts.has_value() || !last.has_value() || !contract.has_value()) {
+                    return std::unexpected(WireError::MissingField);
+                }
+                out.ts_ms = *ts;
+                // Both ids are the same number on purpose: a snapshot IS its
+                // own first and last update, and there is no chain to join.
+                out.first_update_id = *last;
+                out.last_update_id = *last;
+                out.contract = *contract;
+                const auto asks = detail::read_pair_levels(obj, "asks", storage.asks);
+                if (!asks.has_value()) {
+                    return std::unexpected(asks.error());
+                }
+                const auto bids = detail::read_pair_levels(obj, "bids", storage.bids);
                 if (!bids.has_value()) {
                     return std::unexpected(bids.error());
                 }
