@@ -80,4 +80,43 @@ std::expected<std::int64_t, WireError> opt_i64(ondemand::object& obj, std::strin
     return (ec == std::errc{} && stop == end) ? out : std::int64_t{0};
 }
 
+std::expected<std::size_t, WireError>
+read_pair_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == into.size()) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        ondemand::array pair;
+        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+            return std::unexpected(map_error(ec));
+        }
+        std::string_view fields[2];
+        std::size_t seen = 0;
+        for (auto field : pair) {
+            if (seen == 2) {
+                return std::unexpected(WireError::WrongType);
+            }
+            std::string_view text;
+            if (const auto ec = field.value().raw_json().get(text); ec != simdjson::SUCCESS) {
+                return std::unexpected(map_error(ec));
+            }
+            if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
+                text = text.substr(1, text.size() - 2);
+            }
+            fields[seen++] = session().rebase(text);
+        }
+        if (seen != 2) {
+            return std::unexpected(WireError::MissingField);
+        }
+        into[count] = WireLevel{.price = fields[0], .qty = fields[1]};
+        ++count;
+    }
+    return count;
+}
+
 } // namespace raikiri::venues::kucoin::detail

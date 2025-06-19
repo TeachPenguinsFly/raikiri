@@ -10,12 +10,15 @@ using detail::session;
 // `subject` separates all five shapes, including the two sharing the
 // /contract/instrument topic, so the topic is read only for the symbol.
 EventKind kind_from_subject(std::string_view subject) noexcept {
-    if (subject == "tickerV2") {
+    if (subject == "tickerV2" || subject == "trade.ticker") {
         return EventKind::Bbo;
     }
-    if (subject == "match") {
+    if (subject == "match" || subject == "trade.l3match") {
         return EventKind::Trade;
     }
+    // "level2" is BOTH trees' subject and two different payloads: a packed
+    // single-level change on futures, a whole book on spot. Only the socket
+    // knows which, which is why the parsers take a market.
     if (subject == "level2") {
         return EventKind::Depth;
     }
@@ -129,7 +132,8 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
     });
 }
 
-std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
+std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType market) {
+    const bool spot = market == MarketType::Spot;
     return guarded([&]() -> std::expected<WireBbo, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -143,9 +147,12 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
             *root, [&](detail::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
                 WireBbo out{};
                 out.symbol = *symbol;
-                const auto bid = detail::req_decimal(obj, "bestBidPrice");
+                // Futures: bestBidPrice/bestBidSize and a NANOSECOND `ts`.
+                // Spot:    bestBid/bestBidSize and a MILLISECOND `time`, with
+                // the sequence as a digit string rather than a number.
+                const auto bid = detail::req_decimal(obj, spot ? "bestBid" : "bestBidPrice");
                 const auto bid_qty = detail::req_decimal(obj, "bestBidSize");
-                const auto ask = detail::req_decimal(obj, "bestAskPrice");
+                const auto ask = detail::req_decimal(obj, spot ? "bestAsk" : "bestAskPrice");
                 const auto ask_qty = detail::req_decimal(obj, "bestAskSize");
                 if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() ||
                     !ask_qty.has_value()) {
@@ -155,6 +162,15 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
                 out.bid_qty = *bid_qty;
                 out.ask_price = *ask;
                 out.ask_qty = *ask_qty;
+                if (spot) {
+                    const auto ms = detail::opt_u64(obj, "time");
+                    if (!ms.has_value()) {
+                        return std::unexpected(WireError::WrongType);
+                    }
+                    out.ts_ns = *ms * 1'000'000ULL;
+                    out.sequence = 0; // a digit string here; nothing reads it
+                    return out;
+                }
                 const auto ts = detail::opt_u64(obj, "ts");
                 const auto sequence = detail::opt_i64(obj, "sequence");
                 if (!ts.has_value() || !sequence.has_value()) {
@@ -167,7 +183,8 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
     });
 }
 
-std::expected<WireTrade, WireError> parse_trade(std::string_view frame) {
+std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketType market) {
+    const bool spot = market == MarketType::Spot;
     return guarded([&]() -> std::expected<WireTrade, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -193,6 +210,18 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame) {
                 out.price = *price;
                 out.qty = *qty;
                 out.aggressor_bought = *side == "buy";
+                if (spot) {
+                    // `time` is nanoseconds as a digit STRING here, where the
+                    // futures print puts nanoseconds in a numeric `ts`. There
+                    // is no sequence field on the spot print at all.
+                    const auto ns = detail::opt_u64(obj, "time");
+                    if (!ns.has_value()) {
+                        return std::unexpected(WireError::WrongType);
+                    }
+                    out.ts_ns = *ns;
+                    out.sequence = 0;
+                    return out;
+                }
                 const auto ts = detail::opt_u64(obj, "ts");
                 const auto sequence = detail::opt_i64(obj, "sequence");
                 if (!ts.has_value() || !sequence.has_value()) {
@@ -200,6 +229,41 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame) {
                 }
                 out.ts_ns = *ts;
                 out.sequence = *sequence;
+                return out;
+            });
+    });
+}
+
+// /spotMarket/level2Depth50: a whole book, levels as ["price","size"] pairs.
+// Nothing to seed and nothing to chain — the opposite of the futures level2
+// stream, which sends one packed level at a time and cannot start on its own.
+std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
+                                                               LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireBookSnapshot, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = topic_symbol(*root);
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        return detail::with_data(
+            *root,
+            [&](detail::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
+                WireBookSnapshot out{};
+                out.symbol = *symbol;
+                const auto asks = detail::read_pair_levels(obj, "asks", storage.asks);
+                if (!asks.has_value()) {
+                    return std::unexpected(asks.error());
+                }
+                const auto bids = detail::read_pair_levels(obj, "bids", storage.bids);
+                if (!bids.has_value()) {
+                    return std::unexpected(bids.error());
+                }
+                out.asks = {storage.asks.data(), *asks};
+                out.bids = {storage.bids.data(), *bids};
+                out.ts_ms = detail::opt_u64(obj, "timestamp").value_or(0);
                 return out;
             });
     });

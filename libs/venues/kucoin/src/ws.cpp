@@ -35,17 +35,22 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view topic_for(exec::SubKind kind) noexcept {
+std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept {
+    const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        return "/contractMarket/tickerV2";
+        return spot ? "/market/ticker" : "/contractMarket/tickerV2";
     case exec::SubKind::Trades:
-        return "/contractMarket/execution";
+        return spot ? "/market/match" : "/contractMarket/execution";
     case exec::SubKind::Depth:
-        return "/contractMarket/level2";
+        // Spot takes the depth-50 SNAPSHOT topic, not the change stream: it
+        // republishes a whole book, so there is no seed to fetch and no chain
+        // to lose. Both topics carry the subject "level2".
+        return spot ? "/spotMarket/level2Depth50" : "/contractMarket/level2";
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        return "/contract/instrument";
+        // A spot pair has neither, and /contract/instrument is a futures topic.
+        return spot ? std::string_view{} : "/contract/instrument";
     case exec::SubKind::Kline:
         return {}; // needs a bar size in the topic; no consumer yet
     }

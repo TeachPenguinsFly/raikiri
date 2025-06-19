@@ -1,0 +1,1 @@
+{"topic":"/market/match:BTC-USDT","type":"message","subject":"trade.l3match","data":{"makerOrderId":"482447192842407948","price":"79146.2","sequence":"24112958291984384","side":"buy","size":"0.11621","symbol":"BTC-USDT","takerOrderId":"6a903c89ecee6c0007eeb9d3","time":"1787837577441000000","tradeId":"24112958291984384","type":"match"}}

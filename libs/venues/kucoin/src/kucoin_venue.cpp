@@ -61,6 +61,12 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
 
+    // The one market this process serves. KuCoin's two trees are separate
+    // deployments reached through separate bullets, and they share a subject
+    // name ("level2") for two different payloads, so nothing below can read a
+    // frame without knowing which socket it arrived on.
+    MarketType market{MarketType::Perp};
+
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
@@ -157,6 +163,20 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
     }
 }
 
+// A whole book off /spotMarket/level2Depth50. No seed, no chain: KuCoin
+// republishes the complete depth there, so the only failure available is a
+// frame that does not parse — silence, never a stale book served as current.
+void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local LevelBuffer storage;
+    const auto wire = parse_book_snapshot(frame, storage);
+    if (!wire.has_value()) {
+        return;
+    }
+    if (const auto depth = map_book(*wire, state.instruments, received); depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
+
 void handle_book_change(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto wire = parse_book_change(frame);
     if (!wire.has_value()) {
@@ -190,7 +210,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     switch (event->kind) {
     case EventKind::Bbo: {
-        const auto wire = parse_bbo(frame);
+        const auto wire = parse_bbo(frame, state.market);
         if (!wire.has_value()) {
             return;
         }
@@ -200,7 +220,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Trade: {
-        const auto wire = parse_trade(frame);
+        const auto wire = parse_trade(frame, state.market);
         if (!wire.has_value()) {
             return;
         }
@@ -221,7 +241,11 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Depth:
-        handle_book_change(state, frame, received);
+        if (state.market == MarketType::Spot) {
+            handle_book_snapshot(state, frame, received);
+        } else {
+            handle_book_change(state, frame, received);
+        }
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
@@ -342,7 +366,8 @@ class KucoinData final : public exec::DataClient {
 public:
     explicit KucoinData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
+          rest_{state_->io,
+                net::RestConfig{.host = std::string{rest_host(state_->market)}, .port = "443"}} {}
 
     std::expected<void, exec::VenueError> start() override {
         rest_.start();
@@ -369,20 +394,17 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // The bullet this client connects with comes from
-            // api-futures.kucoin.com, so the socket only carries the futures
-            // topics. Spot needs a second bullet against api.kucoin.com and a
-            // different topic set; until that exists, refusing beats
-            // subscribing to a topic nothing will ever publish.
-            return std::unexpected{exec::not_implemented("kucoin spot market data: the bullet is the futures one")};
+        if (instrument.market() != state_->market) {
+            // The bullet this socket connected with belongs to ONE tree, and
+            // the two trees share neither topics nor payload shapes.
+            return std::unexpected{exec::not_implemented("kucoin: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        const auto topic = topic_for(kind);
+        const auto topic = topic_for(kind, state_->market);
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -1237,6 +1259,8 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
     load_credentials(config, *state);
+
+    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Kucoin);

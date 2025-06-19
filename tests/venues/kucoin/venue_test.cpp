@@ -234,7 +234,7 @@ TEST(KucoinWire, SubjectDiscriminatesEveryFrameShape) {
 
 TEST(KucoinWire, BboReadsQuotedPricesAndBareSizesFromOneObject) {
     const auto frame = fixture("ws_ticker_v2.json");
-    const auto wire = parse_bbo(frame);
+    const auto wire = parse_bbo(frame, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "XBTUSDTM");
     EXPECT_EQ(wire->bid_price, "64125.6");
@@ -251,7 +251,7 @@ TEST(KucoinWire, ParsedViewsPointIntoTheCallerBuffer) {
     // The zero-copy promise: an unescape buffer inside simdjson cannot be
     // rebased, so a view landing outside the frame is a lifetime bug.
     const auto frame = fixture("ws_ticker_v2.json");
-    const auto wire = parse_bbo(frame);
+    const auto wire = parse_bbo(frame, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     const auto* begin = frame.data();
     const auto* end = begin + frame.size();
@@ -263,7 +263,7 @@ TEST(KucoinWire, ParsedViewsPointIntoTheCallerBuffer) {
 
 TEST(KucoinWire, TradeCarriesTheTakerSide) {
     const auto frame = fixture("ws_execution.json");
-    const auto wire = parse_trade(frame);
+    const auto wire = parse_trade(frame, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     EXPECT_EQ(wire->symbol, "XBTUSDTM");
     EXPECT_EQ(wire->trade_id, "1940359085512");
@@ -297,7 +297,8 @@ TEST(KucoinWire, MalformedFramesFailInsteadOfFillingPartially) {
                      .has_value());
     // No symbol behind the topic's colon.
     EXPECT_FALSE(parse_bbo(R"({"topic":"/contractMarket/tickerV2","type":"message",)"
-                           R"("subject":"tickerV2","data":{}})")
+                           R"("subject":"tickerV2","data":{}})",
+                           MarketType::Perp)
                      .has_value());
 }
 
@@ -477,7 +478,7 @@ TEST(KucoinMap, NonOpenContractIsRefused) {
 TEST(KucoinMap, BboScalesByTheInstrumentStepsAndKeepsNanoseconds) {
     const auto table = loaded_table();
     const auto frame = fixture("ws_ticker_v2.json");
-    const auto wire = parse_bbo(frame);
+    const auto wire = parse_bbo(frame, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     const auto bbo = map_bbo(*wire, table, UnixNanos{7});
     ASSERT_TRUE(bbo.has_value());
@@ -509,7 +510,7 @@ TEST(KucoinMap, UnknownSymbolAndNonMultiplePricesAreDropped) {
 TEST(KucoinMap, TradeKeepsTheAggressorDirectionAsSent) {
     const auto table = loaded_table();
     const auto frame = fixture("ws_execution.json");
-    auto wire = parse_trade(frame);
+    auto wire = parse_trade(frame, MarketType::Perp);
     ASSERT_TRUE(wire.has_value());
     const auto buy = map_trade(*wire, table, UnixNanos{3});
     ASSERT_TRUE(buy.has_value());
@@ -836,13 +837,13 @@ TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
 }
 
 TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
-    EXPECT_EQ(topic_for(exec::SubKind::Bbo), "/contractMarket/tickerV2");
-    EXPECT_EQ(topic_for(exec::SubKind::Trades), "/contractMarket/execution");
-    EXPECT_EQ(topic_for(exec::SubKind::Depth), "/contractMarket/level2");
+    EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp), "/contractMarket/tickerV2");
+    EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp), "/contractMarket/execution");
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2");
     // Mark and funding share one topic; `subject` separates them.
-    EXPECT_EQ(topic_for(exec::SubKind::Funding), "/contract/instrument");
-    EXPECT_EQ(topic_for(exec::SubKind::MarkPrice), "/contract/instrument");
-    EXPECT_TRUE(topic_for(exec::SubKind::Kline).empty());
+    EXPECT_EQ(topic_for(exec::SubKind::Funding, MarketType::Perp), "/contract/instrument");
+    EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp), "/contract/instrument");
+    EXPECT_TRUE(topic_for(exec::SubKind::Kline, MarketType::Perp).empty());
 }
 
 TEST(KucoinWs, SubscribeBatchesOneTopicPerFrame) {
@@ -1594,6 +1595,54 @@ TEST(KucoinErrors, OrderEntryRefusalsLandInTheBucketTheGatewayActsOn) {
     // A network timeout is the venue saying nothing, not the venue saying no.
     EXPECT_EQ(classify(k_network_timeout), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_order_forbidden), exec::ErrorClass::Terminal);
+}
+
+// ------------------------------------------------- spot market data ----
+
+TEST(KucoinSpotWire, TheSpotQuoteRenamesEveryFieldAndChangesTheClock) {
+    // Futures: bestBidPrice and a NANOSECOND ts. Spot: bestBid and a
+    // MILLISECOND time. Read the futures way, the spot quote has no prices at
+    // all — which is a refusal, not a wrong number, and that is the only
+    // reason this was ever safe to get wrong.
+    const auto frame = fixture("ws_spot_ticker.json");
+    EXPECT_FALSE(parse_bbo(frame, MarketType::Perp).has_value());
+
+    const auto wire = parse_bbo(frame, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "BTC-USDT");
+    EXPECT_FALSE(wire->bid_price.empty());
+    EXPECT_FALSE(wire->ask_price.empty());
+    // Milliseconds scaled to the nanoseconds every other KuCoin stamp is in.
+    EXPECT_GT(wire->ts_ns, 1'000'000'000'000'000'000ULL);
+}
+
+TEST(KucoinSpotWire, TheSpotPrintStampsNanosecondsAsAString) {
+    const auto frame = fixture("ws_spot_match.json");
+    const auto wire = parse_trade(frame, MarketType::Spot);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "BTC-USDT");
+    EXPECT_FALSE(wire->trade_id.empty());
+    EXPECT_GT(wire->ts_ns, 1'000'000'000'000'000'000ULL);
+    EXPECT_EQ(wire->sequence, 0) << "the spot print carries no sequence";
+}
+
+TEST(KucoinSpotWire, TheSpotDepthTopicIsAWholeBook) {
+    // Both topics carry the subject "level2": one packs a single level change
+    // into a string, the other sends the whole book. Only the socket knows.
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto frame = fixture("ws_spot_level2depth.json");
+    const auto wire = parse_book_snapshot(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "BTC-USDT");
+    ASSERT_FALSE(wire->bids.empty());
+    ASSERT_FALSE(wire->asks.empty());
+
+    const auto table = loaded_spot_table();
+    const auto book = map_book(*wire, table, UnixNanos{3});
+    ASSERT_TRUE(book.has_value());
+    EXPECT_EQ(book->instrument.market(), MarketType::Spot);
+    EXPECT_GT(book->bid_count, 0U);
+    EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw) << "an uncrossed book";
 }
 
 } // namespace

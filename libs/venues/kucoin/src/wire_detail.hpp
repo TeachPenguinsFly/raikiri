@@ -37,4 +37,10 @@ template <typename Fn>
     }
     return std::forward<Fn>(fn)(*obj);
 }
+// The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
+// where the futures stream packs one into a comma-joined string. Same numbers,
+// nothing shared.
+[[nodiscard]] std::expected<std::size_t, WireError>
+read_pair_levels(ondemand::object& obj, std::string_view key, std::span<WireLevel> into);
+
 } // namespace raikiri::venues::kucoin::detail

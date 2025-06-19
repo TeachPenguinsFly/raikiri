@@ -31,6 +31,12 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// A whole book straight into the domain, for the spot snapshot channel. The
+// futures level2 changes do NOT come through here: they are folded by Book,
+// which owns the seed and publishes its own snapshot.
+[[nodiscard]] std::optional<BookSnapshot>
+map_book(const WireBookSnapshot& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // `symbol` overrides the DTO's own, because the REST form names the funding
 // index rather than the contract. Returns nullopt when the frame quotes no
 // rate at all — a contract without funding must not be reported as one

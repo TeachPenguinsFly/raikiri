@@ -30,7 +30,7 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
 // Returns empty for a kind KuCoin does not stream under these names.
-[[nodiscard]] std::string_view topic_for(exec::SubKind kind) noexcept;
+[[nodiscard]] std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept;
 
 // Acks, fills and cancels all arrive on ONE topic per market family — KuCoin
 // has no separate execution channel — and the topic carries no symbol, so it

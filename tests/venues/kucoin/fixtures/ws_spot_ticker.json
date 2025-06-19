@@ -1,0 +1,1 @@
+{"topic":"/market/ticker:BTC-USDT","type":"message","subject":"trade.ticker","data":{"bestAsk":"79146.2","bestAskSize":"0.39446765","bestBid":"79146.1","bestBidSize":"0.12222236","price":"79146.2","sequence":"36173999311","size":"0.012541","time":1787837575557}}

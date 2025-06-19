@@ -2,6 +2,7 @@
 
 // KuCoin wire types and parsers, public market data and private order flow.
 
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/wire/json.hpp>
 
 #include <array>
@@ -66,7 +67,8 @@ struct WireBbo {
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame,
+                                                          MarketType market);
 
 // `side` is already the AGGRESSOR's side — KuCoin states the taker direction
 // directly, so nothing is inverted here or in the mapper. Binance's `m` says the
@@ -81,7 +83,8 @@ struct WireTrade {
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame);
+[[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
+                                                              MarketType market);
 
 // One level2 frame is ONE level packed into a comma-joined string:
 // "62234.6,buy,1" is price, side, size, and a size of 0 deletes the level. The
@@ -193,6 +196,18 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> bids{};
     std::array<WireLevel, k_max_levels> asks{};
 };
+
+// The spot depth channel republishes a whole book instead of packing one level
+// change into a string. Both sides arrive best-first.
+struct WireBookSnapshot {
+    std::string_view symbol;
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBookSnapshot, WireError>
+parse_book_snapshot(std::string_view frame, LevelBuffer& storage);
 
 // `ts` here is NANOSECONDS, where every other KuCoin timestamp is milliseconds.
 struct WireOrderBook {
