@@ -19,7 +19,7 @@ namespace {
 
 std::string fixture(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
-    std::ifstream in{path};
+    std::ifstream in{path, std::ios::binary};
     EXPECT_TRUE(in.good()) << "missing fixture " << path;
     std::ostringstream buf;
     buf << in.rdbuf();
@@ -631,12 +631,106 @@ TEST(MexcRest, SymbolGoesInThePathForDepthAndFundingButInTheQueryForTicker) {
     EXPECT_EQ(builder.contract_detail().target, "/api/v1/contract/detail");
     EXPECT_EQ(builder.server_time().target, "/api/v1/contract/ping");
     EXPECT_EQ(rest_host(), "contract.mexc.com");
-    EXPECT_EQ(stream_host(), "contract.mexc.com");
-    EXPECT_EQ(stream_path(), "/edge");
+    EXPECT_EQ(stream_host(MarketType::Perp), "contract.mexc.com");
+    EXPECT_EQ(stream_path(MarketType::Perp), "/edge");
     // Public data and signed calls live on different names: contract.mexc.com
     // 403s a private POST at the CDN, api.mexc.com answers it.
     EXPECT_EQ(private_rest_host(), "api.mexc.com");
     EXPECT_NE(private_rest_host(), rest_host());
+}
+
+// ------------------------------------------------- spot market data ----
+
+exec::InstrumentTable spot_catalogue() {
+    static thread_local SpotSymbolBuffer storage;
+    const auto body = fixture("rest_exchange_info.json");
+    const auto rows = parse_spot_symbols(body, storage);
+    EXPECT_TRUE(rows.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *rows) {
+        if (const auto instrument = map_spot_instrument(row); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    return table;
+}
+
+TEST(MexcSpotStream, TheEnvelopeNamesTheFrameByFieldNumber) {
+    // Not by the channel string: the number is what the decoder can act on,
+    // and an unknown one is skipped rather than guessed at.
+    const auto quote = fixture("ws_spot_book_ticker.pb");
+    const auto event = parse_stream_event(quote);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, StreamKind::Quote);
+    EXPECT_EQ(event->symbol, "BTCUSDT");
+    EXPECT_GT(event->ts_ms, 1'000'000'000'000ULL);
+    EXPECT_FALSE(event->payload.empty());
+
+    // JSON on the same socket is not a message, and must not read as one.
+    EXPECT_FALSE(parse_stream_event(R"({"id":0,"code":0,"msg":"PONG"})").has_value());
+}
+
+TEST(MexcSpotStream, TheQuoteDecodesToAnUncrossedBook) {
+    const auto frame = fixture("ws_spot_book_ticker.pb");
+    const auto event = parse_stream_event(frame);
+    ASSERT_TRUE(event.has_value());
+    const auto quote = parse_stream_quote(event->payload);
+    ASSERT_TRUE(quote.has_value());
+
+    const auto table = spot_catalogue();
+    const auto bbo = map_spot_bbo(*quote, event->symbol, event->ts_ms, table, UnixNanos{9});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
+    EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
+    EXPECT_GT(bbo->bid_qty.raw, 0);
+}
+
+TEST(MexcSpotStream, EveryPrintNamesItsTaker) {
+    // tradeType 1 is the taker BUYING — verified against GET /api/v3/trades,
+    // which states isBuyerMaker outright.
+    const auto frame = fixture("ws_spot_deals.pb");
+    const auto event = parse_stream_event(frame);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, StreamKind::Trade);
+
+    StreamTradeBuffer storage;
+    const auto trades = parse_stream_trades(event->payload, storage);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_FALSE(trades->empty());
+    const auto table = spot_catalogue();
+    for (const auto& print : *trades) {
+        EXPECT_FALSE(print.price.empty());
+        EXPECT_NE(print.ts_ms, 0U);
+        const auto tick = map_spot_trade(print, event->symbol, table, UnixNanos{9});
+        ASSERT_TRUE(tick.has_value());
+        EXPECT_EQ(tick->aggressor, print.aggressor_bought ? Side::Buy : Side::Sell);
+    }
+}
+
+TEST(MexcSpotStream, TheBookIsWholeAndItsSizesAreFinerThanTheLot) {
+    // MEXC quotes sizes at baseAssetPrecision (1e-8) and trades at
+    // baseSizePrecision (1e-6). An exact conversion refuses nearly every
+    // level, which would void the whole book — so market data truncates, and
+    // the discarded remainder is below the smallest tradable size.
+    const auto frame = fixture("ws_spot_depth.pb");
+    const auto event = parse_stream_event(frame);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, StreamKind::Depth);
+
+    LevelBuffer storage;
+    const auto book = parse_stream_book(event->payload, storage);
+    ASSERT_TRUE(book.has_value());
+    ASSERT_FALSE(book->bids.empty());
+    ASSERT_FALSE(book->asks.empty());
+
+    const auto table = spot_catalogue();
+    const auto depth = map_spot_book(*book, event->symbol, event->ts_ms, table, UnixNanos{9});
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_GT(depth->bid_count, 0U);
+    EXPECT_GT(depth->ask_count, 0U);
+    EXPECT_LT(depth->bids[0].price.raw, depth->asks[0].price.raw) << "an uncrossed book";
+    EXPECT_GT(depth->bids[0].price.raw, depth->bids[1].price.raw) << "bids best first";
+    EXPECT_LT(depth->asks[0].price.raw, depth->asks[1].price.raw) << "asks best first";
 }
 
 } // namespace

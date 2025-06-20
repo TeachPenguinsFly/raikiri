@@ -7,6 +7,7 @@ add_library(raikiri_venue_mexc STATIC
   src/wire_private.cpp
   src/wire_public.cpp
   src/wire_rest.cpp
+  src/spot_wire.cpp
   src/ws.cpp
 )
 add_library(raikiri::venue_mexc ALIAS raikiri_venue_mexc)

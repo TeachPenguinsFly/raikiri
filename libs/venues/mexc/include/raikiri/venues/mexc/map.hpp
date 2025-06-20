@@ -17,6 +17,7 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/mexc/spot_wire.hpp>
 #include <raikiri/venues/mexc/wire.hpp>
 
 #include <cstdint>
@@ -49,6 +50,27 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// The spot stream's own shapes. Separate from the futures mappers above
+// because the two trees share no field, no encoding and no unit: futures
+// quantities are CONTRACTS and spot's are base units, so a mapper reused
+// across them would convert one of the markets with the other's lot size.
+[[nodiscard]] std::optional<Bbo> map_spot_bbo(const StreamQuote& wire,
+                                              std::string_view symbol,
+                                              std::uint64_t ts_ms,
+                                              const exec::InstrumentTable& table,
+                                              UnixNanos ts_init);
+
+[[nodiscard]] std::optional<TradeTick> map_spot_trade(const StreamTrade& wire,
+                                                      std::string_view symbol,
+                                                      const exec::InstrumentTable& table,
+                                                      UnixNanos ts_init);
+
+[[nodiscard]] std::optional<BookSnapshot> map_spot_book(const StreamBook& wire,
+                                                        std::string_view symbol,
+                                                        std::uint64_t ts_ms,
+                                                        const exec::InstrumentTable& table,
+                                                        UnixNanos ts_init);
 
 // Returns nullopt when the frame quotes no rate at all — a contract without
 // funding must not be reported as one funding at zero. next_funding_time and

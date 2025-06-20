@@ -10,6 +10,11 @@ namespace {
 
 constexpr std::string_view k_host = "contract.mexc.com";
 
+// Spot is a different deployment with a different protocol: JSON in, protobuf
+// out, and a subscription string where the futures tree takes a method and a
+// param object.
+constexpr std::string_view k_spot_host = "wbs-api.mexc.com";
+
 } // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
@@ -26,16 +31,16 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-std::string_view stream_host() noexcept {
-    return k_host;
+std::string_view stream_host(MarketType market) noexcept {
+    return market == MarketType::Spot ? k_spot_host : k_host;
 }
 
 std::string_view stream_port() noexcept {
     return "443";
 }
 
-std::string_view stream_path() noexcept {
-    return "/edge";
+std::string_view stream_path(MarketType market) noexcept {
+    return market == MarketType::Spot ? "/ws" : "/edge";
 }
 
 std::string_view channel_for(exec::SubKind kind) noexcept {
@@ -51,6 +56,25 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
         return "ticker";
     case exec::SubKind::Kline:
         return {}; // needs an interval in the param; no consumer yet
+    }
+    return {};
+}
+
+std::string_view spot_channel_for(exec::SubKind kind) noexcept {
+    // The ".pb" is not decoration: it selects the protobuf encoding, and the
+    // JSON variants of these channels are refused as "Blocked!".
+    switch (kind) {
+    case exec::SubKind::Bbo:
+        return "spot@public.aggre.bookTicker.v3.api.pb@100ms@";
+    case exec::SubKind::Trades:
+        return "spot@public.aggre.deals.v3.api.pb@100ms@";
+    case exec::SubKind::Depth:
+        return "spot@public.limit.depth.v3.api.pb@";
+    case exec::SubKind::Funding:
+    case exec::SubKind::MarkPrice:
+        return {}; // a spot pair has neither
+    case exec::SubKind::Kline:
+        return {};
     }
     return {};
 }
@@ -94,6 +118,51 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
     return Frame{.text = {frame_.data(), len}, .consumed = 1};
+}
+
+// The spot subscription is one string in a params array, not a method and a
+// param object. One channel per frame, because a failed subscription is
+// reported by id and a batch would name only the batch.
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::spot_op_frame(std::string_view op, const Subscription& subscription) {
+    if (subscription.channel.empty() || subscription.symbol.empty()) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    put(R"({"method":")");
+    put(op);
+    put(R"(","params":[")");
+    put(subscription.channel);
+    put(subscription.symbol);
+    if (subscription.limit != 0) {
+        put("@");
+        std::array<char, 16> num{};
+        const auto [stop, ec] =
+            std::to_chars(num.data(), num.data() + num.size(), subscription.limit);
+        if (ec != std::errc{}) {
+            return std::unexpected{WsBuildError::BufferTooSmall};
+        }
+        put(std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
+    }
+    put(R"("]})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return Frame{.text = {frame_.data(), len}, .consumed = 1};
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::spot_subscribe_frame(const Subscription& subscription) {
+    return spot_op_frame("SUBSCRIPTION", subscription);
 }
 
 std::expected<Protocol::Frame, WsBuildError>

@@ -39,6 +39,25 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
+// MEXC SPOT QUOTES SIZES FINER THAN IT WILL TRADE THEM. exchangeInfo states
+// baseSizePrecision — the ORDER step, 1e-6 on BTCUSDT — while the book and the
+// prints carry baseAssetPrecision, 1e-8. So an exact conversion refuses almost
+// every level, and refusing a level voids the book: the futures tree never hit
+// this because there the two are the same number.
+//
+// Truncating toward zero is the only reading that stays honest. The discarded
+// remainder is strictly below one lot — the smallest size this venue will
+// accept an order for — so it is size that cannot be traded against. Orders
+// still convert EXACTLY, through to_lots: an order that does not land on the
+// step is refused, as it must be.
+std::optional<QtyLots> to_lots_floor(std::string_view text, const InstrumentBase& base) {
+    const auto qty = parse_decimal_e9(text);
+    if (!qty.has_value() || base.lot_size.raw <= 0) {
+        return std::nullopt;
+    }
+    return QtyLots::from_raw(qty->raw / base.lot_size.raw);
+}
+
 // Rates are venue-scale decimals, not instrument-scaled, so they keep their
 // 1e9 representation rather than becoming ticks.
 std::optional<FixedE9> to_e9(std::string_view text) {
@@ -69,6 +88,94 @@ std::optional<FixedE9> step_from_scale(std::int64_t scale) noexcept {
         raw /= 10;
     }
     return FixedE9::from_raw(raw);
+}
+
+std::optional<Bbo> map_spot_bbo(const StreamQuote& wire,
+                                std::string_view symbol,
+                                std::uint64_t ts_ms,
+                                const exec::InstrumentTable& table,
+                                UnixNanos ts_init) {
+    const auto* base = base_for(symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto bid = to_ticks(wire.bid_price, *base);
+    const auto ask = to_ticks(wire.ask_price, *base);
+    const auto bid_qty = to_lots_floor(wire.bid_qty, *base);
+    const auto ask_qty = to_lots_floor(wire.ask_qty, *base);
+    if (!bid.has_value() || !ask.has_value() || !bid_qty.has_value() || !ask_qty.has_value()) {
+        return std::nullopt;
+    }
+    Bbo out{};
+    out.instrument = base->id;
+    out.bid = *bid;
+    out.ask = *ask;
+    out.bid_qty = *bid_qty;
+    out.ask_qty = *ask_qty;
+    out.ts_event = ms_to_unix(ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TradeTick> map_spot_trade(const StreamTrade& wire,
+                                        std::string_view symbol,
+                                        const exec::InstrumentTable& table,
+                                        UnixNanos ts_init) {
+    const auto* base = base_for(symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto price = to_ticks(wire.price, *base);
+    const auto qty = to_lots_floor(wire.qty, *base);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+    TradeTick out{};
+    out.instrument = base->id;
+    out.price = *price;
+    out.qty = *qty;
+    out.aggressor = wire.aggressor_bought ? Side::Buy : Side::Sell;
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<BookSnapshot> map_spot_book(const StreamBook& wire,
+                                          std::string_view symbol,
+                                          std::uint64_t ts_ms,
+                                          const exec::InstrumentTable& table,
+                                          UnixNanos ts_init) {
+    const auto* base = base_for(symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto fill = [&](std::span<const WireLevel> from,
+                          std::array<BookLevel, k_book_levels>& into) -> std::uint32_t {
+        std::uint32_t count = 0;
+        for (const auto& level : from) {
+            if (count == k_book_levels) {
+                break;
+            }
+            const auto price = to_ticks(level.price, *base);
+            const auto qty = to_lots_floor(level.qty, *base);
+            if (!price.has_value() || !qty.has_value()) {
+                return 0; // a level that will not convert makes the book a guess
+            }
+            into[count] = BookLevel{.price = *price, .qty = *qty};
+            ++count;
+        }
+        return count;
+    };
+    BookSnapshot out{};
+    out.instrument = base->id;
+    out.bid_count = fill(wire.bids, out.bids);
+    out.ask_count = fill(wire.asks, out.asks);
+    if (out.bid_count == 0 && out.ask_count == 0) {
+        return std::nullopt;
+    }
+    out.ts_event = ms_to_unix(ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
 }
 
 std::optional<Bbo>

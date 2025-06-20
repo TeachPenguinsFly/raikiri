@@ -6,6 +6,7 @@
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
+#include <raikiri/venues/mexc/spot_wire.hpp>
 #include <raikiri/venues/mexc/rest.hpp>
 #include <raikiri/venues/mexc/ws.hpp>
 
@@ -50,6 +51,11 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+
+    // The one market this process serves. MEXC's two trees share nothing: not
+    // the host, not the subscription shape, not even the encoding — futures is
+    // JSON and spot is protobuf.
+    MarketType market{MarketType::Perp};
 
     net::IoContext io;
     net::Signer signer;
@@ -96,8 +102,10 @@ struct VenueState {
         desired.emplace_back(std::string{channel}, std::string{symbol}, limit);
     }
 
-    [[nodiscard]] UnixNanos venue_now(MarketType market) const noexcept {
-        const auto offset = market == MarketType::Spot ? spot_clock_offset_ns : clock_offset_ns;
+    // Takes the tree explicitly rather than reading `market`: the caller knows
+    // which deployment stamped the timestamp it is adjusting.
+    [[nodiscard]] UnixNanos venue_now(MarketType tree) const noexcept {
+        const auto offset = tree == MarketType::Spot ? spot_clock_offset_ns : clock_offset_ns;
         const auto local = clock->wall();
         return UnixNanos{static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + offset)};
     }
@@ -133,6 +141,65 @@ struct VenueState {
         return it == live_orders.end() ? OrderMemo{} : it->second;
     }
 };
+
+// One spot frame. Protobuf, so nothing here is text and the JSON classifier
+// never sees it: what the frame is is decided by WHICH payload field number is
+// present, and an unknown one is skipped rather than guessed at.
+//
+// The subscription acks are JSON on the same socket. They start with '{' and
+// no protobuf message can, so they cost one byte to tell apart.
+void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos received) {
+    if (frame.empty() || frame.front() == '{') {
+        return; // a control frame; the subscribe path already reports refusals
+    }
+    const auto event = parse_stream_event(frame);
+    if (!event.has_value()) {
+        return;
+    }
+    switch (event->kind) {
+    case StreamKind::Quote: {
+        const auto quote = parse_stream_quote(event->payload);
+        if (!quote.has_value()) {
+            return;
+        }
+        if (const auto bbo = map_spot_bbo(*quote, event->symbol, event->ts_ms, state.instruments,
+                                          received);
+            bbo.has_value()) {
+            state.sink->on_bbo(*bbo);
+        }
+        break;
+    }
+    case StreamKind::Trade: {
+        static thread_local StreamTradeBuffer trades;
+        const auto parsed = parse_stream_trades(event->payload, trades);
+        if (!parsed.has_value()) {
+            return;
+        }
+        for (const auto& entry : *parsed) {
+            if (const auto trade = map_spot_trade(entry, event->symbol, state.instruments, received);
+                trade.has_value()) {
+                state.sink->on_trade(*trade);
+            }
+        }
+        break;
+    }
+    case StreamKind::Depth: {
+        static thread_local LevelBuffer levels;
+        const auto book = parse_stream_book(event->payload, levels);
+        if (!book.has_value()) {
+            return;
+        }
+        if (const auto depth = map_spot_book(*book, event->symbol, event->ts_ms, state.instruments,
+                                             received);
+            depth.has_value()) {
+            state.sink->on_depth(*depth);
+        }
+        break;
+    }
+    case StreamKind::Unknown:
+        break;
+    }
+}
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -284,6 +351,10 @@ public:
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        if (state_->market == MarketType::Spot) {
+            handle_spot_frame(*state_, payload, received);
+            return;
+        }
         handle_frame(*state_, payload, received);
     }
 
@@ -304,9 +375,9 @@ public:
     explicit MexcData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
           client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host()},
+                  net::WsConfig{.host = std::string{stream_host(state_->market)},
                                 .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
+                                .target = std::string{stream_path(state_->market)}},
                   handler_} {
         handler_.attach(client_);
     }
@@ -326,20 +397,18 @@ public:
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
-        if (instrument.market() != MarketType::Perp) {
-            // contract.mexc.com is the only public host this adapter speaks,
-            // and it carries futures alone. MEXC spot order entry works over
-            // api.mexc.com, so a spot gateway can trade and see nothing —
-            // saying so here is what keeps that from looking like a quiet
-            // market.
-            return std::unexpected{exec::not_implemented("mexc spot market data: contract.mexc.com is futures only")};
+        if (instrument.market() != state_->market) {
+            // One socket, one tree, and the trees do not even share an
+            // encoding — a frame from the other one would not parse here.
+            return std::unexpected{exec::not_implemented("mexc: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
         if (symbol.empty()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        const auto channel = channel_for(kind);
+        const bool spot = state_->market == MarketType::Spot;
+        const auto channel = spot ? spot_channel_for(kind) : channel_for(kind);
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -347,12 +416,17 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }
-        const std::uint32_t limit = kind == exec::SubKind::Bbo ? k_book_depth : 0;
+        // The level count rides the channel name on spot and the param object
+        // on futures, and only the depth channel takes one on spot.
+        const std::uint32_t limit =
+            spot ? (kind == exec::SubKind::Depth ? k_spot_book_depth : 0)
+                 : (kind == exec::SubKind::Bbo ? k_book_depth : 0);
         state_->add_subscription(channel, symbol, limit);
         if (client_.connected()) {
-            const std::array<Subscription, 1> one{
-                Subscription{.channel = channel, .symbol = symbol, .limit = limit}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
+            const Subscription one{.channel = channel, .symbol = symbol, .limit = limit};
+            const auto frame = spot ? state_->protocol.spot_subscribe_frame(one)
+                                    : state_->protocol.subscribe_frame(std::span{&one, 1});
+            if (frame.has_value()) {
                 (void)client_.send(frame->text);
             }
         }
@@ -520,9 +594,9 @@ private:
 struct PrivateStream {
     explicit PrivateStream(VenueState& state)
         : handler{state}, client{state.io,
-                                 net::WsConfig{.host = std::string{stream_host()},
+                                 net::WsConfig{.host = std::string{stream_host(state.market)},
                                                .port = std::string{stream_port()},
-                                               .target = std::string{stream_path()}},
+                                               .target = std::string{stream_path(state.market)}},
                                  handler} {
         handler.attach(client);
     }
@@ -1067,6 +1141,8 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
             (void)provider.resolve(*ref, state->signer.secret());
         }
     }
+
+    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Mexc);

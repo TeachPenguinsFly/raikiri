@@ -31,12 +31,16 @@ enum class WsBuildError : std::uint8_t {
 
 // MEXC runs no public futures testnet: contract.mexc.com is the only host, so
 // unlike okx nothing here takes a flag.
-[[nodiscard]] std::string_view stream_host() noexcept;
+[[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
-[[nodiscard]] std::string_view stream_path() noexcept;
+[[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
 
 // Returns the bare channel stem, empty for a kind MEXC does not stream.
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
+
+// The spot tree's channel PREFIX; the symbol goes on the end, and the depth
+// one takes a level count after that.
+[[nodiscard]] std::string_view spot_channel_for(exec::SubKind kind) noexcept;
 
 // depth.full is a limit-N snapshot and the depth is part of the subscription.
 // It is the only book this adapter publishes, so it carries the deepest tier
@@ -44,6 +48,9 @@ enum class WsBuildError : std::uint8_t {
 // anything else with {"channel":"rs.error","data":"Not support limit"} —
 // verified live: 5, 10, 20, 50 and 200 stream, 60, 80, 99 and 100 are refused.
 inline constexpr std::uint32_t k_book_depth = 50;
+
+// Spot's limit-depth channel offers 5, 10 and 20 — the deepest tier it has.
+inline constexpr std::uint32_t k_spot_book_depth = 20;
 
 struct Subscription {
     std::string_view channel;
@@ -67,6 +74,9 @@ public:
     subscribe_frame(std::span<const Subscription> subscriptions);
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
+    spot_subscribe_frame(const Subscription& subscription);
+
+    [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
 
     // Futures private stream. MEXC authenticates the SOCKET, not a REST-minted
@@ -86,6 +96,9 @@ public:
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"method":"ping"})"; }
 
 private:
+    [[nodiscard]] std::expected<Frame, WsBuildError> spot_op_frame(std::string_view op,
+                                                                   const Subscription& subscription);
+
     [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
                                                               const Subscription& subscription);
 

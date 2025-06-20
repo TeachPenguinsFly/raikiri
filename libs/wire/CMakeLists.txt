@@ -1,5 +1,6 @@
 add_library(raikiri_wire STATIC
   src/json.cpp
+  src/protobuf.cpp
 )
 add_library(raikiri::wire ALIAS raikiri_wire)
 
