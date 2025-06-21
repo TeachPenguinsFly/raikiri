@@ -18,7 +18,7 @@ using WireError = wire::Error;
 // integer compare rather than a string compare per message.
 enum class EventKind : std::uint8_t {
     BookTicker,    // <sym>@bookTicker
-    AggTrade,      // <sym>@aggTrade
+    Trade,         // <sym>@trade, or <sym>@aggTrade
     MarkPrice,     // <sym>@markPrice — mark, index and funding in one frame
     DepthUpdate,   // <sym>@depth
     OrderUpdate,   // user stream: ORDER_TRADE_UPDATE
@@ -68,16 +68,19 @@ struct WireBookTicker {
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
 
-struct WireAggTrade {
+// One public print. Named for what it is rather than for the channel, because
+// the same shape arrives on @trade and on @aggTrade and the adapter reads
+// either; the account's own fill is WireTrade, further down.
+struct WirePrint {
     std::string_view symbol;
     std::string_view price;
     std::string_view qty;
-    std::uint64_t agg_id{0};
+    std::uint64_t trade_id{0}; // aggregate id or trade id, whichever arrived
     std::uint64_t trade_ms{0};
     bool buyer_is_maker{false}; // m: true => the aggressor sold
 };
 
-[[nodiscard]] std::expected<WireAggTrade, WireError> parse_agg_trade(std::string_view data);
+[[nodiscard]] std::expected<WirePrint, WireError> parse_trade(std::string_view data);
 
 // markPriceUpdate carries mark, index, funding rate and the next funding
 // time together — one subscription covers what bybit splits across fields of
@@ -92,6 +95,19 @@ struct WireMarkPrice {
 };
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data);
+
+// GET /fapi/v1/premiumIndex, which carries the same facts as the markPriceUpdate
+// stream under different names — lastFundingRate for r, nextFundingTime for T.
+// It exists because that stream is acknowledged and then never sends a frame on
+// this venue, so the rate has to be pulled or it does not arrive at all.
+inline constexpr std::size_t k_max_premium_rows = 2048;
+
+struct PremiumBuffer {
+    std::array<WireMarkPrice, k_max_premium_rows> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireMarkPrice>, WireError>
+parse_premium_index(std::string_view body, PremiumBuffer& storage);
 
 struct WireLevel {
     std::string_view price;
@@ -164,7 +180,7 @@ struct WireOrderUpdate {
     std::string_view commission;        // n — absent unless this frame is a fill
     std::string_view commission_asset;  // N
     std::uint64_t order_id{0};          // i
-    std::uint64_t trade_id{0};          // t
+    std::uint64_t trade_id{0}; // aggregate id or trade id, whichever arrived          // t
     std::uint64_t trade_ms{0};          // T inside o
     std::uint64_t event_ms{0};          // E at the top level
     bool is_maker{false};               // m
@@ -224,17 +240,6 @@ struct InstrumentBuffer {
 
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
 parse_exchange_info(std::string_view body, InstrumentBuffer& storage);
-
-struct WirePremiumIndex {
-    std::string_view symbol;
-    std::string_view mark_price;
-    std::string_view index_price;
-    std::string_view last_funding_rate;
-    std::uint64_t next_funding_ms{0};
-    std::uint64_t time_ms{0};
-};
-
-[[nodiscard]] std::expected<WirePremiumIndex, WireError> parse_premium_index(std::string_view body);
 
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 

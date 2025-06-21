@@ -11,8 +11,13 @@ EventKind kind_from_event(std::string_view e) noexcept {
     if (e == "bookTicker") {
         return EventKind::BookTicker;
     }
-    if (e == "aggTrade") {
-        return EventKind::AggTrade;
+    // Both spellings, one shape. The adapter asks for @trade — the aggregate
+    // stream is acknowledged on this venue and then never sends a frame, while
+    // @trade floods — but a frame from either is readable here, and @trade is
+    // strictly the finer of the two: one print per fill instead of one per
+    // run of fills at a price.
+    if (e == "trade" || e == "aggTrade") {
+        return EventKind::Trade;
     }
     if (e == "markPriceUpdate") {
         return EventKind::MarkPrice;
@@ -117,13 +122,13 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
     });
 }
 
-std::expected<WireAggTrade, WireError> parse_agg_trade(std::string_view data) {
-    return guarded([&]() -> std::expected<WireAggTrade, WireError> {
+std::expected<WirePrint, WireError> parse_trade(std::string_view data) {
+    return guarded([&]() -> std::expected<WirePrint, WireError> {
         auto root = session().open_object(data);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        WireAggTrade out{};
+        WirePrint out{};
         const auto symbol = detail::req_str(*root, "s");
         const auto price = detail::req_str(*root, "p");
         const auto qty = detail::req_str(*root, "q");
@@ -133,13 +138,18 @@ std::expected<WireAggTrade, WireError> parse_agg_trade(std::string_view data) {
         out.symbol = *symbol;
         out.price = *price;
         out.qty = *qty;
-        const auto agg_id = detail::opt_u64(*root, "a");
+        // The id is "a" on the aggregate stream and "t" on the per-trade one.
+        // opt_u64 answers 0 for whichever is absent, so this takes the one
+        // that arrived without needing to know which channel it came from.
+        const auto aggregate_id = detail::opt_u64(*root, "a");
+        const auto single_id = detail::opt_u64(*root, "t");
         const auto trade_ms = detail::opt_u64(*root, "T");
         const auto maker = detail::opt_bool(*root, "m");
-        if (!agg_id.has_value() || !trade_ms.has_value() || !maker.has_value()) {
+        if (!aggregate_id.has_value() || !single_id.has_value() || !trade_ms.has_value() ||
+            !maker.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        out.agg_id = *agg_id;
+        out.trade_id = *aggregate_id != 0 ? *aggregate_id : *single_id;
         out.trade_ms = *trade_ms;
         out.buyer_is_maker = *maker;
         return out;
@@ -175,6 +185,40 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
         out.next_funding_ms = *next;
         out.event_ms = *event;
         return out;
+    });
+}
+
+std::expected<std::span<const WireMarkPrice>, WireError>
+parse_premium_index(std::string_view body, PremiumBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireMarkPrice>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_premium_rows) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireMarkPrice out{};
+            const auto symbol = detail::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            out.mark_price = detail::opt_str(obj, "markPrice").value_or(std::string_view{});
+            out.index_price = detail::opt_str(obj, "indexPrice").value_or(std::string_view{});
+            out.funding_rate = detail::opt_str(obj, "lastFundingRate").value_or(std::string_view{});
+            out.next_funding_ms = detail::opt_u64(obj, "nextFundingTime").value_or(0);
+            out.event_ms = detail::opt_u64(obj, "time").value_or(0);
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireMarkPrice>{storage.rows.data(), count};
     });
 }
 

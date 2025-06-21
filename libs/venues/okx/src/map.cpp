@@ -34,12 +34,16 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
 
 // Rates are venue-scale decimals, not instrument-scaled, so they keep their
 // 1e9 representation rather than becoming ticks.
-std::optional<FixedE9> to_e9(std::string_view text) {
+// A funding rate is a ratio, not money and not a price grid, and OKX pads it
+// to sixteen fractional digits. An exact reader refuses every one of them —
+// which it did, silently, for as long as this called parse_decimal_e9: the
+// channel was subscribed, the frames arrived, and not one rate reached shm.
+// parse_rate_e9 is exact through 1e-9 and truncates the dust below.
+std::optional<FixedE9> rate_of(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? std::optional{*value} : std::nullopt;
+    return parse_rate_e9(text);
 }
 
 // A fee is money, so it is read exactly wherever it can be — but OKX pads
@@ -188,7 +192,7 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    const auto rate = to_e9(wire.funding_rate);
+    const auto rate = rate_of(wire.funding_rate);
     if (!rate.has_value()) {
         return std::nullopt; // contract quotes no funding: not the same as zero
     }
@@ -196,7 +200,7 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     FundingUpdate out{};
     out.instrument = base_of(*instrument).id;
     out.rate = *rate;
-    if (const auto predicted = to_e9(wire.next_funding_rate); predicted.has_value()) {
+    if (const auto predicted = rate_of(wire.next_funding_rate); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
     out.next_funding_time = ms_to_unix(wire.funding_ms, UnixNanos{0});

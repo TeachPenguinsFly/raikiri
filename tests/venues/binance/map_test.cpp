@@ -94,7 +94,7 @@ TEST(BinanceMap, MakerFlagIsInvertedIntoAggressorSide) {
     // This is the field most likely to be read backwards. m == true means the
     // buyer was the maker, so the aggressor SOLD.
     const auto table = table_with_btc();
-    WireAggTrade wire{};
+    WirePrint wire{};
     wire.symbol = "BTCUSDT";
     wire.price = "64357.70";
     wire.qty = "0.008";
@@ -115,7 +115,7 @@ TEST(BinanceMap, MakerFlagIsInvertedIntoAggressorSide) {
 
 TEST(BinanceMap, MissingVenueTimeFallsBackToIngest) {
     const auto table = table_with_btc();
-    WireAggTrade wire{};
+    WirePrint wire{};
     wire.symbol = "BTCUSDT";
     wire.price = "64357.70";
     wire.qty = "0.008";

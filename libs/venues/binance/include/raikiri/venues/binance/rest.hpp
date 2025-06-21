@@ -44,6 +44,7 @@ public:
 
     // --- unauthenticated ---
     [[nodiscard]] net::RestRequest instruments() noexcept;
+    [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
     [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol,
                                                   std::uint32_t limit) noexcept;

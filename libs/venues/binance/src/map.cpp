@@ -76,7 +76,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
 }
 
 std::optional<TradeTick>
-map_trade(const WireAggTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;

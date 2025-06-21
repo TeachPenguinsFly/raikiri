@@ -170,6 +170,23 @@ TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {
     EXPECT_TRUE(funding->mark_price.is_undef());
 }
 
+TEST(OkxMap, ARateWithMorePrecisionThanWeCarryStillArrives) {
+    // OKX pads the rate to sixteen fractional digits. Read with the exact
+    // decimal parser — as this was, for as long as the fixture happened to
+    // hold a round number — every live rate was refused and the funding
+    // channel published nothing at all while looking subscribed.
+    const auto table = table_with_btc();
+    WireFundingRate wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.funding_rate = "0.0000439269860429";
+    wire.funding_ms = 1'786'406'400'000ULL;
+
+    const auto funding = map_funding(wire, table, k_ingest);
+    ASSERT_TRUE(funding.has_value());
+    // Exact through 1e-9, and the dust below it is dropped toward zero.
+    EXPECT_EQ(funding->rate.raw, 43'926);
+}
+
 TEST(OkxMap, EmptyForecastIsNotAPredictionOfZero) {
     const auto table = table_with_btc();
     WireFundingRate wire{};

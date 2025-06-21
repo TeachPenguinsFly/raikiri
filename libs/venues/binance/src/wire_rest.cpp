@@ -151,37 +151,6 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-std::expected<WirePremiumIndex, WireError> parse_premium_index(std::string_view body) {
-    return guarded([&]() -> std::expected<WirePremiumIndex, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        WirePremiumIndex out{};
-        const auto symbol = detail::req_str(root.value(), "symbol");
-        const auto mark = detail::req_str(*root, "markPrice");
-        if (!symbol.has_value() || !mark.has_value()) {
-            return std::unexpected(WireError::MissingField);
-        }
-        out.symbol = *symbol;
-        out.mark_price = *mark;
-        const auto index = detail::opt_str(*root, "indexPrice");
-        const auto rate = detail::opt_str(*root, "lastFundingRate");
-        if (!index.has_value() || !rate.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        out.index_price = *index;
-        out.last_funding_rate = *rate;
-        const auto next = detail::opt_u64(*root, "nextFundingTime");
-        const auto time = detail::opt_u64(*root, "time");
-        if (!next.has_value() || !time.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        out.next_funding_ms = *next;
-        out.time_ms = *time;
-        return out;
-    });
-}
 
 std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
     return guarded([&]() -> std::expected<std::uint64_t, WireError> {

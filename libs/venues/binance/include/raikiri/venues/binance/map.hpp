@@ -23,7 +23,7 @@ namespace raikiri::venues::binance {
 map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
-map_trade(const WireAggTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // markPriceUpdate carries mark, index and funding together. Returns nullopt
 // when the frame quotes no funding rate at all — a contract without funding

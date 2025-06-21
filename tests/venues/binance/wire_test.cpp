@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -48,7 +50,7 @@ TEST(BinanceWire, UnwrapPassesAnUnwrappedFrameThrough) {
 
 TEST(BinanceWire, EventDispatchResolvesKindAndSymbol) {
     for (const auto& [file, kind] : {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
-                                     std::pair{"ws_agg_trade.json", EventKind::AggTrade},
+                                     std::pair{"ws_agg_trade.json", EventKind::Trade},
                                      std::pair{"ws_mark_price.json", EventKind::MarkPrice},
                                      std::pair{"ws_depth_update.json", EventKind::DepthUpdate}}) {
         const auto frame = fixture(file);
@@ -81,12 +83,12 @@ TEST(BinanceWire, BookTickerParsesBothSides) {
 
 TEST(BinanceWire, AggTradeCarriesAggressorSide) {
     const auto data = data_of("ws_agg_trade.json");
-    const auto trade = parse_agg_trade(data);
+    const auto trade = parse_trade(data);
     ASSERT_TRUE(trade.has_value());
     EXPECT_EQ(trade->symbol, "BTCUSDT");
     EXPECT_FALSE(trade->price.empty());
     EXPECT_FALSE(trade->qty.empty());
-    EXPECT_GT(trade->agg_id, 0U);
+    EXPECT_GT(trade->trade_id, 0U);
     EXPECT_GT(trade->trade_ms, 0U);
     // m == true means the BUYER was the maker, so the aggressor sold. The
     // field reads backwards from how it is usually wanted, which is exactly
@@ -213,14 +215,40 @@ TEST(BinanceWire, ExchangeInfoReadsFiltersRegardlessOfOrder) {
     EXPECT_NE(tradfi->contract_type, "PERPETUAL");
 }
 
-TEST(BinanceWire, PremiumIndexParsesFundingFields) {
+TEST(BinanceWire, BothTradeSpellingsReadAsOnePrint) {
+    // The adapter asks for @trade, because @aggTrade is acknowledged on this
+    // venue and then never sends a frame. Either shape must still read: the
+    // only difference is which key carries the id.
+    const auto aggregate = data_of("ws_agg_trade.json");
+    const auto from_aggregate = parse_trade(aggregate);
+    ASSERT_TRUE(from_aggregate.has_value());
+    EXPECT_EQ(from_aggregate->symbol, "BTCUSDT");
+    EXPECT_NE(from_aggregate->trade_id, 0U);
+
+    const auto single = data_of("ws_trade.json");
+    const auto from_single = parse_trade(single);
+    ASSERT_TRUE(from_single.has_value());
+    EXPECT_EQ(from_single->symbol, "BTCUSDT");
+    EXPECT_NE(from_single->trade_id, 0U) << "the per-trade stream names it t, not a";
+    EXPECT_NE(from_single->trade_ms, 0U);
+}
+
+TEST(BinanceWire, PremiumIndexCarriesTheFundingTheStreamNeverSends) {
+    // The @markPrice stream is acknowledged on this venue and then sends
+    // nothing, so this pull is where funding comes from. One call answers for
+    // every symbol, which is why the parser fills a buffer rather than a row.
     const auto body = fixture("rest_premium_index.json");
-    const auto premium = parse_premium_index(body);
-    ASSERT_TRUE(premium.has_value());
-    EXPECT_EQ(premium->symbol, "BTCUSDT");
-    EXPECT_FALSE(premium->mark_price.empty());
-    EXPECT_FALSE(premium->last_funding_rate.empty());
-    EXPECT_GT(premium->next_funding_ms, 1'700'000'000'000U);
+    PremiumBuffer storage;
+    const auto rows = parse_premium_index(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_FALSE(rows->empty());
+
+    const auto* btc = std::ranges::find_if(
+        *rows, [](const WireMarkPrice& row) { return row.symbol == "BTCUSDT"; }).base();
+    ASSERT_NE(btc, rows->data() + rows->size());
+    EXPECT_FALSE(btc->mark_price.empty());
+    EXPECT_FALSE(btc->funding_rate.empty());
+    EXPECT_GT(btc->next_funding_ms, 1'700'000'000'000U);
 }
 
 TEST(BinanceWire, ServerTimeParses) {
@@ -237,7 +265,7 @@ TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
         const std::string_view frame{junk};
         (void)parse_event(frame);
         EXPECT_FALSE(parse_book_ticker(frame).has_value()) << junk;
-        EXPECT_FALSE(parse_agg_trade(frame).has_value()) << junk;
+        EXPECT_FALSE(parse_trade(frame).has_value()) << junk;
         EXPECT_FALSE(parse_depth_update(frame, *storage).has_value()) << junk;
         EXPECT_FALSE(parse_server_time(frame).has_value()) << junk;
     }

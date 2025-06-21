@@ -117,6 +117,12 @@ net::RestRequest RequestBuilder::instruments() noexcept {
     return {.method = net::HttpMethod::Get, .target = "/fapi/v1/exchangeInfo", .body = {}};
 }
 
+// Every symbol in one call. Binance answers ~880 rows, which is cheaper than
+// asking per instrument and is why this needs no round-robin cursor.
+net::RestRequest RequestBuilder::premium_index() noexcept {
+    return {.method = net::HttpMethod::Get, .target = "/fapi/v1/premiumIndex", .body = {}};
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = "/fapi/v1/time", .body = {}};
 }

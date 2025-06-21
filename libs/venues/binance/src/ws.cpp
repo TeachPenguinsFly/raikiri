@@ -20,7 +20,7 @@ constexpr std::string_view k_host_test = "fstream.binancefuture.com";
     case exec::SubKind::Bbo:
         return "@bookTicker";
     case exec::SubKind::Trades:
-        return "@aggTrade";
+        return "@trade";
     case exec::SubKind::Depth:
         return "@depth@100ms";
     case exec::SubKind::Funding:
