@@ -53,7 +53,7 @@ TEST(GateVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Gate, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Gate);
     EXPECT_NE(adapter->data, nullptr);
@@ -67,7 +67,7 @@ TEST(GateVenue, AnUnbuildableCommandIsRefusedLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Gate, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -91,7 +91,7 @@ TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Gate, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     for (const auto market : {MarketType::Option, MarketType::Future}) {
         const auto loaded = adapter->instruments->fetch_all(market);
@@ -1542,7 +1542,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Gate, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& exec_client = *adapter->execution;
 

@@ -94,10 +94,31 @@ TEST(DeribitVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Deribit);
     EXPECT_NE(adapter->data, nullptr);
+}
+
+TEST(DeribitVenue, EveryMarketItServesCanActuallyBeBuilt) {
+    // The order path has refused the right markets since the beginning, but
+    // no PROCESS could ask for a dated future or an option: VenueConfig
+    // carried two booleans, spot and perp, and nothing else was sayable. This
+    // is the seam finally being reachable from a gateway.
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    for (const auto market :
+         {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+        const auto adapter =
+            exec::make_venue({.venue = VenueId::Deribit, .market = market}, sink, clock);
+        ASSERT_TRUE(adapter.has_value()) << to_string(market);
+        EXPECT_NE(adapter->instruments, nullptr) << to_string(market);
+    }
+    const auto spot =
+        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Spot}, sink, clock);
+    ASSERT_FALSE(spot.has_value());
+    EXPECT_EQ(spot.error(), exec::MakeError::UnsupportedMarket);
 }
 
 TEST(DeribitVenue, ServesEveryMarketItListsExceptSpot) {
@@ -115,7 +136,7 @@ TEST(DeribitVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // AuthFailure, not Terminal: the first sends an operator to the config,
@@ -152,7 +173,7 @@ TEST(DeribitVenue, SpotIsRefusedByNameOnEveryEntryPoint) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // Never an empty vector: a reconciler cannot tell "we serve no spot here"

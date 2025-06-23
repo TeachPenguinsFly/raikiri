@@ -83,7 +83,7 @@ TEST(BingxVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bingx);
     EXPECT_NE(adapter->data, nullptr);
@@ -98,7 +98,7 @@ TEST(BingxVenue, AnOrderWithNoCredentialsIsRefusedLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -127,7 +127,7 @@ TEST(BingxVenue, RefusesAnOptionOrderWithoutBlamingTheCatalogue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -150,7 +150,7 @@ TEST(BingxVenue, PullsSayWhyTheyCannotAnswer) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // No credentials is an AuthFailure, not a Terminal one: the gateway halts
@@ -181,7 +181,7 @@ TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto spot = adapter->data->subscribe(
@@ -194,7 +194,7 @@ TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     // the same ticker, so a wrong-market id is not rejected by the venue —
     // it comes back subscribed, to the other tree's prices.
     auto spot_adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .enable_spot = true, .enable_perp = false}, sink, clock);
+        {.venue = VenueId::Bingx, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(spot_adapter.has_value());
     const auto perp = spot_adapter->data->subscribe(
         exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Perp, SymbolId{0}));

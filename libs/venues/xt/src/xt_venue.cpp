@@ -674,12 +674,13 @@ struct PrivateStream {
 // and leaves out of.
 class XtExec final : public exec::ExecutionClient {
 public:
-    XtExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    XtExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           spot_rest_{state_->io,
                      net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
-          builder_{state_->signer}, spot_{spot}, perp_{perp} {}
+          builder_{state_->signer}, spot_{market == MarketType::Spot},
+          perp_{market == MarketType::Perp} {}
 
     ~XtExec() override { state_->private_poll = nullptr; }
 
@@ -1301,12 +1302,12 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
         }
     }
 
-    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    state->market = config.market;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Xt);
     adapter.data = std::make_unique<XtData>(state);
-    adapter.execution = std::make_unique<XtExec>(state, config.enable_spot, config.enable_perp);
+    adapter.execution = std::make_unique<XtExec>(state, config.market);
     adapter.instruments = std::make_unique<XtInstruments>(state);
     return adapter;
 }

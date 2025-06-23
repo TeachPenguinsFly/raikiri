@@ -772,7 +772,7 @@ TEST(BitgetVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Bitget, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitget);
     EXPECT_NE(adapter->data, nullptr);
@@ -785,7 +785,7 @@ TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -815,7 +815,7 @@ TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& execution = *adapter->execution;
 

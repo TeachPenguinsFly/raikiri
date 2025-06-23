@@ -25,8 +25,12 @@ namespace raikiri::exec {
 // values — config files and journals must stay secret-free.
 struct VenueConfig {
     VenueId venue{VenueId::Invalid};
-    bool enable_spot{false};
-    bool enable_perp{true};
+    // ONE MARKET. It used to be two booleans, which could say "both" and
+    // "neither" — neither of which an adapter can serve, since every one of
+    // them collapses to a single MarketType and never looks again. make_venue
+    // grew two error arms to refuse those combinations; one field cannot
+    // express either, so the refusals are gone with them.
+    MarketType market{MarketType::Perp};
     bool testnet{false};
     std::string api_key_env;    // e.g. "BYBIT_API_KEY"
     std::string api_secret_env; // e.g. "BYBIT_API_SECRET"
@@ -43,10 +47,8 @@ struct VenueAdapter {
 
 enum class MakeError : std::uint8_t {
     UnknownVenue,
-    UnsupportedMarket,        // config enables a market the caps row denies
-    ClientOrderIdTooShort,    // caps row cannot carry a 26-char ULID
-    TwoMarketsAtOnce,         // one adapter, one market — see the comment below
-    NoMarketSelected,         // neither flag set: nothing to load or subscribe
+    UnsupportedMarket,     // the caps row does not serve the configured market
+    ClientOrderIdTooShort, // caps row cannot carry a 26-char ULID
 };
 
 [[nodiscard]] std::string_view to_string(MakeError error) noexcept;

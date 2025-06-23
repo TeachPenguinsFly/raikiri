@@ -743,20 +743,20 @@ template <typename Handler> struct PrivateStream {
 
 class HtxExec final : public exec::ExecutionClient {
 public:
-    HtxExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    HtxExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
           perp_rest_{state_->io,
                      net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           spot_rest_{state_->io,
                      net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
           builder_{state_->signer},
-          spot_enabled_{spot} {
-        if (perp) {
+          spot_enabled_{market == MarketType::Spot} {
+        if (market == MarketType::Perp) {
             perp_stream_ =
                 std::make_unique<PrivateStream<SwapPrivateHandler>>(*state_, stream_host(),
                                                                     notify_path());
         }
-        if (spot) {
+        if (spot_enabled_) {
             spot_stream_ = std::make_unique<PrivateStream<SpotPrivateHandler>>(
                 *state_, spot_stream_host(), spot_private_path());
         }
@@ -1291,7 +1291,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     adapter.caps = exec::caps_of(VenueId::Htx);
     adapter.data = std::make_unique<HtxData>(state);
     adapter.execution =
-        std::make_unique<HtxExec>(state, config.enable_spot, config.enable_perp);
+        std::make_unique<HtxExec>(state, config.market);
     adapter.instruments = std::make_unique<HtxInstruments>(state);
     return adapter;
 }

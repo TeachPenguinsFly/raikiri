@@ -651,15 +651,16 @@ public:
     // market field. So a process with BOTH catalogues loaded would have every
     // one of them answer nullptr and drop every frame, silently. Run one
     // gateway per market; the request builders are already market-correct.
-    GateExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    GateExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}},
           builder_{state_->signer} {
-        if (perp) {
+        // Gate's two private streams are different hosts with different order
+        // shapes, so exactly one of them opens — the one this process serves.
+        if (market == MarketType::Perp) {
             perp_ = std::make_unique<PrivateStream>(*state_, MarketType::Perp);
-        }
-        if (spot) {
+        } else if (market == MarketType::Spot) {
             spot_ = std::make_unique<PrivateStream>(*state_, MarketType::Spot);
         }
     }
@@ -1106,13 +1107,13 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
         }
     }
 
-    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    state->market = config.market;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Gate);
     adapter.data = std::make_unique<GateData>(state);
     adapter.execution =
-        std::make_unique<GateExec>(state, config.enable_spot, config.enable_perp);
+        std::make_unique<GateExec>(state, config.market);
     adapter.instruments = std::make_unique<GateInstruments>(state);
     return adapter;
 }

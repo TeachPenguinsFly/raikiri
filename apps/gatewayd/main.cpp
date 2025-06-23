@@ -381,24 +381,31 @@ int main(int argc, char** argv) {
 
     const LiveClock clock;
 
-    // Which market this gateway serves. A venue that lists no perpetuals —
-    // coinbase exchange is spot only — cannot be asked for one, and asking
-    // used to fail as "adapter build failed" with nothing naming the market.
+    // Which market this gateway serves. A venue whose adapter does not serve
+    // it cannot be asked for it, and asking used to fail as "adapter build
+    // failed" with nothing naming the market.
     const auto& caps = exec::caps_of(venue);
     MarketType market = MarketType::Perp;
     if (market_arg == "spot") {
         market = MarketType::Spot;
+    } else if (market_arg == "future") {
+        market = MarketType::Future;
+    } else if (market_arg == "option") {
+        market = MarketType::Option;
     } else if (market_arg == "perp" || market_arg.empty()) {
+        // Defaulting to spot when a venue lists no perpetuals keeps
+        // `--venue=coinbase` working without a flag; it is a default, not a
+        // guess, because the caps row is the thing being read.
         market = caps.perp ? MarketType::Perp : MarketType::Spot;
     } else {
-        fmt::print(stderr, "gatewayd: --market must be spot or perp\n");
+        fmt::print(stderr, "gatewayd: --market must be spot, perp, future or option\n");
         return 2;
     }
-    if ((market == MarketType::Perp && !caps.perp) || (market == MarketType::Spot && !caps.spot)) {
+    if (!caps.serves(market)) {
         fmt::print(stderr,
-                   "gatewayd[{}]: venue does not list {} instruments\n",
+                   "gatewayd[{}]: this adapter does not serve the {} market\n",
                    venue_name,
-                   market == MarketType::Spot ? "spot" : "perpetual");
+                   to_string(market));
         return 2;
     }
 
@@ -463,8 +470,7 @@ int main(int argc, char** argv) {
     venues::mexc::register_adapter();
     venues::okx::register_adapter();
     auto adapter = exec::make_venue({.venue = venue,
-                                     .enable_spot = market == MarketType::Spot,
-                                     .enable_perp = market == MarketType::Perp,
+                                     .market = market,
                                      .testnet = testnet,
                                      .api_key_env = api_key_ref,
                                      .api_secret_env = api_secret_ref},

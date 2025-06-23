@@ -85,7 +85,7 @@ TEST(BitmexVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitmex);
     EXPECT_NE(adapter->data, nullptr);
@@ -101,7 +101,7 @@ TEST(BitmexVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Future, MarketType::Option}) {
@@ -129,7 +129,7 @@ TEST(BitmexVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto started = adapter->execution->start();

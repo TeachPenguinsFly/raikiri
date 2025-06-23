@@ -116,7 +116,7 @@ TEST(CoinbaseVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
+        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Coinbase);
     EXPECT_NE(adapter->data, nullptr);
@@ -137,7 +137,7 @@ TEST(CoinbaseVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
+        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // Three credentials, not two. AuthFailure sends an operator to the config;
@@ -170,7 +170,7 @@ TEST(CoinbaseVenue, PullsThisApiCannotPerformAreRefusedByName) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
+        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // A coin balance is not a position, and there is no InstrumentId to report
@@ -194,7 +194,7 @@ TEST(CoinbaseVenue, PerpCatalogueIsRefusedNotEmptied) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = false}, sink, clock);
+        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto perps = adapter->instruments->fetch_all(MarketType::Perp);
     ASSERT_FALSE(perps.has_value());
@@ -207,10 +207,16 @@ TEST(CoinbaseVenue, MarketsTheCapsRowDeniesAreRefusedAtBuild) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .enable_spot = true, .enable_perp = true}, sink, clock);
-    ASSERT_FALSE(adapter.has_value());
-    EXPECT_EQ(adapter.error(), exec::MakeError::UnsupportedMarket);
+    for (const auto market :
+         {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+        const auto adapter =
+            exec::make_venue({.venue = VenueId::Coinbase, .market = market}, sink, clock);
+        ASSERT_FALSE(adapter.has_value()) << to_string(market);
+        EXPECT_EQ(adapter.error(), exec::MakeError::UnsupportedMarket) << to_string(market);
+    }
+    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot},
+                                 sink, clock)
+                    .has_value());
 }
 
 // -------------------------------------------------------------- wire ----

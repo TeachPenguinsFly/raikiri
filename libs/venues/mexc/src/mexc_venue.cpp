@@ -615,11 +615,12 @@ struct PrivateStream {
 // order is refused loudly rather than left open.
 class MexcExec final : public exec::ExecutionClient {
 public:
-    MexcExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    MexcExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
           rest_{state_->io,
                 net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
-          builder_{state_->signer}, spot_{spot}, perp_{perp} {
+          builder_{state_->signer}, spot_{market == MarketType::Spot},
+          perp_{market == MarketType::Perp} {
         if (perp_) {
             stream_ = std::make_unique<PrivateStream>(*state_);
             state_->private_client = &stream_->client;
@@ -1142,12 +1143,12 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
         }
     }
 
-    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    state->market = config.market;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Mexc);
     adapter.data = std::make_unique<MexcData>(state);
-    adapter.execution = std::make_unique<MexcExec>(state, config.enable_spot, config.enable_perp);
+    adapter.execution = std::make_unique<MexcExec>(state, config.market);
     adapter.instruments = std::make_unique<MexcInstruments>(state);
     return adapter;
 }

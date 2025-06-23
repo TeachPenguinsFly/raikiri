@@ -872,8 +872,8 @@ void load_credentials(VenueState& state, const exec::VenueConfig& config) {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
-    state->spot_enabled = config.enable_spot;
-    state->perp_enabled = config.enable_perp;
+    state->spot_enabled = config.market == MarketType::Spot;
+    state->perp_enabled = config.market == MarketType::Perp;
     load_credentials(*state, config);
 
     exec::VenueAdapter adapter{};

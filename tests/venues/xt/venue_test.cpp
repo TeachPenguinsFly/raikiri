@@ -142,7 +142,7 @@ TEST(XtVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_perp = true}, sink, clock);
+    const auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Xt);
     EXPECT_NE(adapter->data, nullptr);
@@ -155,7 +155,7 @@ TEST(XtVenue, OrderWithoutAnImplementationFailsLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -178,7 +178,7 @@ TEST(XtVenue, ExecutionPullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto orders = adapter->execution->open_order_reports(MarketType::Perp);
@@ -201,7 +201,7 @@ TEST(XtVenue, UnservedMarketsRefuseWithTheirOwnName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto options = adapter->execution->open_order_reports(MarketType::Option);
@@ -234,7 +234,7 @@ TEST(XtVenue, SpotPositionPullSaysSoRatherThanAnsweringFlat) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Xt, .enable_spot = true, .enable_perp = false}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto positions = adapter->execution->position_reports(MarketType::Spot);

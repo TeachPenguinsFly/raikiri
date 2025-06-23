@@ -712,7 +712,7 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
         }
     }
 
-    const auto market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    const auto market = config.market;
     exec::VenueAdapter adapter;
     adapter.caps = exec::caps_of(VenueId::Bybit);
     adapter.data = std::make_unique<BybitData>(state, market);

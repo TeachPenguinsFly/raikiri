@@ -144,7 +144,7 @@ protected:
 };
 
 TEST_F(VenueContract, RegistryBuildsRegisteredVenue) {
-    const auto adapter = make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    const auto adapter = make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Sim);
     EXPECT_NE(adapter->data, nullptr);
@@ -164,23 +164,47 @@ TEST_F(VenueContract, UnknownAndUnsupportedConfigsRefusedAtStartup) {
 
     // Sim's caps row is perp-only; asking for spot must refuse loudly.
     const auto spot_on_sim =
-        make_venue({.venue = VenueId::Sim, .enable_spot = true, .enable_perp = true}, sink, clock);
+        make_venue({.venue = VenueId::Sim, .market = MarketType::Spot}, sink, clock);
     ASSERT_FALSE(spot_on_sim.has_value());
     EXPECT_EQ(spot_on_sim.error(), MakeError::UnsupportedMarket);
 }
 
-TEST_F(VenueContract, AdapterHostsExactlyOneMarket) {
-    // Sim serves perp, so neither of these refusals is a caps refusal — they
-    // are the arity rule itself. Two markets in one adapter used to start and
-    // then quietly serve one of them; none is a config that asks for nothing.
-    const auto both =
-        make_venue({.venue = VenueId::Sim, .enable_spot = true, .enable_perp = true}, sink, clock);
-    ASSERT_FALSE(both.has_value());
+TEST_F(VenueContract, TheCapsRowDecidesEveryMarket) {
+    // The config carries ONE market, so "both" and "neither" are no longer
+    // sayable and the two refusals that existed to catch them are gone. What
+    // is left is the only question worth asking: does this row serve what was
+    // asked for. Sim serves perp alone, so the other three must refuse.
+    for (const auto market :
+         {MarketType::Spot, MarketType::Future, MarketType::Option}) {
+        const auto refused = make_venue({.venue = VenueId::Sim, .market = market}, sink, clock);
+        ASSERT_FALSE(refused.has_value()) << to_string(market);
+        EXPECT_EQ(refused.error(), MakeError::UnsupportedMarket) << to_string(market);
+    }
+    EXPECT_TRUE(make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock)
+                    .has_value());
+}
 
-    const auto neither =
-        make_venue({.venue = VenueId::Sim, .enable_spot = false, .enable_perp = false}, sink, clock);
-    ASSERT_FALSE(neither.has_value());
-    EXPECT_EQ(neither.error(), MakeError::NoMarketSelected);
+TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
+    // A row that claims a market its adapter cannot serve is accepted at load
+    // and then fails one call at a time — the failure mode this table exists
+    // to prevent. Deribit is the only row claiming dated futures or options;
+    // if a second one appears, it appears here first.
+    std::vector<std::string_view> with_options;
+    std::vector<std::string_view> with_futures;
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        const auto& caps = caps_of(id);
+        if (caps.option) {
+            with_options.push_back(to_string(id));
+        }
+        if (caps.future) {
+            with_futures.push_back(to_string(id));
+        }
+        // Nothing may serve a market with no market at all behind it.
+        EXPECT_TRUE(caps.spot || caps.perp || caps.future || caps.option) << to_string(id);
+    }
+    EXPECT_EQ(with_options, (std::vector<std::string_view>{"deribit"}));
+    EXPECT_EQ(with_futures, (std::vector<std::string_view>{"deribit"}));
 }
 
 TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
@@ -227,7 +251,7 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {
-    auto adapter = *make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    auto adapter = *make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
     const auto instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1});
 
     ASSERT_TRUE(adapter.data->subscribe(SubKind::Bbo, instrument).has_value());
@@ -237,7 +261,7 @@ TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {
 }
 
 TEST_F(VenueContract, OrderOutcomesArriveOnlyViaSink) {
-    auto adapter = *make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    auto adapter = *make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
 
     OrderCmd cmd{};
     cmd.instrument = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{7});
@@ -250,7 +274,7 @@ TEST_F(VenueContract, OrderOutcomesArriveOnlyViaSink) {
 }
 
 TEST_F(VenueContract, DefaultAmendIsInertAndQueryOrderRecovers) {
-    auto adapter = *make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    auto adapter = *make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
 
     // Default amend: deliberate no-op (callers gate on caps.amend_order and
     // fall back to cancel+replace). Must not emit events or crash.
@@ -268,7 +292,7 @@ TEST_F(VenueContract, DefaultAmendIsInertAndQueryOrderRecovers) {
 }
 
 TEST_F(VenueContract, DefaultBatchCancelLoops) {
-    auto adapter = *make_venue({.venue = VenueId::Sim, .enable_perp = true}, sink, clock);
+    auto adapter = *make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
     auto* exec = dynamic_cast<MockExec*>(adapter.execution.get());
     ASSERT_NE(exec, nullptr);
 

@@ -204,6 +204,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .venue = VenueId::Deribit,
         .spot = false, // a spot book exists but is vestigial
         .perp = true,
+        // The only adapter that serves either. `get_instruments` takes the
+        // kind, map_instrument separates a dated future from a perpetual —
+        // they share kind "future" and confusing them is a position bug — and
+        // carries strike, expiry and put/call onto the option rows.
+        .future = true,
+        .option = true,
         .ws_order_entry = true, // JSON-RPC over the same socket as market data
         .cancel_by_client_order_id = true,
         .batch_cancel = true,

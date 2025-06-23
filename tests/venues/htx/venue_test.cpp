@@ -74,7 +74,7 @@ TEST(HtxVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Htx, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Htx);
     EXPECT_NE(adapter->data, nullptr);
@@ -87,7 +87,7 @@ TEST(HtxVenue, OrderWithoutAnImplementationFailsLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Htx, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -107,7 +107,7 @@ TEST(HtxVenue, PullsRefuseRatherThanAnswerEmptyWithoutCredentials) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Htx, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Htx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // AuthFailure, not Terminal: the pull is implemented and would work — what

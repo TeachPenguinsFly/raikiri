@@ -566,10 +566,11 @@ private:
 // memo a later fill reads its own id out of.
 class BingxExec final : public exec::ExecutionClient {
 public:
-    BingxExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+    BingxExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          builder_{state_->signer}, spot_{spot}, perp_{perp} {}
+          builder_{state_->signer}, spot_{market == MarketType::Spot},
+          perp_{market == MarketType::Perp} {}
 
     ~BingxExec() override { state_->private_poll = nullptr; }
 
@@ -1109,10 +1110,10 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     }
 
     exec::VenueAdapter adapter{};
-    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    state->market = config.market;
     adapter.caps = exec::caps_of(VenueId::Bingx);
     adapter.data = std::make_unique<BingxData>(state);
-    adapter.execution = std::make_unique<BingxExec>(state, config.enable_spot, config.enable_perp);
+    adapter.execution = std::make_unique<BingxExec>(state, config.market);
     adapter.instruments = std::make_unique<BingxInstruments>(state);
     return adapter;
 }

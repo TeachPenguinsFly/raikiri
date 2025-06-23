@@ -23,8 +23,29 @@ enum class UserStreamModel : std::uint8_t {
 
 struct VenueCaps {
     VenueId venue{VenueId::Invalid};
+    // The markets this ADAPTER serves, which is not the same as the markets
+    // the venue lists: a row says true only where the code has been written
+    // and run. Dated futures and options default false because almost nothing
+    // implements them, and a row that claimed one would be accepted at load
+    // and then fail one call at a time.
     bool spot{false};
     bool perp{false};
+    bool future{false};
+    bool option{false};
+
+    [[nodiscard]] constexpr bool serves(MarketType market) const noexcept {
+        switch (market) {
+        case MarketType::Spot:
+            return spot;
+        case MarketType::Perp:
+            return perp;
+        case MarketType::Future:
+            return future;
+        case MarketType::Option:
+            return option;
+        }
+        return false;
+    }
 
     bool ws_order_entry{false};  // orders placeable over a WS trade API
     bool fix_order_entry{false}; // FIX offered at any access tier

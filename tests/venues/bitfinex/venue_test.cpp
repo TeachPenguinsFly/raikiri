@@ -81,7 +81,7 @@ TEST(BitfinexVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitfinex);
     EXPECT_NE(adapter->data, nullptr);
@@ -94,7 +94,7 @@ TEST(BitfinexVenue, AnUnbuildableOrderComesBackAsARejectedEvent) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -122,7 +122,7 @@ TEST(BitfinexVenue, UnservedMarketsRefuseWithTheirOwnName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto options = adapter->execution->open_order_reports(MarketType::Option);
@@ -159,7 +159,7 @@ TEST(BitfinexVenue, PullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& pull : {adapter->execution->open_order_reports(MarketType::Perp)}) {

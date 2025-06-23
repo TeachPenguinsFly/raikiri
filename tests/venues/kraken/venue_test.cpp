@@ -65,7 +65,7 @@ TEST(KrakenVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Kraken);
     EXPECT_NE(adapter->data, nullptr);
@@ -81,7 +81,7 @@ TEST(KrakenVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .enable_spot = false, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
@@ -109,7 +109,7 @@ TEST(KrakenVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto started = adapter->execution->start();
@@ -134,7 +134,7 @@ TEST(KrakenVenue, TestnetIsRefusedRatherThanRedirectedToProduction) {
     CaptureSink sink;
     const LiveClock clock;
     auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .enable_perp = true, .testnet = true}, sink, clock);
+        {.venue = VenueId::Kraken, .market = MarketType::Perp, .testnet = true}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_FALSE(adapter->data->start().has_value());
 }

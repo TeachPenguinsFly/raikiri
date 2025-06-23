@@ -906,7 +906,7 @@ void load_credentials(const exec::VenueConfig& config, VenueState& state) {
 
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
-    const auto market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    const auto market = config.market;
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet, market);
     load_credentials(config, *state);
     exec::VenueAdapter adapter{};

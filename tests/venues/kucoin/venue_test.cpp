@@ -135,7 +135,7 @@ TEST(KucoinVenue, RegistersAndBuilds) {
     CaptureSink sink;
     const LiveClock clock;
     const auto adapter =
-        exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
+        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Kucoin);
     EXPECT_NE(adapter->data, nullptr);
@@ -150,7 +150,7 @@ TEST(KucoinVenue, AnOrderThatCannotBeSignedIsRefusedRatherThanLeftOpen) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -178,7 +178,7 @@ TEST(KucoinVenue, StartingWithoutTheFullCredentialSetIsRefused) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto started = adapter->execution->start();
     ASSERT_FALSE(started.has_value());
@@ -189,7 +189,7 @@ TEST(KucoinVenue, MarketsTheAdapterDoesNotServeAreNamedRefusals) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .enable_perp = true}, sink, clock);
+    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     // No network is touched: each market is refused before a request is built.
     // An empty list would read as "flat" or "nothing open", which are answers,

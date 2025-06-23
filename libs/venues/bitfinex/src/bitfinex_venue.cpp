@@ -651,7 +651,7 @@ struct PrivateStream {
 // handles what it would produce.
 class BitfinexExec final : public exec::ExecutionClient {
 public:
-    BitfinexExec(std::shared_ptr<VenueState> state, bool spot, bool perp);
+    BitfinexExec(std::shared_ptr<VenueState> state, MarketType market);
 
     ~BitfinexExec() override { state_->private_poll = nullptr; }
 
@@ -866,10 +866,11 @@ std::optional<net::RestResponse> await_response(VenueState& state,
     return result;
 }
 
-BitfinexExec::BitfinexExec(std::shared_ptr<VenueState> state, bool spot, bool perp)
+BitfinexExec::BitfinexExec(std::shared_ptr<VenueState> state, MarketType market)
     : state_{std::move(state)},
       rest_{state_->io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
-      builder_{state_->api_key, state_->api_secret}, spot_{spot}, perp_{perp} {}
+      builder_{state_->api_key, state_->api_secret}, spot_{market == MarketType::Spot},
+      perp_{market == MarketType::Perp} {}
 
 std::expected<void, exec::VenueError> BitfinexExec::start() {
     rest_.start();
@@ -1087,7 +1088,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     adapter.caps = exec::caps_of(VenueId::Bitfinex);
     adapter.data = std::make_unique<BitfinexData>(state);
     adapter.execution =
-        std::make_unique<BitfinexExec>(state, config.enable_spot, config.enable_perp);
+        std::make_unique<BitfinexExec>(state, config.market);
     adapter.instruments = std::make_unique<BitfinexInstruments>(state);
     return adapter;
 }

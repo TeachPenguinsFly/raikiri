@@ -716,14 +716,12 @@ private:
 // facts, and the reconciler acts on the difference.
 class KucoinExec final : public exec::ExecutionClient {
 public:
-    KucoinExec(std::shared_ptr<VenueState> state, bool spot, bool perp) : state_{std::move(state)} {
-        std::uint32_t stream_id = 1;
-        if (spot) {
-            links_.push_back(std::make_unique<MarketLink>(*state_, MarketType::Spot, stream_id++));
-        }
-        if (perp) {
-            links_.push_back(std::make_unique<MarketLink>(*state_, MarketType::Perp, stream_id++));
-        }
+    KucoinExec(std::shared_ptr<VenueState> state, MarketType market)
+        : state_{std::move(state)} {
+        // One link, because one process serves one market. The list stays a
+        // list: the private stream is per market and the loop below does not
+        // care how many there are.
+        links_.push_back(std::make_unique<MarketLink>(*state_, market, /*stream_id=*/1));
     }
 
     std::expected<void, exec::VenueError> start() override {
@@ -1260,13 +1258,13 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     load_credentials(config, *state);
 
-    state->market = config.enable_spot ? MarketType::Spot : MarketType::Perp;
+    state->market = config.market;
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Kucoin);
     adapter.data = std::make_unique<KucoinData>(state);
     adapter.execution =
-        std::make_unique<KucoinExec>(state, config.enable_spot, config.enable_perp);
+        std::make_unique<KucoinExec>(state, config.market);
     adapter.instruments = std::make_unique<KucoinInstruments>(state);
     return adapter;
 }

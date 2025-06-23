@@ -34,7 +34,7 @@ TEST_F(BybitVenue, RegistersAndBuildsWithoutCredentials) {
     // Market data needs no keys, so a gateway started without them still
     // runs — read-only by construction rather than by configuration.
     const auto adapter = exec::make_venue(
-        {.venue = VenueId::Bybit, .enable_perp = true}, sink, clock);
+        {.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bybit);
     EXPECT_TRUE(adapter->caps.perp);
@@ -56,7 +56,7 @@ TEST_F(BybitVenue, CapsRowCarriesOurOrderIds) {
 }
 
 TEST_F(BybitVenue, SubscribingAnUnknownInstrumentIsRefused) {
-    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .enable_perp = true}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
     const auto unknown = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
@@ -68,7 +68,7 @@ TEST_F(BybitVenue, SubscribingAnUnknownInstrumentIsRefused) {
 TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
     // A command that cannot even be built must still produce a terminal
     // event: silence would leave the order open in the store forever.
-    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .enable_perp = true}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
 
@@ -93,7 +93,7 @@ TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
 }
 
 TEST_F(BybitVenue, StopIsIdempotent) {
-    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .enable_perp = true}, sink, clock);
+    auto adapter_holder = exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
     auto& adapter = *adapter_holder;
     adapter.data->stop();
