@@ -526,9 +526,58 @@ TEST(DeribitMap, NonPerpetualTickersQuoteNoFundingAtAll) {
     const auto option_frame = fixture("ws_ticker_option.json");
     const auto option_wire = parse_ticker(option_frame);
     ASSERT_TRUE(option_wire.has_value());
-    // greeks and mark_iv ride this frame and are deliberately not read.
     EXPECT_EQ(option_wire->mark_price, "0.0044");
+    // An option pays no funding, and the same frame is where its greeks are.
     EXPECT_FALSE(map_funding(*option_wire, options, UnixNanos{1}).has_value());
+    EXPECT_TRUE(map_greeks(*option_wire, options, UnixNanos{1}).has_value());
+}
+
+TEST(DeribitMap, TheVenuesGreeksRideTheTickerAndAreTakenAsGiven) {
+    const auto catalogue = fixture("rest_get_instruments.json");
+    exec::InstrumentTable options;
+    ASSERT_EQ(load_catalogue(options, MarketType::Option, catalogue), 2U);
+
+    const auto frame = fixture("ws_ticker_option.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_TRUE(has_greeks(*wire));
+
+    const auto greeks = map_greeks(*wire, options, UnixNanos{1});
+    ASSERT_TRUE(greeks.has_value());
+    EXPECT_EQ(greeks->instrument.market(), MarketType::Option);
+    EXPECT_EQ(greeks->delta.raw, 575'880'000);      // 0.57588
+    EXPECT_EQ(greeks->gamma.raw, 680'000);          // 0.00068
+    EXPECT_EQ(greeks->vega.raw, 8'918'550'000);     // 8.91855
+    EXPECT_EQ(greeks->theta.raw, -112'532'180'000); // negative, and stays so
+    EXPECT_EQ(greeks->rho.raw, 462'080'000);
+
+    // PERCENT ON THE WIRE, RATIO IN THE DOMAIN. 25.24 % is 0.2524, and a
+    // percent that slipped through unconverted would be a 100x vol.
+    EXPECT_EQ(greeks->mark_iv.raw, 252'400'000);
+    EXPECT_EQ(greeks->bid_iv.raw, 218'400'000);
+    EXPECT_EQ(greeks->ask_iv.raw, 275'900'000);
+    EXPECT_LT(greeks->bid_iv.raw, greeks->ask_iv.raw);
+
+    // The underlying is a dollar price and stays one: dividing it by the
+    // option's tick — the premium's step, in BTC — would mean nothing.
+    EXPECT_EQ(greeks->underlying_price.raw, 64'107'290'000'000);
+}
+
+TEST(DeribitMap, APerpetualTickerCarriesNoGreeksAtAll) {
+    // The separation that matters: an option whose greeks are genuinely zero
+    // — a deep in-the-money call has gamma 0 — must not read the same as an
+    // instrument that has none.
+    const auto catalogue = fixture("rest_get_instruments.json");
+    exec::InstrumentTable perps;
+    ASSERT_GT(load_catalogue(perps, MarketType::Perp, catalogue), 0U);
+
+    const auto frame = fixture("ws_ticker_perpetual.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_FALSE(has_greeks(*wire));
+    EXPECT_FALSE(map_greeks(*wire, perps, UnixNanos{1}).has_value());
+    // And the perpetual's own row still maps, from the same parser.
+    EXPECT_TRUE(map_funding(*wire, perps, UnixNanos{1}).has_value());
 }
 
 TEST(DeribitMap, UnknownInstrumentIsDroppedRatherThanInvented) {

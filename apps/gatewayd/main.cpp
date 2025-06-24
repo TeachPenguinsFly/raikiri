@@ -131,6 +131,14 @@ public:
             });
     }
 
+    void on_option_greeks(const raikiri::OptionGreeks& greeks) noexcept override {
+        ++counts_.greeks;
+        const auto idx = greeks.instrument.symbol().raw;
+        if (idx < raikiri::shm::k_greeks_cells) {
+            ch_.greeks->write(idx, greeks);
+        }
+    }
+
     // A refusal the venue never saw. Synthesized locally so the order reaches a
     // terminal state instead of waiting for a verdict that will never come —
     // the same shape as a REST-level rejection, which venues also never push.
@@ -185,6 +193,7 @@ public:
         std::uint64_t depth{0};
         std::uint32_t depth_levels{0};
         std::uint64_t funding{0};
+        std::uint64_t greeks{0};
         std::uint64_t order_events{0};
     };
 
@@ -645,13 +654,15 @@ int main(int argc, char** argv) {
     journal_writer->flush();
     const auto& counts = sink.counts();
     fmt::print(
-        "gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} order-events={}\n",
+        "gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
+        "order-events={}\n",
         account_name,
         counts.bbo,
         counts.depth,
         counts.depth_levels,
         counts.trades,
         counts.funding,
+        counts.greeks,
         counts.order_events);
     return 0;
 }

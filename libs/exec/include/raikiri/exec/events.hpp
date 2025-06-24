@@ -40,6 +40,10 @@ public:
     virtual void on_depth(const BookSnapshot& book) noexcept { (void)book; }
 
     virtual void on_funding(const FundingUpdate& funding) noexcept = 0;
+
+    // Declining by default: one venue publishes greeks today, and an adapter
+    // for a venue that lists no options has nothing to say here.
+    virtual void on_option_greeks(const OptionGreeks& greeks) noexcept { (void)greeks; }
     virtual void on_order_event(const OrderEvent& event) noexcept = 0;
     virtual void on_connectivity(const ConnEvent& event) noexcept = 0;
 

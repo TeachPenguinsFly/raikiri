@@ -8,6 +8,7 @@
 // Channel classes (fixed policy per channel, decided at design time):
 //   catalogue    CatalogueTable write-once before publish; the id agreement
 //   bbo/funding  SeqlockTable   state: overwrite-newest, stale ticks worthless
+//   greeks       SeqlockTable   state: the venue's own option analytics
 //   depth        SeqlockTable   state: the adapter's current book, not deltas
 //   md_events    BroadcastRing  stream: lossy-with-gap-detect -> resync
 //   exec_events  BroadcastRing  critical: overrun => halt venue + reconcile
@@ -87,6 +88,7 @@ static_assert(std::is_trivially_copyable_v<OrderCmd>);
 
 inline constexpr std::size_t k_bbo_cells = 4096;
 inline constexpr std::size_t k_funding_cells = 4096;
+inline constexpr std::size_t k_greeks_cells = 4096;
 inline constexpr std::size_t k_depth_cells = 4096;
 inline constexpr std::size_t k_position_cells = 4096;
 inline constexpr std::size_t k_md_ring = 65536;
@@ -103,9 +105,11 @@ inline constexpr std::size_t k_gateway_segment_bytes = 64ULL << 20;
 static_assert(k_catalogue_cells == k_bbo_cells);
 static_assert(k_depth_cells == k_bbo_cells);
 static_assert(k_position_cells == k_bbo_cells);
+static_assert(k_greeks_cells == k_bbo_cells);
 
 using BboTable = SeqlockTable<Bbo, k_bbo_cells>;
 using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
+using GreeksTable = SeqlockTable<OptionGreeks, k_greeks_cells>;
 using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
@@ -122,6 +126,7 @@ struct GatewayChannels {
     BboTable* bbo{nullptr};
     DepthTable* depth{nullptr};
     FundingTable* funding{nullptr};
+    GreeksTable* greeks{nullptr};
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};
     PositionTable* positions{nullptr};

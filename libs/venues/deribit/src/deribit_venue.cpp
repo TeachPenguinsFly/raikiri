@@ -189,10 +189,15 @@ void handle_frame(VenueState& state,
         if (!wire.has_value()) {
             return;
         }
-        // Dated futures share this channel and quote no funding at all.
+        // Dated futures share this channel and quote no funding at all, and
+        // options carry greeks instead. One ticker, three kinds of row.
         if (const auto funding = map_funding(*wire, state.instruments, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
+        }
+        if (const auto greeks = map_greeks(*wire, state.instruments, received);
+            greeks.has_value()) {
+            state.sink->on_option_greeks(*greeks);
         }
         break;
     }

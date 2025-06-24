@@ -219,6 +219,64 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
+namespace {
+
+// Deribit quotes an implied vol as a PERCENT: 172.79 means 172.79 %. Every
+// other rate in this system is a ratio, and a percent read as one is a 100x
+// vol — so the conversion happens here, at the one edge where units change.
+std::optional<FixedE9> iv_ratio(std::string_view text) {
+    if (text.empty()) {
+        return std::nullopt;
+    }
+    const auto percent = parse_number_e9(text);
+    if (!percent.has_value()) {
+        return std::nullopt;
+    }
+    return FixedE9::from_raw(percent->raw / 100);
+}
+
+} // namespace
+
+std::optional<OptionGreeks>
+map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (!has_greeks(wire)) {
+        return std::nullopt; // a perpetual's ticker carries no greeks object
+    }
+    const auto* instrument = table.find(wire.instrument);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+
+    OptionGreeks out{};
+    out.instrument = base_of(*instrument).id;
+    // Each field stands on its own: Deribit ships 0.0 for a greek that really
+    // is zero — a deep-in-the-money call has gamma 0 — so an unparseable one
+    // is left undefined rather than folded into the same number.
+    const auto put = [](std::string_view text, FixedE9& into) {
+        if (const auto value = parse_number_e9(text); value.has_value()) {
+            into = *value;
+        }
+    };
+    put(wire.delta, out.delta);
+    put(wire.gamma, out.gamma);
+    put(wire.vega, out.vega);
+    put(wire.theta, out.theta);
+    put(wire.rho, out.rho);
+    if (const auto iv = iv_ratio(wire.mark_iv); iv.has_value()) {
+        out.mark_iv = *iv;
+    }
+    if (const auto iv = iv_ratio(wire.bid_iv); iv.has_value()) {
+        out.bid_iv = *iv;
+    }
+    if (const auto iv = iv_ratio(wire.ask_iv); iv.has_value()) {
+        out.ask_iv = *iv;
+    }
+    put(wire.underlying_price, out.underlying_price);
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.instrument);

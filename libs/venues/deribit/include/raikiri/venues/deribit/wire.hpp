@@ -84,8 +84,29 @@ struct WireTicker {
     std::string_view mark_price;
     std::string_view current_funding; // empty on anything but a perpetual
     std::string_view funding_8h;      // empty on anything but a perpetual
+    // Empty on anything but an option. Deribit computes these itself and ships
+    // them on the same ticker as the mark, so an options desk gets the venue's
+    // own analytics rather than ours — see OptionGreeks for why that matters.
+    // The implied vols arrive as PERCENTS here; the conversion to a ratio is
+    // the mapper's, at the one edge where units change.
+    std::string_view delta;
+    std::string_view gamma;
+    std::string_view vega;
+    std::string_view theta;
+    std::string_view rho;
+    std::string_view mark_iv;
+    std::string_view bid_iv;
+    std::string_view ask_iv;
+    std::string_view underlying_price;
     std::uint64_t ts_ms{0};
 };
+
+// True when the frame carried an option's analytics. A perpetual's ticker has
+// no `greeks` object at all, so this separates "not an option" from "an option
+// whose greeks are genuinely zero" — deep in the money, they are.
+[[nodiscard]] constexpr bool has_greeks(const WireTicker& wire) noexcept {
+    return !wire.delta.empty() || !wire.mark_iv.empty();
+}
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 

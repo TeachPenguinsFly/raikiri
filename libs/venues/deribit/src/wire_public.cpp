@@ -386,6 +386,22 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.current_funding = *current;
         out.funding_8h = *eight_hour;
         out.ts_ms = *ts;
+
+        // Options only, and every one of these is absent on a perpetual. The
+        // scalars are read before the nested object so the cursor never has to
+        // climb back out of `greeks` to reach a sibling.
+        out.mark_iv = detail::opt_num(*data, "mark_iv").value_or(std::string_view{});
+        out.bid_iv = detail::opt_num(*data, "bid_iv").value_or(std::string_view{});
+        out.ask_iv = detail::opt_num(*data, "ask_iv").value_or(std::string_view{});
+        out.underlying_price =
+            detail::opt_num(*data, "underlying_price").value_or(std::string_view{});
+        if (auto greeks = detail::req_object(*data, "greeks"); greeks.has_value()) {
+            out.delta = detail::opt_num(*greeks, "delta").value_or(std::string_view{});
+            out.gamma = detail::opt_num(*greeks, "gamma").value_or(std::string_view{});
+            out.vega = detail::opt_num(*greeks, "vega").value_or(std::string_view{});
+            out.theta = detail::opt_num(*greeks, "theta").value_or(std::string_view{});
+            out.rho = detail::opt_num(*greeks, "rho").value_or(std::string_view{});
+        }
         return out;
     });
 }

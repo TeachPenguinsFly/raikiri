@@ -40,6 +40,12 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The venue's own option analytics off the same ticker. nullopt on anything
+// that is not an option, which is what has_greeks() separates from an option
+// whose greeks are genuinely zero.
+[[nodiscard]] std::optional<OptionGreeks>
+map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything inactive, linear, of another market, or whose

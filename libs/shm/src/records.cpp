@@ -9,6 +9,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.bbo = owner.create_channel<BboTable>("bbo");
     ch.depth = owner.create_channel<DepthTable>("depth");
     ch.funding = owner.create_channel<FundingTable>("funding");
+    ch.greeks = owner.create_channel<GreeksTable>("greeks");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.positions = owner.create_channel<PositionTable>("positions");
@@ -16,7 +17,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.positions == nullptr || ch.cmd_create == nullptr ||
+        ch.greeks == nullptr || ch.positions == nullptr || ch.cmd_create == nullptr ||
         ch.cmd_cancel == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
@@ -40,6 +41,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!funding) {
         return std::unexpected{funding.error()};
     }
+    const auto greeks = client.open_channel<GreeksTable>("greeks");
+    if (!greeks) {
+        return std::unexpected{greeks.error()};
+    }
     const auto md = client.open_channel<MdRing>("md_events");
     if (!md) {
         return std::unexpected{md.error()};
@@ -61,7 +66,8 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
         return std::unexpected{cancel.error()};
     }
     return GatewayChannels{
-        *catalogue, *bbo, *depth, *funding, *md, *exec, *positions, *create, *cancel};
+        *catalogue, *bbo,       *depth,  *funding, *greeks,
+        *md,        *exec,      *positions, *create,  *cancel};
 }
 
 std::string gateway_segment_path(AccountId account) {

@@ -81,4 +81,38 @@ struct FundingUpdate {
 
 static_assert(std::is_trivially_copyable_v<FundingUpdate>);
 
+// What the venue says about an option beyond its price.
+//
+// THE VENUE'S NUMBERS, NOT OURS. Computing greeks here would need a vol
+// surface, a rate curve and a dividend assumption, and every one of those is a
+// number we would then have to defend against the venue's own — the same
+// reasoning that decided funding is credited only from the venue's charge.
+//
+// The implied vols and the underlying ride along because a delta without them
+// has no provenance: it was computed AT a vol and a spot, and a reader that
+// cannot see which is reading a number it cannot check.
+struct OptionGreeks {
+    InstrumentId instrument{};
+    FixedE9 delta{};
+    FixedE9 gamma{};
+    FixedE9 vega{};
+    FixedE9 theta{};
+    FixedE9 rho{};
+    // RATIOS, not percents. Deribit quotes 172.79 for 172.79 %, and the
+    // conversion happens at the parse edge because every other rate in this
+    // system is a ratio and one percent slipping through reads as a 100x vol.
+    FixedE9 mark_iv{};
+    FixedE9 bid_iv{};
+    FixedE9 ask_iv{};
+    // In the QUOTE currency, not in the option's ticks: the option's tick is
+    // the premium's step — 0.0001 BTC on Deribit — and the underlying is a
+    // dollar price, so dividing one by the other means nothing.
+    FixedE9 underlying_price{};
+    UnixNanos ts_event{};
+    UnixNanos ts_init{};
+};
+
+static_assert(sizeof(OptionGreeks) == 96);
+static_assert(std::is_trivially_copyable_v<OptionGreeks>);
+
 } // namespace raikiri
