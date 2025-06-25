@@ -1,0 +1,1000 @@
+openapi: 3.1.0
+
+# The contract between raikiri and its terminal.
+#
+# This file is the ONLY place a field is described. TypeScript types are
+# generated from it and never hand-edited; admind's responses are validated
+# against it in tests. A field the server can send is a field named here, and
+# CI fails when it is not.
+#
+# It sits beside schema/journal.xml because both are contracts this system
+# publishes and neither may break quietly.
+#
+# ---------------------------------------------------------------- units ----
+#
+# EVERY NUMBER THAT CANNOT SURVIVE A DOUBLE IS A STRING. JavaScript has one
+# numeric type and it holds integers exactly only to 2^53 — about 9.0e15.
+# Nanoseconds since the epoch are already 1.79e18, so a ns timestamp parsed as
+# a JSON number silently rounds to the nearest ~200 ns. Instrument and order
+# ids are packed 64-bit words and overflow the same way. Prices in a double
+# render as 79418.299999996.
+#
+# So: decimal strings for prices, sizes and money; digit strings for ids and
+# timestamps. The client parses once, at the edge, and never has to know an
+# instrument's tick size to display its price.
+#
+# ------------------------------------------------------------- v1 reads ----
+#
+# THIS VERSION IS READ-ONLY, and that is a design constraint rather than an
+# omission. Every write — halting an instrument, cancelling an order, moving a
+# risk limit — needs a path into a running strategyd, and the command rings are
+# SPSC with strategyd as their single producer. A second producer is a decision
+# to be made deliberately, not a POST added quietly.
+#
+# Authentication is likewise unresolved and deliberately absent: admind binds
+# localhost until an identity story exists. Shipping one that "works for now"
+# is how a terminal ends up with a static token in a repository.
+
+info:
+  title: raikiri admin API
+  version: 1.0.0
+  license:
+    name: LGPL-3.0-or-later
+  description: |
+    Reads over a running raikiri deployment: the live state in each gateway's
+    shared-memory segment, and the history persisterd has written to Postgres.
+
+    Live data does NOT come through these endpoints. It rides one WebSocket,
+    described under `/v1/stream`.
+
+servers:
+  - url: http://127.0.0.1:8787
+    description: admind, bound to loopback while authentication is unresolved
+
+tags:
+  - name: system
+  - name: catalogue
+  - name: trading
+  - name: analytics
+  - name: live
+
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      summary: What is running, and whether it is answering
+      operationId: getHealth
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /v1/accounts:
+    get:
+      tags: [system]
+      summary: The (venue, market) pairs with a gateway attached
+      description: |
+        One account is one gatewayd process. The name is the segment name:
+        `bybit` is the perpetual gateway, `bybit-spot` the spot one beside it.
+      operationId: listAccounts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Account" }
+
+  /v1/instruments:
+    get:
+      tags: [catalogue]
+      summary: The instrument catalogue of one or every attached gateway
+      operationId: listInstruments
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/MarketType" }
+        - name: underlying
+          in: query
+          description: Options and dated futures only, e.g. `BTC`.
+          schema: { type: string }
+        - name: expiry
+          in: query
+          description: |
+            Options and dated futures only. An exact expiry, as nanoseconds —
+            the values `GET /v1/instruments` returns in `expiry`.
+          schema: { $ref: "#/components/schemas/Nanos" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Instrument" }
+
+  /v1/instruments/{instrument_id}:
+    get:
+      tags: [catalogue]
+      operationId: getInstrument
+      parameters:
+        - { $ref: "#/components/parameters/InstrumentId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Instrument" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/orders:
+    get:
+      tags: [trading]
+      summary: Orders, newest first
+      operationId: listOrders
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: instrument_id
+          in: query
+          schema: { $ref: "#/components/schemas/InstrumentId" }
+        - name: open
+          in: query
+          description: Restrict to orders that can still fill.
+          schema: { type: boolean }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Order" }
+
+  /v1/orders/{client_order_id}:
+    get:
+      tags: [trading]
+      operationId: getOrder
+      parameters:
+        - { $ref: "#/components/parameters/ClientOrderId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/orders/{client_order_id}/events:
+    get:
+      tags: [trading]
+      summary: Every lifecycle event this order went through, oldest first
+      description: |
+        The order row above is a projection of these. When the two disagree the
+        events are right: they are what the journal recorded.
+      operationId: listOrderEvents
+      parameters:
+        - { $ref: "#/components/parameters/ClientOrderId" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OrderEvent" }
+
+  /v1/fills:
+    get:
+      tags: [trading]
+      summary: Executions, deduplicated on what the venue calls unique
+      operationId: listFills
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: instrument_id
+          in: query
+          schema: { $ref: "#/components/schemas/InstrumentId" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Fill" }
+
+  /v1/positions:
+    get:
+      tags: [trading]
+      summary: What is held, by strategy and instrument
+      operationId: listPositions
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: strategy_id
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 65535 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Position" }
+
+  /v1/pnl:
+    get:
+      tags: [analytics]
+      summary: The PnL ledger, as increments
+      description: |
+        Increments, never a running total: the ledger is append-only and
+        idempotent, and a total is a question asked of it rather than a row
+        stored in it. Sum them yourself over whatever window you mean.
+      operationId: listPnl
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/PnlKind" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/PnlIncrement" }
+
+  /v1/funding:
+    get:
+      tags: [analytics]
+      summary: Funding rates as observed, not as charged
+      description: |
+        These are the rates the venues published. They are NOT money: no
+        adapter yet reads the charge a venue actually took, so nothing here has
+        moved the ledger. When that lands it will arrive as a `funding` kind in
+        `/v1/pnl`, and this endpoint will stay what it is — observations.
+      operationId: listFunding
+      parameters:
+        - name: instrument_id
+          in: query
+          schema: { $ref: "#/components/schemas/InstrumentId" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/FundingObservation" }
+
+  /v1/recon-breaks:
+    get:
+      tags: [analytics]
+      summary: Where the book and a venue disagreed
+      operationId: listReconBreaks
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Page" }
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/ReconBreak" }
+
+  /v1/stream:
+    get:
+      tags: [live]
+      summary: Everything live, over one WebSocket
+      description: |
+        A WebSocket upgrade. OpenAPI cannot describe the protocol that follows,
+        so it is described here and every message shape is a schema below —
+        which is what makes the generated types cover the live path too.
+
+        ## Two kinds of data, and the difference matters
+
+        **State** — quotes, books, greeks, funding, positions, health. The
+        server SAMPLES these from the gateway's seqlock tables at a fixed
+        cadence and sends the current value of what changed. It does not
+        forward every tick. A client that falls behind therefore loses
+        intermediate values and never builds a backlog: there is no queue
+        between the venue and the browser, so a slow connection means fewer
+        frames, never growing lag. A quote you did not receive had already been
+        replaced by one you did.
+
+        **Events** — order events, fills, reconciliation breaks. These are
+        sequenced and must not be coalesced: every fill is money. Each carries
+        a `seq`, and if the server's own ring overran, a `gap` frame says so
+        rather than letting the loss pass as quiet.
+
+        That split is not invented for the wire. It is the same one the
+        shared-memory channels are built on: overwrite-newest tables for state,
+        a lossless ring for execution.
+
+        ## Client messages
+
+            {"op":"subscribe","id":"q1","quotes":["<instrument_id>", ...]}
+            {"op":"subscribe","id":"b1","book":"<instrument_id>"}
+            {"op":"subscribe","id":"g1","greeks":["<instrument_id>", ...]}
+            {"op":"subscribe","id":"a1","events":["orders","fills","recon"]}
+            {"op":"unsubscribe","id":"q1"}
+
+        `id` is the client's own handle for the subscription and comes back on
+        the ack and on every frame it produced.
+
+        ## Server messages
+
+        Each is a `StreamFrame`; `type` selects the variant.
+
+            {"type":"ack","id":"q1"}
+            {"type":"quotes","id":"q1","ts":"...","quotes":[Quote, ...]}
+            {"type":"book","id":"b1","ts":"...","book":Book}
+            {"type":"greeks","id":"g1","ts":"...","greeks":[Greeks, ...]}
+            {"type":"event","id":"a1","seq":"1042","event":OrderEvent}
+            {"type":"gap","id":"a1","missed":"17"}
+            {"type":"problem","id":"q1","problem":Problem}
+
+        ## Cadence
+
+        Default 10 Hz per state subscription. `hz` on the subscribe message
+        asks for something else and the server answers with what it will
+        actually do — it will not go above its own sampling rate, and asking
+        for more is answered with less rather than refused.
+      operationId: openStream
+      responses:
+        "101":
+          description: Switching protocols
+
+components:
+  parameters:
+    Account:
+      name: account
+      in: query
+      description: An account name, as `GET /v1/accounts` returns it.
+      schema: { type: string, examples: ["bybit-spot"] }
+    InstrumentId:
+      name: instrument_id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/InstrumentId" }
+    ClientOrderId:
+      name: client_order_id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ClientOrderId" }
+    Since:
+      name: since
+      in: query
+      description: Lower bound on `ts_event`, inclusive.
+      schema: { $ref: "#/components/schemas/Nanos" }
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Opaque; take it from the previous page's `next_cursor`. Cursors, not
+        offsets: rows arrive continuously, and an offset walks a moving list.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+
+  responses:
+    NotFound:
+      description: No such thing
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    # ------------------------------------------------------- primitives ----
+
+    Decimal:
+      type: string
+      description: |
+        An exact decimal. A string because a double cannot hold one: 79418.30
+        parsed as a number and printed back is 79418.299999996.
+      pattern: '^-?\d+(\.\d+)?$'
+      examples: ["79418.30", "-0.008", "0"]
+
+    Nanos:
+      type: string
+      description: |
+        Nanoseconds since the Unix epoch. A string because the value is already
+        1.79e18 and JavaScript holds integers exactly only to 9.0e15 — as a
+        number it would round to the nearest ~200 ns.
+      pattern: '^\d+$'
+      examples: ["1787840965107000000"]
+
+    InstrumentId:
+      type: string
+      description: |
+        The packed instrument word, `{venue|market|reserved|symbol}`, as
+        decimal digits. A string for the same reason as Nanos: the venue byte
+        sits at bit 56, so every id is far past 2^53.
+      pattern: '^\d+$'
+
+    ClientOrderId:
+      type: string
+      description: Packed `{strategy_id|seq}`, as decimal digits.
+      pattern: '^\d+$'
+
+    MarketType:
+      type: string
+      enum: [spot, perp, future, option]
+
+    Side:
+      type: string
+      enum: [buy, sell]
+
+    Problem:
+      description: RFC 9457. One error shape everywhere.
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+
+    Page:
+      type: object
+      properties:
+        next_cursor:
+          type: [string, "null"]
+          description: Absent or null on the last page.
+
+    # ------------------------------------------------------------ system ----
+
+    Account:
+      type: object
+      required: [account, venue, market, gateway]
+      properties:
+        account:
+          type: string
+          description: Segment name; perp is unsuffixed.
+          examples: ["bybit", "bybit-spot", "deribit-opt"]
+        venue: { type: string }
+        market: { $ref: "#/components/schemas/MarketType" }
+        gateway: { $ref: "#/components/schemas/GatewayHealth" }
+
+    GatewayHealth:
+      type: object
+      required: [alive, generation, instruments]
+      properties:
+        alive:
+          type: boolean
+          description: |
+            The segment owner is answering. A gateway that restarted is a new
+            generation, and everything read from the previous one — cursors,
+            ids, the book — belongs to a world that no longer exists.
+        generation: { $ref: "#/components/schemas/Nanos" }
+        last_heartbeat: { $ref: "#/components/schemas/Nanos" }
+        instruments: { type: integer }
+
+    Health:
+      type: object
+      required: [gateways, database]
+      properties:
+        gateways:
+          type: array
+          items: { $ref: "#/components/schemas/Account" }
+        database:
+          type: object
+          required: [reachable]
+          properties:
+            reachable: { type: boolean }
+            lag_seconds:
+              type: [number, "null"]
+              description: |
+                How far persisterd is behind the journals it tails. Null when
+                it cannot be determined, which is not the same as zero.
+
+    # --------------------------------------------------------- catalogue ----
+
+    Instrument:
+      type: object
+      required:
+        [instrument_id, account, venue, market, exchange_symbol, tick_size, lot_size, contract_value, contract_kind]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        account: { type: string }
+        venue: { type: string }
+        market: { $ref: "#/components/schemas/MarketType" }
+        exchange_symbol: { type: string }
+        local_symbol: { type: string }
+        tick_size: { $ref: "#/components/schemas/Decimal" }
+        lot_size: { $ref: "#/components/schemas/Decimal" }
+        min_notional: { $ref: "#/components/schemas/Decimal" }
+        contract_value:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Units per contract; `contract_kind` says which units.
+        contract_kind:
+          type: string
+          enum: [unknown, linear, inverse]
+          description: |
+            Linear settles in the quote currency, inverse in the base with a
+            reciprocal PnL. Reading one as the other inverts every position's
+            profit, so it is stated rather than inferred.
+        # Dated futures and options only.
+        expiry:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: Absent on spot and perpetuals.
+        strike:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Options only.
+        put_call:
+          type: string
+          enum: [put, call]
+          description: Options only.
+
+    # -------------------------------------------------------------- live ----
+
+    Quote:
+      type: object
+      required: [instrument_id, bid, bid_size, ask, ask_size, ts_event]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        bid: { $ref: "#/components/schemas/Decimal" }
+        bid_size: { $ref: "#/components/schemas/Decimal" }
+        ask: { $ref: "#/components/schemas/Decimal" }
+        ask_size: { $ref: "#/components/schemas/Decimal" }
+        ts_event:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: The venue's own stamp, not when this frame was built.
+
+    BookLevel:
+      type: object
+      required: [price, size]
+      properties:
+        price: { $ref: "#/components/schemas/Decimal" }
+        size: { $ref: "#/components/schemas/Decimal" }
+
+    Book:
+      type: object
+      required: [instrument_id, bids, asks, ts_event]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        bids:
+          type: array
+          description: Best first.
+          items: { $ref: "#/components/schemas/BookLevel" }
+        asks:
+          type: array
+          description: Best first.
+          items: { $ref: "#/components/schemas/BookLevel" }
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    Greeks:
+      description: |
+        The VENUE'S analytics for an option, not ours. Computing them here
+        would need a vol surface, a rate curve and a dividend assumption, and
+        each is a number that would then have to be defended against the
+        venue's own. The implied vols and the underlying ride along because a
+        delta without them has no provenance.
+      type: object
+      required: [instrument_id, ts_event]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        delta: { $ref: "#/components/schemas/Decimal" }
+        gamma: { $ref: "#/components/schemas/Decimal" }
+        vega: { $ref: "#/components/schemas/Decimal" }
+        theta: { $ref: "#/components/schemas/Decimal" }
+        rho: { $ref: "#/components/schemas/Decimal" }
+        mark_iv:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: A RATIO. 0.2524 is 25.24 %.
+        bid_iv: { $ref: "#/components/schemas/Decimal" }
+        ask_iv: { $ref: "#/components/schemas/Decimal" }
+        underlying_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: In the quote currency, not in the option's ticks.
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    Funding:
+      type: object
+      required: [instrument_id, rate, ts_event]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        rate:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: A ratio per interval, not a percent and not an APR.
+        predicted_rate: { $ref: "#/components/schemas/Decimal" }
+        mark_price: { $ref: "#/components/schemas/Decimal" }
+        next_funding_time: { $ref: "#/components/schemas/Nanos" }
+        interval_seconds:
+          type: [integer, "null"]
+          description: |
+            The rate's own interval. Hyperliquid quotes hourly where most
+            venues quote per eight hours, so annualising without this is wrong
+            by a factor of eight.
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    # ----------------------------------------------------------- trading ----
+
+    Order:
+      type: object
+      required:
+        [client_order_id, instrument_id, side, order_type, tif, qty, status, ts_created, ts_updated]
+      properties:
+        client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+        exchange_client_order_id: { type: string }
+        exchange_order_id: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        strategy_id: { type: integer }
+        side: { $ref: "#/components/schemas/Side" }
+        order_type: { type: string, enum: [limit, market] }
+        tif: { type: string, enum: [gtc, ioc, fok] }
+        post_only: { type: boolean }
+        reduce_only: { type: boolean }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        leaves:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            What is still working. The filled amount is the DROP in this
+            between two events, never an event's own `qty` — a venue that
+            resends a fill notification would otherwise book it twice.
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        ts_created: { $ref: "#/components/schemas/Nanos" }
+        ts_updated: { $ref: "#/components/schemas/Nanos" }
+
+    OrderStatus:
+      type: string
+      enum:
+        [initialized, denied, submitted, accepted, partially_filled, filled,
+         canceled, rejected, expired]
+
+    OrderEventType:
+      type: string
+      enum:
+        [initialized, denied, submitted, accepted, rejected, triggered,
+         pending_update, updated, modify_rejected, pending_cancel, canceled,
+         cancel_rejected, expired, filled, recon_gap, recon_closed]
+
+    OrderEvent:
+      type: object
+      required: [client_order_id, instrument_id, event_type, ts_event]
+      properties:
+        client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        event_type: { $ref: "#/components/schemas/OrderEventType" }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        leaves: { $ref: "#/components/schemas/Decimal" }
+        fee: { $ref: "#/components/schemas/Decimal" }
+        exec_id: { type: string }
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    Fill:
+      type: object
+      required: [venue, exec_id, instrument_id, side, price, qty, ts_event]
+      properties:
+        venue: { type: string }
+        exec_id:
+          type: string
+          description: |
+            The venue's own idea of unique, and what dedup keys on together
+            with the venue.
+        client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
+        exchange_order_id: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        side: { $ref: "#/components/schemas/Side" }
+        price: { $ref: "#/components/schemas/Decimal" }
+        qty: { $ref: "#/components/schemas/Decimal" }
+        fee: { $ref: "#/components/schemas/Decimal" }
+        liquidity: { type: string, enum: [maker, taker, unknown] }
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    Position:
+      type: object
+      required: [instrument_id, strategy_id, qty, ts_updated]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        strategy_id: { type: integer }
+        qty:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Signed; positive is long.
+        avg_entry_price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            Derived from this system's own cost basis, never adopted from a
+            venue: a venue recomputes an average by its own rules — with or
+            without leverage, fees inside or outside — and two queries can
+            disagree.
+        realized: { $ref: "#/components/schemas/Decimal" }
+        venue_qty:
+          type: [string, "null"]
+          description: |
+            What the venue last said it holds, or null when it has not said
+            anything recently. NULL IS NOT FLAT. A venue that cannot answer, an
+            answer that failed and an answer of zero are three different facts.
+        venue_reported_at:
+          type: [string, "null"]
+          description: When that snapshot was taken. Null when there is none.
+        ts_updated: { $ref: "#/components/schemas/Nanos" }
+
+    # --------------------------------------------------------- analytics ----
+
+    PnlKind:
+      type: string
+      enum: [realized, fee, funding]
+
+    PnlIncrement:
+      type: object
+      required: [source_id, account, kind, amount, ts_event]
+      properties:
+        source_id:
+          type: string
+          description: |
+            The idempotency key the ledger dedupes on. Replaying a journal
+            twice must not move the money twice.
+        account: { type: string }
+        kind: { $ref: "#/components/schemas/PnlKind" }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        strategy_id: { type: integer }
+        amount:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Signed; positive is money gained.
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
+    FundingObservation:
+      allOf:
+        - { $ref: "#/components/schemas/Funding" }
+        - type: object
+          properties:
+            observed_at: { $ref: "#/components/schemas/Nanos" }
+
+    ReconVerdict:
+      type: string
+      enum: [break, unknown]
+      description: |
+        `unknown` is the venue not answering, and it is NOT agreement. Agreeing
+        instruments are not recorded.
+
+    ReconBreak:
+      type: object
+      required: [venue, instrument_id, verdict, ts_seen]
+      properties:
+        venue: { type: string }
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        symbol: { type: string }
+        verdict: { $ref: "#/components/schemas/ReconVerdict" }
+        local_qty: { $ref: "#/components/schemas/Decimal" }
+        venue_qty: { $ref: "#/components/schemas/Decimal" }
+        detail: { type: string }
+        ts_seen: { $ref: "#/components/schemas/Nanos" }
+
+    # -------------------------------------------------- stream messages ----
+
+    StreamSubscribe:
+      type: object
+      required: [op, id]
+      properties:
+        op: { type: string, const: subscribe }
+        id:
+          type: string
+          description: The client's handle; echoed on the ack and every frame.
+        quotes:
+          type: array
+          items: { $ref: "#/components/schemas/InstrumentId" }
+        book: { $ref: "#/components/schemas/InstrumentId" }
+        greeks:
+          type: array
+          items: { $ref: "#/components/schemas/InstrumentId" }
+        funding:
+          type: array
+          items: { $ref: "#/components/schemas/InstrumentId" }
+        events:
+          type: array
+          items: { type: string, enum: [orders, fills, recon, positions, health] }
+        hz:
+          type: number
+          description: |
+            Asked-for cadence for the state subscriptions in this message. The
+            ack states what the server will actually do; asking above its own
+            sampling rate is answered with less, not refused.
+
+    StreamUnsubscribe:
+      type: object
+      required: [op, id]
+      properties:
+        op: { type: string, const: unsubscribe }
+        id: { type: string }
+
+    StreamAck:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, const: ack }
+        id: { type: string }
+        hz: { type: number }
+
+    StreamQuotes:
+      type: object
+      required: [type, id, ts, quotes]
+      properties:
+        type: { type: string, const: quotes }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        quotes:
+          type: array
+          description: Only what changed since the last frame of this subscription.
+          items: { $ref: "#/components/schemas/Quote" }
+
+    StreamBook:
+      type: object
+      required: [type, id, ts, book]
+      properties:
+        type: { type: string, const: book }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        book: { $ref: "#/components/schemas/Book" }
+
+    StreamGreeks:
+      type: object
+      required: [type, id, ts, greeks]
+      properties:
+        type: { type: string, const: greeks }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        greeks:
+          type: array
+          items: { $ref: "#/components/schemas/Greeks" }
+
+    StreamFunding:
+      type: object
+      required: [type, id, ts, funding]
+      properties:
+        type: { type: string, const: funding }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        funding:
+          type: array
+          items: { $ref: "#/components/schemas/Funding" }
+
+    StreamPositions:
+      type: object
+      required: [type, id, ts, positions]
+      properties:
+        type: { type: string, const: positions }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/Position" }
+
+    StreamHealth:
+      type: object
+      required: [type, id, ts, health]
+      properties:
+        type: { type: string, const: health }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        health: { $ref: "#/components/schemas/Health" }
+
+    StreamEvent:
+      description: |
+        A sequenced event. NOT coalesced, unlike every state frame above:
+        every fill is money, and one that was skipped is one the book never
+        learned about.
+      type: object
+      required: [type, id, seq]
+      properties:
+        type: { type: string, const: event }
+        id: { type: string }
+        seq:
+          allOf: [{ $ref: "#/components/schemas/Nanos" }]
+          description: Monotonic per subscription; the cursor for `gap`.
+        order_event: { $ref: "#/components/schemas/OrderEvent" }
+        fill: { $ref: "#/components/schemas/Fill" }
+        recon_break: { $ref: "#/components/schemas/ReconBreak" }
+
+    StreamGap:
+      description: |
+        The server's own ring overran and events were lost. Said out loud
+        rather than swallowed: a client that silently misses a fill carries a
+        position it does not know about. Refetch the affected resource.
+      type: object
+      required: [type, id, missed]
+      properties:
+        type: { type: string, const: gap }
+        id: { type: string }
+        missed: { $ref: "#/components/schemas/Nanos" }
+
+    StreamProblem:
+      type: object
+      required: [type, problem]
+      properties:
+        type: { type: string, const: problem }
+        id: { type: string }
+        problem: { $ref: "#/components/schemas/Problem" }
+
+    StreamFrame:
+      description: Anything the server sends; `type` selects the variant.
+      oneOf:
+        - { $ref: "#/components/schemas/StreamAck" }
+        - { $ref: "#/components/schemas/StreamQuotes" }
+        - { $ref: "#/components/schemas/StreamBook" }
+        - { $ref: "#/components/schemas/StreamGreeks" }
+        - { $ref: "#/components/schemas/StreamFunding" }
+        - { $ref: "#/components/schemas/StreamPositions" }
+        - { $ref: "#/components/schemas/StreamHealth" }
+        - { $ref: "#/components/schemas/StreamEvent" }
+        - { $ref: "#/components/schemas/StreamGap" }
+        - { $ref: "#/components/schemas/StreamProblem" }
+      discriminator:
+        propertyName: type
+        # SPELLED OUT. Without a mapping the discriminator's value defaults to
+        # the SCHEMA NAME, so a generator emits `type: "StreamGreeks"` while
+        # this file's own `const` says `greeks` — two answers to one question,
+        # and the wire would follow whichever side was read.
+        mapping:
+          ack: "#/components/schemas/StreamAck"
+          quotes: "#/components/schemas/StreamQuotes"
+          book: "#/components/schemas/StreamBook"
+          greeks: "#/components/schemas/StreamGreeks"
+          funding: "#/components/schemas/StreamFunding"
+          positions: "#/components/schemas/StreamPositions"
+          health: "#/components/schemas/StreamHealth"
+          event: "#/components/schemas/StreamEvent"
+          gap: "#/components/schemas/StreamGap"
+          problem: "#/components/schemas/StreamProblem"
