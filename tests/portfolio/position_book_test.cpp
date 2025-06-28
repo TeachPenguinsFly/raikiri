@@ -134,5 +134,69 @@ TEST(PositionBook, UnknownKeyIsNullNotAnEmptyPosition) {
     EXPECT_EQ(book.find({1, base.id}), nullptr);
 }
 
+TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
+    // The point of restoring at all: a process that comes up flat while the
+    // venue still holds everything is a reconciliation break against every
+    // instrument — the right alarm for a real disagreement and the wrong one
+    // for an ordinary restart.
+    const auto base = btcusdt(VenueId::Bybit);
+
+    PositionBook traded;
+    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Buy, 4, "60000"), QtyLots::from_raw(4))
+                    .has_value());
+    ASSERT_TRUE(traded.on_fill(base, fill(base, 1, Side::Sell, 1, "61000"), QtyLots::from_raw(1))
+                    .has_value());
+    const auto* original = traded.find({1, base.id});
+    ASSERT_NE(original, nullptr);
+
+    // Journalling copies exactly these fields, so restoring from them must
+    // reproduce the position the arithmetic left behind.
+    PositionBook rebuilt;
+    ASSERT_TRUE(rebuilt.restore({1, base.id},
+                                {.qty = original->qty(),
+                                 .cost = original->cost(),
+                                 .realized = original->realized(),
+                                 .fees = original->fees(),
+                                 .fill_count = original->fill_count(),
+                                 .ts_opened = original->ts_opened(),
+                                 .ts_updated = original->ts_updated()}));
+
+    const auto* restored = rebuilt.find({1, base.id});
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(restored->qty().raw, original->qty().raw);
+    EXPECT_EQ(restored->cost().raw, original->cost().raw);
+    EXPECT_EQ(restored->realized().raw, original->realized().raw);
+    EXPECT_EQ(restored->fill_count(), original->fill_count());
+    // The average is derived, never stored — so it has to come back too.
+    EXPECT_EQ(restored->avg_entry_price(base).raw, original->avg_entry_price(base).raw);
+
+    // And it keeps trading from there rather than starting over.
+    ASSERT_TRUE(rebuilt.on_fill(base, fill(base, 1, Side::Sell, 3, "62000"), QtyLots::from_raw(3))
+                    .has_value());
+    EXPECT_TRUE(rebuilt.find({1, base.id})->flat());
+}
+
+TEST(PositionBook, RestoringTwiceIsRefusedRatherThanDoubled) {
+    // Replay runs before trading, so a collision means the caller replayed the
+    // journal twice — and a doubled position is worse than a missing one.
+    const auto base = btcusdt(VenueId::Bybit);
+    PositionBook book;
+    const Position::Restored state{.qty = QtyLots::from_raw(5)};
+
+    EXPECT_TRUE(book.restore({1, base.id}, state));
+    EXPECT_FALSE(book.restore({1, base.id}, state));
+    EXPECT_EQ(book.size(), 1U);
+    EXPECT_EQ(book.find({1, base.id})->qty().raw, 5);
+}
+
+TEST(PositionBook, RestoreRespectsTheCapacityTheBookWasGiven) {
+    // Same refusal as on_fill: the book is fixed-capacity so its entries never
+    // move, and silently growing it would invalidate every pointer handed out.
+    const auto base = btcusdt(VenueId::Bybit);
+    PositionBook book{1};
+    EXPECT_TRUE(book.restore({1, base.id}, {}));
+    EXPECT_FALSE(book.restore({2, base.id}, {}));
+}
+
 } // namespace
 } // namespace raikiri::portfolio

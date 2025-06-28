@@ -151,6 +151,39 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.detail});
     }
 
+    // UPSERT, not insert: a position is a current state. Two replays of the
+    // same journal must leave one row per key holding the last thing that
+    // happened, and the ts_updated guard makes an out-of-order replay land on
+    // the newer row rather than the later-read one.
+    for (const auto& r : batch.positions) {
+        tx.exec("INSERT INTO raikiri.positions (strategy_id, venue, exchange_symbol,"
+                " instrument_id, net_qty_lots, cost_e9, realized_e9, fees_e9, settle_side,"
+                " fill_count, ts_opened, ts_updated)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"
+                " ON CONFLICT (strategy_id, venue, exchange_symbol) DO UPDATE SET"
+                " instrument_id = EXCLUDED.instrument_id,"
+                " net_qty_lots = EXCLUDED.net_qty_lots,"
+                " cost_e9 = EXCLUDED.cost_e9,"
+                " realized_e9 = EXCLUDED.realized_e9,"
+                " fees_e9 = EXCLUDED.fees_e9,"
+                " settle_side = EXCLUDED.settle_side,"
+                " fill_count = EXCLUDED.fill_count,"
+                " ts_updated = EXCLUDED.ts_updated"
+                " WHERE EXCLUDED.ts_updated >= raikiri.positions.ts_updated",
+                pqxx::params{r.strategy_id,
+                             r.venue,
+                             r.exchange_symbol,
+                             r.instrument_id,
+                             r.net_qty_lots,
+                             r.cost_e9,
+                             r.realized_e9,
+                             r.fees_e9,
+                             r.settle_side,
+                             r.fill_count,
+                             r.ts_opened,
+                             r.ts_updated});
+    }
+
     for (const auto& r : batch.funding) {
         tx.exec("INSERT INTO raikiri.funding_observations (instrument_id, ts_event, rate_e9,"
                 " predicted_e9, mark_ticks, next_funding_ts, interval_s)"

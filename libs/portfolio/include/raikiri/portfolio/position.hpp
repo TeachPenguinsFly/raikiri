@@ -53,6 +53,25 @@ public:
     Position() noexcept = default;
     Position(PositionKey key, UnixNanos opened) noexcept : key_{key}, ts_opened_{opened} {}
 
+    // FOR JOURNAL REPLAY ONLY. A position otherwise moves for exactly one
+    // reason — a fill — and every field below is arithmetic this class did.
+    // Rebuilding one from a row this class itself wrote is not a second
+    // derivation; putting a number here from anywhere else would be.
+    struct Restored {
+        QtyLots qty{QtyLots::from_raw(0)};
+        FixedE9 cost{FixedE9::from_raw(0)};
+        FixedE9 realized{FixedE9::from_raw(0)};
+        FixedE9 fees{FixedE9::from_raw(0)};
+        std::uint32_t fill_count{0};
+        UnixNanos ts_opened{};
+        UnixNanos ts_updated{};
+    };
+
+    Position(PositionKey key, const Restored& state) noexcept
+        : key_{key}, qty_{state.qty}, cost_{state.cost}, realized_{state.realized},
+          fees_{state.fees}, fill_count_{state.fill_count}, ts_opened_{state.ts_opened},
+          ts_updated_{state.ts_updated} {}
+
     // `delta` is the fill quantity the CALLER derived, normally from the drop
     // in leaves_qty rather than from the event's own qty — a venue that resends
     // a fill notification must produce a delta of zero, not a second fill.

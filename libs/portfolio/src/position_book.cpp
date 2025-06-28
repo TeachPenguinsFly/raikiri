@@ -38,4 +38,12 @@ PositionBook::on_fill(const InstrumentBase& base, const OrderEvent& event, QtyLo
                                    event.ts_event);
 }
 
+bool PositionBook::restore(PositionKey key, const Position::Restored& state) {
+    if (find(key) != nullptr || positions_.size() >= capacity_) {
+        return false;
+    }
+    positions_.emplace_back(key, state);
+    return true;
+}
+
 } // namespace raikiri::portfolio

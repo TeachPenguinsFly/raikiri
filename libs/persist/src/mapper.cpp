@@ -170,6 +170,24 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .amount_e9 = m.amount().value(),
             .ts_event = m.tsEvent().value(),
         });
+    } else if (frame.schema_id == schema::message_id<msgs::PositionMsg>()) {
+        const auto m = schema::view_msg<msgs::PositionMsg>(frame.payload);
+        batch.positions.push_back({
+            .strategy_id = m.strategyId().value(),
+            .venue = std::string{to_string(static_cast<VenueId>(sbepp::to_underlying(m.venue())))},
+            .exchange_symbol = trim_fixed(m.symbol()),
+            .instrument_id = m.instrument().value(),
+            .net_qty_lots = m.netQty().value(),
+            .cost_e9 = m.cost().value(),
+            .realized_e9 = m.realized().value(),
+            .fees_e9 = m.fees().value(),
+            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base
+                               ? "base"
+                               : "quote",
+            .fill_count = m.fillCount().value(),
+            .ts_opened = m.tsOpened().value(),
+            .ts_updated = m.tsUpdated().value(),
+        });
     } else if (frame.schema_id == schema::message_id<msgs::ReconBreakMsg>()) {
         const auto m = schema::view_msg<msgs::ReconBreakMsg>(frame.payload);
         using V = raikiri_journal::types::reconVerdictEnum;

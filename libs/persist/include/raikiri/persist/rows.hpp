@@ -89,6 +89,24 @@ struct ReconBreakRow {
     std::string detail;
 };
 
+// The book as strategyd left it. Upserted on the natural key, because a
+// position is a CURRENT STATE and not an event log: the row for one
+// (strategy, venue, symbol) is replaced, never accumulated.
+struct PositionRow {
+    std::uint16_t strategy_id{0};
+    std::string venue;
+    std::string exchange_symbol;
+    std::uint64_t instrument_id{0};
+    std::int64_t net_qty_lots{0};
+    std::int64_t cost_e9{0};
+    std::int64_t realized_e9{0};
+    std::int64_t fees_e9{0};
+    std::string settle_side;
+    std::uint32_t fill_count{0};
+    std::uint64_t ts_opened{0};
+    std::uint64_t ts_updated{0};
+};
+
 struct FundingRow {
     std::uint64_t instrument_id{0};
     std::uint64_t ts_event{0};
@@ -125,6 +143,7 @@ struct RowBatch {
     std::vector<ExecutionRow> executions;
     std::vector<PnlIncrementRow> pnl_increments;
     std::vector<ReconBreakRow> recon_breaks;
+    std::vector<PositionRow> positions;
     std::vector<FundingRow> funding;
     std::vector<ConnectivityRow> connectivity;
     std::vector<LatencyRow> latency;
@@ -132,7 +151,8 @@ struct RowBatch {
 
     [[nodiscard]] std::size_t size() const noexcept {
         return order_events.size() + order_upserts.size() + executions.size() +
-               pnl_increments.size() + recon_breaks.size() + funding.size() + connectivity.size() + latency.size();
+               pnl_increments.size() + recon_breaks.size() + positions.size() +
+               funding.size() + connectivity.size() + latency.size();
     }
 
     void clear() noexcept {
@@ -141,6 +161,7 @@ struct RowBatch {
         executions.clear();
         pnl_increments.clear();
         recon_breaks.clear();
+        positions.clear();
         funding.clear();
         connectivity.clear();
         latency.clear();

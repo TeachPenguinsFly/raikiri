@@ -46,6 +46,16 @@ public:
 
     [[nodiscard]] std::expected<Position*, BookError> open(PositionKey key, UnixNanos ts);
 
+    // Puts back a position this process previously wrote to its journal. The
+    // one way to seat a position without a fill, and it exists so a restart
+    // comes up holding what it held rather than flat — a flat restart is a
+    // reconciliation break against every instrument, which is the right alarm
+    // for a real disagreement and the wrong one for an ordinary restart.
+    //
+    // Refuses a key already present: replay happens before trading, so a
+    // collision means the caller replayed twice.
+    [[nodiscard]] bool restore(PositionKey key, const Position::Restored& state);
+
     // Folds one fill into the position the event belongs to, opening it if this
     // is the first. `delta` is the caller's derived fill quantity — normally the
     // drop in leaves_qty, so a resent notification produces zero and changes

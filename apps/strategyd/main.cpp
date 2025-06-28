@@ -20,6 +20,7 @@
 // polled in one loop — the same shape the real kernel keeps forever.
 
 #include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/id_gen.hpp>
@@ -353,6 +354,35 @@ public:
         });
     }
 
+    // The book after a fill moved it. Written HERE for the same reason the
+    // ledger is: this process owns the arithmetic, and a second one folding
+    // the same fills would answer the same question differently. Downstream
+    // — admind, persisterd, and this process's own restart — read the row
+    // rather than re-deriving it.
+    void journal_position(const portfolio::Position& position,
+                          const InstrumentBase& base) noexcept {
+        (void)schema::append_msg<msgs::PositionMsg>(
+            *journal_, position.ts_updated().ns, [&](auto m) {
+                namespace jt = raikiri_journal::types;
+                m.strategyId(position.key().strategy_id);
+                m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
+                                 ? jt::settleSideEnum::Base
+                                 : jt::settleSideEnum::Quote);
+                m.venue(static_cast<jt::venueIdEnum>(position.key().instrument.venue()));
+                m.instrument(jt::instrumentId{position.key().instrument.packed});
+                m.symbol().assign_range(base.exchange_symbol.view());
+                m.netQty(jt::qtyLots{position.qty().raw});
+                // Cost, never the average: an average is cost over size and is
+                // recomputed whenever it is asked for.
+                m.cost(jt::fixedE9{position.cost().raw});
+                m.realized(jt::fixedE9{position.realized().raw});
+                m.fees(jt::fixedE9{position.fees().raw});
+                m.fillCount(position.fill_count());
+                m.tsOpened(jt::timestampNs{position.ts_opened().ns});
+                m.tsUpdated(jt::timestampNs{position.ts_updated().ns});
+            });
+    }
+
 private:
     void journal_cmd(const OrderCmd& cmd) noexcept {
         (void)schema::append_msg<msgs::OrderCmdMsg>(*journal_, cmd.ts_created.ns, [&](auto m) {
@@ -529,6 +559,71 @@ void reconcile_against_venue(KernelContext& ctx,
     }
 }
 
+// Rebuilds the book from this process's own journal before it writes another
+// line to it.
+//
+// Without this a restart came up FLAT while the venue still held everything,
+// and the only thing that noticed was reconciliation — correctly, by halting
+// every instrument as a break. That is the right alarm for a real
+// disagreement and the wrong one for an ordinary restart.
+//
+// It replays PositionMsg only, and takes the last row per key rather than
+// folding fills: the rows are already this process's own arithmetic, so
+// reading them back is not a second derivation of anything. Order events are
+// deliberately NOT replayed — the venue is authoritative on what is still
+// open, and reconciliation is what asks it.
+std::size_t restore_book(portfolio::PositionBook& book,
+                         const shm::CatalogueTable& catalogue,
+                         const std::string& dir) {
+    auto reader = journal::JournalReader::open(dir, "journal");
+    if (!reader.has_value()) {
+        return 0; // no journal yet: a first run, not a loss
+    }
+    // Copied out of the frame rather than kept as a view: a decoded message
+    // points into the journal's mapping, and the map outlives the walk.
+    struct Row {
+        std::uint16_t strategy_id{0};
+        InstrumentId instrument{};
+        portfolio::Position::Restored state{};
+    };
+    std::unordered_map<std::uint64_t, Row> latest;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        if (frame.schema_id != schema::message_id<msgs::PositionMsg>()) {
+            continue;
+        }
+        const auto m = schema::view_msg<msgs::PositionMsg>(frame.payload);
+        const InstrumentId id{m.instrument().value()};
+        Row row{};
+        row.strategy_id = m.strategyId().value();
+        row.instrument = id;
+        row.state = {.qty = QtyLots::from_raw(m.netQty().value()),
+                     .cost = FixedE9::from_raw(m.cost().value()),
+                     .realized = FixedE9::from_raw(m.realized().value()),
+                     .fees = FixedE9::from_raw(m.fees().value()),
+                     .fill_count = m.fillCount().value(),
+                     .ts_opened = UnixNanos{m.tsOpened().value()},
+                     .ts_updated = UnixNanos{m.tsUpdated().value()}};
+        // Last write wins, which is what "the book as it stands" means.
+        latest[(static_cast<std::uint64_t>(row.strategy_id) << 48) ^ id.packed] = row;
+    }
+
+    std::size_t restored = 0;
+    for (const auto& [key, row] : latest) {
+        if (row.state.qty.raw == 0 && row.state.realized.raw == 0) {
+            continue; // a closed position carries nothing worth restoring
+        }
+        if (catalogue.find(row.instrument) == nullptr) {
+            continue; // the gateway this position belongs to is not attached
+        }
+        if (book.restore({.strategy_id = row.strategy_id, .instrument = row.instrument},
+                         row.state)) {
+            ++restored;
+        }
+    }
+    return restored;
+}
+
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
     // Account names, which are also the segment names: "bybit" is bybit perp,
@@ -626,6 +721,15 @@ int main(int argc, char** argv) {
     // DemoMaker quotes both sides, which is only ever appropriate against the
     // sim venue. A live gateway is observed, not traded: the loop, the
     // journal and the latency table are identical either way.
+    // Before a single new line is written to the journal: what this process
+    // held when it last stopped.
+    if (const auto restored =
+            restore_book(ctx.positions, *gateways.front().ch.catalogue,
+                         data_dir + "/journal/strategyd");
+        restored > 0) {
+        fmt::print("strategyd: restored {} position(s) from the journal\n", restored);
+    }
+
     strategies::DemoMaker maker;
     Observer observer;
     const bool quoting = gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
@@ -717,6 +821,13 @@ int main(int argc, char** argv) {
                             ctx.journal_pnl(
                                 event, base, jt::pnlKindEnum::Realized, applied->realized);
                             ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, event.fee);
+                            // After the increments, because the row is the
+                            // state those increments produced.
+                            if (const auto* held = ctx.positions.find(
+                                    {event.client_order_id.strategy_id(), event.instrument});
+                                held != nullptr) {
+                                ctx.journal_position(*held, base);
+                            }
                         }
                     }
                 }

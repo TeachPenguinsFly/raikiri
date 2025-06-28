@@ -194,4 +194,51 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
 }
 
 } // namespace
+TEST(Mapper, PositionRowsCarryCostRatherThanAnAverage) {
+    // An average is cost over size and can be recomputed whenever it is asked
+    // for. Storing it instead would fix it to the size it was computed at, and
+    // every later partial close would drift away from it.
+    const auto dir = fresh_dir("position");
+    auto writer = journal::JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+
+    (void)schema::append_msg<msgs::PositionMsg>(*writer, 500, [](auto m) {
+        m.strategyId(7);
+        m.settleSide(jt::settleSideEnum::Quote);
+        m.venue(jt::venueIdEnum::Bybit);
+        m.instrument(jt::instrumentId{42});
+        m.symbol().assign_range(std::string_view{"BTCUSDT"});
+        m.netQty(jt::qtyLots{3});
+        m.cost(jt::fixedE9{180'000'000'000});
+        m.realized(jt::fixedE9{-500});
+        m.fees(jt::fixedE9{25});
+        m.fillCount(4);
+        m.tsOpened(jt::timestampNs{100});
+        m.tsUpdated(jt::timestampNs{500});
+    });
+
+    auto reader = journal::JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    RowBatch batch;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        map_frame(frame, batch);
+    }
+
+    ASSERT_EQ(batch.positions.size(), 1U);
+    const auto& row = batch.positions[0];
+    EXPECT_EQ(row.strategy_id, 7);
+    EXPECT_EQ(row.venue, "bybit");
+    EXPECT_EQ(row.exchange_symbol, "BTCUSDT");
+    EXPECT_EQ(row.instrument_id, 42U);
+    EXPECT_EQ(row.net_qty_lots, 3);
+    EXPECT_EQ(row.cost_e9, 180'000'000'000);
+    EXPECT_EQ(row.realized_e9, -500);
+    EXPECT_EQ(row.fees_e9, 25);
+    EXPECT_EQ(row.settle_side, "quote");
+    EXPECT_EQ(row.fill_count, 4U);
+    EXPECT_EQ(row.ts_opened, 100U);
+    EXPECT_EQ(row.ts_updated, 500U);
+}
+
 } // namespace raikiri::persist

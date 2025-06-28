@@ -227,6 +227,37 @@
     <field name="amount" id="8" type="fixedE9"/>
     <field name="tsEvent" id="9" type="timestampNs"/>
   </sbe:message>
+  <!-- The book, as it stands after one fill moved it.
+       Written by whichever process OWNS the arithmetic — strategyd — and never
+       re-derived downstream. A second process folding the same fills would be
+       a second answer to one question, and the two would drift: that exact bug
+       cost this system a reconciliation that compared a venue against a number
+       nobody was trading on.
+
+       Emitted on change, not on a timer: a position that did not move has
+       nothing to say, and a row per second would bury the ones that did.
+
+       Cost, not average price. An average is cost divided by size and can be
+       recomputed at any moment; storing it instead would fix it to the size it
+       was computed at, and every later partial close would drift from it.
+
+       Symbol travels as text for the same reason the PnL ledger carries it:
+       the symbol half of a packed instrument id is a catalogue load-order
+       index and moves under a delisting. -->
+  <sbe:message name="PositionMsg" id="10" description="Position state after a fill">
+    <field name="strategyId" id="1" type="uint16"/>
+    <field name="settleSide" id="2" type="settleSideEnum"/>
+    <field name="venue" id="3" type="venueIdEnum"/>
+    <field name="instrument" id="4" type="instrumentId"/>
+    <field name="symbol" id="5" type="symbolText"/>
+    <field name="netQty" id="6" type="qtyLots"/>
+    <field name="cost" id="7" type="fixedE9"/>
+    <field name="realized" id="8" type="fixedE9"/>
+    <field name="fees" id="9" type="fixedE9"/>
+    <field name="fillCount" id="10" type="uint32"/>
+    <field name="tsOpened" id="11" type="timestampNs"/>
+    <field name="tsUpdated" id="12" type="timestampNs"/>
+  </sbe:message>
   <!-- A disagreement between this process and the venue about what is held.
        Written only when the two differ: an agreement every 30s would bury the
        one line that matters. Symbol travels as text for the same reason the
