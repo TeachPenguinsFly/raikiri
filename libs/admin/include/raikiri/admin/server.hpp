@@ -1,0 +1,69 @@
+#pragma once
+
+// The HTTP half of admind.
+//
+// Beast is already a dependency — every venue socket is built on it — so
+// serving HTTP costs no new one. It stays behind this facade for the same
+// reason IoContext does: no Boost type appears in a public header, so a
+// consumer of this library never inherits the dependency.
+//
+// SINGLE-THREADED, DELIBERATELY. Handlers read shared-memory tables that a
+// gateway is writing concurrently; a seqlock read is safe from any thread, but
+// a thread pool here would buy nothing — an admin API serves a handful of
+// browsers, and every answer is already one acquire-load away. One thread also
+// means a handler can hold a Registry reference without a lock.
+
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+#include <string_view>
+
+namespace raikiri::admin {
+
+struct Request {
+    std::string_view method;
+    std::string_view path;
+    std::string_view query; // raw, without the '?'
+};
+
+struct Response {
+    int status{200};
+    std::string content_type{"application/json"};
+    std::string body;
+};
+
+// Returns the response for one request. Anything it throws becomes a 500 with
+// an RFC 9457 body: a handler that dies must not take the server with it.
+using Handler = std::function<Response(const Request&)>;
+
+class Server {
+public:
+    Server(std::string address, std::uint16_t port, Handler handler);
+    ~Server();
+    Server(const Server&) = delete;
+    Server& operator=(const Server&) = delete;
+
+    // Binds and starts accepting. Returns false when the port is taken, which
+    // is a configuration error worth saying out loud rather than retrying.
+    [[nodiscard]] bool start();
+
+    // One pass over ready work. The caller owns the loop, exactly as gatewayd
+    // owns its own — nothing here blocks on the network.
+    std::size_t poll() noexcept;
+
+    void stop() noexcept;
+
+    [[nodiscard]] std::uint16_t port() const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// A query string's value for `key`, or empty. Percent-decoding is deliberately
+// absent: every parameter this API takes is digits or an account name, and a
+// decoder that is never exercised is a decoder that is wrong when it finally is.
+[[nodiscard]] std::string_view query_param(std::string_view query, std::string_view key) noexcept;
+
+} // namespace raikiri::admin

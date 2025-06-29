@@ -155,6 +155,14 @@ public:
 
     [[nodiscard]] std::uint64_t generation() const noexcept { return header_->generation; }
 
+    // The owner's last stamp, on the MONOTONIC clock it stamps with. Useful
+    // to report how stale a gateway is; owner_alive() is what decides whether
+    // it counts as alive, because staleness alone cannot tell a dead process
+    // from a slow one.
+    [[nodiscard]] std::uint64_t last_heartbeat() const noexcept {
+        return header_->heartbeat_ns.load(std::memory_order_acquire);
+    }
+
     // Owner liveness from this consumer's point of view.
     [[nodiscard]] bool owner_alive(std::uint64_t now_ns) const noexcept;
 
