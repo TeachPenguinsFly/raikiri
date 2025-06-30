@@ -4,7 +4,39 @@ The terminal for raikiri. One page per thing a person does with the system:
 watch a market, work an order, run a strategy, hold options, see what the
 account is actually worth.
 
-This file is the plan. Nothing here is built yet.
+## What is built
+
+The shell, the generated API layer, and the two screens admind can honestly
+answer today.
+
+    npm install
+    npm run dev      # proxies /v1 to admind on 127.0.0.1:8787
+
+| route | what it shows | source |
+| --- | --- | --- |
+| `/` | attached gateways, liveness, instrument counts, database reach | `GET /v1/health` |
+| `/instruments` | the whole catalogue, virtualised, filterable | `GET /v1/instruments` |
+| `/options` | the chain by underlying, expiry and strike | the same, `kind=option` |
+
+`src/api/types.ts` is **generated** from `../schema/admin-api.yaml` by
+`npm run types`, which `npm run build` runs first. It is never edited by hand;
+an edit there is a change made in the wrong file.
+
+Seven runtime dependencies against v2's twenty-three, and 84 kB gzipped.
+
+**There is no mock path.** A screen that cannot reach admind says so, with the
+server's own words and status. v2 had a flag that swapped screens to invented
+numbers when the backend was absent, and both paths had to be maintained
+forever; a terminal that shows a number nobody sourced is worse than one that
+shows nothing.
+
+Greeks, quotes and books ride the live stream and are not wired yet. The
+options chain says so on the screen rather than leaving a blank column that
+reads as zero.
+
+---
+
+The rest of this file is the plan the work follows.
 
 ## What changes from v2
 

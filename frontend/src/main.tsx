@@ -1,0 +1,25 @@
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter, Route, Routes } from 'react-router'
+import { Chrome } from '@/components/Chrome'
+import { Instruments } from '@/routes/Instruments'
+import { Options } from '@/routes/Options'
+import { Overview } from '@/routes/Overview'
+import './index.css'
+
+const root = document.getElementById('root')
+if (root === null) throw new Error('#root is missing from index.html')
+
+createRoot(root).render(
+  <StrictMode>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Chrome />}>
+          <Route index element={<Overview />} />
+          <Route path="instruments" element={<Instruments />} />
+          <Route path="options" element={<Options />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  </StrictMode>,
+)

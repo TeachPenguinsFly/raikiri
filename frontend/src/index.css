@@ -1,0 +1,38 @@
+@import 'tailwindcss';
+
+/* The terminal's palette, carried over from v2 so the two read as one system.
+   Navy-slate surfaces, depth by luminance rather than shadow. */
+@theme {
+  --color-canvas: #080c17;
+  --color-surface: #0b101e;
+  --color-raised: #111827;
+  --color-line: #1d293a;
+
+  --color-ink: #e6ebf5;
+  --color-muted: #8b97ad;
+  --color-faint: #5b6780;
+
+  --color-accent: #3b82f6;
+  --color-accent-deep: #1d4ed8;
+
+  --color-up: #22c55e;
+  --color-down: #ef4444;
+  --color-warn: #ffa726;
+
+  /* System stack, no webfonts: a terminal must render before a font loads,
+     and tabular numerals are the only typographic requirement. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every column of numbers lines up. Non-negotiable in a blotter. */
+.tnum { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
