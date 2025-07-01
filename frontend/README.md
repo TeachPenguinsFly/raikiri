@@ -1,4 +1,4 @@
-# maverick v3
+# The raikiri terminal
 
 The terminal for raikiri. One page per thing a person does with the system:
 watch a market, work an order, run a strategy, hold options, see what the
@@ -10,13 +10,42 @@ The shell, the generated API layer, and the two screens admind can honestly
 answer today.
 
     npm install
-    npm run dev      # proxies /v1 to admind on 127.0.0.1:8787
+    npm run dev      # proxies /v1 to admind on :8787, /v1/stream to :8788
 
 | route | what it shows | source |
 | --- | --- | --- |
 | `/` | attached gateways, liveness, instrument counts, database reach | `GET /v1/health` |
+| `/treasury` | the ledger split by exchange, and summed forward over time | `GET /v1/pnl`, `/v1/positions` |
 | `/instruments` | the whole catalogue, virtualised, filterable | `GET /v1/instruments` |
 | `/options` | the chain by underlying, expiry and strike | the same, `kind=option` |
+| `/login` | sign-in. Designed, not enforced — admind serves no auth endpoint | — |
+
+## One base under every plot
+
+`src/components/chart/` holds the chrome and the geometry, and nothing else in
+the app draws either.
+
+| file | what it owns |
+| --- | --- |
+| `ChartFrame` | the border, header, legend, measured plot box and empty state. A new plot is a `children({ width, height })` function, not another copy of this. |
+| `LinePlot` | multi-series lines and area, gridlines, a right value axis, crosshair with a per-series readout |
+| `Donut` | proportions as one ring, hover highlight, centre readout |
+| `scale.ts` | measurement, round-number ticks, linear mapping, padded domains |
+| `palette.ts` | the colours. A venue is coloured from its NAME, so it is the same colour on every chart and a venue that stops trading does not recolour the ones after it. |
+
+Two rules the plots are built on, both learned the hard way:
+
+- **A chart must be correct before it animates.** The donut grows from a
+  `from`-only keyframe towards its own attributes, with no fill mode and no
+  stagger — anything that holds the opening frame leaves the ring at zero
+  length wherever animation frames do not run.
+- **Width is measured synchronously, then observed.** A plot that waits for the
+  first `ResizeObserver` callback is a plot that is blank in every context where
+  that task is not scheduled.
+
+Charts take doubles; screens do not. A decimal string off the wire becomes a
+number only where the result is a pixel or an axis domain — every value that is
+*displayed* is formatted from the string it arrived as.
 
 `src/api/types.ts` is **generated** from `../schema/admin-api.yaml` by
 `npm run types`, which `npm run build` runs first. It is never edited by hand;

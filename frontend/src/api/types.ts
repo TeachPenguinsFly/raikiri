@@ -487,7 +487,7 @@ export interface components {
             ts_updated: components["schemas"]["Nanos"];
         };
         /** @enum {string} */
-        OrderStatus: "initialized" | "denied" | "submitted" | "accepted" | "partially_filled" | "filled" | "canceled" | "rejected" | "expired";
+        OrderStatus: "initialized" | "denied" | "submitted" | "accepted" | "partially_filled" | "filled" | "canceled" | "rejected" | "expired" | "triggered" | "pending_update" | "pending_cancel";
         /** @enum {string} */
         OrderEventType: "initialized" | "denied" | "submitted" | "accepted" | "rejected" | "triggered" | "pending_update" | "updated" | "modify_rejected" | "pending_cancel" | "canceled" | "cancel_rejected" | "expired" | "filled" | "recon_gap" | "recon_closed";
         OrderEvent: {

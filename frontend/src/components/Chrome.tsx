@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
+import { Wordmark } from '@/components/Brand'
 
 const routes = [
   { to: '/', label: 'Overview', end: true },
+  { to: '/treasury', label: 'Treasury' },
   { to: '/instruments', label: 'Instruments' },
   { to: '/options', label: 'Options' },
 ] as const
@@ -11,9 +13,7 @@ export function Chrome() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-6 border-b border-line px-5 py-3">
-        <span className="font-mono text-sm tracking-tight text-ink">
-          maverick<span className="ml-2 text-accent">雷切</span>
-        </span>
+        <Wordmark className="text-sm" />
         <nav className="flex gap-1">
           {routes.map((r) => (
             <NavLink

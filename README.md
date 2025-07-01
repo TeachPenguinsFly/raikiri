@@ -11,7 +11,7 @@ No message broker on the hot path. No database write in front of an order.
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
 [![Venues](https://img.shields.io/badge/venues-16%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-1330-2da44e?style=flat-square)](#build)
+[![Tests](https://img.shields.io/badge/tests-1387-2da44e?style=flat-square)](#build)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](#build)
 
 [Venues](#venues) · [Architecture](#architecture) · [Quick start](#quick-start) ·
@@ -218,8 +218,8 @@ gatewayd --venue=bybit   --market=spot   --symbol=BTCUSDT
 | `libs/oms` | order store, risk gate, id generation |
 | `libs/simcore` | the matching engine behind the sim venue |
 | `schema/` | [`journal.xml`](schema/journal.xml) (SBE) · [`admin-api.yaml`](schema/admin-api.yaml) (the terminal's contract) |
-| `frontend/` | [maverick v3](frontend/README.md) — planned |
-| `tests/` `fuzz/` `bench/` | 1330 tests · fuzz targets · microbenchmarks |
+| `frontend/` | [the terminal](frontend/README.md) — React, types generated from the contract |
+| `tests/` `fuzz/` `bench/` | 1387 tests · fuzz targets · microbenchmarks |
 
 ---
 

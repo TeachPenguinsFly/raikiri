@@ -9,6 +9,7 @@ fuzz/corpus/
 crash-*
 leak-*
 timeout-*
-todo.mdfrontend/node_modules/
+todo.md
+frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo

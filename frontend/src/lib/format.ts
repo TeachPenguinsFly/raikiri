@@ -1,0 +1,67 @@
+/** Rendering for the wire's decimal strings.
+ *
+ *  Every money value in the contract is a decimal STRING, because a price past
+ *  2^53 and a nanosecond timestamp both lose their low digits as a JSON
+ *  number. So a display value is derived from the string, and `Number` appears
+ *  here only where the result is a pixel coordinate or a chart domain — a
+ *  rounding error in a y-axis is a rounding error in a y-axis. */
+
+/** A decimal string as a double. For geometry only: never render this back. */
+export function toNumber(decimal: string | null | undefined): number {
+  if (decimal === null || decimal === undefined || decimal === '') return 0
+  const value = Number(decimal)
+  return Number.isFinite(value) ? value : 0
+}
+
+const money = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+export function usd(value: number): string {
+  return `$${money.format(value)}`
+}
+
+export function usdSigned(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
+  return `${sign}$${money.format(Math.abs(value))}`
+}
+
+/** Axis labels, where four characters is the whole budget. */
+export function compact(value: number): string {
+  const magnitude = Math.abs(value)
+  if (magnitude >= 1e9) return `${(value / 1e9).toFixed(1)}B`
+  if (magnitude >= 1e6) return `${(value / 1e6).toFixed(1)}M`
+  if (magnitude >= 1e3) return `${(value / 1e3).toFixed(1)}k`
+  if (magnitude === 0) return '0'
+  if (magnitude < 1) return value.toFixed(2)
+  return value.toFixed(0)
+}
+
+export function percent(fraction: number): string {
+  return `${(fraction * 100).toFixed(1)}%`
+}
+
+/** Nanoseconds to milliseconds. BigInt because 1.79e18 is past 2^53 and the
+ *  low digits are what distinguish two events in the same second. */
+export function nanosToMillis(nanos: string): number {
+  return Number(BigInt(nanos) / 1_000_000n)
+}
+
+export function shortDate(millis: number): string {
+  return new Date(millis).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+export function dateTime(millis: number): string {
+  return new Date(millis).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** Class names, without a dependency. Falsy entries drop out. */
+export function cn(...parts: Array<string | false | null | undefined>): string {
+  return parts.filter(Boolean).join(' ')
+}

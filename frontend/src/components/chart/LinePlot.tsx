@@ -1,0 +1,252 @@
+import { useMemo, useState } from 'react'
+import { compact, dateTime, shortDate } from '@/lib/format'
+import { linear, niceTicks, paddedDomain } from './scale'
+
+export interface PlotSeries {
+  key: string
+  label: string
+  color: string
+  /** One value per x. Same length as `x`, aligned by index. */
+  values: number[]
+  /** Fill under the line. At most one series should ask for it. */
+  area?: boolean | undefined
+}
+
+const PAD = { top: 12, right: 52, bottom: 22, left: 8 }
+
+/** Evenly spaced time labels across the span, ends included. */
+function xTicks(
+  x: number[],
+  count: number,
+  px: (value: number) => number,
+): Array<{ t: number; x: number }> {
+  const first = x[0] as number
+  const span = (x[x.length - 1] as number) - first
+  return Array.from({ length: count }, (_, i) => {
+    const t = first + (span * i) / (count - 1)
+    return { t, x: px(t) }
+  })
+}
+
+/** A multi-series line chart, drawn as SVG at native resolution.
+ *
+ *  The same component draws the treasury's cumulative ledger and a strategy's
+ *  PnL: they differ by their series, not by their code. It replaces the two
+ *  near-identical charts the previous terminal carried, which had drifted apart
+ *  in padding, tick count and hover behaviour. */
+export function LinePlot({
+  x,
+  series,
+  width,
+  height,
+  highlight,
+  format = compact,
+}: {
+  /** Milliseconds, ascending. */
+  x: number[]
+  series: PlotSeries[]
+  width: number
+  height: number
+  /** A series key to emphasise; the rest dim. */
+  highlight?: string | null | undefined
+  format?: ((value: number) => string) | undefined
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+
+  const geometry = useMemo(() => {
+    if (x.length < 2 || width < 40) return null
+
+    const plotWidth = width - PAD.left - PAD.right
+    const tickCount = Math.max(2, Math.min(5, Math.floor(plotWidth / 140)))
+    const plotHeight = height - PAD.top - PAD.bottom
+    const px = linear([x[0] as number, x[x.length - 1] as number], [PAD.left, PAD.left + plotWidth])
+    const [minY, maxY] = paddedDomain(series.flatMap((s) => s.values), true)
+    const py = linear([minY, maxY], [PAD.top + plotHeight, PAD.top])
+
+    const paths = series.map((s) => {
+      const line = s.values
+        .map((v, i) => `${i === 0 ? 'M' : 'L'}${px(x[i] as number).toFixed(1)},${py(v).toFixed(1)}`)
+        .join(' ')
+      const base = py(Math.max(minY, Math.min(maxY, 0))).toFixed(1)
+      return {
+        ...s,
+        line,
+        fill: `${line} L${px(x[x.length - 1] as number).toFixed(1)},${base} L${px(x[0] as number).toFixed(1)},${base} Z`,
+        lastX: px(x[x.length - 1] as number),
+        lastY: py(s.values[s.values.length - 1] as number),
+      }
+    })
+
+    return {
+      paths,
+      px,
+      py,
+      plotWidth,
+      zeroY: minY <= 0 && maxY >= 0 ? py(0) : null,
+      yTicks: niceTicks(minY, maxY, 4).map((v) => ({ v, y: py(v) })),
+      xTicks: xTicks(x, tickCount, px),
+      // Five timestamps with a time-of-day in each is five labels nobody can
+      // read at once. Past three days the hour is not what distinguishes them.
+      labelX: (x[x.length - 1] as number) - (x[0] as number) > 3 * 86_400_000 ? shortDate : dateTime,
+    }
+  }, [x, series, width, height])
+
+  if (geometry === null) return null
+
+  // Nearest sample to the pointer. A crosshair that interpolates would read a
+  // value off the line that no event ever produced.
+  const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const offset = event.clientX - bounds.left
+    let nearest = 0
+    let best = Infinity
+    for (let i = 0; i < x.length; i += 1) {
+      const distance = Math.abs(geometry.px(x[i] as number) - offset)
+      if (distance < best) {
+        best = distance
+        nearest = i
+      }
+    }
+    setHoverIndex(nearest)
+  }
+
+  const hovered = hoverIndex !== null ? geometry.px(x[hoverIndex] as number) : null
+
+  return (
+    <div className="relative">
+      <svg
+        width={width}
+        height={height}
+        className="block overflow-visible"
+        onMouseMove={onMove}
+        onMouseLeave={() => setHoverIndex(null)}
+      >
+        <defs>
+          {geometry.paths
+            .filter((p) => p.area === true)
+            .map((p) => (
+              <linearGradient key={p.key} id={`fill-${p.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={p.color} stopOpacity={0.22} />
+                <stop offset="70%" stopColor={p.color} stopOpacity={0.04} />
+                <stop offset="100%" stopColor={p.color} stopOpacity={0} />
+              </linearGradient>
+            ))}
+        </defs>
+
+        {geometry.yTicks.map((tick) => (
+          <g key={`y${tick.v}`}>
+            <line
+              x1={PAD.left}
+              y1={tick.y.toFixed(1)}
+              x2={width - PAD.right}
+              y2={tick.y.toFixed(1)}
+              stroke="#ffffff"
+              strokeOpacity={0.045}
+            />
+            <text
+              x={width - PAD.right + 8}
+              y={tick.y + 3.5}
+              fontSize={10}
+              fill="#8b97ad"
+              className="tnum"
+            >
+              {format(tick.v)}
+            </text>
+          </g>
+        ))}
+
+        {geometry.zeroY !== null && (
+          <line
+            x1={PAD.left}
+            y1={geometry.zeroY.toFixed(1)}
+            x2={width - PAD.right}
+            y2={geometry.zeroY.toFixed(1)}
+            stroke="#8b97ad"
+            strokeOpacity={0.3}
+            strokeDasharray="2 3"
+          />
+        )}
+
+        {geometry.xTicks.map((tick, i, all) => (
+          <text
+            key={`x${tick.t}`}
+            x={tick.x.toFixed(1)}
+            y={height - 6}
+            fontSize={10}
+            fill="#5b6780"
+            textAnchor={i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle'}
+          >
+            {geometry.labelX(tick.t)}
+          </text>
+        ))}
+
+        {geometry.paths.map((path) => {
+          const dim = highlight !== null && highlight !== undefined && highlight !== path.key
+          return (
+            <g key={path.key} opacity={dim ? 0.25 : 1} className="transition-opacity duration-200">
+              {path.area === true && <path d={path.fill} fill={`url(#fill-${path.key})`} />}
+              <path
+                d={path.line}
+                fill="none"
+                stroke={path.color}
+                strokeWidth={dim ? 1 : 1.6}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              <circle cx={path.lastX} cy={path.lastY} r={4.5} fill={path.color} fillOpacity={0.18} />
+              <circle cx={path.lastX} cy={path.lastY} r={2.2} fill={path.color} />
+            </g>
+          )
+        })}
+
+        {hovered !== null && (
+          <g>
+            <line
+              x1={hovered.toFixed(1)}
+              y1={PAD.top}
+              x2={hovered.toFixed(1)}
+              y2={height - PAD.bottom}
+              stroke="#e6ebf5"
+              strokeOpacity={0.25}
+            />
+            {geometry.paths.map((path) => (
+              <circle
+                key={path.key}
+                cx={hovered.toFixed(1)}
+                cy={geometry.py(path.values[hoverIndex as number] as number).toFixed(1)}
+                r={3}
+                fill={path.color}
+                stroke="#0b101e"
+                strokeWidth={1.5}
+              />
+            ))}
+          </g>
+        )}
+      </svg>
+
+      {hoverIndex !== null && hovered !== null && (
+        <div
+          className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-lg border border-line bg-canvas/95 px-2.5 py-2 shadow-xl backdrop-blur"
+          style={{
+            left: Math.min(Math.max(hovered - 70, 0), Math.max(width - 150, 0)),
+          }}
+        >
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-faint">
+            {dateTime(x[hoverIndex] as number)}
+          </div>
+          {series.map((s) => (
+            <div key={s.key} className="flex items-center justify-between gap-3 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full" style={{ backgroundColor: s.color }} />
+                <span className="text-muted">{s.label}</span>
+              </span>
+              <span className="tnum" style={{ color: s.color }}>
+                {format(s.values[hoverIndex] as number)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -5,6 +5,9 @@ export type Schema<K extends keyof components['schemas']> = components['schemas'
 export type Account = Schema<'Account'>
 export type Health = Schema<'Health'>
 export type Instrument = Schema<'Instrument'>
+export type PnlIncrement = Schema<'PnlIncrement'>
+export type PnlKind = Schema<'PnlKind'>
+export type Position = Schema<'Position'>
 export type Problem = Schema<'Problem'>
 
 /** A refusal the server explained. Carries the RFC 9457 body, so a screen can
@@ -53,6 +56,38 @@ export const api = {
       cursor: params.cursor,
       limit: params.limit,
     }),
+  positions: (params: { account?: string | undefined } = {}) =>
+    get<Position[]>('/v1/positions', { account: params.account }),
+  pnl: (params: {
+    account?: string | undefined
+    kind?: PnlKind | undefined
+    since?: string | undefined
+    cursor?: string | undefined
+    limit?: string | undefined
+  }) =>
+    get<{ items: PnlIncrement[]; next_cursor?: string | null }>('/v1/pnl', {
+      account: params.account,
+      kind: params.kind,
+      since: params.since,
+      cursor: params.cursor,
+      limit: params.limit,
+    }),
+}
+
+/** Every increment since a cutoff, oldest first.
+ *
+ *  The ledger is append-only increments and never a running total — a total is
+ *  a question asked of it. So a chart of the balance over time has to walk the
+ *  pages and sum them here. */
+export async function allPnl(sinceNanos?: string): Promise<PnlIncrement[]> {
+  const out: PnlIncrement[] = []
+  let cursor: string | undefined
+  do {
+    const page = await api.pnl({ since: sinceNanos, cursor, limit: '1000' })
+    out.push(...page.items)
+    cursor = page.next_cursor ?? undefined
+  } while (cursor && out.length < 20_000)
+  return out.sort((a, b) => (BigInt(a.ts_event) < BigInt(b.ts_event) ? -1 : 1))
 }
 
 /** Walks every page. The catalogue is thousands of rows on an options venue

@@ -36,3 +36,12 @@ body {
 
 /* Every column of numbers lines up. Non-negotiable in a blotter. */
 .tnum { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+/* The donut's arcs grow from nothing to whatever length their attributes say.
+   A `from`-only keyframe animates towards the element's own computed value, so
+   the geometry stays in the component and the motion stays in CSS. */
+@keyframes donut-grow {
+  from {
+    stroke-dasharray: 0 var(--circumference);
+  }
+}
