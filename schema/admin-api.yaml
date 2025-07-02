@@ -701,7 +701,7 @@ components:
       type: string
       enum:
         [initialized, denied, submitted, accepted, partially_filled, filled,
-         canceled, rejected, expired]
+         canceled, rejected, expired, triggered, pending_update, pending_cancel]
 
     OrderEventType:
       type: string

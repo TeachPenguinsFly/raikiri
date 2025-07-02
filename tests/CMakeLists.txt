@@ -17,6 +17,7 @@ raikiri_add_test(time_test SRCS common/time_test.cpp LIBS raikiri::common)
 
 raikiri_add_test(identifiers_test SRCS domain/identifiers_test.cpp LIBS raikiri::domain)
 raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::domain)
+raikiri_add_test(fill_identity_test SRCS domain/fill_identity_test.cpp LIBS raikiri::domain)
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)
 
 raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
@@ -90,3 +91,6 @@ raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 
 raikiri_add_test(sim_book_test SRCS simcore/book_test.cpp LIBS raikiri::simcore)
 raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simcore)
+
+raikiri_add_test(history_test SRCS admin/history_test.cpp LIBS raikiri::admin glaze::glaze)
+raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)
