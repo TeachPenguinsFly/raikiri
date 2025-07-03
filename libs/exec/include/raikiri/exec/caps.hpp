@@ -62,6 +62,12 @@ struct VenueCaps {
     bool position_pull{false};
     bool fill_pull{false};
 
+    // A third credential beyond key and secret. The adapters that need one
+    // refuse to sign without it, and two of them refuse quietly — okx and
+    // bitget start successfully and then reject every order locally — so the
+    // process has to know before it accepts a command that it cannot sign.
+    bool needs_passphrase{false};
+
     UserStreamModel user_stream{UserStreamModel::None};
     std::uint8_t max_client_order_id_len{0};
     std::uint32_t headline_order_rate_per_s{0}; // informative, not a limiter

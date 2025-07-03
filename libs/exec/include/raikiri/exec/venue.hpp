@@ -49,6 +49,7 @@ enum class MakeError : std::uint8_t {
     UnknownVenue,
     UnsupportedMarket,     // the caps row does not serve the configured market
     ClientOrderIdTooShort, // caps row cannot carry a 26-char ULID
+    PassphraseRequired,    // key and secret given, but the venue signs with three
 };
 
 [[nodiscard]] std::string_view to_string(MakeError error) noexcept;

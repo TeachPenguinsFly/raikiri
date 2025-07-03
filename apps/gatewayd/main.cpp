@@ -1,6 +1,7 @@
 // gatewayd — one venue AND ONE MARKET per process.
 //
 //   gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
+//            [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
 //
 // Every adapter is single-market by construction — several collapse the two
 // market flags into one MarketType and never look again — so a second market
@@ -302,6 +303,7 @@ int main(int argc, char** argv) {
     std::uint64_t duration_s = 0; // 0 = run until signaled
     bool testnet = false;
     std::string api_key_ref;
+    std::string passphrase_ref;
     std::string api_secret_ref;
     std::vector<std::string> symbols;
     std::string market_arg;
@@ -322,6 +324,8 @@ int main(int argc, char** argv) {
             api_key_ref = arg.substr(10);
         } else if (arg.starts_with("--api-secret=")) {
             api_secret_ref = arg.substr(13);
+        } else if (arg.starts_with("--passphrase=")) {
+            passphrase_ref = arg.substr(13);
         }
     }
     const auto venue = venue_from_string(venue_name);
@@ -382,7 +386,8 @@ int main(int argc, char** argv) {
         return true;
     };
     if (!report_credential("api key", api_key_ref) ||
-        !report_credential("api secret", api_secret_ref)) {
+        !report_credential("api secret", api_secret_ref) ||
+        !report_credential("passphrase", passphrase_ref)) {
         return 2;
     }
     std::signal(SIGINT, on_signal);
@@ -482,7 +487,8 @@ int main(int argc, char** argv) {
                                      .market = market,
                                      .testnet = testnet,
                                      .api_key_env = api_key_ref,
-                                     .api_secret_env = api_secret_ref},
+                                     .api_secret_env = api_secret_ref,
+                                     .passphrase_env = passphrase_ref},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {

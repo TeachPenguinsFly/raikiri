@@ -184,6 +184,53 @@ TEST_F(VenueContract, TheCapsRowDecidesEveryMarket) {
                     .has_value());
 }
 
+TEST_F(VenueContract, AVenueThatSignsWithThreeCredentialsRefusesOnTwo) {
+    // okx, kucoin, bitget and coinbase sign with a passphrase as well as a key
+    // and a secret. Two of them start cleanly on two credentials and then
+    // reject every command locally, so the refusal has to happen here — a
+    // gateway that accepts commands it cannot sign looks like a venue outage.
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        const auto& caps = caps_of(id);
+        if (!caps.needs_passphrase) {
+            continue;
+        }
+        // A market the row actually serves — coinbase lists no perpetuals, and
+        // an UnsupportedMarket refusal would pass this loop for the wrong
+        // reason.
+        const auto refused = make_venue({.venue = id,
+                                         .market = caps.perp ? MarketType::Perp : MarketType::Spot,
+                                         .api_key_env = "env:KEY",
+                                         .api_secret_env = "env:SECRET"},
+                                        sink,
+                                        clock);
+        ASSERT_FALSE(refused.has_value()) << to_string(id);
+        // UnsupportedMarket would mean the row does not serve perp at all,
+        // which is a different complaint and must not be mistaken for this one.
+        EXPECT_EQ(refused.error(), MakeError::PassphraseRequired) << to_string(id);
+    }
+}
+
+TEST_F(VenueContract, MarketDataAloneNeedsNoPassphrase) {
+    // The whole repository is meant to clone and stream with no credentials at
+    // all. A caller that configured none is asking for market data and must not
+    // be refused for a credential it never claimed to have.
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        const auto& caps = caps_of(id);
+        if (!caps.needs_passphrase) {
+            continue;
+        }
+        const auto built = make_venue(
+            {.venue = id, .market = caps.perp ? MarketType::Perp : MarketType::Spot}, sink, clock);
+        if (!built.has_value()) {
+            // No factory registered in this binary is fine; a passphrase
+            // complaint is not.
+            EXPECT_NE(built.error(), MakeError::PassphraseRequired) << to_string(id);
+        }
+    }
+}
+
 TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
     // A row that claims a market its adapter cannot serve is accepted at load
     // and then fails one call at a time — the failure mode this table exists
