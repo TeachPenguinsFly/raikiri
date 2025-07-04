@@ -151,6 +151,54 @@ TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
     EXPECT_EQ(batch.order_upserts[1].status, "partially_filled"); // leaves > 0
 }
 
+// The ledger's idempotency key. `pnl_increments` dedupes on source_id with ON
+// CONFLICT DO NOTHING, so a key that repeats is money silently discarded and a
+// key that changes between replays is money booked twice. Nothing asserted it
+// until this test.
+TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
+    const auto dir = fresh_dir("pnl");
+    auto writer = journal::JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+
+    const auto instrument =
+        InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7}).packed;
+    const auto write = [&](jt::pnlKindEnum kind, std::string_view exec_id, std::int64_t amount) {
+        (void)schema::append_msg<msgs::PnlIncrementMsg>(*writer, 1, [&](auto m) {
+            m.kind(kind);
+            m.settleSide(jt::settleSideEnum::Quote);
+            m.strategyId(3);
+            m.instrument(jt::instrumentId{instrument});
+            m.symbol().assign_string("BTCUSDT");
+            m.clientOrderIdField(jt::clientOrderId{ClientOrderId::make(3, 42).raw});
+            m.execIdField().assign_range(exec_id);
+            m.amount(jt::fixedE9{amount});
+            m.tsEvent(jt::timestampNs{100});
+        });
+    };
+    write(jt::pnlKindEnum::Realized, "FILL-9", 5'000'000);
+    write(jt::pnlKindEnum::Fee, "FILL-9", -1'000'000);
+    write(jt::pnlKindEnum::Realized, "FILL-10", 2'000'000);
+
+    auto reader = journal::JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    RowBatch batch;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        map_frame(frame, batch);
+    }
+
+    ASSERT_EQ(batch.pnl_increments.size(), 3U);
+    EXPECT_EQ(batch.pnl_increments[0].source_id, "realized:bybit:FILL-9");
+    // Two kinds of one fill are two increments, not one: they are separate
+    // money and the key has to say which.
+    EXPECT_EQ(batch.pnl_increments[1].source_id, "fee:bybit:FILL-9");
+    EXPECT_EQ(batch.pnl_increments[2].source_id, "realized:bybit:FILL-10");
+
+    // A fee is money leaving, and the ledger's stated sign is "positive is
+    // money gained". The writer negates it; nothing downstream may put it back.
+    EXPECT_LT(batch.pnl_increments[1].amount_e9, 0);
+}
+
 // Full pipeline against a live Postgres — skipped unless RAIKIRI_PG_DSN is set
 // (CI provides a service container; locally: infra postgres or docker).
 // The golden invariant: persisting the same journal twice changes nothing.

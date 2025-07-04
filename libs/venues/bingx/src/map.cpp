@@ -427,7 +427,11 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
     out.price = *price;
     out.qty = *qty;
     if (const auto fee = to_e9(wire.fee); fee.has_value()) {
-        out.fee = *fee;
+        // BingX writes a fee CHARGED as negative, like okx and bitget. Flipped
+        // on the way in for the same reason they are: every consumer here
+        // counts a positive number as money leaving, and an unflipped charge
+        // is booked as a gain.
+        out.fee = FixedE9::from_raw(-fee->raw);
     }
     if (wire.maker_known) {
         out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;

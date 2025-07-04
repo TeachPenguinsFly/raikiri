@@ -128,10 +128,17 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .ts_event = m.tsEvent().value(),
     });
 
-    if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled && !exec_id.empty()) {
+    if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled) {
+        // Derived from the journaled fields, so this stays a pure function of
+        // the journal and a replay reproduces the same key. Dropping a fill
+        // that carried no venue id — which is what this did — lost every BingX
+        // execution silently.
+        const auto identity = fill_identity(ClientOrderId{m.clientOrderIdField().value()},
+                                            QtyLots::from_raw(m.leavesQty().value()),
+                                            exec_id);
         batch.executions.push_back({
             .venue = venue_of(m.instrument().value()),
-            .exec_id = exec_id,
+            .exec_id = std::string{identity.view()},
             .exchange_order_id = trim_fixed(m.exchangeOrderIdField()),
             .client_order_id = m.clientOrderIdField().value(),
             .instrument_id = m.instrument().value(),

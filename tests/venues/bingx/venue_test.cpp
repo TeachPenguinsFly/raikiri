@@ -1392,7 +1392,10 @@ TEST(BingxMap, MapsThePerpetualLifecycle) {
     EXPECT_EQ(fill->qty.raw, 12);
     EXPECT_EQ(fill->price.raw, 444'596);
     EXPECT_EQ(fill->leaves_qty.raw, 18);
-    EXPECT_EQ(fill->fee.raw, -26'675'760);
+    // The wire says "-0.02667576" and BingX means CHARGED by that minus, like
+    // okx and bitget. Flipped on the way in, because every consumer here
+    // subtracts a positive fee from realized PnL.
+    EXPECT_EQ(fill->fee.raw, 26'675'760);
     EXPECT_EQ(fill->liquidity, Liquidity::Unknown); // the push does not say
     EXPECT_TRUE(fill->exec_id.empty());             // and mints no trade id
 
@@ -1429,7 +1432,7 @@ TEST(BingxMap, MapsASpotFillThroughTheMemo) {
     EXPECT_EQ(event->leaves_qty.raw, 0);
     EXPECT_EQ(event->liquidity, Liquidity::Taker);
     EXPECT_EQ(event->exec_id.view(), "83956769");
-    EXPECT_EQ(event->fee.raw, -5'000);
+    EXPECT_EQ(event->fee.raw, 5'000); // charged, sign flipped on the way in
 }
 
 TEST(BingxMap, SignsAPositionByItsSide) {

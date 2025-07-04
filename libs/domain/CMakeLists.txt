@@ -1,6 +1,7 @@
 add_library(raikiri_domain STATIC
   src/identifiers.cpp
   src/instrument.cpp
+  src/order_events.cpp
   src/order_fsm.cpp
 )
 add_library(raikiri::domain ALIAS raikiri_domain)

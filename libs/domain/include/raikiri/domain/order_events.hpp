@@ -100,4 +100,26 @@ struct OrderEvent {
 
 static_assert(sizeof(OrderEvent) <= 192, "OrderEvent is the shm exec_events payload");
 
+// The identity of one fill, for the stores that must not book it twice.
+//
+// The venue's own execution id when it minted one. Several never do — BingX's
+// perpetual push mints none at all, and gate and kucoin omit theirs on some
+// frames — and an empty id makes every fill on that venue look like the same
+// fill to anything keyed on it. Two stores here key on it: `executions`, which
+// silently drops a fill with no id, and `pnl_increments`, which does not and
+// therefore collapses every increment on such a venue into one row.
+//
+// The fallback is DERIVED FROM THE FILL, never minted. A minted id would be
+// unique, which is not the property wanted: a venue that resends a fill
+// notification must produce the SAME identity the second time, and that is the
+// whole reason an execution id is consulted. `leaves` is what distinguishes one
+// fill here for the same reason it distinguishes one everywhere else in this
+// system — it strictly decreases across an order's fills, so it is unique per
+// fill, and a resend carries the value it already carried.
+//
+// The leading '~' says the venue did not answer. No venue mints one, so a
+// stored id always states which half of this function produced it.
+[[nodiscard]] ExecId
+fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue_exec_id) noexcept;
+
 } // namespace raikiri

@@ -348,7 +348,13 @@ public:
             m.instrument(jt::instrumentId{event.instrument.packed});
             m.symbol().assign_range(base.exchange_symbol.view());
             m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
-            m.execIdField().assign_range(event.exec_id.view());
+            // The fill's identity, not necessarily the venue's id: on a venue
+            // that mints none this is what keeps two increments apart, and it
+            // is written rather than re-derived downstream because
+            // PnlIncrementMsg carries no leaves to derive it from.
+            m.execIdField().assign_range(
+                fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view())
+                    .view());
             m.amount(jt::fixedE9{amount.raw});
             m.tsEvent(jt::timestampNs{event.ts_event.ns});
         });
@@ -820,7 +826,23 @@ int main(int argc, char** argv) {
                             // reconciliation query joins on.
                             ctx.journal_pnl(
                                 event, base, jt::pnlKindEnum::Realized, applied->realized);
-                            ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, event.fee);
+                            // From what the book took, not from the event: a
+                            // resent notification derives a zero delta, so
+                            // apply_fill charges nothing, and reading the
+                            // event's own fee here would put a row in the
+                            // ledger that the book does not have. The two
+                            // halves sum to the venue's fee exactly.
+                            //
+                            // NEGATED: the ledger's stated sign is "positive is
+                            // money gained" and a fee is money leaving. The
+                            // book keeps the opposite convention internally —
+                            // net_realized() subtracts it — and this is the
+                            // edge where the two meet.
+                            ctx.journal_pnl(
+                                event,
+                                base,
+                                jt::pnlKindEnum::Fee,
+                                FixedE9::from_raw(-(applied->close_fee.raw + applied->open_fee.raw)));
                             // After the increments, because the row is the
                             // state those increments produced.
                             if (const auto* held = ctx.positions.find(
