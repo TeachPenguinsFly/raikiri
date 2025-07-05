@@ -39,6 +39,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
+#include <ranges>
+#include <set>
+#include <span>
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
@@ -578,12 +582,28 @@ void reconcile_against_venue(KernelContext& ctx,
 // reading them back is not a second derivation of anything. Order events are
 // deliberately NOT replayed — the venue is authoritative on what is still
 // open, and reconciliation is what asks it.
-std::size_t restore_book(portfolio::PositionBook& book,
-                         const shm::CatalogueTable& catalogue,
+//
+// EVERY attached catalogue, not the first one. A position is restorable when
+// the gateway that lists its instrument is attached, and with more than one
+// gateway that is not a question a single catalogue can answer: consulting
+// only the first silently dropped every position on every other market, and
+// the kernel then came up flat on holdings the venue still had — which
+// reconciliation correctly halts, one instrument at a time, for a reason
+// nobody would look for here.
+struct Restoration {
+    std::size_t restored{0};
+    // Rows whose gateway is not attached. Not an error — running against a
+    // subset of gateways is ordinary — but never silent, because the kernel is
+    // flat on them and something has to say so.
+    std::vector<std::string> unattached;
+};
+
+Restoration restore_book(portfolio::PositionBook& book,
+                         std::span<const shm::CatalogueTable* const> catalogues,
                          const std::string& dir) {
     auto reader = journal::JournalReader::open(dir, "journal");
     if (!reader.has_value()) {
-        return 0; // no journal yet: a first run, not a loss
+        return {}; // no journal yet: a first run, not a loss
     }
     // Copied out of the frame rather than kept as a view: a decoded message
     // points into the journal's mapping, and the map outlives the walk.
@@ -614,20 +634,30 @@ std::size_t restore_book(portfolio::PositionBook& book,
         latest[(static_cast<std::uint64_t>(row.strategy_id) << 48) ^ id.packed] = row;
     }
 
-    std::size_t restored = 0;
+    Restoration out{};
+    std::set<std::string> unattached;
     for (const auto& [key, row] : latest) {
         if (row.state.qty.raw == 0 && row.state.realized.raw == 0) {
             continue; // a closed position carries nothing worth restoring
         }
-        if (catalogue.find(row.instrument) == nullptr) {
-            continue; // the gateway this position belongs to is not attached
+        const bool listed = std::ranges::any_of(catalogues, [&](const auto* table) {
+            return table != nullptr && table->find(row.instrument) != nullptr;
+        });
+        if (!listed) {
+            // Named by account rather than counted, so the line says which
+            // gateway to start rather than that some number of them is missing.
+            std::array<char, 16> buf{};
+            unattached.emplace(format_account(
+                {row.instrument.venue(), row.instrument.market()}, buf.data(), buf.size()));
+            continue;
         }
         if (book.restore({.strategy_id = row.strategy_id, .instrument = row.instrument},
                          row.state)) {
-            ++restored;
+            ++out.restored;
         }
     }
-    return restored;
+    out.unattached.assign(unattached.begin(), unattached.end());
+    return out;
 }
 
 int main(int argc, char** argv) {
@@ -729,11 +759,25 @@ int main(int argc, char** argv) {
     // journal and the latency table are identical either way.
     // Before a single new line is written to the journal: what this process
     // held when it last stopped.
-    if (const auto restored =
-            restore_book(ctx.positions, *gateways.front().ch.catalogue,
-                         data_dir + "/journal/strategyd");
-        restored > 0) {
-        fmt::print("strategyd: restored {} position(s) from the journal\n", restored);
+    std::vector<const shm::CatalogueTable*> catalogues;
+    catalogues.reserve(gateways.size());
+    for (const auto& gw : gateways) {
+        catalogues.push_back(gw.ch.catalogue);
+    }
+    const auto restoration =
+        restore_book(ctx.positions, catalogues, data_dir + "/journal/strategyd");
+    if (restoration.restored > 0) {
+        fmt::print("strategyd: restored {} position(s) from the journal\n", restoration.restored);
+    }
+    if (!restoration.unattached.empty()) {
+        std::string accounts;
+        for (const auto& name : restoration.unattached) {
+            accounts += (accounts.empty() ? "" : ", ") + name;
+        }
+        fmt::print(stderr,
+                   "strategyd: the journal holds positions on {} and no attached gateway lists "
+                   "them — this process is flat on those and will not reconcile them\n",
+                   accounts);
     }
 
     strategies::DemoMaker maker;
