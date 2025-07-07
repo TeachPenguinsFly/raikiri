@@ -1,6 +1,6 @@
 <div align="center">
 
-# raikiri &nbsp;雷切
+# raikiri
 
 **A low-latency, multi-process crypto trading framework in C++23**
 

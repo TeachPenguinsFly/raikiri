@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router'
-import { Wordmark } from '@/components/Brand'
+import { Mark, Wordmark } from '@/components/Brand'
 
 const routes = [
   { to: '/', label: 'Overview', end: true },
@@ -13,7 +13,10 @@ export function Chrome() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-6 border-b border-line px-5 py-3">
-        <Wordmark className="text-sm" />
+        <span className="flex items-center gap-2.5">
+          <Mark className="size-5" />
+          <Wordmark className="text-sm" product="raikiri" />
+        </span>
         <nav className="flex gap-1">
           {routes.map((r) => (
             <NavLink

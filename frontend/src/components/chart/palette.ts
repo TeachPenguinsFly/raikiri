@@ -2,7 +2,7 @@
  *  line and the legend beside them. Hues are picked for the navy canvas: each
  *  clears the surface luminance by enough to read at 1.5 px stroke width. */
 export const series = [
-  '#3b82f6', // accent blue
+  '#38bdf8', // brand cyan
   '#22c55e', // up green
   '#f59e0b', // amber
   '#a855f7', // violet
@@ -26,6 +26,6 @@ export function colorFor(name: string): string {
 export const kindColor: Record<string, string> = {
   realized: '#22c55e',
   fee: '#f59e0b',
-  funding: '#3b82f6',
+  funding: '#38bdf8',
   net: '#e6ebf5',
 }

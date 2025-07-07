@@ -12,8 +12,11 @@
   --color-muted: #8b97ad;
   --color-faint: #5b6780;
 
-  --color-accent: #3b82f6;
-  --color-accent-deep: #1d4ed8;
+  /* TPF LABS cyan, from tpf-website/brand. The accent IS the brand colour:
+     a terminal whose highlights are a generic blue reads as somebody else's. */
+  --color-brand: #38bdf8;
+  --color-accent: #38bdf8;
+  --color-accent-deep: #0ea5e9;
 
   --color-up: #22c55e;
   --color-down: #ef4444;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Mark } from '@/components/Brand'
+import { BrandLockup } from '@/components/Brand'
 import { cn } from '@/lib/format'
 
 type Provider = 'google' | 'github'
@@ -61,11 +61,9 @@ export function Login() {
       <Backdrop />
 
       <div className="relative flex w-full max-w-sm flex-col items-center">
-        <Mark className="size-12 drop-shadow-[0_8px_24px_rgba(59,130,246,0.35)]" />
-        <h1 className="mt-5 font-mono text-lg tracking-tight text-ink">
-          raikiri <span className="text-accent">雷切</span>
-        </h1>
-        <p className="mt-1 text-sm text-muted">Sign in to the trading terminal.</p>
+        <BrandLockup />
+        <p className="mt-5 font-mono text-sm tracking-tight text-muted">raikiri</p>
+        <p className="mt-1 text-sm text-faint">Sign in to the trading terminal.</p>
 
         <div className="mt-7 w-full rounded-3xl border border-line bg-surface/70 p-6 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_40px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-xl">
           {notice !== null && (
@@ -123,7 +121,9 @@ export function Login() {
               disabled={busy}
               className={cn(
                 'flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium',
-                'bg-accent text-ink transition-[transform,background-color] duration-150',
+                // Dark on cyan, as the mark itself is: light text on this
+                // cyan is the one low-contrast pair in the palette.
+                'bg-accent text-canvas transition-[transform,background-color] duration-150',
                 'hover:bg-accent-deep active:scale-[0.985] disabled:opacity-60',
               )}
             >
@@ -229,8 +229,8 @@ function Spinner() {
 function Backdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -top-40 left-1/2 size-[520px] -translate-x-1/2 rounded-full bg-accent/20 blur-[120px]" />
-      <div className="absolute -bottom-56 right-[-10%] size-[420px] rounded-full bg-[#7c3aed]/15 blur-[120px]" />
+      <div className="absolute -top-40 left-1/2 size-[520px] -translate-x-1/2 rounded-full bg-brand/20 blur-[120px]" />
+      <div className="absolute -bottom-56 right-[-10%] size-[420px] rounded-full bg-[#0284c7]/15 blur-[120px]" />
       <div
         className="absolute inset-0 opacity-[0.55]"
         style={{
