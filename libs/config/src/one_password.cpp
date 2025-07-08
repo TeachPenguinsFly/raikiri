@@ -104,16 +104,28 @@ OpStatus probe_one_password() {
     }
 
     const auto whoami = run_probe("op whoami 2>&1");
-    if (whoami.exit_code != 0) {
-        // Not authenticated.
-        status.auth = OpAuth::None;
-        status.diagnostic = whoami.text.empty() ? "op is not authenticated" : whoami.text;
+    if (whoami.exit_code == 0) {
+        status.account = whoami.text;
+        if (status.auth == OpAuth::None) {
+            status.auth = OpAuth::UserSession;
+        }
         return status;
     }
-    status.account = whoami.text;
-    if (status.auth == OpAuth::None) {
+
+    // `op whoami` answers for ONE account and refuses when several are
+    // configured and none is pinned — while `op read` against a full reference
+    // still resolves, because the reference names the vault it wants. So a
+    // failing whoami is not proof of a dead session, and treating it as one
+    // stops a gateway that could have read every key it needed.
+    const auto accounts = run_probe("op account list 2>/dev/null");
+    if (accounts.exit_code == 0 && !accounts.text.empty()) {
         status.auth = OpAuth::UserSession;
+        status.account = "an unpinned account (set OP_ACCOUNT to name one)";
+        return status;
     }
+
+    status.auth = OpAuth::None;
+    status.diagnostic = whoami.text.empty() ? "op is not authenticated" : whoami.text;
     return status;
 }
 

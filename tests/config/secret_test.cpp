@@ -201,6 +201,27 @@ TEST(SecretRef, OnePasswordSchemeParses) {
     EXPECT_FALSE(is_plaintext(ref->scheme));
 }
 
+TEST(SecretRef, TheFormTheOnePasswordUiCopiesParsesToTheSameThing) {
+    // "Copy Secret Reference" in the 1Password UI yields the "op://" form, so
+    // it is the one a person actually pastes into a config. It has to reach
+    // the resolver as the same payload as the documented "op:" form —
+    // is_valid_op_reference refuses anything containing "//", so a payload
+    // that kept the slashes would be rejected as malformed and the gateway
+    // would run read-only over two characters.
+    const auto slashes = SecretRef::parse("op://trading/binance/api-key");
+    ASSERT_TRUE(slashes.has_value());
+    EXPECT_EQ(slashes->scheme, SecretRef::Scheme::OnePassword);
+    EXPECT_EQ(slashes->payload, "trading/binance/api-key");
+
+    const auto bare = SecretRef::parse("op:trading/binance/api-key");
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_EQ(slashes->payload, bare->payload);
+}
+
+TEST(SecretRef, AnOnePasswordReferenceThatIsOnlySlashesIsRefused) {
+    EXPECT_FALSE(SecretRef::parse("op://").has_value());
+}
+
 TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
     // The probe reads no secret, so it is safe to run anywhere — including a
     // box with no 1Password at all, which is the case this asserts.

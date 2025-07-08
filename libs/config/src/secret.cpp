@@ -157,7 +157,20 @@ std::expected<SecretRef, SecretError> SecretRef::parse(std::string_view spec) {
         return SecretRef{.scheme = Scheme::Exec, .payload = std::string{payload}};
     }
     if (scheme == "op") {
-        return SecretRef{.scheme = Scheme::OnePassword, .payload = std::string{payload}};
+        // "op://vault/item/field" is what the 1Password UI copies and
+        // "op:vault/item/field" is what the docs write; both name one secret.
+        // Canonicalised HERE so everything downstream sees one shape — the
+        // reference validator refuses a payload containing "//", so without
+        // this the form a person actually has in their clipboard is rejected
+        // as malformed and the gateway runs read-only for want of two slashes.
+        auto path = payload;
+        if (path.starts_with("//")) {
+            path.remove_prefix(2);
+        }
+        if (path.empty()) {
+            return std::unexpected{SecretError::BadReference};
+        }
+        return SecretRef{.scheme = Scheme::OnePassword, .payload = std::string{path}};
     }
     if (scheme == "literal") {
         return SecretRef{.scheme = Scheme::Literal, .payload = std::string{payload}};
