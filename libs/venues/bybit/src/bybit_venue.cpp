@@ -404,7 +404,8 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
-        const auto envelope = fetch(*request);
+        std::string body;
+        const auto envelope = fetch(*request, body);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -446,7 +447,8 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
-        const auto envelope = fetch(*request);
+        std::string body;
+        const auto envelope = fetch(*request, body);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -485,7 +487,8 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
-        const auto envelope = fetch(*request);
+        std::string body;
+        const auto envelope = fetch(*request, body);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -507,14 +510,21 @@ public:
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
+    // The envelope's fields are VIEWS INTO `body`, so the caller owns the
+    // body and it outlives every use of them. Returning the two together would
+    // leave the views pointing into a string that a move could relocate, and
+    // returning the envelope alone — which this did — left them pointing into
+    // a response destroyed on the way out. ASan caught it on the first
+    // credentialed position pull; nothing without a key ever reaches here.
     [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError>
-    fetch(const net::RestRequest& request) {
-        const auto response = await_response(*state_, rest_, request);
+    fetch(const net::RestRequest& request, std::string& body) {
+        auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
-        const auto envelope = parse_envelope(response->body);
+        body = std::move(response->body);
+        const auto envelope = parse_envelope(body);
         if (!envelope.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope")};
