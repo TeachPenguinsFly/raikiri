@@ -1472,7 +1472,9 @@ TEST(GateSignedRest, ReconciliationPullsAreScopedPerMarket) {
 
     const auto perp_open = builder.open_orders(MarketType::Perp, k_sign_now);
     ASSERT_TRUE(perp_open.has_value());
-    EXPECT_EQ(perp_open->target, "/api/v4/futures/usdt/orders?status=open&limit=1000");
+    // limit=100, not 1000: Gate answers INVALID_PARAM_VALUE above a hundred on
+    // these listings, measured against the live futures positions endpoint.
+    EXPECT_EQ(perp_open->target, "/api/v4/futures/usdt/orders?status=open&limit=100");
 
     const auto spot_open = builder.open_orders(MarketType::Spot, k_sign_now);
     ASSERT_TRUE(spot_open.has_value());
@@ -1483,15 +1485,15 @@ TEST(GateSignedRest, ReconciliationPullsAreScopedPerMarket) {
                                          k_sign_now);
     ASSERT_TRUE(fills.has_value());
     EXPECT_EQ(fills->target,
-              "/api/v4/futures/usdt/my_trades_timerange?limit=1000&from=1700000000");
+              "/api/v4/futures/usdt/my_trades_timerange?limit=100&from=1700000000");
 
     const auto spot_fills = builder.my_trades(MarketType::Spot, UnixNanos{0}, k_sign_now);
     ASSERT_TRUE(spot_fills.has_value());
-    EXPECT_EQ(spot_fills->target, "/api/v4/spot/my_trades?limit=1000&account=spot");
+    EXPECT_EQ(spot_fills->target, "/api/v4/spot/my_trades?limit=100&account=spot");
 
     const auto positions = builder.positions(MarketType::Perp, k_sign_now);
     ASSERT_TRUE(positions.has_value());
-    EXPECT_EQ(positions->target, "/api/v4/futures/usdt/positions?holding=true&limit=1000");
+    EXPECT_EQ(positions->target, "/api/v4/futures/usdt/positions?holding=true&limit=100");
 
     const auto account = builder.futures_account(k_sign_now);
     ASSERT_TRUE(account.has_value());

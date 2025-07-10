@@ -27,7 +27,11 @@ constexpr std::string_view k_spot_account = "spot";
 
 // Both list endpoints cap at 1000 and default to 100; reconciliation wants the
 // whole picture, not a paginated approximation of it.
-constexpr std::string_view k_page_limit = "1000";
+// Gate caps these listings at 100 and answers INVALID_PARAM_VALUE above it —
+// measured against the live futures positions endpoint, which refused 1000 and
+// accepted 100. The orders and fills listings are the same family; they have no
+// caller yet and would have failed the same way the day they got one.
+constexpr std::string_view k_page_limit = "100";
 
 // Fills the builder's target buffer. A part that would overflow is dropped
 // rather than truncated mid-token, so an over-long contract name yields a
