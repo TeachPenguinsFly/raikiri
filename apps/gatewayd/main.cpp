@@ -247,6 +247,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
     const auto who =
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
+    static bool answered = false;
     if (!adapter.caps.position_pull) {
         if (!announced) {
             // Said once, at start, and never again: a venue that cannot answer
@@ -266,6 +267,15 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         fmt::print(stderr, "gatewayd[{}]: position pull failed — {}\n", who,
                    reports.error().message.view());
         return;
+    }
+
+    if (!answered) {
+        // The other half of the line above, and said once for the same reason.
+        // Without it an authenticated venue holding nothing looks exactly like
+        // a venue that was never asked, which is the distinction this whole
+        // channel exists to keep.
+        answered = true;
+        fmt::print("gatewayd[{}]: venue answered its positions — {} open\n", who, reports->size());
     }
 
     std::unordered_map<std::uint64_t, raikiri::exec::PositionReport> by_instrument;

@@ -13,3 +13,4 @@ todo.md
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+tools/credentials.env
