@@ -12,6 +12,7 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/venues/gate/wire.hpp>
 
 #include <cstdint>
@@ -88,5 +89,10 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport>
 map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+
+// The futures account, as one balance row. Nullopt when Gate named no currency:
+// a balance without an asset is a number with no unit, and the one thing worse
+// than not knowing the equity is being told it in nothing.
+[[nodiscard]] std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire);
 
 } // namespace raikiri::venues::gate

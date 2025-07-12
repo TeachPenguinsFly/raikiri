@@ -297,6 +297,17 @@ struct UserTradeBuffer {
     std::array<WireUserTrade, k_max_private_entries> trades{};
 };
 
+// The futures account, one settle currency at a time. Gate answers this from
+// the same endpoint the private socket's user id comes from — the numbers were
+// already arriving and being thrown away.
+struct WireFuturesAccount {
+    std::string_view currency;
+    std::string_view total;
+    std::string_view available;
+    std::string_view unrealised_pnl;
+    std::uint64_t update_s{0};
+};
+
 struct WirePosition {
     std::string_view contract;
     std::string_view size; // SIGNED: negative is short
@@ -338,5 +349,7 @@ parse_positions(std::string_view body, PositionBuffer& storage);
 // private socket wants it as the first element of every subscribe payload and
 // answers a payload without it with an empty stream rather than an error.
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body);
+
+std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_view body);
 
 } // namespace raikiri::venues::gate

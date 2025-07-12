@@ -15,6 +15,7 @@
 //   positions    SeqlockTable   state: what the VENUE says it holds
 //   cmd_*        SpscRing       command: lossless; Full = venue down
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -23,6 +24,8 @@
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>
 #include <raikiri/shm/segment.hpp>
+
+#include <array>
 #include <raikiri/shm/seqlock_table.hpp>
 #include <raikiri/shm/spsc_ring.hpp>
 
@@ -78,6 +81,28 @@ struct PositionCell {
 static_assert(sizeof(PositionCell) == 40);
 static_assert(std::is_trivially_copyable_v<PositionCell>);
 
+// WHAT THE ACCOUNT HOLDS, AS ONE CELL RATHER THAN A ROW PER ASSET.
+//
+// A balance set is a set: equity is the sum of it, and a reader that saw three
+// assets of five would compute a number the account never had. One seqlock
+// cell makes the whole set a single atomic read, so a reader either has the
+// snapshot the venue sent or has the previous one — never a mixture of two.
+//
+// Same staleness rule as the positions above: a failed pull writes nothing and
+// the cell ages out, so "the venue did not answer" never decays into "the
+// account is empty".
+inline constexpr std::size_t k_balance_rows = 64;
+
+struct BalanceSnapshot {
+    std::uint32_t count{0}; // rows in use; the rest are untouched, not zero
+    UnixNanos ts_pulled{};
+    std::array<BalanceReport, k_balance_rows> rows{};
+};
+
+static_assert(std::is_trivially_copyable_v<BalanceSnapshot>);
+
+using BalanceTable = SeqlockTable<BalanceSnapshot, 1>;
+
 // The command slot is the domain OrderCmd verbatim (defined in
 // raikiri/domain/order_cmd.hpp — the shm layer transports vocabulary, it does
 // not define it). Slot-property asserts live here where the ring needs them.
@@ -130,6 +155,7 @@ struct GatewayChannels {
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};
     PositionTable* positions{nullptr};
+    BalanceTable* balances{nullptr};
     CmdRing* cmd_create{nullptr};
     CmdRing* cmd_cancel{nullptr};
 };

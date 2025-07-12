@@ -439,6 +439,26 @@ std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view b
     });
 }
 
+std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_view body) {
+    return guarded([&]() -> std::expected<WireFuturesAccount, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto currency = detail::req_str(*root, "currency");
+        if (!currency.has_value()) {
+            return std::unexpected(currency.error());
+        }
+        WireFuturesAccount out{};
+        out.currency = *currency;
+        out.total = field(*root, "total");
+        out.available = field(*root, "available");
+        out.unrealised_pnl = field(*root, "unrealised_pnl");
+        out.update_s = detail::whole_u64(field(*root, "update_time"));
+        return out;
+    });
+}
+
 std::expected<std::span<const WireCurrencyPair>, WireError>
 parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireCurrencyPair>, WireError> {

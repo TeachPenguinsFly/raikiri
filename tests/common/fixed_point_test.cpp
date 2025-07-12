@@ -125,6 +125,27 @@ TEST(ParseRateE9, TruncatesWhereExactWouldSilenceTheStream) {
     EXPECT_EQ(parse_rate_e9("-0.0000000019")->raw, -1);
 }
 
+TEST(ParseAmountE9, ReadsAWalletFigureTheExactReaderWouldRefuseEntirely) {
+    // Live Gate futures balance: twelve fractional digits. The exact reader
+    // refuses the WHOLE number rather than its tail, and the account then shows
+    // no balance at all — which is the one answer that is certainly wrong.
+    EXPECT_FALSE(parse_number_e9("191.951084206297").has_value());
+    EXPECT_EQ(parse_amount_e9("191.951084206297")->raw, 191'951'084'206);
+
+    // Toward zero on both sides. For a figure whose question is "how much may I
+    // commit", erring downward is the safe direction and erring upward is not.
+    EXPECT_EQ(parse_amount_e9("0.0000000019")->raw, 1);
+    EXPECT_EQ(parse_amount_e9("-0.0000000019")->raw, -1);
+
+    // A whole number is still exact; truncation is only ever about the tail.
+    EXPECT_EQ(parse_amount_e9("191.951084206")->raw, 191'951'084'206);
+
+    // Malformed stays malformed: truncating is not a licence to guess.
+    for (const auto* text : {"", "abc", "1.2.3", "1,5"}) {
+        EXPECT_FALSE(parse_amount_e9(text).has_value()) << text;
+    }
+}
+
 TEST(ParseNumberE9, RejectsMalformedTokensRatherThanGuessing) {
     for (const auto* text : {"", ".", "-", "1.2.3", "1e", "1e+", "abc", "1 2", "0x10", "1,5"}) {
         EXPECT_FALSE(parse_number_e9(text).has_value()) << text;

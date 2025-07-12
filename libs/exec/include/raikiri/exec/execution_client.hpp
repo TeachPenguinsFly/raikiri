@@ -2,6 +2,7 @@
 
 // Execution side of a venue adapter.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
@@ -86,6 +87,18 @@ public:
 
     [[nodiscard]] virtual std::expected<std::vector<PositionReport>, VenueError>
     position_reports(MarketType market) = 0;
+
+    // What the account HOLDS, as opposed to what it is long or short. Defaulted
+    // to a refusal rather than made pure: an adapter opts in, and `caps
+    // .balance_pull` is what a caller consults BEFORE calling — without it an
+    // adapter that answers "no balances" and one that cannot answer at all look
+    // identical, which is the same trap position_pull exists to avoid.
+    [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError>
+    balance_reports(MarketType market) {
+        (void)market;
+        return std::unexpected{
+            VenueError::make(ErrorClass::Terminal, 0, "balances not implemented for this venue")};
+    }
 };
 
 } // namespace raikiri::exec

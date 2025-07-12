@@ -61,6 +61,10 @@ struct VenueCaps {
     // identical, and the reconciler reads the second as the first.
     bool position_pull{false};
     bool fill_pull{false};
+    // Whether the adapter reads what the account holds. Same rule as the two
+    // above: absence of a balance and an inability to ask are different facts,
+    // and a margin model built on the wrong one is built on nothing.
+    bool balance_pull{false};
 
     // A third credential beyond key and secret. The adapters that need one
     // refuse to sign without it, and two of them refuse quietly — okx and

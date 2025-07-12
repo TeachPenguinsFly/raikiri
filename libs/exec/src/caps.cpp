@@ -87,6 +87,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .book_checksum = false,
         .position_pull = true,
         .fill_pull = true,
+        .balance_pull = true, // VERIFIED: /futures/{settle}/accounts
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 28,
         .headline_order_rate_per_s = 100,

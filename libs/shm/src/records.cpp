@@ -13,12 +13,13 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.positions = owner.create_channel<PositionTable>("positions");
+    ch.balances = owner.create_channel<BalanceTable>("balances");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.greeks == nullptr || ch.positions == nullptr || ch.cmd_create == nullptr ||
-        ch.cmd_cancel == nullptr) {
+        ch.greeks == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
+        ch.cmd_create == nullptr || ch.cmd_cancel == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
     return ch;
@@ -57,6 +58,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!positions) {
         return std::unexpected{positions.error()};
     }
+    const auto balances = client.open_channel<BalanceTable>("balances");
+    if (!balances) {
+        return std::unexpected{balances.error()};
+    }
     const auto create = client.open_channel<CmdRing>("cmd_create");
     if (!create) {
         return std::unexpected{create.error()};
@@ -65,9 +70,8 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!cancel) {
         return std::unexpected{cancel.error()};
     }
-    return GatewayChannels{
-        *catalogue, *bbo,       *depth,  *funding, *greeks,
-        *md,        *exec,      *positions, *create,  *cancel};
+    return GatewayChannels{*catalogue, *bbo,       *depth,     *funding, *greeks, *md,
+                           *exec,      *positions, *balances, *create,  *cancel};
 }
 
 std::string gateway_segment_path(AccountId account) {

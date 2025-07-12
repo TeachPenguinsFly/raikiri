@@ -451,6 +451,36 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return out;
 }
 
+// A wallet figure, not a price: Gate sends twelve fractional digits and the
+// exact reader refuses every one of them, which showed as an account holding
+// nothing at all.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
+std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire) {
+    const auto asset = AssetCode::from(wire.currency);
+    if (!asset.has_value()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field left UNDEF when Gate omitted it or sent something this cannot
+    // read exactly. Undef is what a reader checks; a zero here would be a claim
+    // that the account holds nothing.
+    if (const auto total = to_amount(wire.total); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto available = to_amount(wire.available); available.has_value()) {
+        out.available = *available;
+    }
+    if (const auto unrealized = to_amount(wire.unrealised_pnl); unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    out.ts_venue = UnixNanos{wire.update_s * 1'000'000'000ULL};
+    return out;
+}
+
 std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                  const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.contract);

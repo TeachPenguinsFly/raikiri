@@ -86,6 +86,7 @@ raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)
 raikiri_add_test(broadcast_ring_test SRCS shm/broadcast_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(segment_test SRCS shm/segment_test.cpp LIBS raikiri::shm)
+raikiri_add_test(balances_test SRCS shm/balances_test.cpp LIBS raikiri::shm)
 raikiri_add_test(positions_test SRCS shm/positions_test.cpp LIBS raikiri::shm)
 raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 

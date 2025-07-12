@@ -226,6 +226,11 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/true) : std::nullopt;
 }
 
+std::optional<FixedE9> parse_amount_e9(std::string_view text) noexcept {
+    // Same reader; the difference is the promise at the call site.
+    return parse_rate_e9(text);
+}
+
 std::optional<FixedE9> parse_rate_e9(std::string_view text) noexcept {
     const auto parts = decompose(text);
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;

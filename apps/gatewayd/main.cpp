@@ -306,6 +306,59 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// What the account holds, published as ONE cell.
+//
+// Same rule as the positions beside it: a failed pull writes nothing and the
+// snapshot ages out, so a venue that could not answer never decays into an
+// account that holds nothing. The difference is that this is a set — a reader
+// that saw half of it would compute an equity the account never had — so the
+// whole thing is one seqlock write rather than a row per asset.
+void publish_balances(const raikiri::exec::VenueAdapter& adapter,
+                      raikiri::MarketType market,
+                      raikiri::shm::BalanceTable& table,
+                      raikiri::UnixNanos now) {
+    std::array<char, 16> buf{};
+    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market},
+                                             buf.data(), buf.size());
+    static bool announced = false;
+    static bool answered = false;
+    if (!adapter.caps.balance_pull) {
+        if (!announced) {
+            announced = true;
+            fmt::print("gatewayd[{}]: balances unavailable for this venue\n", who);
+        }
+        return;
+    }
+
+    const auto reports = adapter.execution->balance_reports(market);
+    if (!reports.has_value()) {
+        fmt::print(stderr, "gatewayd[{}]: balance pull failed — {}\n", who,
+                   reports.error().message.view());
+        return;
+    }
+    if (reports->size() > raikiri::shm::k_balance_rows) {
+        // Refused rather than truncated: a partial balance set sums to an
+        // equity nobody holds, and this cell exists so a reader never sees one.
+        fmt::print(stderr, "gatewayd[{}]: {} assets exceeds the {} the snapshot holds\n", who,
+                   reports->size(), raikiri::shm::k_balance_rows);
+        return;
+    }
+
+    raikiri::shm::BalanceSnapshot snapshot{};
+    snapshot.count = static_cast<std::uint32_t>(reports->size());
+    snapshot.ts_pulled = now;
+    for (std::size_t i = 0; i < reports->size(); ++i) {
+        snapshot.rows[i] = (*reports)[i];
+    }
+    table.write(0, snapshot);
+
+    if (!answered) {
+        answered = true;
+        fmt::print("gatewayd[{}]: venue answered its balances — {} asset(s)\n", who,
+                   snapshot.count);
+    }
+}
+
 int main(int argc, char** argv) {
     using namespace raikiri;
 
@@ -656,6 +709,10 @@ int main(int argc, char** argv) {
         if (mono.ns >= recon_due) {
             publish_positions(
                 *adapter, market, *channels->catalogue, *channels->positions, clock.wall());
+            // On the same tick as the positions: both are the venue's word on
+            // this account, and asking for one without the other invites a
+            // reader to compare numbers taken thirty seconds apart.
+            publish_balances(*adapter, market, *channels->balances, clock.wall());
             recon_due = mono.ns + k_recon_interval_ns;
         }
         owner->beat(mono.ns);

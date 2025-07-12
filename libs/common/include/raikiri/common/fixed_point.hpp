@@ -177,4 +177,14 @@ enum class ParseError : std::uint8_t {
 [[nodiscard]] std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept;
 [[nodiscard]] std::optional<FixedE9> parse_rate_e9(std::string_view text) noexcept;
 
+//   parse_amount_e9 truncates toward zero as well, and exists so a balance
+//   states its own reason instead of borrowing one from a function named for
+//   rates. A venue reports a wallet at ITS resolution — Gate sends twelve
+//   fractional digits for a USDT balance — while e9 is this system's, and an
+//   exact read refuses the whole number rather than its tail: the account then
+//   shows no balance at all, which is the one answer that is certainly wrong.
+//   Truncation errs DOWNWARD, which is the safe direction for a figure whose
+//   question is "how much may I commit". Not for a price or a size.
+[[nodiscard]] std::optional<FixedE9> parse_amount_e9(std::string_view text) noexcept;
+
 } // namespace raikiri

@@ -857,7 +857,42 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<exec::PositionReport>, exec::VenueError>
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market != MarketType::Perp) {
+            // Gate's spot balances live on a different endpoint with a
+            // different shape. Refused rather than answered with the futures
+            // account, which would report the wrong wallet under a spot label.
+            return std::unexpected{exec::not_implemented("gate spot balance pull")};
+        }
+        const auto request = builder_.futures_account(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto account = parse_futures_account(*body);
+        if (!account.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(account.error()))};
+        }
+        const auto balance = map_futures_account(*account);
+        if (!balance.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate: account names no currency")};
+        }
+        // ONE ROW: the futures account is per settle currency and this gateway
+        // trades one. A second settle currency is a second account and a second
+        // process, exactly as a second market is.
+        return std::vector<BalanceReport>{*balance};
+    }
+
+    [[nodiscard]] std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
