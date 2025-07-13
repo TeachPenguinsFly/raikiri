@@ -104,8 +104,9 @@ int main(int argc, char** argv) {
     }
 
     admin::Server server{address, port,
-                         admin::make_router(registry, history.get(),
-                                            [&clock] { return clock.mono(); })};
+                         admin::make_router(
+                             registry, history.get(), [&clock] { return clock.mono(); },
+                             [&clock] { return clock.wall(); })};
     if (!server.start()) {
         fmt::print(stderr, "admind: cannot bind {}:{}\n", address, port);
         return 1;

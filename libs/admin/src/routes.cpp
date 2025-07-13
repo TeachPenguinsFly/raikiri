@@ -166,8 +166,10 @@ Response problem(int status, std::string_view title, std::string_view detail) {
 
 Handler make_router(const Registry& registry,
                     const History* history,
-                    std::function<MonoNanos()> now) {
-    return [&registry, history, now = std::move(now)](const Request& req) -> Response {
+                    std::function<MonoNanos()> now,
+                    std::function<UnixNanos()> wall) {
+    return [&registry, history, now = std::move(now),
+            wall = std::move(wall)](const Request& req) -> Response {
         if (req.method != "GET") {
             return problem(405, "read-only",
                            "v1 serves reads; writes need a second producer into strategyd's "
@@ -184,6 +186,17 @@ Handler make_router(const Registry& registry,
 
         if (req.path == "/v1/accounts") {
             return json(registry.accounts(now()));
+        }
+
+        if (req.path == "/v1/balances") {
+            // LIVE, from the gateway segments — not from Postgres. Nothing
+            // persists a balance: it is what the venue says right now, and a
+            // stored one would answer "as of when?" wrongly.
+            const auto account = query_param(req.query, "account");
+            if (!account.empty() && registry.find(account) == nullptr) {
+                return problem(404, "no such account", account);
+            }
+            return json(registry.balances(account, wall()));
         }
 
         if (req.path == "/v1/instruments") {

@@ -146,6 +146,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each venue says the account holds
+         * @description LIVE, read from the gateway segments — nothing persists a balance. A
+         *     balance is what the venue says right now, and a stored one could only
+         *     answer "as of when?" wrongly.
+         *
+         *     A balance is NOT a position and NOT equity. Equity is a sum over these,
+         *     and this endpoint deliberately does not compute it: a venue liquidates
+         *     on its own arithmetic, and a second answer stored beside it would
+         *     disagree at exactly the moment it mattered.
+         *
+         *     A gateway whose venue cannot report balances appears with an empty
+         *     `assets` and no `reported_at`. That is not an empty account.
+         */
+        get: operations["listBalances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/positions": {
         parameters: {
             query?: never;
@@ -541,6 +571,40 @@ export interface components {
             /** @description When that snapshot was taken. Null when there is none. */
             venue_reported_at?: string | null;
             ts_updated: components["schemas"]["Nanos"];
+        };
+        Balance: {
+            /** @example USDT */
+            asset: string;
+            /**
+             * @description The venue's own total for this asset. ABSENT when it did not say,
+             *     which is not zero.
+             */
+            total?: components["schemas"]["Decimal"];
+            /**
+             * @description What may be committed to a new order. Several venues publish only a
+             *     total; this is absent there rather than repeating it, because a
+             *     caller that read the total as free would commit margin twice.
+             */
+            available?: components["schemas"]["Decimal"];
+            /** @description On the venue's marks, reported and never recomputed here. */
+            unrealized?: components["schemas"]["Decimal"];
+        };
+        AccountBalances: {
+            account: string;
+            venue: string;
+            /**
+             * @description When the venue last answered, as nanoseconds. Null when it has not —
+             *     and then `assets` is empty because there is nothing to say, never
+             *     because the account is.
+             */
+            reported_at?: string | null;
+            /**
+             * @description True once the last answer is older than three of the gateway's pull
+             *     rounds. The figures are still the last ones the venue gave; what has
+             *     expired is the claim that they are current.
+             */
+            stale: boolean;
+            assets: components["schemas"]["Balance"][];
         };
         /** @enum {string} */
         PnlKind: "realized" | "fee" | "funding";
@@ -959,6 +1023,30 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    listBalances: {
+        parameters: {
+            query?: {
+                /** @description An account name, as `GET /v1/accounts` returns it. */
+                account?: components["parameters"]["Account"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountBalances"][];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listPositions: {

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { allPnl, api, type PnlIncrement } from '@/api/client'
+import { allPnl, api, type AccountBalances, type PnlIncrement } from '@/api/client'
 import { Failed, Loading } from '@/components/Chrome'
 import { ChartFrame, colorFor, Donut, kindColor, LinePlot } from '@/components/chart'
-import { cn, compact, nanosToMillis, percent, toNumber, usdSigned } from '@/lib/format'
+import { cn, compact, nanosToMillis, percent, toNumber, usd, usdSigned } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 
 const KINDS = ['realized', 'fee', 'funding'] as const
@@ -15,7 +15,35 @@ interface VenueRow {
   flow: number
   net: number
   byKind: Record<Kind, number>
-  positions: number
+}
+
+/** One asset held on one venue, flattened out of the per-account reply. */
+interface Holding {
+  venue: string
+  account: string
+  asset: string
+  total: number
+  available: number | null
+  stale: boolean
+  reported: boolean
+}
+
+/** The asset the desk is actually denominated in — the one the most venues
+ *  report, ties broken by size. Chosen rather than assumed to be USDT, and
+ *  named on screen, because a donut that silently added USDT to BTC would be a
+ *  number nobody holds. */
+function dominantAsset(holdings: Holding[]): string | null {
+  const weight = new Map<string, { venues: number; total: number }>()
+  for (const h of holdings) {
+    const entry = weight.get(h.asset) ?? { venues: 0, total: 0 }
+    entry.venues += 1
+    entry.total += h.total
+    weight.set(h.asset, entry)
+  }
+  const ranked = [...weight.entries()].sort(
+    (a, b) => b[1].venues - a[1].venues || b[1].total - a[1].total,
+  )
+  return ranked[0]?.[0] ?? null
 }
 
 /** Cumulative series, thinned to something a screen can draw.
@@ -44,29 +72,21 @@ function cumulative(rows: PnlIncrement[], limit: number) {
 export function Treasury() {
   const [hovered, setHovered] = useState<string | null>(null)
 
+  // Balances are live from the gateway segments and move on the venue's own
+  // 30 s pull, so they are polled faster than the ledger, which only moves when
+  // something trades.
+  const held = useQuery(() => api.balances(), [], 5_000)
   const ledger = useQuery(() => allPnl(), [], 15_000)
-  const held = useQuery(
-    async () => {
-      const accounts = await api.accounts()
-      const counts = await Promise.all(
-        accounts.map(async (account) => ({
-          venue: account.venue,
-          rows: (await api.positions({ account: account.account })).length,
-        })),
-      )
-      return counts
-    },
-    [],
-    15_000,
-  )
-
   const model = useMemo(() => {
-    if (ledger.state !== 'ready') return null
+    // Built from WHATEVER HAS ARRIVED. Balances come from shared memory and
+    // the ledger from Postgres; they fail independently, and letting one
+    // failure blank the other hides a number that was there all along.
+    const increments = ledger.state === 'ready' ? ledger.data : []
 
     const byVenue = new Map<string, VenueRow>()
     const totals: Record<Kind, number> = { realized: 0, fee: 0, funding: 0 }
 
-    for (const row of ledger.data) {
+    for (const row of increments) {
       const kind = row.kind as Kind
       if (!KINDS.includes(kind)) continue
       const amount = toNumber(row.amount)
@@ -82,7 +102,6 @@ export function Treasury() {
         flow: 0,
         net: 0,
         byKind: { realized: 0, fee: 0, funding: 0 },
-        positions: 0,
       }
       entry.flow += Math.abs(amount)
       entry.net += amount
@@ -90,48 +109,88 @@ export function Treasury() {
       byVenue.set(venue, entry)
     }
 
+    const venues = [...byVenue.values()].sort((a, b) => b.flow - a.flow)
+
+    const holdings: Holding[] = []
+    const silent: string[] = []
     if (held.state === 'ready') {
-      for (const row of held.data) {
-        const entry = byVenue.get(row.venue)
-        if (entry !== undefined) entry.positions += row.rows
+      for (const row of held.data as AccountBalances[]) {
+        if (row.reported_at === null || row.reported_at === undefined) {
+          // The venue has not answered. Listed by name, because "no balances"
+          // and "an empty account" are the two things this page must not merge.
+          silent.push(row.account)
+          continue
+        }
+        for (const asset of row.assets) {
+          holdings.push({
+            venue: row.venue,
+            account: row.account,
+            asset: asset.asset,
+            total: toNumber(asset.total),
+            available: asset.available === undefined ? null : toNumber(asset.available),
+            stale: row.stale,
+            reported: true,
+          })
+        }
       }
     }
+    const asset = dominantAsset(holdings)
+    const denominated = holdings.filter((h) => h.asset === asset)
 
-    const venues = [...byVenue.values()].sort((a, b) => b.flow - a.flow)
     return {
       venues,
       totals,
       net: totals.realized + totals.fee + totals.funding,
       flow: venues.reduce((sum, v) => sum + v.flow, 0),
-      series: cumulative(ledger.data, 400),
+      series: cumulative(increments, 400),
+      holdings,
+      silent,
+      asset,
+      denominated,
+      capital: denominated.reduce((sum, h) => sum + h.total, 0),
     }
   }, [ledger, held])
 
-  if (ledger.state === 'loading') return <Loading what="the ledger" />
-  if (ledger.state === 'failed') return <Failed {...ledger} />
-  if (model === null) return null
+  // Only a screen with nothing at all is a failed screen.
+  if (held.state === 'loading' && ledger.state === 'loading') {
+    return <Loading what="balances and the ledger" />
+  }
+  if (held.state === 'failed' && ledger.state === 'failed') return <Failed {...held} />
 
-  const focused = model.venues.find((v) => v.venue === hovered) ?? null
+  const focused = model.denominated.find((h) => h.venue === hovered) ?? null
 
   return (
     <div className="h-full space-y-4 overflow-auto p-5">
-      <Banner />
+      <Banner silent={model.silent} asset={model.asset} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile
+          label={model.asset === null ? 'capital' : `capital · ${model.asset}`}
+          value={model.asset === null ? '—' : usd(model.capital)}
+          tone={0}
+          emphasis
+        />
         <Tile label="Net" value={usdSigned(model.net)} tone={model.net} emphasis />
-        {KINDS.map((kind) => (
-          <Tile key={kind} label={kind} value={usdSigned(model.totals[kind])} tone={model.totals[kind]} />
-        ))}
+        <Tile label="realized" value={usdSigned(model.totals.realized)} tone={model.totals.realized} />
+        <Tile label="fee" value={usdSigned(model.totals.fee)} tone={model.totals.fee} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
         <ChartFrame
-          title="Split by exchange"
-          note="Absolute money moved through each venue — realised PnL, fees paid, funding taken."
+          title="Capital by exchange"
+          note={
+            model.asset === null
+              ? 'No venue has answered with a balance yet.'
+              : `${model.asset} as each venue reports it. Only one asset is summed — adding ${model.asset} to another coin would be a number nobody holds.`
+          }
           height={296}
           className="xl:col-span-5"
-          placeholder={model.venues.length === 0 ? 'The ledger is empty.' : undefined}
-          footer={`${model.venues.length} ${model.venues.length === 1 ? 'exchange' : 'exchanges'} in the ledger`}
+          placeholder={model.denominated.length === 0 ? 'No balances reported yet.' : undefined}
+          footer={
+            model.silent.length === 0
+              ? `${model.denominated.length} ${model.denominated.length === 1 ? 'exchange' : 'exchanges'} reporting`
+              : `not reporting: ${model.silent.join(', ')}`
+          }
         >
           {({ width, height }) => {
             const size = Math.min(height, Math.max(width * 0.46, 140))
@@ -139,32 +198,41 @@ export function Treasury() {
               <div className="flex h-full items-center gap-5 px-2">
                 <Donut
                   size={size}
-                  segments={model.venues.map((v) => ({
-                    key: v.venue,
-                    label: v.venue,
-                    color: v.color,
-                    value: v.flow,
+                  segments={model.denominated.map((h) => ({
+                    key: h.venue,
+                    label: h.venue,
+                    color: colorFor(h.venue),
+                    value: h.total,
                   }))}
                   active={hovered}
                   onHover={setHovered}
                   center={
                     <>
                       <span className="text-[10px] uppercase tracking-[0.14em] text-faint">
-                        {focused?.venue ?? 'total flow'}
+                        {focused?.venue ?? model.asset ?? '—'}
                       </span>
                       <span className="tnum mt-0.5 text-xl text-ink">
-                        ${compact(focused?.flow ?? model.flow)}
+                        {compact(focused?.total ?? model.capital)}
                       </span>
                       <span className="tnum text-xs">
                         {focused === null ? (
-                          <span className={toneClass(model.net)}>net {usdSigned(model.net)}</span>
+                          <span className="text-muted">
+                            across {model.denominated.length}{' '}
+                            {model.denominated.length === 1 ? 'venue' : 'venues'}
+                          </span>
                         ) : (
                           <>
                             <span className="text-muted">
-                              {percent(model.flow === 0 ? 0 : focused.flow / model.flow)}
+                              {percent(model.capital === 0 ? 0 : focused.total / model.capital)}
                             </span>
-                            <span className="text-faint"> · </span>
-                            <span className={toneClass(focused.net)}>{usdSigned(focused.net)}</span>
+                            {focused.available !== null && focused.available !== focused.total && (
+                              <>
+                                <span className="text-faint"> · </span>
+                                <span className="text-muted">
+                                  {compact(focused.available)} free
+                                </span>
+                              </>
+                            )}
                           </>
                         )}
                       </span>
@@ -172,30 +240,31 @@ export function Treasury() {
                   }
                 />
                 <ul className="min-w-0 flex-1 space-y-0.5 overflow-auto" style={{ maxHeight: height }}>
-                  {model.venues.map((venue) => (
+                  {model.denominated.map((holding) => (
                     <li
-                      key={venue.venue}
-                      onMouseEnter={() => setHovered(venue.venue)}
+                      key={holding.account}
+                      onMouseEnter={() => setHovered(holding.venue)}
                       onMouseLeave={() => setHovered(null)}
                       className={cn(
                         'flex items-center justify-between gap-2 rounded px-2 py-1 text-xs transition-colors',
-                        hovered === venue.venue ? 'bg-raised' : 'bg-transparent',
+                        hovered === holding.venue ? 'bg-raised' : 'bg-transparent',
                       )}
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <span
                           className="size-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: venue.color }}
+                          style={{ backgroundColor: colorFor(holding.venue) }}
                         />
-                        <span className="truncate text-ink">{venue.venue}</span>
+                        <span className="truncate text-ink">{holding.venue}</span>
+                        {holding.stale && (
+                          <span className="shrink-0 text-[10px] uppercase text-warn">stale</span>
+                        )}
                       </span>
                       <span className="flex shrink-0 items-center gap-3">
                         <span className="tnum w-11 text-right text-muted">
-                          {percent(model.flow === 0 ? 0 : venue.flow / model.flow)}
+                          {percent(model.capital === 0 ? 0 : holding.total / model.capital)}
                         </span>
-                        <span className={cn('tnum w-20 text-right', toneClass(venue.net))}>
-                          {usdSigned(venue.net)}
-                        </span>
+                        <span className="tnum w-24 text-right text-ink">{usd(holding.total)}</span>
                       </span>
                     </li>
                   ))}
@@ -227,7 +296,11 @@ export function Treasury() {
           ]}
           onLegendHover={setHovered}
           placeholder={
-            model.series.x.length < 2 ? 'Fewer than two increments — nothing to plot yet.' : undefined
+            ledger.state === 'failed'
+              ? `${ledger.title} — the balances above are unaffected`
+              : model.series.x.length < 2
+                ? 'Fewer than two increments — nothing to plot yet.'
+                : undefined
           }
         >
           {({ width, height }) => (
@@ -262,7 +335,7 @@ export function Treasury() {
             <tr className="border-b border-line">
               <th className="px-4 py-2 font-normal">Exchange</th>
               <th className="px-4 py-2 text-right font-normal">Share</th>
-              <th className="px-4 py-2 text-right font-normal">Open positions</th>
+              <th className="px-4 py-2 text-right font-normal">Held</th>
               {KINDS.map((kind) => (
                 <th key={kind} className="px-4 py-2 text-right font-normal">
                   {kind}
@@ -308,7 +381,11 @@ export function Treasury() {
                   </span>
                 </td>
                 <td className="tnum px-4 py-2 text-right text-muted">
-                  {held.state === 'ready' ? venue.positions : '—'}
+                  {(() => {
+                    const rows = model.holdings.filter((h) => h.venue === venue.venue)
+                    if (rows.length === 0) return '—'
+                    return rows.map((h) => `${compact(h.total)} ${h.asset}`).join(' · ')
+                  })()}
                 </td>
                 {KINDS.map((kind) => (
                   <td key={kind} className={cn('tnum px-4 py-2 text-right', toneClass(venue.byKind[kind]))}>
@@ -361,20 +438,29 @@ function Tile({
   )
 }
 
-/** What this page is NOT, said once and in place rather than left to be
- *  inferred from a number that looks like a balance. */
-function Banner() {
+/** Shown only when something on this page is missing, and naming what. A
+ *  standing banner is one a reader stops seeing. */
+function Banner({ silent, asset }: { silent: string[]; asset: string | null }) {
+  if (silent.length === 0 && asset !== null) {
+    return null
+  }
   return (
     <div className="flex items-start gap-3 rounded-xl border border-warn/25 bg-warn/[0.06] px-4 py-3">
       <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-warn" />
       <p className="text-xs leading-relaxed text-muted">
-        <span className="text-ink">No venue reports balances yet.</span> No adapter reads an
-        account endpoint, so nothing here is free capital or equity — it is the settled ledger,
-        split by the exchange that charged it. When balances land they fill this same donut without
-        changing its shape.{' '}
+        {asset === null ? (
+          <span className="text-ink">No venue has answered with a balance yet.</span>
+        ) : (
+          <>
+            <span className="text-ink">
+              {silent.join(', ')} {silent.length === 1 ? 'reports' : 'report'} no balance.
+            </span>{' '}
+            The capital above is what the rest of them hold, so it is a floor and not a total.
+          </>
+        )}{' '}
         <span className="text-faint">
-          Funding is the published rate on every venue and has moved no money, so a funding column
-          of zero is honest rather than quiet.
+          Funding is still the published rate everywhere and has moved no money, so a funding
+          column of zero is honest rather than quiet.
         </span>
       </p>
     </div>

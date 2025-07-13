@@ -51,6 +51,14 @@ public:
 
     [[nodiscard]] std::optional<Instrument> instrument(InstrumentId id) const;
 
+    // What each attached gateway's venue last said the account holds, or just
+    // one of them when `account` names it. A gateway whose venue cannot report
+    // balances is present with an empty asset list and `reported_at` absent —
+    // the two are different facts and the caller must be able to tell them
+    // apart.
+    [[nodiscard]] std::vector<AccountBalances> balances(std::string_view account,
+                                                        UnixNanos now) const;
+
     [[nodiscard]] const Gateway* find(std::string_view account) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept { return gateways_.size(); }
 

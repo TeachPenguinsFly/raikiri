@@ -170,9 +170,10 @@ gateway starts empty and exits.
 **[4] coinbase** — Coinbase Exchange lists no perpetuals, and this adapter implements
 no account pulls, so there is nothing to reconcile against.
 
-**Not reachable on any venue:** account balances. Nothing pulls them, so there is no
-margin model and no free-collateral check. Funding is the published *rate*, never the
-charge a venue actually took — no funding has moved the PnL ledger.
+**Balances** are read on the venues marked above and published live into the gateway's
+segment; the rest report nothing and say so rather than answering zero. No margin model
+is built on them yet, so there is still no free-collateral check. Funding is the published
+*rate*, never the charge a venue actually took — no funding has moved the PnL ledger.
 
 </details>
 
@@ -270,6 +271,7 @@ make fuzz FUZZ_SECONDS=60  # libFuzzer targets (Homebrew clang on macOS)
 **Working**
 
 - 16 venues streaming live market data
+- Balances read from the venue and published live
 - Order entry on every one of them
 - Options and dated futures on Deribit
 - Positions, PnL, append-only ledger
@@ -280,7 +282,7 @@ make fuzz FUZZ_SECONDS=60  # libFuzzer targets (Homebrew clang on macOS)
 
 **Not built yet**
 
-- Account balances and margin
+- A margin model built on those balances
 - Funding credited from the actual charge
 - Conditional and bracket orders
 - Execution algorithms

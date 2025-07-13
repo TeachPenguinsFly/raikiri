@@ -232,6 +232,35 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/Fill" }
 
+  /v1/balances:
+    get:
+      tags: [trading]
+      summary: What each venue says the account holds
+      description: |
+        LIVE, read from the gateway segments — nothing persists a balance. A
+        balance is what the venue says right now, and a stored one could only
+        answer "as of when?" wrongly.
+
+        A balance is NOT a position and NOT equity. Equity is a sum over these,
+        and this endpoint deliberately does not compute it: a venue liquidates
+        on its own arithmetic, and a second answer stored beside it would
+        disagree at exactly the moment it mattered.
+
+        A gateway whose venue cannot report balances appears with an empty
+        `assets` and no `reported_at`. That is not an empty account.
+      operationId: listBalances
+      parameters:
+        - { $ref: "#/components/parameters/Account" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AccountBalances" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/positions:
     get:
       tags: [trading]
@@ -773,6 +802,48 @@ components:
         ts_updated: { $ref: "#/components/schemas/Nanos" }
 
     # --------------------------------------------------------- analytics ----
+
+    Balance:
+      type: object
+      required: [asset]
+      properties:
+        asset: { type: string, examples: ["USDT"] }
+        total:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            The venue's own total for this asset. ABSENT when it did not say,
+            which is not zero.
+        available:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            What may be committed to a new order. Several venues publish only a
+            total; this is absent there rather than repeating it, because a
+            caller that read the total as free would commit margin twice.
+        unrealized:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: On the venue's marks, reported and never recomputed here.
+
+    AccountBalances:
+      type: object
+      required: [account, venue, stale, assets]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        reported_at:
+          type: [string, "null"]
+          description: |
+            When the venue last answered, as nanoseconds. Null when it has not —
+            and then `assets` is empty because there is nothing to say, never
+            because the account is.
+        stale:
+          type: boolean
+          description: |
+            True once the last answer is older than three of the gateway's pull
+            rounds. The figures are still the last ones the venue gave; what has
+            expired is the claim that they are current.
+        assets:
+          type: array
+          items: { $ref: "#/components/schemas/Balance" }
 
     PnlKind:
       type: string

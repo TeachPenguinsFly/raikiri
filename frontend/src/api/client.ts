@@ -3,6 +3,8 @@ import type { components, paths } from './types'
 export type Schema<K extends keyof components['schemas']> = components['schemas'][K]
 
 export type Account = Schema<'Account'>
+export type AccountBalances = Schema<'AccountBalances'>
+export type Balance = Schema<'Balance'>
 export type Health = Schema<'Health'>
 export type Instrument = Schema<'Instrument'>
 export type PnlIncrement = Schema<'PnlIncrement'>
@@ -56,6 +58,8 @@ export const api = {
       cursor: params.cursor,
       limit: params.limit,
     }),
+  balances: (params: { account?: string | undefined } = {}) =>
+    get<AccountBalances[]>('/v1/balances', { account: params.account }),
   positions: (params: { account?: string | undefined } = {}) =>
     get<Position[]>('/v1/positions', { account: params.account }),
   pnl: (params: {

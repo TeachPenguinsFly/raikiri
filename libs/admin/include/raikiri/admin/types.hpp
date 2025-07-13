@@ -139,6 +139,31 @@ struct Position {
     std::string ts_updated;
 };
 
+// A currency the account holds, as the venue last reported it.
+//
+// NOT a position and not equity. Equity is a sum over these, and a sum over a
+// set that is missing a row is a number nobody holds — which is why the whole
+// set travels together and carries the instant it was taken.
+struct Balance {
+    std::string asset;
+    // Absent when the venue did not report it. NOT zero: several venues publish
+    // a total and no free figure, and repeating the total there would invite a
+    // caller to commit margin twice.
+    std::optional<std::string> total;
+    std::optional<std::string> available;
+    std::optional<std::string> unrealized;
+};
+
+struct AccountBalances {
+    std::string account;
+    std::string venue;
+    // When the venue last answered. Absent when it has not — and then `assets`
+    // is empty because there is nothing to say, never because the account is.
+    std::optional<std::string> reported_at;
+    bool stale{false};
+    std::vector<Balance> assets;
+};
+
 // -------------------------------------------------------------- error ----
 
 // RFC 9457. One error shape everywhere, including on the stream.

@@ -134,6 +134,70 @@ std::optional<Instrument> Registry::instrument(InstrumentId id) const {
     return std::nullopt;
 }
 
+std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNanos now) const {
+    // Three missed pulls at the gateway's 30 s cadence, the same window the
+    // live positions feed uses. One late round is not a venue going quiet.
+    constexpr std::uint64_t k_stale_ns = 90ULL * 1'000'000'000ULL;
+
+    std::vector<AccountBalances> out;
+    for (const auto& gw : gateways_) {
+        if (!account.empty() && gw.name != account) {
+            continue;
+        }
+        AccountBalances entry{.account = gw.name,
+                              .venue = std::string{to_string(gw.account.venue)},
+                              .reported_at = std::nullopt,
+                              .stale = false,
+                              .assets = {}};
+        if (gw.channels.balances == nullptr) {
+            out.push_back(std::move(entry));
+            continue;
+        }
+        // ONE read of the whole set. A row-at-a-time reader could take two
+        // assets from one snapshot and two from the next, and sum them into an
+        // equity the account never had at any instant.
+        shm::BalanceSnapshot snapshot{};
+        // Version 0 is a cell nothing has written, which is absence rather than
+        // a value — the same rule the change gate on the live stream uses.
+        const auto version = gw.channels.balances->read(0, snapshot);
+        if (version == 0 || snapshot.ts_pulled.ns == 0) {
+            // Never written: the venue has not answered yet, or cannot. Empty
+            // with no timestamp, which is not the same as holding nothing.
+            out.push_back(std::move(entry));
+            continue;
+        }
+        entry.reported_at = digits(snapshot.ts_pulled.ns);
+        entry.stale =
+            now.ns > snapshot.ts_pulled.ns && (now.ns - snapshot.ts_pulled.ns) > k_stale_ns;
+        const auto rows = std::min<std::size_t>(snapshot.count, shm::k_balance_rows);
+        entry.assets.reserve(rows);
+        for (std::size_t i = 0; i < rows; ++i) {
+            const auto& row = snapshot.rows.at(i);
+            if (!row.has_asset()) {
+                continue;
+            }
+            Balance balance{.asset = std::string{row.asset.view()},
+                            .total = std::nullopt,
+                            .available = std::nullopt,
+                            .unrealized = std::nullopt};
+            // Undef stays ABSENT rather than becoming "0": the contract's
+            // Decimal has no spelling for "the venue did not say".
+            if (!row.total.is_undef()) {
+                balance.total = decimal(row.total);
+            }
+            if (!row.available.is_undef()) {
+                balance.available = decimal(row.available);
+            }
+            if (!row.unrealized.is_undef()) {
+                balance.unrealized = decimal(row.unrealized);
+            }
+            entry.assets.push_back(std::move(balance));
+        }
+        out.push_back(std::move(entry));
+    }
+    return out;
+}
+
 const Gateway* Registry::find(std::string_view account) const noexcept {
     const auto it = std::ranges::find(gateways_, account, &Gateway::name);
     return it == gateways_.end() ? nullptr : &*it;
