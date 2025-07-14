@@ -173,8 +173,8 @@ TEST(MulDiv, HoldsAProductThatDoesNotFitI64) {
 
 TEST(MulDiv, AgreesWithA128BitReference) {
     constexpr std::int64_t cases[][3] = {
-        {500'000'000, 50'000'000'000'000, k_e9},      // half a BTC at 50k
-        {100'000'000'000, 100'000, k_e9},             // gate: 100 contracts x 0.0001
+        {500'000'000, 50'000'000'000'000, k_e9},               // half a BTC at 50k
+        {100'000'000'000, 100'000, k_e9},                      // gate: 100 contracts x 0.0001
         {100'000'000'000, 10'000'000'000, 50'000'000'000'000}, // deribit inverse
         {7, 3, 2},
         {-7, 3, 2},

@@ -1,6 +1,5 @@
-#include <raikiri/admin/registry.hpp>
-
 #include <raikiri/admin/format.hpp>
+#include <raikiri/admin/registry.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -34,8 +33,7 @@ Instrument describe(const raikiri::Instrument& instrument, std::string_view acco
     // would be read as data.
     if (const auto* future = std::get_if<FutureInstrument>(&instrument); future != nullptr) {
         out.expiry = digits(future->expiry);
-    } else if (const auto* option = std::get_if<OptionInstrument>(&instrument);
-               option != nullptr) {
+    } else if (const auto* option = std::get_if<OptionInstrument>(&instrument); option != nullptr) {
         out.expiry = digits(option->expiry);
         // Through the instrument, because a strike is a price and a tick count
         // without its instrument is not one.
@@ -70,11 +68,10 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue;
         }
         (void)client->register_reader(reader_pid);
-        gateways_.push_back(
-            {.account = account,
-             .name = account_name,
-             .client = std::move(*client),
-             .channels = *channels});
+        gateways_.push_back({.account = account,
+                             .name = account_name,
+                             .client = std::move(*client),
+                             .channels = *channels});
     }
     std::ranges::sort(gateways_, {}, &Gateway::name);
     return gateways_.size();

@@ -1,11 +1,9 @@
-#include <raikiri/admin/routes.hpp>
-
 #include <raikiri/admin/format.hpp>
-
-#include <glaze/glaze.hpp>
+#include <raikiri/admin/routes.hpp>
 
 #include <algorithm>
 #include <expected>
+#include <glaze/glaze.hpp>
 
 namespace raikiri::admin {
 
@@ -28,9 +26,8 @@ template <typename T> Response json(const T& value) {
 // one is the index of the next row — honest for a catalogue that is stable
 // within a gateway's lifetime, and replaced the day a source needs more.
 template <typename T>
-std::pair<std::vector<T>, std::optional<std::string>> paginate(std::vector<T> rows,
-                                                               std::string_view cursor,
-                                                               std::size_t limit) {
+std::pair<std::vector<T>, std::optional<std::string>>
+paginate(std::vector<T> rows, std::string_view cursor, std::size_t limit) {
     std::size_t start = 0;
     if (!cursor.empty()) {
         std::from_chars(cursor.data(), cursor.data() + cursor.size(), start);
@@ -122,7 +119,8 @@ std::expected<PageQuery, Response> read_page_query(const Request& req) {
     if (const auto text = query_param(req.query, "cursor"); !text.empty()) {
         auto cursor = Cursor::decode(text);
         if (!cursor.has_value()) {
-            return std::unexpected(problem(400, "not a cursor this server issued",
+            return std::unexpected(problem(400,
+                                           "not a cursor this server issued",
                                            "take it verbatim from a previous page's next_cursor"));
         }
         query.cursor = *cursor;
@@ -146,7 +144,8 @@ std::expected<std::optional<bool>, Response> read_flag(std::string_view text) {
 }
 
 Response no_database() {
-    return problem(503, "no database configured",
+    return problem(503,
+                   "no database configured",
                    "admind was started without a DSN, so nothing that Postgres holds can be "
                    "answered. An empty page here would say that nothing happened, which is a "
                    "different fact from nobody having asked");
@@ -168,10 +167,11 @@ Handler make_router(const Registry& registry,
                     const History* history,
                     std::function<MonoNanos()> now,
                     std::function<UnixNanos()> wall) {
-    return [&registry, history, now = std::move(now),
-            wall = std::move(wall)](const Request& req) -> Response {
+    return [&registry, history, now = std::move(now), wall = std::move(wall)](
+               const Request& req) -> Response {
         if (req.method != "GET") {
-            return problem(405, "read-only",
+            return problem(405,
+                           "read-only",
                            "v1 serves reads; writes need a second producer into strategyd's "
                            "command rings, which is a decision not yet made");
         }
@@ -205,10 +205,9 @@ Handler make_router(const Registry& registry,
             if (!kind_text.empty() && !read_market(kind_text).has_value()) {
                 return problem(400, "unknown market", kind_text);
             }
-            auto [items, next] =
-                paginate(registry.instruments(account, read_market(kind_text)),
-                         query_param(req.query, "cursor"),
-                         read_limit(query_param(req.query, "limit")));
+            auto [items, next] = paginate(registry.instruments(account, read_market(kind_text)),
+                                          query_param(req.query, "cursor"),
+                                          read_limit(query_param(req.query, "limit")));
             return json(InstrumentPage{.items = std::move(items), .next_cursor = std::move(next)});
         }
 
@@ -216,8 +215,7 @@ Handler make_router(const Registry& registry,
         if (req.path.starts_with(k_instrument_prefix)) {
             const auto text = req.path.substr(k_instrument_prefix.size());
             std::uint64_t packed = 0;
-            const auto [stop, ec] =
-                std::from_chars(text.data(), text.data() + text.size(), packed);
+            const auto [stop, ec] = std::from_chars(text.data(), text.data() + text.size(), packed);
             if (ec != std::errc{} || stop != text.data() + text.size()) {
                 return problem(400, "instrument id must be digits", text);
             }

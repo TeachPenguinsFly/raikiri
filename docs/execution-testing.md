@@ -390,13 +390,17 @@ by any run of this system, and every fee path below is unexercised.
       by REST poll (binance, xt, bingx). **None publishes a charge**, no
       `FundingCharge` type exists, and `pnlKindEnum::Funding` has zero producers.
       This is item 3 of the standing plan, unchanged.
-- [ ] **Balances, at all.** No adapter reads an account endpoint; the only hits
-      are venues *refusing* a position pull because they hold balances there.
-      Gate comes closest — it calls `/futures/{settle}/accounts` and parses only
-      the user id out of a response that contains `total`, `available` and
-      `unrealised_pnl`. Without balances there is no margin model, no
-      free-collateral check, and `portfolio::size_for_risk` — which takes equity
-      as an argument — has no caller anywhere outside its own tests.
+- [x] **Balances.** Built 2026-08-28. `BalanceReport` in `libs/domain`, an
+      opt-in `ExecutionClient::balance_reports` behind a `caps.balance_pull`
+      bit, a `balances` channel in the gateway segment, and `GET /v1/balances`
+      serving it live. The channel is ONE seqlock cell holding the whole set
+      rather than a row per asset: equity is a sum over the set, and a reader
+      that took two rows from one snapshot and two from the next would add up a
+      figure the account never held.
+- [ ] **A margin model on top of them.** Balances alone are not a
+      free-collateral check. `portfolio::size_for_risk` takes equity as an
+      argument and still has no caller outside its own tests; wiring it needs a
+      decision about which figure is equity on a venue that reports four.
 - [ ] **Surface net-of-fees realized.** `/v1/positions` selects `realized_e9` and
       not `fees_e9`, `cost_e9`, `fill_count` or `ts_opened`, though all four are
       in the table — so realized is gross and average entry is not derivable.

@@ -51,9 +51,9 @@ struct VenueCaps {
     bool fix_order_entry{false}; // FIX offered at any access tier
     bool cancel_by_client_order_id{false};
     bool batch_cancel{false};
-    bool amend_order{false};       // native modify (vs cancel+replace)
-    bool native_post_only{false};  // venue-enforced maker-only
-    bool book_checksum{false};     // venue pushes book checksums (okx-style)
+    bool amend_order{false};      // native modify (vs cancel+replace)
+    bool native_post_only{false}; // venue-enforced maker-only
+    bool book_checksum{false};    // venue pushes book checksums (okx-style)
 
     // Whether the reconciliation pulls are implemented. Default false, and the
     // reconciler consults this BEFORE the call: without it, an adapter that

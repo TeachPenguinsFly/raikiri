@@ -60,6 +60,7 @@ public:
                                                         UnixNanos now) const;
 
     [[nodiscard]] const Gateway* find(std::string_view account) const noexcept;
+
     [[nodiscard]] std::size_t size() const noexcept { return gateways_.size(); }
 
 private:

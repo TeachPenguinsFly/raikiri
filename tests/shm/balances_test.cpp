@@ -16,7 +16,9 @@ namespace {
 
 constexpr std::uint64_t k_pull_ns = 1'000'000'000;
 
-std::unique_ptr<BalanceTable> fresh_table() { return std::make_unique<BalanceTable>(); }
+std::unique_ptr<BalanceTable> fresh_table() {
+    return std::make_unique<BalanceTable>();
+}
 
 BalanceReport asset(std::string_view code, std::int64_t total) {
     BalanceReport out{};

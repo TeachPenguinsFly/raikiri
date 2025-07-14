@@ -264,7 +264,9 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         // Not a break and not flatness — the venue declined to answer this
         // round. Publishing nothing is the whole point: the cells age out and
         // the reader sees Unknown.
-        fmt::print(stderr, "gatewayd[{}]: position pull failed — {}\n", who,
+        fmt::print(stderr,
+                   "gatewayd[{}]: position pull failed — {}\n",
+                   who,
                    reports.error().message.view());
         return;
     }
@@ -318,8 +320,8 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
                       raikiri::shm::BalanceTable& table,
                       raikiri::UnixNanos now) {
     std::array<char, 16> buf{};
-    const auto who = raikiri::format_account({.venue = adapter.caps.venue, .market = market},
-                                             buf.data(), buf.size());
+    const auto who = raikiri::format_account(
+        {.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
     static bool announced = false;
     static bool answered = false;
     if (!adapter.caps.balance_pull) {
@@ -332,15 +334,20 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 
     const auto reports = adapter.execution->balance_reports(market);
     if (!reports.has_value()) {
-        fmt::print(stderr, "gatewayd[{}]: balance pull failed — {}\n", who,
+        fmt::print(stderr,
+                   "gatewayd[{}]: balance pull failed — {}\n",
+                   who,
                    reports.error().message.view());
         return;
     }
     if (reports->size() > raikiri::shm::k_balance_rows) {
         // Refused rather than truncated: a partial balance set sums to an
         // equity nobody holds, and this cell exists so a reader never sees one.
-        fmt::print(stderr, "gatewayd[{}]: {} assets exceeds the {} the snapshot holds\n", who,
-                   reports->size(), raikiri::shm::k_balance_rows);
+        fmt::print(stderr,
+                   "gatewayd[{}]: {} assets exceeds the {} the snapshot holds\n",
+                   who,
+                   reports->size(),
+                   raikiri::shm::k_balance_rows);
         return;
     }
 
@@ -354,8 +361,8 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 
     if (!answered) {
         answered = true;
-        fmt::print("gatewayd[{}]: venue answered its balances — {} asset(s)\n", who,
-                   snapshot.count);
+        fmt::print(
+            "gatewayd[{}]: venue answered its balances — {} asset(s)\n", who, snapshot.count);
     }
 }
 
@@ -555,11 +562,13 @@ int main(int argc, char** argv) {
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
-        fmt::print(stderr, "gatewayd: adapter build failed — {}\n", exec::to_string(adapter.error()));
+        fmt::print(
+            stderr, "gatewayd: adapter build failed — {}\n", exec::to_string(adapter.error()));
         return 1;
     }
     if (const auto started = adapter->data->start(); !started.has_value()) {
-        fmt::print(stderr, "gatewayd: market data failed to start — {}\n", started.error().message.view());
+        fmt::print(
+            stderr, "gatewayd: market data failed to start — {}\n", started.error().message.view());
         return 1;
     }
     // Order entry is allowed to refuse when no key was configured, and that is
@@ -572,12 +581,12 @@ int main(int argc, char** argv) {
     if (const auto started = adapter->execution->start(); started.has_value()) {
         can_trade = true;
     } else if (credentials_configured) {
-        fmt::print(stderr,
-                   "gatewayd: order entry failed to start — {}\n",
-                   started.error().message.view());
+        fmt::print(
+            stderr, "gatewayd: order entry failed to start — {}\n", started.error().message.view());
         return 1;
     } else {
-        fmt::print("gatewayd[{}]: market data only — {}\n", account_name, started.error().message.view());
+        fmt::print(
+            "gatewayd[{}]: market data only — {}\n", account_name, started.error().message.view());
     }
     // The catalogue must load before any subscription: an adapter cannot map
     // a single inbound frame without the tick and lot sizes, and a gateway
@@ -726,16 +735,15 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
-    fmt::print(
-        "gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-        "order-events={}\n",
-        account_name,
-        counts.bbo,
-        counts.depth,
-        counts.depth_levels,
-        counts.trades,
-        counts.funding,
-        counts.greeks,
-        counts.order_events);
+    fmt::print("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
+               "order-events={}\n",
+               account_name,
+               counts.bbo,
+               counts.depth,
+               counts.depth_levels,
+               counts.trades,
+               counts.funding,
+               counts.greeks,
+               counts.order_events);
     return 0;
 }

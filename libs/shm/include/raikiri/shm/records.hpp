@@ -24,11 +24,10 @@
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>
 #include <raikiri/shm/segment.hpp>
-
-#include <array>
 #include <raikiri/shm/seqlock_table.hpp>
 #include <raikiri/shm/spsc_ring.hpp>
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <string>

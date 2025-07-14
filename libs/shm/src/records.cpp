@@ -70,8 +70,17 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!cancel) {
         return std::unexpected{cancel.error()};
     }
-    return GatewayChannels{*catalogue, *bbo,       *depth,     *funding, *greeks, *md,
-                           *exec,      *positions, *balances, *create,  *cancel};
+    return GatewayChannels{*catalogue,
+                           *bbo,
+                           *depth,
+                           *funding,
+                           *greeks,
+                           *md,
+                           *exec,
+                           *positions,
+                           *balances,
+                           *create,
+                           *cancel};
 }
 
 std::string gateway_segment_path(AccountId account) {
