@@ -1,4 +1,5 @@
-// REST responses: the v5 envelope, order acknowledgements, instruments.
+// REST responses: the v5 envelope, order acknowledgements, instruments,
+// wallet balances.
 
 #include "wire_detail.hpp"
 
@@ -131,6 +132,60 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             storage.instruments[count++] = out;
         }
         return std::span<const WireInstrument>{storage.instruments.data(), count};
+    });
+}
+
+std::expected<std::span<const WireCoinBalance>, WireError>
+parse_wallet_balance(std::string_view result, CoinBalanceBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireCoinBalance>, WireError> {
+        auto& session = detail::session();
+        auto root = session.open_object(result);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto obj = *root;
+
+        auto list = detail::req_array(obj, "list");
+        if (!list.has_value()) {
+            return std::unexpected{list.error()};
+        }
+
+        std::size_t count = 0;
+        for (auto row : *list) {
+            ondemand::object account;
+            if (row.get_object().get(account) != simdjson::SUCCESS) {
+                return std::unexpected{WireError::WrongType};
+            }
+            auto coins = detail::req_array(account, "coin");
+            if (!coins.has_value()) {
+                return std::unexpected{coins.error()};
+            }
+            for (auto item : *coins) {
+                if (count == k_max_coins) {
+                    return std::unexpected{WireError::TooManyEntries};
+                }
+                ondemand::object entry;
+                if (item.get_object().get(entry) != simdjson::SUCCESS) {
+                    return std::unexpected{WireError::WrongType};
+                }
+                const auto field = [&](std::string_view key) {
+                    entry.reset();
+                    return detail::opt_str(entry, key).value_or(std::string_view{});
+                };
+                WireCoinBalance out{};
+                out.coin = field("coin");
+                out.wallet_balance = field("walletBalance");
+                out.available_to_withdraw = field("availableToWithdraw");
+                out.unrealised_pnl = field("unrealisedPnl");
+                storage.coins[count++] = out;
+            }
+            // ONE ACCOUNT: the request names a single accountType and bybit
+            // answers with a single row. A second row would be a second wallet
+            // reporting the same coin names, and concatenating the two would
+            // read as one account holding both.
+            break;
+        }
+        return std::span<const WireCoinBalance>{storage.coins.data(), count};
     });
 }
 

@@ -507,6 +507,41 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        // ONE WALLET behind both markets: a unified account funds a spot fill
+        // and a perp's margin out of the same coins, so the answer does not
+        // vary by market and narrowing it to one would be an invention.
+        (void)market;
+        const auto request = builder_.wallet_balance(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        const auto envelope = fetch(*request, body);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        static thread_local CoinBalanceBuffer storage;
+        const auto coins = parse_wallet_balance(envelope->result, storage);
+        if (!coins.has_value()) {
+            // An unreadable wallet is refused rather than reported as an empty
+            // vector, which reads as an account holding nothing.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(coins.error()))};
+        }
+        const auto ts = ms_to_unix(envelope->time_ms, state_->clock->wall());
+        std::vector<BalanceReport> reports;
+        reports.reserve(coins->size());
+        for (const auto& wire : *coins) {
+            if (auto report = map_coin_balance(wire, ts); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 

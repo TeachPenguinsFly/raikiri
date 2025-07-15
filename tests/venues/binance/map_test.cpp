@@ -599,5 +599,84 @@ TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
     EXPECT_TRUE(book.wants_seed());
 }
 
+// ------------------------------------------------------------ balances ----
+
+TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto body = fixture("rest_balance.json");
+    const auto rows = parse_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 20U);
+
+    std::vector<BalanceReport> held;
+    for (const auto& row : *rows) {
+        if (const auto report = map_balance(row); report.has_value()) {
+            held.push_back(*report);
+        }
+    }
+    // Eighteen of the twenty rows are binance naming an asset it WOULD take as
+    // collateral. The snapshot that carries these holds 64 rows, so forwarding
+    // them costs the balances the account actually has.
+    ASSERT_EQ(held.size(), 2U);
+    EXPECT_EQ(held[0].asset.view(), "USDT");
+    EXPECT_EQ(held[0].total.raw, 12'425'260'592'170);
+    EXPECT_EQ(held[0].available.raw, 11'982'402'392'170);
+    EXPECT_EQ(held[0].unrealized.raw, -18'429'100'000);
+    EXPECT_EQ(held[0].ts_venue.ns, 1'787'841'486'006'000'000ULL);
+    // Flat unrealised pnl does not make a row empty: the BNB is held.
+    EXPECT_EQ(held[1].asset.view(), "BNB");
+    EXPECT_EQ(held[1].total.raw, 1'550'100'000);
+    EXPECT_EQ(held[1].unrealized.raw, 0);
+}
+
+TEST(BinanceMap, BalanceIsDroppedOnlyWhenEveryFigureReadsZero) {
+    WireBalance wire{};
+    wire.asset = "USDC";
+    wire.balance = "0.00000000";
+    wire.available_balance = "0.00000000";
+    wire.cross_unpnl = "0.00000000";
+    EXPECT_FALSE(map_balance(wire).has_value());
+
+    // The same asset with one figure binance did not send is not a zero row,
+    // and reading it as one would answer a question nobody was told about.
+    wire.cross_unpnl = {};
+    EXPECT_TRUE(map_balance(wire).has_value());
+}
+
+TEST(BinanceMap, BalanceWithoutAnAssetIsDropped) {
+    // A wallet figure with no unit is not a balance, and a truncated ticker
+    // would attribute the money to an asset that does not exist.
+    WireBalance wire{};
+    wire.balance = "12.50000000";
+    EXPECT_FALSE(map_balance(wire).has_value());
+    wire.asset = "AVERYLONGTICKERNAME";
+    EXPECT_FALSE(map_balance(wire).has_value());
+}
+
+TEST(BinanceMap, BalanceLeavesAFieldBinanceDidNotSendUndef) {
+    WireBalance wire{};
+    wire.asset = "USDT";
+    wire.balance = "1200.00000000";
+    const auto report = map_balance(wire);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->total.raw, 1'200'000'000'000);
+    // Not zero: repeating the total into `available` invites a caller to spend
+    // margin that is already committed.
+    EXPECT_TRUE(report->available.is_undef());
+    EXPECT_TRUE(report->unrealized.is_undef());
+}
+
+TEST(BinanceMap, BalanceReadsMorePrecisionThanItStores) {
+    // Not what binance sends today — eight fractional digits is. The exact
+    // reader refuses a number past nine outright, and one refused balance is
+    // an account reading as empty, so the wallet reader truncates instead.
+    WireBalance wire{};
+    wire.asset = "USDT";
+    wire.balance = "1200.123456789012";
+    const auto report = map_balance(wire);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->total.raw, 1'200'123'456'789);
+}
+
 } // namespace
 } // namespace raikiri::venues::binance

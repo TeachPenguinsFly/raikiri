@@ -199,9 +199,13 @@ TEST(KucoinVenue, MarketsTheAdapterDoesNotServeAreNamedRefusals) {
     EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Option).has_value());
     EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Option, UnixNanos{0}).has_value());
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Option).has_value());
+    EXPECT_FALSE(adapter->execution->balance_reports(MarketType::Option).has_value());
     // Spot was not enabled on this gateway, and spot has no positions at all.
     EXPECT_FALSE(adapter->execution->open_order_reports(MarketType::Spot).has_value());
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Spot).has_value());
+    // Spot HAS a wallet, on the other host and in another shape. Refusing it
+    // beats answering with the futures one, which is a different account.
+    EXPECT_FALSE(adapter->execution->balance_reports(MarketType::Spot).has_value());
 }
 
 // ------------------------------------------------------------- wire ----
@@ -1206,6 +1210,8 @@ TEST(KucoinRest, EveryBuilderRefusesOptionsByName) {
               BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.positions(MarketType::Option, k_signed_at).error(),
               BuildError::UnsupportedMarket);
+    EXPECT_EQ(builder.account_overview(MarketType::Option, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
     EXPECT_EQ(builder.bullet_private(MarketType::Option, k_signed_at).error(),
               BuildError::UnsupportedMarket);
     EXPECT_TRUE(private_order_topic(MarketType::Option).empty());
@@ -1527,6 +1533,67 @@ TEST(KucoinMapRest, APositionKeepsItsSignAndSurvivesAnAverageOffTheTick) {
     // average of fills. Discarding the row over it would lose the quantity —
     // the only part reconciliation acts on.
     EXPECT_TRUE(short_side->avg_entry.is_undef());
+}
+
+TEST(KucoinRest, TheWalletIsAskedForOneNamedCurrency) {
+    Credentials credentials;
+    load_test_credentials(credentials);
+    OrderRequestBuilder builder{credentials};
+
+    const auto request = builder.account_overview(MarketType::Perp, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    // Omitting the currency reads the XBT wallet, which is an answer about an
+    // account this gateway does not trade rather than an error.
+    EXPECT_EQ(request->target, "/api/v1/account-overview?currency=USDT");
+    EXPECT_TRUE(request->body.empty());
+    EXPECT_EQ(builder.last_sign_message(),
+              "1730211033335GET/api/v1/account-overview?currency=USDT");
+    // The spot wallet is a different endpoint on a different host.
+    EXPECT_EQ(builder.account_overview(MarketType::Spot, k_signed_at).error(),
+              BuildError::UnsupportedRequest);
+}
+
+TEST(KucoinMapRest, TheWalletIsMarginBalanceAndNeverTheEquityBesideIt) {
+    const auto body = fixture("rest_account_overview.json");
+    const auto wire = parse_account_overview(body);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->currency, "USDT");
+
+    constexpr UnixNanos k_read_at{1'730'211'033'335'000'000ULL};
+    const auto balance = map_account_overview(*wire, k_read_at);
+    ASSERT_TRUE(balance.has_value());
+    EXPECT_EQ(balance->asset.view(), "USDT");
+    // marginBalance 100.2, and NOT accountEquity 99.8999305281: KuCoin's
+    // equity already contains the pnl carried on the field below, so a caller
+    // adding the two would count it twice.
+    EXPECT_EQ(balance->total.raw, 100'200'000'000);
+    EXPECT_NE(balance->total.raw, 99'899'930'528);
+    EXPECT_EQ(balance->available.raw, 50'100'000'000);
+    // -0.3000694719 is ten fractional digits; the exact reader refuses the
+    // whole number, which would show as an account holding nothing.
+    EXPECT_FALSE(parse_decimal_e9("-0.3000694719").has_value());
+    EXPECT_EQ(balance->unrealized.raw, -300'069'471);
+    // The overview states no clock of its own.
+    EXPECT_EQ(balance->ts_venue.ns, k_read_at.ns);
+}
+
+TEST(KucoinMapRest, AWalletFigureKucoinOmitsStaysUndefRatherThanZero) {
+    // Undef and zero are different facts, and only one of them means the money
+    // is gone. This body names the currency and nothing else.
+    const std::string body = R"({"code":"200000","data":{"currency":"USDT"}})";
+    const auto wire = parse_account_overview(body);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto balance = map_account_overview(*wire, UnixNanos{7});
+    ASSERT_TRUE(balance.has_value());
+    EXPECT_TRUE(balance->total.is_undef());
+    EXPECT_TRUE(balance->available.is_undef());
+    EXPECT_TRUE(balance->unrealized.is_undef());
+
+    // A wallet with no currency is a number with no unit; there is no row to
+    // report, and reporting one under an empty asset would be worse.
+    const std::string unnamed = R"({"code":"200000","data":{"marginBalance":100.2}})";
+    EXPECT_FALSE(parse_account_overview(unnamed).has_value());
 }
 
 TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {

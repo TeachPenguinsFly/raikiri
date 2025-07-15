@@ -5,6 +5,7 @@
 // identity it produced the first time, or the resend is booked as a second
 // fill. Every test below is about determinism first and distinctness second.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/order_events.hpp>
 
 #include <gtest/gtest.h>
@@ -82,6 +83,25 @@ TEST(FillIdentity, AnOversizeVenueIdFallsBackRatherThanTruncating) {
     const auto id = fill_identity(k_order, QtyLots::from_raw(18), too_long);
     ASSERT_FALSE(id.empty());
     EXPECT_EQ(id.view().front(), '~');
+}
+
+TEST(AssetCode, IsFoldedSoOneHoldingIsNotCountedTwice) {
+    // XT names the coin `usdt` and Gate names it `USDT`. An AssetCode is
+    // compared across venues, so unfolded these are two assets, the treasury
+    // shows the same money twice, and the donut gives it two slices.
+    ASSERT_TRUE(to_asset_code("usdt").has_value());
+    EXPECT_EQ(to_asset_code("usdt")->view(), "USDT");
+    EXPECT_EQ(to_asset_code("USDT")->view(), "USDT");
+    EXPECT_EQ(to_asset_code("uSdT")->view(), "USDT");
+    // Digits and punctuation survive: some venues list `1000PEPE` and `XBT`.
+    EXPECT_EQ(to_asset_code("1000pepe")->view(), "1000PEPE");
+}
+
+TEST(AssetCode, RefusesWhatWouldBeANumberWithNoUnit) {
+    EXPECT_FALSE(to_asset_code("").has_value());
+    // Longer than the field holds. Truncating would merge two coins whose names
+    // share a prefix, which is worse than reporting neither.
+    EXPECT_FALSE(to_asset_code("THIRTEENCHARS").has_value());
 }
 
 } // namespace

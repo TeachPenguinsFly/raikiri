@@ -74,6 +74,11 @@ private:
 // reconciliation sweep into a per-symbol loop.
 constexpr std::string_view k_settle_coin = "USDT";
 
+// accountType is mandatory on the wallet pull, and a unified key is allowed
+// exactly this one value: asking for CONTRACT is refused outright with
+// "accountType only support UNIFIED" rather than answered with an empty list.
+constexpr std::string_view k_account_type = "UNIFIED";
+
 } // namespace
 
 std::string_view to_string(BuildError err) noexcept {
@@ -300,6 +305,15 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return signed_get("/v5/position/list", query.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixNanos now) {
+    Appender query{body_};
+    query << "accountType=" << k_account_type;
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get("/v5/account/wallet-balance", query.view(), now);
 }
 
 net::RestRequest RequestBuilder::instruments(MarketType market) {

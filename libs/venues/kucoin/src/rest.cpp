@@ -548,6 +548,28 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(Marke
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
+std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overview(MarketType market,
+                                                                                  UnixNanos now) {
+    switch (market) {
+    case MarketType::Spot:
+        // The spot wallet is a per-currency list on the other host. Refused,
+        // because the futures overview describes a different account.
+        return std::unexpected{BuildError::UnsupportedRequest};
+    case MarketType::Perp:
+    case MarketType::Future: {
+        Appender path{path_};
+        path << "/api/v1/account-overview?currency=" << k_settle_currency;
+        if (!path.ok()) {
+            return std::unexpected{BuildError::BufferTooSmall};
+        }
+        return sign(net::HttpMethod::Get, path.view(), {}, now);
+    }
+    case MarketType::Option:
+        return std::unexpected{BuildError::UnsupportedMarket};
+    }
+    return std::unexpected{BuildError::UnsupportedMarket};
+}
+
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::bullet_private(MarketType market,
                                                                                 UnixNanos now) {
     switch (market) {

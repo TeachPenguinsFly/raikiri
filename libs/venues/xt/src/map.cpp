@@ -13,6 +13,8 @@ namespace {
 // SymbolText's capacity; the fold buffer must not outgrow what the table holds.
 constexpr std::size_t k_max_symbol_text = 24;
 
+// AssetCode's capacity; the fold buffer must not outgrow what the row holds.
+
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means XT changed an instrument's precision, so the message is
 // dropped rather than rounded — rounding is how an order ends up one tick away
@@ -523,6 +525,13 @@ map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable
     return out;
 }
 
+// A wallet figure, not a price: XT pads a balance well past nine fractional
+// digits and the exact reader refuses the whole number, which shows as an
+// account holding nothing at all.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 std::optional<exec::PositionReport> map_futures_position(const WireFuturesPosition& wire,
                                                          const exec::InstrumentTable& table) {
     const auto* base = base_for_private(wire.symbol, table, MarketType::Perp);
@@ -542,6 +551,29 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
     if (const auto entry = to_ticks(wire.entry_price, *base); entry.has_value()) {
         out.avg_entry = *entry;
     }
+    return out;
+}
+
+std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire) {
+    const auto asset = to_asset_code(wire.coin);
+    if (!asset.has_value()) {
+        return std::nullopt;
+    }
+
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each figure left UNDEF where XT omitted it or sent something this cannot
+    // read. Undef is what a reader checks; a zero here would be a claim that the
+    // account holds nothing.
+    if (const auto total = to_amount(wire.wallet_balance); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto available = to_amount(wire.available_balance); available.has_value()) {
+        out.available = *available;
+    }
+    // `unrealized` and `ts_venue` stay unset: /balance/list carries neither a
+    // PnL field nor a clock, and walletBalance minus a deposit history is our
+    // arithmetic, not XT's.
     return out;
 }
 

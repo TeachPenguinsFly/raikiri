@@ -2,6 +2,7 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -60,6 +61,20 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
                                                                const exec::InstrumentTable& table);
+
+// One margin asset, or nullopt for a row that reports no holding.
+//
+// Two rows are dropped, for different reasons. A row binance named no asset
+// for is a number with no unit, and there is nothing to say about it. A row
+// reporting zero everywhere is binance listing an asset it WOULD accept as
+// collateral rather than one the account holds — the endpoint returns every
+// such asset, and the shared-memory snapshot behind this holds 64 rows, so
+// forwarding them buries the balances that exist under the ones that do not.
+// A missing row and a zero row answer "how much do I hold" identically.
+//
+// A row where any figure is UNDEF is neither of those and is kept: not having
+// been told is not the same as having been told zero.
+[[nodiscard]] std::optional<BalanceReport> map_balance(const WireBalance& wire);
 
 // Catalogue ---------------------------------------------------------------
 

@@ -152,6 +152,13 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
+    // GET /future/user/v1/balance/list — the futures wallet, one row per coin,
+    // and the only balance read this adapter has. fapi.xt.com is the U-BASED
+    // deployment, so the rows are the linear account's; the coin-margined ones
+    // answer from dapi.xt.com, which nothing here talks to. The spot wallet is
+    // the other host again and is not reached from this builder.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> futures_balances(UnixNanos now);
+
     // GET /future/user/v1/user/listen-key — valid 8 hours.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key(UnixNanos now);
 

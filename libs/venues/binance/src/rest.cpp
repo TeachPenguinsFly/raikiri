@@ -319,6 +319,21 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNa
     return finish(net::HttpMethod::Get, "/fapi/v3/positionRisk", q.size());
 }
 
+// Asked at v2 while positionRisk above is asked at v3: binance versions these
+// endpoints one at a time, and the mismatch is the current shape of the API
+// rather than a stale path.
+std::expected<net::RestRequest, BuildError> RequestBuilder::balance(UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    Appender q{query_};
+    q << "recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Get, "/fapi/v2/balance", q.size());
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_create() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};

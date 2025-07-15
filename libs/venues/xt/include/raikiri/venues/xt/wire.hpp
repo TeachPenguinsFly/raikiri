@@ -290,6 +290,21 @@ struct FuturesPositionBuffer {
     std::array<WireFuturesPosition, k_max_private_records> positions{};
 };
 
+// One coin of the futures wallet. XT states no PnL and no timestamp on this
+// body at all, and the margin it freezes — openOrderMarginFrozen,
+// isolatedMargin, crossedMargin — is left on the wire: availableBalance is
+// already net of all three, and subtracting them again downstream would charge
+// the account for the same margin twice.
+struct WireFuturesBalance {
+    std::string_view coin; // lowercase: `usdt`, not `USDT`
+    std::string_view wallet_balance;
+    std::string_view available_balance;
+};
+
+struct FuturesBalanceBuffer {
+    std::array<WireFuturesBalance, k_max_private_records> balances{};
+};
+
 // `result` as an ARRAY, or as `result.items` — the paged reads wrap the list
 // in a page object and the unpaged ones do not.
 [[nodiscard]] std::expected<std::span<const WireFuturesOrder>, WireError>
@@ -306,6 +321,13 @@ parse_futures_deals(std::string_view body, FuturesDealBuffer& storage);
 
 [[nodiscard]] std::expected<std::span<const WireFuturesPosition>, WireError>
 parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage);
+
+// /future/user/v1/balance/list, whose `result` is a bare ARRAY. The decimals
+// arrive in both encodings — quoted in a live body, bare numbers in XT's own
+// doc example — so each is kept as its raw token, like every other private
+// decimal here.
+[[nodiscard]] std::expected<std::span<const WireFuturesBalance>, WireError>
+parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage);
 
 // The create/cancel/amend answers, whose `result` is the venue order id — a
 // BARE STRING on futures create and cancel, an object with `orderId` on the

@@ -160,6 +160,7 @@ carry, so the mapper divides by real tick and lot sizes. `clientOrderId` is
 | `rest_futures_order_list.json` | `POST /future/trade/v1/order/OrderList` — the PAGED form, `result.items` |
 | `rest_futures_trade_list.json` | `GET /future/trade/v1/order/trade-list`, one MAKER row and one TAKER row |
 | `rest_futures_positions.json` | `GET /future/user/v1/position/list`, one SHORT and one flat |
+| `rest_futures_balance_list.json` | `GET /future/user/v1/balance/list`, four rows: a quoted one, a bare-number one, one with no `availableBalance`, and the doc's own coinless row |
 | `rest_futures_order_ack.json` | the create/cancel answer, whose `result` is a BARE STRING |
 | `rest_listen_key.json` | `GET /future/user/v1/user/listen-key` |
 | `rest_ws_token.json` | `POST /v4/ws-token` — the doc's own (long expired) sample `accessToken`, verbatim |
@@ -172,7 +173,7 @@ carry, so the mapper divides by real tick and lot sizes. `clientOrderId` is
 | `ws_spot_trade.json` | the spot `trade` push |
 | `ws_private_ack.json`, `ws_private_listen_key_invalid.json` | the subscribe answer at `code` 0 and at `code` 2 |
 
-Four of these carry a property the adapter is built around, and each is pinned
+Five of these carry a property the adapter is built around, and each is pinned
 by a test rather than left as a comment:
 
 - **`rest_futures_order_list.json` quotes nothing.** `orderId`, `price` and
@@ -185,6 +186,15 @@ by a test rather than left as a comment:
 - **`ws_futures_order_new.json` carries no `clientOrderId` at all** — only the
   trade push and the REST reads do. It is the reason a memo keyed by venue
   order id exists.
+- **`rest_futures_balance_list.json` mixes both number encodings in one
+  body.** `usdt` quotes its figures and `btc` sends them bare, which is the
+  difference between XT's live shape (quoted, per ccxt's recorded response) and
+  XT's own doc example (bare). Its `usdt` walletBalance carries twelve
+  fractional digits, past what `FixedE9` holds: an exact reader refuses the
+  whole number and the account then shows nothing at all. Its third row omits
+  `availableBalance` so undef stays distinguishable from zero, and its fourth
+  keeps the doc's literal `"coin": ""` — a number with no unit, which the
+  mapper drops rather than filing under an empty asset code.
 - **`ws_spot_trade.json` carries no side.** `b` says whether the print's BUYER
   was the maker, which is a fact about the trade rather than about us; `tm`
   (1 taker, 2 maker) is our side of the BOOK, not our direction.

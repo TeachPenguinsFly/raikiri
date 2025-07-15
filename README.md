@@ -11,7 +11,7 @@ No message broker on the hot path. No database write in front of an order.
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
 [![Venues](https://img.shields.io/badge/venues-16%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
-[![Tests](https://img.shields.io/badge/tests-1387-2da44e?style=flat-square)](#build)
+[![Tests](https://img.shields.io/badge/tests-1413-2da44e?style=flat-square)](#build)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](#build)
 
 [Venues](#venues) · [Architecture](#architecture) · [Quick start](#quick-start) ·
@@ -129,28 +129,30 @@ tails the journals into Postgres; the trading path never waits on either.
 
 </div>
 
-| Venue | Markets | Market data | Order entry | Reconciliation |
-| :-- | :-- | :-- | :-- | :-- |
-| **bybit** | spot · perp | full | WS | positions · fills |
-| **okx** | spot · perp | full | WS | positions · fills |
-| **gate** | spot · perp | full | WS | positions · fills |
-| **kucoin** | spot · perp | full | WS | positions · fills |
-| **bitget** | spot · perp | full | WS | positions · fills |
-| **bitfinex** | spot · perp | full | WS | positions · fills |
-| **hyperliquid** | spot · perp | full | WS | positions · fills |
-| **deribit** | perp · future · **option** | full + venue greeks | WS | positions · fills |
-| **kraken** | perp | full | WS | positions · fills |
-| **xt** | spot · perp | full, funding polled | REST | positions · fills |
-| **bingx** | spot · perp | full, funding polled | REST | positions |
-| **mexc** | spot · perp | full, spot is protobuf | REST | positions <sub>perp only</sub> |
-| **binance** | perp | book + prints <sup>[1]</sup> | WS · **FIX** | positions · fills |
-| **bitmex** | perp · spot <sup>[2]</sup> | full | REST | positions · fills |
-| **htx** | perp · spot <sup>[3]</sup> | full | REST | positions |
-| **coinbase** | spot | full | REST | — <sup>[4]</sup> |
-| `sim` | perp | generated | in-process | positions |
+| Venue | Markets | Market data | Order entry | Reconciliation | Balances |
+| :-- | :-- | :-- | :-- | :-- | :--: |
+| **bybit** | spot · perp | full | WS | positions · fills | ✅ |
+| **okx** | spot · perp | full | WS | positions · fills | — |
+| **gate** | spot · perp | full | WS | positions · fills | ✅ |
+| **kucoin** | spot · perp | full | WS | positions · fills | ✅ |
+| **bitget** | spot · perp | full | WS | positions · fills | — |
+| **bitfinex** | spot · perp | full | WS | positions · fills | — |
+| **hyperliquid** | spot · perp | full | WS | positions · fills | — |
+| **deribit** | perp · future · **option** | full + venue greeks | WS | positions · fills | — |
+| **kraken** | perp | full | WS | positions · fills | — |
+| **xt** | spot · perp | full, funding polled | REST | positions · fills | ✅ |
+| **bingx** | spot · perp | full, funding polled | REST | positions | — |
+| **mexc** | spot · perp | full, spot is protobuf | REST | positions <sub>perp only</sub> | — |
+| **binance** | perp | book + prints <sup>[1]</sup> | WS · **FIX** | positions · fills | ✅ |
+| **bitmex** | perp · spot <sup>[2]</sup> | full | REST | positions · fills | — |
+| **htx** | perp · spot <sup>[3]</sup> | full | REST | positions | — |
+| **coinbase** | spot | full | REST | — <sup>[4]</sup> | — |
+| `sim` | perp | generated | in-process | positions | — |
 
 <sup>**full** means top-of-book, depth and prints all arrive. A pull that is absent is
-*stated* rather than answered with an empty list.</sup>
+*stated* rather than answered with an empty list. **Balances** are ticked only where a
+live account answered — the rest declare `balance_pull = false` and refuse, which is not
+the same as reporting nothing.</sup>
 
 <details>
 <summary><b>Where the gaps are, and why</b></summary>
@@ -220,7 +222,7 @@ gatewayd --venue=bybit   --market=spot   --symbol=BTCUSDT
 | `libs/simcore` | the matching engine behind the sim venue |
 | `schema/` | [`journal.xml`](schema/journal.xml) (SBE) · [`admin-api.yaml`](schema/admin-api.yaml) (the terminal's contract) |
 | `frontend/` | [the terminal](frontend/README.md) — React, types generated from the contract |
-| `tests/` `fuzz/` `bench/` | 1387 tests · fuzz targets · microbenchmarks |
+| `tests/` `fuzz/` `bench/` | 1413 tests · fuzz targets · microbenchmarks |
 
 ---
 

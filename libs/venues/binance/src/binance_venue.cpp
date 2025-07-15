@@ -627,6 +627,42 @@ public:
         return out;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        if (market != MarketType::Perp) {
+            // Every path in this adapter targets fapi.binance.com, which is
+            // USD-M futures and nothing else. Binance spot balances live on
+            // another host behind another API; answering with the futures
+            // wallet would report the wrong money under a spot label.
+            return std::unexpected{exec::not_implemented("binance spot balance pull")};
+        }
+        const auto request = state_->builder.balance(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local BalanceBuffer storage;
+        const auto wire = parse_balances(*body, storage);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        std::vector<BalanceReport> out;
+        out.reserve(wire->size());
+        for (const auto& entry : *wire) {
+            // Most rows map to nothing: binance names every collateral asset
+            // it accepts, held or not.
+            if (const auto report = map_balance(entry); report.has_value()) {
+                out.push_back(*report);
+            }
+        }
+        return out;
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType) override {
         const auto request = state_->builder.position_risk(state_->venue_now());

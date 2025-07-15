@@ -720,6 +720,10 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     return std::unexpected{BuildError::UnknownInstrument};
 }
 
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_balances(UnixNanos now) {
+    return sign_futures(net::HttpMethod::Get, "/future/user/v1/balance/list", {}, {}, now);
+}
+
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key(UnixNanos now) {
     return sign_futures(net::HttpMethod::Get, "/future/user/v1/user/listen-key", {}, {}, now);
 }

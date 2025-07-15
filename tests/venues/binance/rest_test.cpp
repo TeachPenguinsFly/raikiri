@@ -81,6 +81,7 @@ TEST(BinanceRest, WithoutCredentialsEverySignedPathRefuses) {
               BuildError::NoCredentials);
     EXPECT_EQ(builder.open_orders(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.position_risk(now).error(), BuildError::NoCredentials);
+    EXPECT_EQ(builder.balance(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.listen_key_create().error(), BuildError::NoCredentials);
 }
 
@@ -267,6 +268,15 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
         builder.user_trades("BTCUSDT", UnixNanos{1'699'000'000'000'000'000ULL}, now);
     ASSERT_TRUE(trades.has_value());
     EXPECT_EQ(param_of(trades->target, "startTime"), "1699000000000");
+
+    const auto balances = builder.balance(now);
+    ASSERT_TRUE(balances.has_value());
+    EXPECT_EQ(balances->method, net::HttpMethod::Get);
+    // v2, while positionRisk above is v3. Binance versions these endpoints one
+    // at a time, so the two paths do not move together.
+    EXPECT_NE(balances->target.find("/fapi/v2/balance?"), std::string_view::npos);
+    EXPECT_EQ(param_of(balances->target, "timestamp"), "1700000000000");
+    EXPECT_NE(balances->target.find("&signature="), std::string_view::npos);
 }
 
 } // namespace

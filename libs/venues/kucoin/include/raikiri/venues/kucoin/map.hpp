@@ -2,6 +2,7 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -70,6 +71,20 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 // the price step, and the quantity is the part reconciliation acts on.
 [[nodiscard]] std::optional<exec::PositionReport>
 map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+
+// The futures wallet, as one balance row. Nullopt when KuCoin named no
+// currency: a balance without an asset is a number with no unit.
+//
+// `total` is marginBalance, NOT accountEquity. KuCoin's equity is
+// marginBalance plus unrealisedPNL, and this row already carries the pnl on
+// its own field — a caller adding the two would count it twice, and one that
+// does not would read an equity figure where it asked for a wallet.
+//
+// `ts_init` stands in for a venue clock this body does not have: the overview
+// states no timestamp at all, and a zero here poisons every latency histogram
+// downstream, as ms_to_unix's fallback exists to say.
+[[nodiscard]] std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire,
+                                                                UnixNanos ts_init);
 
 // Catalogue ---------------------------------------------------------------
 

@@ -258,6 +258,28 @@ TEST(BinanceWire, ServerTimeParses) {
     EXPECT_GT(*time, 1'700'000'000'000U);
 }
 
+TEST(BinanceWire, BalanceCarriesEveryCollateralAssetNotOnlyTheHeldOnes) {
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto body = fixture("rest_balance.json");
+    const auto rows = parse_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    // Twenty rows, two of them money. The parser reports what arrived; which
+    // rows are worth publishing is map_balance's decision, not this one's.
+    ASSERT_EQ(rows->size(), 20U);
+    EXPECT_EQ(rows->front().asset, "USDT");
+    EXPECT_EQ(rows->front().balance, "12425.26059217");
+    EXPECT_EQ(rows->front().available_balance, "11982.40239217");
+    EXPECT_EQ(rows->front().cross_unpnl, "-18.42910000");
+    EXPECT_EQ(rows->front().update_ms, 1'787'841'486'006ULL);
+    EXPECT_EQ(rows->back().asset, "SUI");
+    EXPECT_EQ(rows->back().balance, "0.00000000");
+    EXPECT_EQ(rows->back().update_ms, 0U);
+
+    // An error body is not an account with nothing in it.
+    const std::string_view rejected = R"({"code":-2015,"msg":"Invalid API-key."})";
+    EXPECT_FALSE(parse_balances(rejected, *storage).has_value());
+}
+
 TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
     auto storage = std::make_unique<LevelBuffer>();
     for (const char* junk :

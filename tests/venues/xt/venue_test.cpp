@@ -192,6 +192,10 @@ TEST(XtVenue, ExecutionPullsWithoutCredentialsAnswerAuthFailure) {
     const auto fills = adapter->execution->fill_reports(MarketType::Perp, UnixNanos{0});
     ASSERT_FALSE(fills.has_value());
     EXPECT_EQ(fills.error().cls, exec::ErrorClass::AuthFailure);
+
+    const auto balances = adapter->execution->balance_reports(MarketType::Perp);
+    ASSERT_FALSE(balances.has_value());
+    EXPECT_EQ(balances.error().cls, exec::ErrorClass::AuthFailure);
 }
 
 // The refusal must come from the market check, BEFORE the instrument table is
@@ -216,6 +220,9 @@ TEST(XtVenue, UnservedMarketsRefuseWithTheirOwnName) {
     // Every path, not just the sweep: a pull that skipped the check would read
     // the table and answer UnknownInstrument instead.
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Option).has_value());
+    const auto balances = adapter->execution->balance_reports(MarketType::Future);
+    ASSERT_FALSE(balances.has_value());
+    EXPECT_EQ(balances.error().message.view(), "xt dated futures order entry");
     const auto query = adapter->execution->query_order(ExchangeClientOrderId{}, MarketType::Option);
     ASSERT_FALSE(query.has_value());
     EXPECT_EQ(query.error().message.view(), "xt options order entry");
@@ -240,6 +247,23 @@ TEST(XtVenue, SpotPositionPullSaysSoRatherThanAnsweringFlat) {
     const auto positions = adapter->execution->position_reports(MarketType::Spot);
     ASSERT_FALSE(positions.has_value());
     EXPECT_EQ(positions.error().cls, exec::ErrorClass::Terminal);
+}
+
+// The spot wallet is the other host under the other envelope. Answering it with
+// the futures wallet would report the wrong money under a spot label, and an
+// empty vector would say the account holds nothing.
+TEST(XtVenue, SpotBalancePullNamesItselfRatherThanAnsweringWithTheFuturesWallet) {
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter = exec::make_venue({.venue = VenueId::Xt, .market = MarketType::Spot}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+
+    const auto balances = adapter->execution->balance_reports(MarketType::Spot);
+    ASSERT_FALSE(balances.has_value());
+    EXPECT_EQ(balances.error().cls, exec::ErrorClass::Terminal);
+    EXPECT_EQ(balances.error().message.view(),
+              exec::not_implemented("xt spot balance pull").message.view());
 }
 
 // ------------------------------------------------------------ events ----
@@ -934,6 +958,28 @@ TEST(XtSign, BuilderReproducesTheVerifiedVectors) {
               "9784e9dfc2c62fac8904eea27724e2a3a54db0d2cdb187e2010a6c1b0f67c382");
 }
 
+// The balance read is a futures GET with no parameters, and the digest below
+// was computed independently rather than taken from the builder. A wrong path
+// here comes back as an error body that is indistinguishable from a dead key,
+// which is exactly how this venue has been misread before.
+TEST(XtSign, TheBalanceReadSignsAsAFuturesGetWithNoParameters) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto request = builder.futures_balances(k_vec_now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Get);
+    EXPECT_EQ(request->target, "/future/user/v1/balance/list");
+    EXPECT_TRUE(request->body.empty());
+    // No method in Y and no parameter segment: an empty query disappears rather
+    // than leaving a trailing `#`.
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_vec_x_futures} + "#/future/user/v1/balance/list");
+    EXPECT_EQ(header_of(*request, "validate-signature"),
+              "866cd718030736690ac19cc293859dcfb3330747fd6291e0de7e6fece4821c02");
+}
+
 // The remaining three vectors pin the SCHEME rather than this builder's
 // payloads: XT's docs cannot be used as the reference here, so the digests are
 // the thing that has to be checked against something.
@@ -1487,6 +1533,46 @@ TEST(XtMap, PositionSideIsTheOnlyThingThatSignsAPosition) {
 
     // A row XT keeps at size zero states nothing; absent is what means flat.
     EXPECT_FALSE(map_futures_position((*positions)[1], table).has_value());
+}
+
+TEST(XtMap, ABalanceIsReadAtTheVenuesResolutionRatherThanRefused) {
+    static thread_local FuturesBalanceBuffer storage;
+    const auto body = fixture("rest_futures_balance_list.json");
+    const auto balances = parse_futures_balances(body, storage);
+    ASSERT_TRUE(balances.has_value());
+    ASSERT_EQ(balances->size(), 4U);
+
+    // Twelve fractional digits, and the exact reader refuses every one of them
+    // — the account then shows as holding nothing at all, which is the one
+    // answer that is certainly wrong. Truncation errs DOWNWARD, the safe
+    // direction for "how much may I commit".
+    const auto usdt = map_futures_balance((*balances)[0]);
+    ASSERT_TRUE(usdt.has_value());
+    // XT names the coin lowercase; an AssetCode is compared across venues.
+    EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->total.raw, 2'078'572'647'931);
+    EXPECT_EQ(usdt->available.raw, 2'035'822'647'931);
+    // XT states no PnL and no clock on this body, and neither is invented.
+    EXPECT_TRUE(usdt->unrealized.is_undef());
+    EXPECT_EQ(usdt->ts_venue.ns, 0ULL);
+
+    // The same fields as BARE NUMBERS, which is the encoding XT's own doc uses
+    // for them; a reader that demanded strings would read this row as empty.
+    const auto btc = map_futures_balance((*balances)[1]);
+    ASSERT_TRUE(btc.has_value());
+    EXPECT_EQ(btc->asset.view(), "BTC");
+    EXPECT_EQ(btc->total.raw, 36'389'400);
+    EXPECT_EQ(btc->available.raw, 36'389'400);
+
+    // A field XT did not send stays UNDEF. A zero would say the coin is fully
+    // committed to open orders, which is a different fact and a tradable one.
+    const auto eth = map_futures_balance((*balances)[2]);
+    ASSERT_TRUE(eth.has_value());
+    EXPECT_EQ(eth->total.raw, 1'500'000'000);
+    EXPECT_TRUE(eth->available.is_undef());
+
+    // A number with no unit is not a balance.
+    EXPECT_FALSE(map_futures_balance((*balances)[3]).has_value());
 }
 
 TEST(XtMap, SpotRecordsMapThroughTheUppercaseEcho) {

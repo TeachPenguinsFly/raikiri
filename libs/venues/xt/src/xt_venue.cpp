@@ -871,6 +871,44 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // The spot wallet answers from the other host, under the other
+            // envelope, with none of the field names below. Refused rather than
+            // answered with the futures wallet, which would report the wrong
+            // money under a spot label.
+            return std::unexpected{exec::not_implemented("xt spot balance pull")};
+        }
+        const auto request = builder_.futures_balances(state_->venue_now(market));
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request, market);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local FuturesBalanceBuffer storage;
+        const auto balances = parse_futures_balances(*body, storage);
+        if (!balances.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(balances.error()))};
+        }
+        std::vector<BalanceReport> reports;
+        reports.reserve(balances->size());
+        for (const auto& wire : *balances) {
+            // A row XT named no coin for is dropped rather than emitted under an
+            // empty asset code.
+            if (auto report = map_futures_balance(wire); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {

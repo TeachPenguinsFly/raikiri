@@ -24,6 +24,7 @@ Assembled, not captured:
 |---|---|
 | `ws_agg_trade.json` | numbers are a real trade from `GET /fapi/v1/aggTrades?limit=1`; the `e`/`E`/`s` envelope is binance's documented `aggTrade` wrapper |
 | `ws_mark_price.json` | numbers are a real `premiumIndex` response; the envelope is the documented `markPriceUpdate` wrapper |
+| `rest_balance.json` | `GET /fapi/v2/balance` is signed and no recorded capture exists; the shape and every field name are binance's documented ones, and the twenty rows are what the endpoint does — two assets with money in them and eighteen it merely accepts as collateral |
 
 The assembled two are honest about their field values but were not observed on
 the socket, so they prove the parser reads the documented shape — not that the

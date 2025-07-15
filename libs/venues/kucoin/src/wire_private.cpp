@@ -356,6 +356,36 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
     });
 }
 
+std::expected<WireAccountOverview, WireError> parse_account_overview(std::string_view body) {
+    return guarded([&]() -> std::expected<WireAccountOverview, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return detail::with_data(
+            *root,
+            [](detail::ondemand::object& obj) -> std::expected<WireAccountOverview, WireError> {
+                const auto currency = detail::req_decimal(obj, "currency");
+                if (!currency.has_value()) {
+                    return std::unexpected(currency.error());
+                }
+                WireAccountOverview out{};
+                out.currency = *currency;
+                for (const auto& [key, field] :
+                     {std::pair{"marginBalance", &out.margin_balance},
+                      std::pair{"availableBalance", &out.available_balance},
+                      std::pair{"unrealisedPNL", &out.unrealised_pnl}}) {
+                    const auto value = detail::opt_decimal(obj, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *field = *value;
+                }
+                return out;
+            });
+    });
+}
+
 std::expected<std::span<const WireSpotSymbol>, WireError>
 parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotSymbol>, WireError> {

@@ -856,6 +856,48 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        switch (market) {
+        case MarketType::Spot:
+            // KuCoin does have a spot wallet, GET /api/v1/accounts on the other
+            // host. Refused rather than answered from the futures overview:
+            // they are two accounts, and money moves between them by transfer.
+            return std::unexpected{exec::not_implemented("kucoin spot balance pull")};
+        case MarketType::Perp:
+        case MarketType::Future:
+            break;
+        case MarketType::Option:
+            return std::unexpected{exec::not_implemented("kucoin options order entry")};
+        }
+        auto* link = link_for(market);
+        if (link == nullptr) {
+            return std::unexpected{market_not_enabled(market)};
+        }
+        const auto request = link->builder().account_overview(market, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto body = usable_body(await_response(*state_, link->rest(), *request));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        const auto wire = parse_account_overview(*body);
+        if (!wire.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+        const auto balance = map_account_overview(*wire, state_->venue_now());
+        if (!balance.has_value()) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "kucoin: account overview names no currency")};
+        }
+        // ONE ROW: the overview covers one settle currency and this gateway
+        // trades one. A second settle currency is a second wallet and a second
+        // process, exactly as a second market is.
+        return std::vector<BalanceReport>{*balance};
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         switch (market) {

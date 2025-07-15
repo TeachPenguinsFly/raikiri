@@ -118,3 +118,4 @@ Two edits were made across all of them, and only these two:
 | `rest_futures_fills.json` | `GET /api/v1/fills` |
 | `rest_spot_fills.json` | `GET /api/v1/hf/fills` — same `items` shape, but `tradeId` is a JSON number where futures sends a string |
 | `rest_positions.json` | `GET /api/v1/positions`; the ETHUSDTM row is short (`currentQty` -40) and its `avgEntryPrice` 2068.555 is NOT a multiple of the 0.01 tick, which is normal for an average and must not discard the row |
+| `rest_account_overview.json` | `GET /api/v1/account-overview?currency=USDT`; every figure is a JSON number, and both of KuCoin's documented identities hold — `accountEquity` = `marginBalance` + `unrealisedPNL`, and `marginBalance` = `positionMargin` + `orderMargin` + `frozenFunds` + `availableBalance`. `unrealisedPNL` carries ten fractional digits, one more than FixedE9 models, so the exact reader refuses it |

@@ -69,6 +69,8 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_risk(UnixNanos now);
 
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> balance(UnixNanos now);
+
     // --- listen key (header auth only, never signed) ---
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_create();
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_keepalive();

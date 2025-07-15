@@ -76,7 +76,7 @@ VENUES=(
 )
 
 pass=0 fail=0 skip=0
-printf '%-9s %-14s %-24s %s\n' venue auth positions note
+printf '%-9s %-10s %-14s %-22s %s\n' venue auth positions balances note
 printf '%.0s-' {1..78}; printf '\n'
 
 for entry in "${VENUES[@]}"; do
@@ -86,7 +86,7 @@ for entry in "${VENUES[@]}"; do
 
     key="${upper}_API_KEY"; secret="${upper}_API_SECRET"; phrase="${upper}_PASSPHRASE"
     if [[ -z "${!key:-}" || -z "${!secret:-}" ]]; then
-        printf '%-9s %-14s %-24s %s\n' "$venue" "skipped" "—" "no key in $ENV_FILE"
+        printf '%-9s %-10s %-14s %-22s %s\n' "$venue" "skipped" "—" "—" "no key in $ENV_FILE"
         skip=$((skip + 1))
         continue
     fi
@@ -100,7 +100,7 @@ for entry in "${VENUES[@]}"; do
     # Never let a log reach a terminal or a CI artefact unfiltered: gatewayd
     # does not print secrets, but an adapter's error message can quote the
     # request it failed on.
-    auth="no"; positions="—"; note=""
+    auth="no"; positions="—"; balances="—"; note=""
     grep -q "market data only" "$log" && { auth="rejected"; note="$(grep -m1 'market data only' "$log" | sed 's/.*— //')"; }
     grep -q "up, segment" "$log" && [[ "$auth" == "no" ]] && auth="ok"
     if grep -q "venue answered its positions" "$log"; then
@@ -111,6 +111,14 @@ for entry in "${VENUES[@]}"; do
     elif grep -q "reconciliation unavailable" "$log"; then
         positions="not offered"
     fi
+    if grep -q "venue answered its balances" "$log"; then
+        balances="$(grep -m1 'venue answered its balances' "$log" | sed 's/.*— //')"
+    elif grep -q "balance pull failed" "$log"; then
+        balances="pull failed"
+        note="${note:-$(grep -m1 'balance pull failed' "$log" | sed 's/.*— //')}"
+    elif grep -q "balances unavailable" "$log"; then
+        balances="not offered"
+    fi
     grep -q "adapter build failed" "$log" && { auth="refused"; note="$(grep -m1 'adapter build failed' "$log" | sed 's/.*— //')"; }
 
     if [[ "$auth" == "ok" && "$positions" != "pull failed" && "$positions" != "—" ]]; then
@@ -118,7 +126,7 @@ for entry in "${VENUES[@]}"; do
     else
         fail=$((fail + 1))
     fi
-    printf '%-9s %-14s %-24s %s\n' "$venue" "$auth" "$positions" "${note:0:30}"
+    printf '%-9s %-10s %-14s %-22s %s\n' "$venue" "$auth" "$positions" "$balances" "${note:0:28}"
     rm -f "$log"
 done
 

@@ -2,6 +2,7 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -49,6 +50,13 @@ map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// One coin of the unified account, as one balance row. Nullopt when bybit
+// named no coin: a balance without an asset is a number with no unit. The
+// timestamp comes from the caller because the coin rows carry none of their
+// own — the REST envelope's `time` is the only one there is.
+[[nodiscard]] std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire,
+                                                            UnixNanos ts_venue);
 
 // Catalogue ---------------------------------------------------------------
 

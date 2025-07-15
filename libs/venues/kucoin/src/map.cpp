@@ -66,6 +66,14 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_number_e9(text);
 }
 
+// A wallet figure, and the reader above is the wrong one for it: KuCoin
+// renders balances as Java doubles and sends ten fractional digits for USDT,
+// which the exact reader refuses outright — showing as an account that holds
+// nothing rather than as a number this cannot represent.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : raikiri::parse_amount_e9(text);
+}
+
 bool copy_id(std::string_view text, ExchangeOrderId& out) {
     if (text.empty()) {
         return true; // absent is fine; wrong is not
@@ -520,6 +528,30 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         out.avg_entry = *avg;
     }
     out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wire,
+                                                  UnixNanos ts_init) {
+    const auto asset = to_asset_code(wire.currency);
+    if (!asset.has_value()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field left UNDEF where KuCoin omitted it or sent something this
+    // cannot read. A zero would claim the account holds nothing.
+    if (const auto total = to_amount(wire.margin_balance); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto available = to_amount(wire.available_balance); available.has_value()) {
+        out.available = *available;
+    }
+    if (const auto unrealized = to_amount(wire.unrealised_pnl); unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    // The overview carries no clock of its own.
+    out.ts_venue = ts_init;
     return out;
 }
 

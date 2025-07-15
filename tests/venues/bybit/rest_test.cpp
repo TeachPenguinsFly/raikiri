@@ -217,6 +217,12 @@ TEST(BybitRestBuilder, ReconciliationPullsAndCancelAll) {
     ASSERT_TRUE(all_time.has_value());
     EXPECT_EQ(all_time->target.find("startTime"), std::string_view::npos);
 
+    // No category on the wallet pull: one unified account backs both markets,
+    // and UNIFIED is the only accountType a unified key may name.
+    const auto wallet = builder.wallet_balance(k_now);
+    ASSERT_TRUE(wallet.has_value());
+    EXPECT_EQ(wallet->target, "/v5/account/wallet-balance?accountType=UNIFIED");
+
     const auto cancel_all = builder.cancel_all(MarketType::Perp, k_now);
     ASSERT_TRUE(cancel_all.has_value());
     EXPECT_EQ(cancel_all->target, "/v5/order/cancel-all");
@@ -250,6 +256,7 @@ TEST(BybitRestBuilder, MissingCredentialsRefuseToBuildSignedRequests) {
     EXPECT_EQ(builder.create_order(make_order(table), table, k_now).error(),
               BuildError::NotSigned);
     EXPECT_EQ(builder.open_orders(MarketType::Perp, k_now).error(), BuildError::NotSigned);
+    EXPECT_EQ(builder.wallet_balance(k_now).error(), BuildError::NotSigned);
 }
 
 TEST(BybitRestBuilder, UnknownInstrumentIsRefused) {

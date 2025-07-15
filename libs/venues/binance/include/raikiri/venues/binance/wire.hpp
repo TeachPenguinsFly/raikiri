@@ -298,6 +298,31 @@ struct WirePositionRisk {
 [[nodiscard]] std::expected<std::span<const WirePositionRisk>, WireError>
 parse_position_risk(std::string_view body, std::span<WirePositionRisk> storage);
 
+// One row of GET /fapi/v2/balance. Binance lists every asset it accepts as
+// margin, not the ones the account holds, so most rows are zero across the
+// board and the reply is mostly padding — which is a mapping decision, not a
+// parsing one, and is made in map_balance.
+struct WireBalance {
+    std::string_view asset;             // asset
+    std::string_view balance;           // wallet total
+    std::string_view available_balance; // availableBalance: committable now
+    std::string_view cross_unpnl;       // crossUnPnl
+    std::uint64_t update_ms{0};         // 0 on an asset never held
+};
+
+// Binance answers ~30 rows today and adds one whenever it accepts another
+// collateral asset. Sized far past that on purpose: refusing the whole body
+// over rows that would have been dropped anyway reads as an account holding
+// nothing.
+inline constexpr std::size_t k_max_balances = 256;
+
+struct BalanceBuffer {
+    std::array<WireBalance, k_max_balances> balances{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBalance>, WireError>
+parse_balances(std::string_view body, BalanceBuffer& storage);
+
 // {"listenKey":"..."} — the user-stream key, valid 60 minutes and extended by
 // a keepalive rather than reissued.
 [[nodiscard]] std::expected<std::string_view, WireError> parse_listen_key(std::string_view body);

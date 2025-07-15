@@ -247,4 +247,25 @@ struct InstrumentBuffer {
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
 parse_instruments(std::string_view result, InstrumentBuffer& storage);
 
+// One coin of /v5/account/wallet-balance, from result.list[].coin[]. The
+// availability figures bybit deprecated for unified accounts arrive as EMPTY
+// STRINGS rather than as absent keys, so an empty view here is the venue
+// declining to answer and not a parse that missed the field.
+struct WireCoinBalance {
+    std::string_view coin;
+    std::string_view wallet_balance;
+    std::string_view available_to_withdraw;
+    std::string_view unrealised_pnl;
+};
+
+// A row per coin the account has touched, not per coin bybit lists.
+inline constexpr std::size_t k_max_coins = 128;
+
+struct CoinBalanceBuffer {
+    std::array<WireCoinBalance, k_max_coins> coins{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireCoinBalance>, WireError>
+parse_wallet_balance(std::string_view result, CoinBalanceBuffer& storage);
+
 } // namespace raikiri::venues::bybit

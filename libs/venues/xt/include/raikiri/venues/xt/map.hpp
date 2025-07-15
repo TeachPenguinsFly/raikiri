@@ -5,6 +5,7 @@
 // Quantities are counts of CONTRACTS, so contract_value carries what one is
 // worth and cannot be pinned to 1.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -108,6 +109,11 @@ map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable
 // flat, and a row XT keeps at size 0 is not evidence of anything.
 [[nodiscard]] std::optional<exec::PositionReport>
 map_futures_position(const WireFuturesPosition& wire, const exec::InstrumentTable& table);
+
+// One coin of the futures wallet. Nullopt when XT named no coin: a balance
+// without an asset is a number with no unit, and reporting it under an empty
+// code would put every such row in one bucket.
+[[nodiscard]] std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire);
 
 [[nodiscard]] std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
                                                              const exec::InstrumentTable& table,

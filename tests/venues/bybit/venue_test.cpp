@@ -109,6 +109,7 @@ TEST(BybitCaps, ClaimsThePullsItImplements) {
     // empty vector. Bybit answers, so it says so.
     EXPECT_TRUE(exec::caps_of(VenueId::Bybit).position_pull);
     EXPECT_TRUE(exec::caps_of(VenueId::Bybit).fill_pull);
+    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).balance_pull);
 }
 
 } // namespace

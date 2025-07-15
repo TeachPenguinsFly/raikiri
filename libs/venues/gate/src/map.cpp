@@ -459,7 +459,7 @@ std::optional<FixedE9> to_amount(std::string_view text) {
 }
 
 std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire) {
-    const auto asset = AssetCode::from(wire.currency);
+    const auto asset = to_asset_code(wire.currency);
     if (!asset.has_value()) {
         return std::nullopt;
     }

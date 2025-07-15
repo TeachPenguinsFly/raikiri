@@ -1,3 +1,4 @@
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/order_events.hpp>
 
 #include <array>
@@ -21,6 +22,19 @@ void write_hex(std::span<char, k_hex_digits> out, std::uint64_t value) noexcept 
 }
 
 } // namespace
+
+std::optional<AssetCode> to_asset_code(std::string_view text) noexcept {
+    if (text.empty() || text.size() > AssetCode{}.data.size()) {
+        return std::nullopt;
+    }
+    std::array<char, 32> folded{};
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        folded.at(i) = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+    }
+    const auto code = AssetCode::from(std::string_view{folded.data(), text.size()});
+    return code.has_value() ? std::optional{*code} : std::nullopt;
+}
 
 ExecId fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue_exec_id) noexcept {
     if (!venue_exec_id.empty()) {

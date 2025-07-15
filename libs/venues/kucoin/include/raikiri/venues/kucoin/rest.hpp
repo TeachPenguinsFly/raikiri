@@ -44,6 +44,14 @@ enum class BuildError : std::uint8_t {
 // refuse rather than to guess a host.
 [[nodiscard]] std::string_view rest_host(MarketType market) noexcept;
 
+// The settle currency of every contract this gateway serves. KuCoin's futures
+// wallet answers ONE currency per call and DEFAULTS TO XBT when the parameter
+// is omitted, so leaving it off reads a different account rather than failing.
+// One gateway, one market, one settle currency — widening this means widening
+// map_instrument's FFWCSX guard in the same change, since the XBT wallet backs
+// the inverse contracts that guard drops.
+inline constexpr std::string_view k_settle_currency = "USDT";
+
 // KuCoin's clientOid accepts letters, digits, '_' and '-'; the 26-char
 // Crockford-base32 ULID the OMS mints is inside that alphabet and well inside
 // the length. Pinned here so a widened id trips a test rather than a venue.
@@ -135,6 +143,14 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
+
+    // GET /api/v1/account-overview — the futures wallet for k_settle_currency.
+    // Spot is refused here rather than pointed at GET /api/v1/accounts: that
+    // list is a different shape holding every currency the account touches,
+    // and answering a spot caller with the futures wallet reports the wrong
+    // money under the right label.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_overview(MarketType market,
+                                                                               UnixNanos now);
 
     // The private socket's handshake is a SIGNED post, unlike the public one.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> bullet_private(MarketType market,

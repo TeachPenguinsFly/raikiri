@@ -274,6 +274,45 @@ parse_position_risk(std::string_view body, std::span<WirePositionRisk> storage) 
     });
 }
 
+std::expected<std::span<const WireBalance>, WireError> parse_balances(std::string_view body,
+                                                                      BalanceBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireBalance>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_balances) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            // The asset is read as optional, not required: one nameless row
+            // must not cost the account every other balance in the body. The
+            // mapper drops it.
+            WireBalance out{};
+            const std::array<Wanted, 4> wanted{{{"asset", &out.asset},
+                                                {"balance", &out.balance},
+                                                {"availableBalance", &out.available_balance},
+                                                {"crossUnPnl", &out.cross_unpnl}}};
+            if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            const auto update_ms = detail::opt_u64(obj, "updateTime");
+            if (!update_ms.has_value()) {
+                return std::unexpected(update_ms.error());
+            }
+            out.update_ms = *update_ms;
+            storage.balances[count] = out;
+            ++count;
+        }
+        return std::span<const WireBalance>{storage.balances.data(), count};
+    });
+}
+
 std::expected<std::string_view, WireError> parse_listen_key(std::string_view body) {
     return guarded([&]() -> std::expected<std::string_view, WireError> {
         auto root = session().open_object(body);

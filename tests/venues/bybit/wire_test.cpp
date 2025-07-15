@@ -1,5 +1,6 @@
 #include <raikiri/venues/bybit/book_sync.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
+#include <raikiri/venues/bybit/map.hpp>
 #include <raikiri/venues/bybit/wire.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
@@ -367,6 +368,81 @@ TEST(BybitRest, InstrumentsReachIntoNestedFilters) {
     EXPECT_EQ((*instruments)[1].tick_size, "0.01");
 }
 
+TEST(BybitRest, WalletBalanceReachesThroughTheAccountRowIntoItsCoins) {
+    // The coins hang two levels down, under result.list[0].coin — and the
+    // account row above them is where every account-wide figure lives.
+    const auto body = fixture("rest_wallet_balance.json");
+    const auto env = parse_envelope(body);
+    ASSERT_TRUE(env.has_value()) << to_string(env.error());
+    EXPECT_EQ(env->time_ms, 1787910470604U);
+
+    CoinBalanceBuffer storage;
+    const auto coins = parse_wallet_balance(env->result, storage);
+    ASSERT_TRUE(coins.has_value()) << to_string(coins.error());
+    ASSERT_EQ(coins->size(), 2U);
+
+    EXPECT_EQ((*coins)[0].coin, "XRP");
+    EXPECT_EQ((*coins)[0].wallet_balance, "0.001");
+    EXPECT_EQ((*coins)[1].coin, "USDT");
+    EXPECT_EQ((*coins)[1].wallet_balance, "1284.30719465");
+    EXPECT_EQ((*coins)[1].unrealised_pnl, "-1.23456789");
+    // Deprecated for unified accounts since January 2025: bybit still sends
+    // the key, with an empty string behind it.
+    EXPECT_TRUE((*coins)[0].available_to_withdraw.empty());
+    EXPECT_TRUE((*coins)[1].available_to_withdraw.empty());
+}
+
+TEST(BybitBalances, WalletFiguresCrossIntoTheDomainAndSilenceStaysUndef) {
+    const auto body = fixture("rest_wallet_balance.json");
+    const auto env = parse_envelope(body);
+    ASSERT_TRUE(env.has_value());
+    CoinBalanceBuffer storage;
+    const auto coins = parse_wallet_balance(env->result, storage);
+    ASSERT_TRUE(coins.has_value());
+    ASSERT_EQ(coins->size(), 2U);
+
+    const auto ts = ms_to_unix(env->time_ms, UnixNanos{});
+    const auto usdt = map_coin_balance((*coins)[1], ts);
+    ASSERT_TRUE(usdt.has_value());
+    EXPECT_EQ(usdt->asset.view(), "USDT");
+    EXPECT_EQ(usdt->total.raw, 1'284'307'194'650);
+    EXPECT_EQ(usdt->unrealized.raw, -1'234'567'890);
+    // Undef, never zero: bybit publishes no per-coin availability on a unified
+    // account, and a zero here would be a claim that nothing may be committed.
+    EXPECT_TRUE(usdt->available.is_undef());
+    EXPECT_EQ(usdt->ts_venue.ns, 1'787'910'470'604'000'000ULL);
+
+    const auto xrp = map_coin_balance((*coins)[0], ts);
+    ASSERT_TRUE(xrp.has_value());
+    EXPECT_EQ(xrp->asset.view(), "XRP");
+    EXPECT_EQ(xrp->total.raw, 1'000'000);
+}
+
+TEST(BybitBalances, AWalletFigureTruncatesWhereAPriceWouldBeRefused) {
+    // The exact reader refuses anything past nine fractional digits outright,
+    // and a refused wallet figure shows as an account holding nothing.
+    WireCoinBalance wire{};
+    wire.coin = "BTC";
+    wire.wallet_balance = "0.1234567891234567";
+    const auto report = map_coin_balance(wire, UnixNanos{7});
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->total.raw, 123'456'789); // truncated DOWN, never rounded
+    EXPECT_TRUE(report->available.is_undef());
+    EXPECT_TRUE(report->unrealized.is_undef());
+}
+
+TEST(BybitBalances, ARowWithNoCoinIsDroppedRatherThanEmitted) {
+    // A number with no unit is worse than no number at all.
+    WireCoinBalance nameless{};
+    nameless.wallet_balance = "100";
+    EXPECT_FALSE(map_coin_balance(nameless, UnixNanos{}).has_value());
+
+    WireCoinBalance overlong{};
+    overlong.coin = "THIRTEENCHARS"; // one past what AssetCode holds
+    overlong.wallet_balance = "100";
+    EXPECT_FALSE(map_coin_balance(overlong, UnixNanos{}).has_value());
+}
+
 TEST(BybitErrors, ClassificationBuckets) {
     EXPECT_EQ(classify(k_ret_rate_limit), exec::ErrorClass::RateLimited);
     EXPECT_EQ(classify(k_ret_ip_banned), exec::ErrorClass::RateLimited);
@@ -401,6 +477,7 @@ TEST(BybitWire, MalformedInputIsRefusedNotCrashed) {
     TradeBuffer tb;
     OrderUpdateBuffer ou;
     ExecutionBuffer eb;
+    CoinBalanceBuffer cb;
     for (const auto frame : bad) {
         // The contract is only that every one of these returns rather than
         // crashing or reading out of bounds; ASan is the real assertion.
@@ -413,6 +490,7 @@ TEST(BybitWire, MalformedInputIsRefusedNotCrashed) {
         (void)parse_envelope(frame);
         (void)parse_order_ack(frame);
         (void)parse_open_orders(frame, ou);
+        (void)parse_wallet_balance(frame, cb);
     }
     SUCCEED();
 }
@@ -424,12 +502,14 @@ TEST(BybitWire, TruncationsOfEveryFixtureAreRefused) {
                              "public_trade.json",
                              "tickers_snapshot.json",
                              "order_update.json",
-                             "execution.json"}) {
+                             "execution.json",
+                             "rest_wallet_balance.json"}) {
         const auto full = fixture(name);
         OrderbookBuffer ob;
         TradeBuffer tb;
         OrderUpdateBuffer ou;
         ExecutionBuffer eb;
+        CoinBalanceBuffer cb;
         for (std::size_t len = 1; len < full.size(); ++len) {
             const std::string_view frame{full.data(), len};
             (void)parse_topic(frame);
@@ -438,6 +518,8 @@ TEST(BybitWire, TruncationsOfEveryFixtureAreRefused) {
             (void)parse_ticker(frame);
             (void)parse_order_updates(frame, ou);
             (void)parse_executions(frame, eb);
+            (void)parse_envelope(frame);
+            (void)parse_wallet_balance(frame, cb);
         }
     }
     SUCCEED();

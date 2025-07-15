@@ -42,6 +42,13 @@ FixedE9 to_e9(std::string_view text) {
     return value.has_value() ? *value : FixedE9::from_raw(0);
 }
 
+// A wallet figure, not a price: a balance is reported at the VENUE's
+// resolution and the exact reader refuses the whole number over a tail it
+// cannot hold, which shows as an account holding nothing.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // Epoch milliseconds as digits. Zero means "no usable time", which callers
 // resolve to ingest time rather than to 1970.
 std::uint64_t digits_to_ms(std::string_view text) noexcept {
@@ -304,6 +311,32 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         out.avg_entry = *avg;
     }
     out.ts_venue = ms_to_unix(wire.updated_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixNanos ts_venue) {
+    const auto asset = to_asset_code(wire.coin);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field left UNDEF where bybit sent an empty string; a zero would be
+    // a claim rather than a silence. availableToWithdraw is empty on EVERY
+    // unified account — deprecated there since January 2025 — and bybit
+    // publishes no other per-coin free figure, only an account-wide total in
+    // USD that belongs to no coin. Deriving one from the margin fields would
+    // answer a question the venue liquidates on.
+    if (const auto total = to_amount(wire.wallet_balance); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto available = to_amount(wire.available_to_withdraw); available.has_value()) {
+        out.available = *available;
+    }
+    if (const auto unrealized = to_amount(wire.unrealised_pnl); unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    out.ts_venue = ts_venue;
     return out;
 }
 

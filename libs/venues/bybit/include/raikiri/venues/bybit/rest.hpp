@@ -65,6 +65,10 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
+    // What the account holds, coin by coin. It takes no category: one unified
+    // wallet backs both markets.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);
+
     [[nodiscard]] net::RestRequest instruments(MarketType market);
 
     // Exposed for tests: the exact bytes that go into the HMAC.

@@ -418,6 +418,53 @@ std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
     return out;
 }
 
+namespace {
+
+// A wallet figure, not a price. Binance pads these to eight fractional digits
+// today and nothing holds it there; the exact reader refuses the whole number
+// the day a tenth appears, and an account then reads as holding nothing rather
+// than as a schema event. Truncation errs downward, which is the safe
+// direction for "how much may I commit".
+[[nodiscard]] std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
+[[nodiscard]] bool reads_zero(const std::optional<FixedE9>& value) noexcept {
+    return value.has_value() && value->raw == 0;
+}
+
+} // namespace
+
+std::optional<BalanceReport> map_balance(const WireBalance& wire) {
+    const auto asset = to_asset_code(wire.asset);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    const auto total = to_amount(wire.balance);
+    const auto available = to_amount(wire.available_balance);
+    const auto unrealized = to_amount(wire.cross_unpnl);
+    if (reads_zero(total) && reads_zero(available) && reads_zero(unrealized)) {
+        return std::nullopt; // a collateral asset binance lists, not one held
+    }
+
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field stays UNDEF where binance sent nothing, or sent something
+    // this cannot read. A zero would claim the account holds none of the
+    // asset, which is not what an absent field says.
+    if (total.has_value()) {
+        out.total = *total;
+    }
+    if (available.has_value()) {
+        out.available = *available;
+    }
+    if (unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{0});
+    return out;
+}
+
 std::optional<exec::PositionReport> map_position(const WirePositionRisk& wire,
                                                  const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
