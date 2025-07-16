@@ -620,7 +620,10 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     ASSERT_EQ(held.size(), 2U);
     EXPECT_EQ(held[0].asset.view(), "USDT");
     EXPECT_EQ(held[0].total.raw, 12'425'260'592'170);
-    EXPECT_EQ(held[0].available.raw, 11'982'402'392'170);
+    // NOT read from `availableBalance`: in multi-assets mode binance repeats
+    // one account-wide available margin on every row, so publishing it per
+    // asset claims that much free BTC and BNB as well.
+    EXPECT_TRUE(held[0].available.is_undef());
     EXPECT_EQ(held[0].unrealized.raw, -18'429'100'000);
     EXPECT_EQ(held[0].ts_venue.ns, 1'787'841'486'006'000'000ULL);
     // Flat unrealised pnl does not make a row empty: the BNB is held.
@@ -629,17 +632,24 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     EXPECT_EQ(held[1].unrealized.raw, 0);
 }
 
-TEST(BinanceMap, BalanceIsDroppedOnlyWhenEveryFigureReadsZero) {
+TEST(BinanceMap, BalanceIsDroppedOnlyWhenTheWalletWasReportedAndIsEmpty) {
     WireBalance wire{};
     wire.asset = "USDC";
     wire.balance = "0.00000000";
-    wire.available_balance = "0.00000000";
+    wire.available_balance = "826.00000000"; // account-wide; not this asset's
     wire.cross_unpnl = "0.00000000";
+    // Binance names every asset it would accept as collateral. An empty wallet
+    // with no pnl on it is one of those, not a holding.
     EXPECT_FALSE(map_balance(wire).has_value());
 
-    // The same asset with one figure binance did not send is not a zero row,
-    // and reading it as one would answer a question nobody was told about.
-    wire.cross_unpnl = {};
+    // Unrealised pnl on an empty wallet IS a holding: the position is open.
+    wire.cross_unpnl = "-1.50000000";
+    EXPECT_TRUE(map_balance(wire).has_value());
+
+    // A wallet figure binance did not send is not an empty wallet. Reading it
+    // as one would drop a balance nobody was told about.
+    wire.cross_unpnl = "0.00000000";
+    wire.balance = {};
     EXPECT_TRUE(map_balance(wire).has_value());
 }
 

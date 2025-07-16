@@ -429,8 +429,8 @@ namespace {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-[[nodiscard]] bool reads_zero(const std::optional<FixedE9>& value) noexcept {
-    return value.has_value() && value->raw == 0;
+[[nodiscard]] bool has_value_other_than_zero(const std::optional<FixedE9>& value) noexcept {
+    return value.has_value() && value->raw != 0;
 }
 
 } // namespace
@@ -441,10 +441,26 @@ std::optional<BalanceReport> map_balance(const WireBalance& wire) {
         return std::nullopt;
     }
     const auto total = to_amount(wire.balance);
-    const auto available = to_amount(wire.available_balance);
     const auto unrealized = to_amount(wire.cross_unpnl);
-    if (reads_zero(total) && reads_zero(available) && reads_zero(unrealized)) {
-        return std::nullopt; // a collateral asset binance lists, not one held
+    // `availableBalance` IS NOT A PER-ASSET FIGURE and is deliberately dropped.
+    // In multi-assets mode binance repeats one account-wide available margin on
+    // every row: a live account reading 827 USDT held returned ~826 as the
+    // "available" of BTC, ETH and BNB alike. Published per asset that is 826
+    // free BTC, which is exactly the double-count `balance.hpp` warns about —
+    // and this endpoint does not say which mode the account is in, so there is
+    // no row where the number can be trusted. Undef says the venue gave no
+    // per-asset free figure, which is the truth.
+    // Dropped only when binance REPORTED the wallet and it is empty, with no
+    // pnl riding on it: a collateral asset it lists because it would accept
+    // one, not an asset the account holds. The snapshot carries 64 rows and a
+    // live account pads past that, so the padding cannot be forwarded.
+    //
+    // A wallet figure binance did NOT send is not an empty wallet, and such a
+    // row survives — not having been told is not the same as having been told
+    // zero, and this is the one place that distinction could be quietly lost.
+    const bool wallet_reported_empty = total.has_value() && total->raw == 0;
+    if (wallet_reported_empty && !has_value_other_than_zero(unrealized)) {
+        return std::nullopt;
     }
 
     BalanceReport out{};
@@ -454,9 +470,6 @@ std::optional<BalanceReport> map_balance(const WireBalance& wire) {
     // asset, which is not what an absent field says.
     if (total.has_value()) {
         out.total = *total;
-    }
-    if (available.has_value()) {
-        out.available = *available;
     }
     if (unrealized.has_value()) {
         out.unrealized = *unrealized;
