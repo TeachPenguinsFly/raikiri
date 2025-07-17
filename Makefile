@@ -2,6 +2,7 @@
 #   make deps PRESET=dev-asan   # install third-party deps for the preset's build type
 #   make build PRESET=dev-asan  # configure (if needed) + build
 #   make test PRESET=dev-asan
+#   make up                     # gateways + admind + the terminal, locally
 #   make demo                   # end-to-end sim run with latency table
 #   make bench                  # Release benchmarks
 PRESET ?= dev-asan
@@ -23,7 +24,7 @@ else
 endif
 DEPS_DIR := build/deps/$(shell echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
 
-.PHONY: deps configure build test bench demo fuzz fmt clean
+.PHONY: deps configure build test bench demo up down fuzz fmt clean
 
 deps:
 	conan install . --output-folder=$(DEPS_DIR) --build=missing \
@@ -38,6 +39,20 @@ build:
 
 test: build
 	ctest --preset $(PRESET)
+
+# The whole stack against live venues. VENUES= picks which; credentials are
+# optional and their absence is stated rather than fatal.
+up: build
+	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
+	PRESET=$(PRESET) ./tools/dev_up.sh
+
+# For when a run was killed rather than stopped: a gateway that did not clean
+# up leaves a segment whose owner is gone, and the next start refuses it.
+down:
+	-@pkill -f 'apps/gatewayd/gatewayd' 2>/dev/null || true
+	-@pkill -f 'apps/admind/admind' 2>/dev/null || true
+	-@pkill -f 'vite' 2>/dev/null || true
+	@echo "stopped; segments in $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 
 demo:
 	@test -f build/deps/release/conan_toolchain.cmake || $(MAKE) deps PRESET=bench
