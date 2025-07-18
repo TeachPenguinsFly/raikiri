@@ -81,11 +81,12 @@ int main(int argc, char** argv) {
     const LiveClock clock;
     admin::Registry registry;
     const auto shm_dir = platform::runtime_dir() + "/shm";
-    const auto found = registry.discover(shm_dir, ::getpid());
-    if (found == 0) {
-        // Not fatal: gateways come and go, and a terminal that can say "none
-        // are running" is more useful than one that refuses to start.
-        fmt::print("admind: no gateway segments under {}\n", shm_dir);
+    auto attached = registry.discover(shm_dir, ::getpid());
+    if (attached == 0) {
+        // Not fatal, and not final: the loop below rescans, so a gateway that
+        // is still starting — or started tomorrow — is picked up rather than
+        // missed for the life of the process.
+        fmt::print("admind: no gateway segments under {} yet\n", shm_dir);
     }
     for (const auto& account : registry.accounts(clock.mono())) {
         fmt::print("admind: attached to {} — {} instruments, owner {}\n",
@@ -122,7 +123,25 @@ int main(int argc, char** argv) {
     }
     fmt::print("admind: stream on ws://{}:{}/v1/stream\n", address, stream.port());
 
+    // Gateways come and go, and one starting a second after this process is a
+    // gateway a single scan would never see again. Two seconds is far below
+    // the pace anyone starts one at and far above the cost of a directory
+    // listing.
+    constexpr std::uint64_t k_rescan_ns = 2ULL * 1'000'000'000ULL;
+    auto rescan_due = clock.mono().ns;
+
     while (!g_stop.load(std::memory_order_relaxed)) {
+        if (const auto mono = clock.mono().ns; mono >= rescan_due) {
+            rescan_due = mono + k_rescan_ns;
+            if (const auto found = registry.discover(shm_dir, ::getpid()); found > attached) {
+                for (const auto& account : registry.accounts(clock.mono())) {
+                    fmt::print("admind: attached to {} — {} instruments\n",
+                               account.account,
+                               account.gateway.instruments);
+                }
+                attached = found;
+            }
+        }
         const auto worked = server.poll() + stream.poll();
         if (worked == 0) {
             // Nothing ready. This is an admin API, not a hot path: sleeping a

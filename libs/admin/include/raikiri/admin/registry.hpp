@@ -36,10 +36,17 @@ class Registry {
 public:
     Registry() = default;
 
-    // Attaches to every gateway segment under `shm_dir`. Returns how many
-    // attached; a segment that refuses — wrong ABI, wrong layout, a dead
-    // owner — is skipped rather than fatal, because one bad gateway must not
-    // stop the reader from seeing the rest.
+    // Attaches to every gateway segment under `shm_dir`. Returns how many are
+    // attached in total; a segment that refuses — wrong ABI, wrong layout, a
+    // dead owner — is skipped rather than fatal, because one bad gateway must
+    // not stop the reader from seeing the rest.
+    //
+    // SAFE TO CALL REPEATEDLY, and meant to be. A gateway already attached is
+    // left alone, so this is the rescan as well as the first look — and it has
+    // to be: the segment file exists from the instant a gateway creates it but
+    // its channels appear only once it has published, so a reader that looked
+    // exactly once would miss every gateway that was still starting, and every
+    // gateway started afterwards for the rest of its life.
     std::size_t discover(const std::string& shm_dir, std::int32_t reader_pid);
 
     [[nodiscard]] std::vector<Account> accounts(MonoNanos now) const;

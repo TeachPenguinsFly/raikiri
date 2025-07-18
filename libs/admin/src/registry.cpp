@@ -59,12 +59,21 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
         if (account.venue == VenueId::Invalid) {
             continue; // a file whose name is not an account is not ours
         }
+        // Already attached: this is a RESCAN, not a first look. Attaching twice
+        // would take a second reader slot for one reader and answer every
+        // question about that gateway two ways.
+        if (find(account_name) != nullptr) {
+            continue;
+        }
         auto client = shm::SegmentClient::attach(entry.path().string());
         if (!client.has_value()) {
             continue; // wrong ABI, wrong layout, dead owner: skip, never fatal
         }
         auto channels = shm::open_gateway_channels(*client);
         if (!channels.has_value()) {
+            // The segment FILE exists from the instant the gateway creates it,
+            // while the channels appear only once it has published. A rescan
+            // catches it a moment later; refusing here is not a verdict.
             continue;
         }
         (void)client->register_reader(reader_pid);

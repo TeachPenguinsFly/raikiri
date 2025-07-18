@@ -86,7 +86,9 @@ if [[ -f "$ENV_FILE" ]]; then
                         export "$name=env:RESOLVED_$name"
                     else
                         vault_dead=yes
-                        echo "1password did not answer — unlock it (\`eval \$(op signin)\`) and re-run" >&2
+                        echo "1password did not answer. Either it is locked (\`eval \$(op signin)\`)," >&2
+                        echo "or this ran detached — the desktop integration needs a session, so" >&2
+                        echo "resolve the values first and export env: references instead." >&2
                         echo "continuing with market data only: no balances, no positions" >&2
                         unset "$name"
                     fi
@@ -119,10 +121,11 @@ for venue in $VENUES; do
     echo "  gatewayd $venue ($market) → $RAIKIRI_DATA_DIR/$venue.log"
 done
 
-# A gateway publishes its catalogue before it is worth attaching to; admind
-# discovers segments once, at startup, so starting it early finds nothing.
-echo "  waiting for the gateways to publish…"
-sleep 12
+# No wait: admind rescans for segments every couple of seconds, so a gateway
+# still loading its catalogue is picked up a moment later rather than missed for
+# the life of the process. Waiting on the segment FILE would have proved nothing
+# anyway — it exists from the instant a gateway creates it, long before there is
+# anything in it.
 
 "$BIN/admind/admind" --port "$PORT" --stream-port "$STREAM_PORT" \
     > "$RAIKIRI_DATA_DIR/admind.log" 2>&1 &
