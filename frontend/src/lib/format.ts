@@ -38,6 +38,18 @@ export function compact(value: number): string {
   return value.toFixed(0)
 }
 
+/** A holding, in its own units. Only the denomination gets a currency mark;
+ *  0.001 BTC formatted as money is "$0.00", which reads as nothing held. */
+export function quantity(value: number, asset: string, denomination: string): string {
+  if (asset === denomination) return usd(value)
+  const magnitude = Math.abs(value)
+  const digits = magnitude === 0 ? 2 : magnitude < 1 ? 8 : magnitude < 1000 ? 4 : 2
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: digits,
+  })
+}
+
 export function percent(fraction: number): string {
   return `${(fraction * 100).toFixed(1)}%`
 }
@@ -50,6 +62,16 @@ export function nanosToMillis(nanos: string): number {
 
 export function shortDate(millis: number): string {
   return new Date(millis).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** Time of day with seconds. What a series minutes long needs — a date format
+ *  gives it five identical labels. */
+export function clockTime(millis: number): string {
+  return new Date(millis).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 export function dateTime(millis: number): string {

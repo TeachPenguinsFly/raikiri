@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { compact, dateTime, shortDate } from '@/lib/format'
+import { clockTime, compact, dateTime, shortDate } from '@/lib/format'
 import { linear, niceTicks, paddedDomain } from './scale'
 
 export interface PlotSeries {
@@ -13,6 +13,12 @@ export interface PlotSeries {
 }
 
 const PAD = { top: 12, right: 52, bottom: 22, left: 8 }
+
+function labelFor(span: number): (millis: number) => string {
+    if (span > 3 * 86_400_000) return shortDate
+    if (span > 6 * 3_600_000) return dateTime
+    return clockTime
+}
 
 /** Evenly spaced time labels across the span, ends included. */
 function xTicks(
@@ -41,6 +47,7 @@ export function LinePlot({
   height,
   highlight,
   format = compact,
+  baseline = 'zero',
 }: {
   /** Milliseconds, ascending. */
   x: number[]
@@ -50,6 +57,13 @@ export function LinePlot({
   /** A series key to emphasise; the rest dim. */
   highlight?: string | null | undefined
   format?: ((value: number) => string) | undefined
+  /** Where the vertical axis starts.
+   *
+   *  `zero` for anything that can be negative — a PnL chart whose baseline is
+   *  off-screen reads as a loss that never happened. `data` for a LEVEL, like a
+   *  balance: forcing zero onto a series that lives near 2 900 flattens every
+   *  move into a straight line at the top of a slab. */
+  baseline?: 'zero' | 'data' | undefined
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
@@ -60,14 +74,17 @@ export function LinePlot({
     const tickCount = Math.max(2, Math.min(5, Math.floor(plotWidth / 140)))
     const plotHeight = height - PAD.top - PAD.bottom
     const px = linear([x[0] as number, x[x.length - 1] as number], [PAD.left, PAD.left + plotWidth])
-    const [minY, maxY] = paddedDomain(series.flatMap((s) => s.values), true)
+    const [minY, maxY] = paddedDomain(series.flatMap((s) => s.values), baseline !== 'data')
     const py = linear([minY, maxY], [PAD.top + plotHeight, PAD.top])
 
     const paths = series.map((s) => {
       const line = s.values
         .map((v, i) => `${i === 0 ? 'M' : 'L'}${px(x[i] as number).toFixed(1)},${py(v).toFixed(1)}`)
         .join(' ')
-      const base = py(Math.max(minY, Math.min(maxY, 0))).toFixed(1)
+      // The fill reaches the bottom of the PLOT for a level series and the zero
+      // line for a signed one — filling a balance chart down to an off-screen
+      // zero paints the whole panel.
+      const base = (baseline === 'data' ? PAD.top + plotHeight : py(Math.max(minY, Math.min(maxY, 0)))).toFixed(1)
       return {
         ...s,
         line,
@@ -85,11 +102,12 @@ export function LinePlot({
       zeroY: minY <= 0 && maxY >= 0 ? py(0) : null,
       yTicks: niceTicks(minY, maxY, 4).map((v) => ({ v, y: py(v) })),
       xTicks: xTicks(x, tickCount, px),
-      // Five timestamps with a time-of-day in each is five labels nobody can
-      // read at once. Past three days the hour is not what distinguishes them.
-      labelX: (x[x.length - 1] as number) - (x[0] as number) > 3 * 86_400_000 ? shortDate : dateTime,
+      // The span decides the label. Five identical timestamps is what a
+      // minute-long series gets from a date format, and five dates with a
+      // time-of-day is what a month-long one gets from a clock.
+      labelX: labelFor((x[x.length - 1] as number) - (x[0] as number)),
     }
-  }, [x, series, width, height])
+  }, [x, series, width, height, baseline])
 
   if (geometry === null) return null
 
