@@ -99,9 +99,12 @@ TEST(AssetCode, IsFoldedSoOneHoldingIsNotCountedTwice) {
 
 TEST(AssetCode, RefusesWhatWouldBeANumberWithNoUnit) {
     EXPECT_FALSE(to_asset_code("").has_value());
-    // Longer than the field holds. Truncating would merge two coins whose names
-    // share a prefix, which is worse than reporting neither.
-    EXPECT_FALSE(to_asset_code("THIRTEENCHARS").has_value());
+    // Fourteen characters is a REAL ticker — BingX lists `NCCOCOFFEE2USD` — so
+    // the cap has to clear it. What it must still refuse is a code longer than
+    // the field: truncating would merge two coins that share a prefix, which is
+    // worse than reporting neither.
+    EXPECT_TRUE(to_asset_code("NCCOCOFFEE2USD").has_value());
+    EXPECT_FALSE(to_asset_code("TWENTYONECHARACTERSXX").has_value());
 }
 
 } // namespace

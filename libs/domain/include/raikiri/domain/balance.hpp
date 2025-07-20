@@ -23,9 +23,14 @@
 
 namespace raikiri {
 
-// "USDT", "BTC", "XBT". Twelve is generous for a ticker and keeps the row
-// small enough that a whole account fits in one shared-memory snapshot.
-using AssetCode = FixedString<12>;
+// "USDT", "BTC", "XBT" — and "NCCOCOFFEE2USD", which is a real BingX commodity
+// index perpetual and fourteen characters long. Twelve looked generous until
+// this became the instrument catalogue's key too: a ticker that does not fit is
+// an instrument DROPPED, which is a listing silently missing from every view.
+//
+// Twenty rather than sixteen because alignment makes them the same size — a
+// BalanceReport is 56 bytes either way — so the headroom is free.
+using AssetCode = FixedString<20>;
 
 // An asset code from a venue, normalised.
 //
@@ -63,6 +68,6 @@ struct BalanceReport {
     [[nodiscard]] bool has_asset() const noexcept { return !asset.empty(); }
 };
 
-static_assert(sizeof(BalanceReport) == 48, "BalanceReport rides a shared-memory snapshot");
+static_assert(sizeof(BalanceReport) == 56, "BalanceReport rides a shared-memory snapshot");
 
 } // namespace raikiri
