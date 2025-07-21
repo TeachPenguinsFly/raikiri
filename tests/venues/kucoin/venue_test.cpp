@@ -469,6 +469,38 @@ TEST(KucoinMap, CatalogueAdmitsOnlyOpenNonInversePerpetuals) {
     EXPECT_FALSE(map_instrument((*wire)[0], MarketType::Spot).has_value());
 }
 
+TEST(KucoinMap, XbtusdtmIsTheSameMarketAsEveryOtherVenuesBtcUsdt) {
+    // The row the XBT alias exists for: KuCoin spells bitcoin the ISO way in
+    // both the symbol and the field, and an XBT/USDT here would group with
+    // nothing on the four venues that call it BTC.
+    static ContractBuffer storage;
+    const auto body = fixture("rest_contracts_active.json");
+    const auto wire = parse_contracts(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ((*wire)[0].base_currency, "XBT");
+
+    const auto xbt = map_instrument((*wire)[0], MarketType::Perp);
+    ASSERT_TRUE(xbt.has_value());
+    EXPECT_EQ(base_of(*xbt).exchange_symbol.view(), "XBTUSDTM");
+    EXPECT_EQ(base_of(*xbt).local_symbol.view(), "BTC/USDT");
+
+    // A row naming no pair is refused rather than carried under XBTUSDTM: an
+    // instrument nothing can group shows as a market of its own.
+    auto unnamed = (*wire)[0];
+    unnamed.base_currency = {};
+    EXPECT_FALSE(map_instrument(unnamed, MarketType::Perp).has_value());
+
+    // The spot symbol carries the pair itself, where XBTUSDTM carries none.
+    static SpotSymbolBuffer spot_storage;
+    const auto spot_body = fixture("rest_spot_symbols.json");
+    const auto spot = parse_spot_symbols(spot_body, spot_storage);
+    ASSERT_TRUE(spot.has_value());
+    const auto btc = map_spot_symbol((*spot)[0]);
+    ASSERT_TRUE(btc.has_value());
+    EXPECT_EQ(base_of(*btc).exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base_of(*btc).local_symbol.view(), "BTC/USDT");
+}
+
 TEST(KucoinMap, NonOpenContractIsRefused) {
     static ContractBuffer storage;
     const auto body = fixture("rest_contracts_paused.json");

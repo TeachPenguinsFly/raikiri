@@ -379,6 +379,10 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                 return std::unexpected(WireError::MissingField);
             }
             out.symbol = symbol;
+            // `BTCUSDT` runs the two halves together, so these fields are the
+            // only place the pair is stated.
+            out.base_asset = field(obj, "baseAsset");
+            out.quote_asset = field(obj, "quoteAsset");
             // `status` is the STRING "1", not the number 1.
             out.status = field(obj, "status");
             out.base_size_step = field(obj, "baseSizePrecision");

@@ -3,8 +3,25 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <string>
+
 namespace raikiri::venues::okx {
 namespace {
+
+// Only the wire target carries RAIKIRI_OKX_FIXTURES, so this one locates the
+// directory from this file instead.
+std::string fixture(std::string_view name) {
+    const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
+    std::ifstream in{path};
+    EXPECT_TRUE(in.good()) << "missing fixture " << path;
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    return buf.str();
+}
 
 // BTC-USDT-SWAP as OKX publishes it: 0.1 tick, 0.01 lot, 0.01 BTC a contract.
 exec::InstrumentTable table_with_btc() {
@@ -306,6 +323,70 @@ TEST(OkxMap, InstrumentWithoutUsableStepsIsRefused) {
     wire.lot_size = "0.01";
     wire.ct_val = {};
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+}
+
+TEST(OkxMap, CatalogueSwapRowsTakeTheirPairFromInstId) {
+    auto storage = std::make_unique<InstrumentBuffer>();
+    const auto body = fixture("rest_instruments.json");
+    const auto rows = parse_instruments(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::size_t mapped = 0;
+    for (const auto& row : *rows) {
+        EXPECT_TRUE(row.base_ccy.empty() && row.quote_ccy.empty())
+            << row.inst_id << ": OKX leaves the pair fields empty off SPOT";
+        const auto instrument = map_instrument(row, MarketType::Perp);
+        if (!instrument.has_value()) {
+            continue;
+        }
+        const auto& base = base_of(*instrument);
+        EXPECT_EQ(base.exchange_symbol.view(), row.inst_id);
+        if (row.inst_id == "BTC-USDT-SWAP") {
+            EXPECT_EQ(base.local_symbol.view(), "BTC/USDT");
+        } else if (row.inst_id == "ETH-USDT-SWAP") {
+            EXPECT_EQ(base.local_symbol.view(), "ETH/USDT");
+        }
+        ++mapped;
+    }
+    EXPECT_EQ(mapped, 2U) << "JP225-USDT-SWAP is preopen and BTC-USD-260814 is dated";
+}
+
+TEST(OkxMap, SpotRowTakesItsPairFromTheFields) {
+    // The other half of the split: SPOT is the one instrument type that fills
+    // baseCcy and quoteCcy in.
+    WireInstrument wire{};
+    wire.inst_id = "BTC-USDT";
+    wire.inst_type = "SPOT";
+    wire.state = "live";
+    wire.base_ccy = "BTC";
+    wire.quote_ccy = "USDT";
+    wire.tick_size = "0.1";
+    wire.lot_size = "0.00000001";
+    const auto instrument = map_instrument(wire, MarketType::Spot);
+    ASSERT_TRUE(instrument.has_value());
+    EXPECT_EQ(base_of(*instrument).local_symbol.view(), "BTC/USDT");
+    EXPECT_EQ(base_of(*instrument).exchange_symbol.view(), "BTC-USDT");
+}
+
+TEST(OkxMap, RowWithoutAPairIsDropped) {
+    // instId is the only place a SWAP states its pair; one that will not split
+    // is a row nothing can group, and a cross-venue view would show it as a
+    // market of its own.
+    WireInstrument wire{};
+    wire.inst_id = "BTCUSDTSWAP";
+    wire.inst_type = "SWAP";
+    wire.state = "live";
+    wire.tick_size = "0.1";
+    wire.lot_size = "0.01";
+    wire.ct_val = "0.01";
+    wire.ct_mult = "1";
+    wire.ct_type = "linear";
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.inst_id = "BTC-USDT-SWAP";
+    const auto instrument = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    EXPECT_EQ(base_of(*instrument).local_symbol.view(), "BTC/USDT");
 }
 
 // ------------------------------------------------------- order events ----

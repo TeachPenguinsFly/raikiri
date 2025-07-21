@@ -62,6 +62,15 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
+            // Optional so a row that names no pair costs that row, not the
+            // catalogue; the mapper is what refuses it.
+            const auto base_coin = detail::opt_scalar(obj, "baseCoin");
+            const auto quote_coin = detail::opt_scalar(obj, "quoteCoin");
+            if (!base_coin.has_value() || !quote_coin.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.base_coin = *base_coin;
+            out.quote_coin = *quote_coin;
             const auto contract_size = detail::req_scalar(obj, "contractSize");
             const auto min_vol = detail::req_scalar(obj, "minVol");
             if (!contract_size.has_value() || !min_vol.has_value()) {

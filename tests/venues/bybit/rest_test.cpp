@@ -17,6 +17,8 @@ exec::InstrumentTable make_table() {
     exec::InstrumentTable table;
     table.reserve(2);
     WireInstrument btc{};
+    btc.base_coin = "BTC";
+    btc.quote_coin = "USDT";
     btc.symbol = "BTCUSDT";
     btc.status = "Trading";
     btc.tick_size = "0.10";

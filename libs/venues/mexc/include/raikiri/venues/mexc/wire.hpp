@@ -164,6 +164,8 @@ struct RestEnvelope {
 // counts MEXC actually sent.
 struct WireInstrument {
     std::string_view symbol;
+    std::string_view base_coin; // the futures catalogue names both halves
+    std::string_view quote_coin;
     std::int64_t state{-1}; // 0 = enabled
     std::int64_t price_scale{-1};
     std::int64_t vol_scale{-1};
@@ -372,6 +374,8 @@ struct SpotError {
 // 2026-08-26 was PERCENT_PRICE_BY_SIDE.
 struct WireSpotSymbol {
     std::string_view symbol;
+    std::string_view base_asset; // the spot symbol `BTCUSDT` states no pair
+    std::string_view quote_asset;
     std::string_view status;          // "1" is trading, as a STRING
     std::string_view base_size_step;  // baseSizePrecision, a decimal step
     std::int64_t quote_precision{-1}; // price decimals

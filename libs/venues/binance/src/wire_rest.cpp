@@ -103,11 +103,16 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             out.symbol = *symbol;
             const auto contract = detail::opt_str(obj, "contractType");
             const auto status = detail::opt_str(obj, "status");
-            if (!contract.has_value() || !status.has_value()) {
+            const auto base_asset = detail::opt_str(obj, "baseAsset");
+            const auto quote_asset = detail::opt_str(obj, "quoteAsset");
+            if (!contract.has_value() || !status.has_value() || !base_asset.has_value() ||
+                !quote_asset.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.contract_type = *contract;
             out.status = *status;
+            out.base_asset = *base_asset;
+            out.quote_asset = *quote_asset;
             const auto delivery = detail::opt_u64(obj, "deliveryDate");
             if (!delivery.has_value()) {
                 return std::unexpected(delivery.error());

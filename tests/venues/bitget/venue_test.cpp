@@ -358,6 +358,8 @@ TEST(BitgetMap, TickComposesPricePlaceWithPriceEndStep) {
     // never drops a message to announce itself.
     WireContract wire{};
     wire.symbol = "FAKEUSDT";
+    wire.base_coin = "FAKE";
+    wire.quote_coin = "USDT";
     wire.symbol_type = "perpetual";
     wire.symbol_status = "normal";
     wire.size_multiplier = "1";
@@ -424,9 +426,36 @@ TEST(BitgetMap, CatalogueRowsBecomeInstrumentsOrAreRefused) {
     EXPECT_EQ(perp->funding_interval_s, 28'800U);
 }
 
+TEST(BitgetMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
+    // Bitget spells the perpetual and the spot pair identically — BTCUSDT on
+    // both — so only the canonical form tells the two apart from bybit's
+    // BTCUSDT and kucoin's XBTUSDTM, which are the same two markets again.
+    const auto table = table_from_catalogue();
+    const auto* btc = base_for(table, "BTCUSDT");
+    ASSERT_NE(btc, nullptr);
+    EXPECT_EQ(btc->exchange_symbol.view(), "BTCUSDT");
+    EXPECT_EQ(btc->local_symbol.view(), "BTC/USDT");
+
+    auto storage = std::make_unique<SpotSymbolBuffer>();
+    const auto body = fixture("rest_spot_symbols.json");
+    const auto rows = parse_spot_symbols(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto spot = map_instrument((*rows)[0]);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
+
+    // A row naming no pair is refused rather than carried under the exchange
+    // symbol: an instrument nothing can group shows as a market of its own.
+    auto unnamed = (*rows)[0];
+    unnamed.quote_coin = {};
+    EXPECT_FALSE(map_instrument(unnamed).has_value());
+}
+
 TEST(BitgetMap, UntradableAndNonPerpetualRowsAreRefused) {
     WireContract wire{};
     wire.symbol = "BTCUSDT";
+    wire.base_coin = "BTC";
+    wire.quote_coin = "USDT";
     wire.symbol_type = "perpetual";
     wire.symbol_status = "normal";
     wire.price_place = "1";

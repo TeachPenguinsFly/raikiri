@@ -159,6 +159,8 @@ struct WireBullet {
 // mapper refuses those rather than storing a negative size.
 struct WireContract {
     std::string_view symbol;
+    std::string_view base_currency; // "XBT" where the symbol says XBTUSDTM
+    std::string_view quote_currency;
     std::string_view status; // "Open"
     std::string_view type;   // FFWCSX perpetual, FFICSX dated
     std::string_view tick_size;

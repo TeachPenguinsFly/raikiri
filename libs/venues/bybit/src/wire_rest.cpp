@@ -93,6 +93,7 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             };
             out.base_coin = field("baseCoin");
             out.quote_coin = field("quoteCoin");
+            out.contract_type = field("contractType");
             out.status = field("status");
 
             entry.reset();

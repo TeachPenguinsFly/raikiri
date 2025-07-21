@@ -148,6 +148,15 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.symbol = *symbol;
             out.status = *status;
             out.type = *type;
+            // Optional so a row that names no pair costs that row, not the
+            // catalogue; the mapper is what refuses it.
+            const auto base_currency = detail::opt_str(obj, "baseCurrency");
+            const auto quote_currency = detail::opt_str(obj, "quoteCurrency");
+            if (!base_currency.has_value() || !quote_currency.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.base_currency = *base_currency;
+            out.quote_currency = *quote_currency;
             for (const auto& [key, field] : {std::pair{"tickSize", &out.tick_size},
                                              std::pair{"lotSize", &out.lot_size},
                                              std::pair{"multiplier", &out.multiplier},

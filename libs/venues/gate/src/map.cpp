@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/gate/map.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 
@@ -174,6 +175,23 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
+namespace {
+
+// Gate names the pair nowhere but the symbol: a futures contract's `name` and a
+// spot pair's `id` are both `BTC_USDT`. A row whose pair cannot be read is
+// DROPPED rather than carried with the exchange symbol standing in — an
+// instrument nothing can group is one a cross-venue view would show as a market
+// of its own.
+std::optional<SymbolText> canonical_of(std::string_view symbol) {
+    const auto pair = split_symbol(symbol, '_');
+    if (!pair.has_value()) {
+        return std::nullopt;
+    }
+    return canonical_symbol(pair->first.view(), pair->second.view());
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
     if (market != MarketType::Perp) {
         return std::nullopt;
@@ -195,7 +213,11 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Gate, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.name);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);
     const auto quanto = parse_decimal_e9(wire.quanto_multiplier);
@@ -209,7 +231,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, wire.funding_interval_s};
 }
-
 
 std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
     // buyable/sellable are one-sided listings; treating them as tradable puts
@@ -240,7 +261,11 @@ std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Gate, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.id);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto notional = to_e9(wire.min_quote_amount); notional.has_value()) {

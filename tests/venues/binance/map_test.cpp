@@ -31,6 +31,8 @@ exec::InstrumentTable table_with_btc() {
     exec::InstrumentTable table;
     WireInstrument wire{};
     wire.symbol = "BTCUSDT";
+    wire.base_asset = "BTC";
+    wire.quote_asset = "USDT";
     wire.contract_type = "PERPETUAL";
     wire.status = "TRADING";
     wire.tick_size = "0.10";
@@ -196,6 +198,55 @@ TEST(BinanceMap, InstrumentWithoutUsableStepsIsRefused) {
     wire.tick_size = "0.10";
     wire.step_size = {};
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+}
+
+TEST(BinanceMap, CatalogueRowsCarryTheCanonicalPair) {
+    // baseAsset and quoteAsset ride every /fapi/v1/exchangeInfo row, so the
+    // venue-neutral name costs nothing to build here.
+    auto storage = std::make_unique<InstrumentBuffer>();
+    const auto body = fixture("rest_exchange_info.json");
+    const auto rows = parse_exchange_info(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::size_t mapped = 0;
+    for (const auto& row : *rows) {
+        const auto instrument = map_instrument(row, MarketType::Perp);
+        if (!instrument.has_value()) {
+            continue;
+        }
+        const auto& base = base_of(*instrument);
+        EXPECT_EQ(base.exchange_symbol.view(), row.symbol);
+        if (row.symbol == "BTCUSDT") {
+            EXPECT_EQ(base.local_symbol.view(), "BTC/USDT");
+        } else if (row.symbol == "ETHUSDT") {
+            EXPECT_EQ(base.local_symbol.view(), "ETH/USDT");
+        }
+        ++mapped;
+    }
+    EXPECT_EQ(mapped, 2U) << "XAUUSDT is tradfi-hours and OMGUSDT is settling";
+}
+
+TEST(BinanceMap, RowWithoutAPairIsDropped) {
+    // An instrument nothing can group shows in a cross-venue view as a market
+    // of its own, which is worse than not carrying it.
+    WireInstrument wire{};
+    wire.symbol = "BTCUSDT";
+    wire.quote_asset = "USDT";
+    wire.contract_type = "PERPETUAL";
+    wire.status = "TRADING";
+    wire.tick_size = "0.10";
+    wire.step_size = "0.001";
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.base_asset = "BTC";
+    wire.quote_asset = {};
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.quote_asset = "USDT";
+    const auto instrument = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    EXPECT_EQ(base_of(*instrument).local_symbol.view(), "BTC/USDT");
+    EXPECT_EQ(base_of(*instrument).exchange_symbol.view(), "BTCUSDT");
 }
 
 TEST(BinanceErrors, AuthCodesHaltTheVenue) {
@@ -659,7 +710,7 @@ TEST(BinanceMap, BalanceWithoutAnAssetIsDropped) {
     WireBalance wire{};
     wire.balance = "12.50000000";
     EXPECT_FALSE(map_balance(wire).has_value());
-    wire.asset = "AVERYLONGTICKERNAME";
+    wire.asset = "TWENTYONECHARACTERSXX";
     EXPECT_FALSE(map_balance(wire).has_value());
 }
 

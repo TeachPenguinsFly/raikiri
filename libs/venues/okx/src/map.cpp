@@ -1,7 +1,9 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/okx/map.hpp>
 
 #include <optional>
+#include <string_view>
 
 namespace raikiri::venues::okx {
 
@@ -129,6 +131,26 @@ std::optional<std::int64_t> whole_number(std::string_view text) {
         return std::nullopt;
     }
     return value->raw / k_e9;
+}
+
+// OKX states the pair in baseCcy/quoteCcy on SPOT rows and leaves BOTH EMPTY
+// on SWAP, where instId carries it behind a trailing kind: `BTC-USDT-SWAP`.
+// split_symbol refuses a second separator on purpose, so stripping that kind
+// is the adapter's job.
+std::optional<SymbolText> canonical_of(const WireInstrument& wire) {
+    if (!wire.base_ccy.empty() && !wire.quote_ccy.empty()) {
+        return canonical_symbol(wire.base_ccy, wire.quote_ccy);
+    }
+    constexpr std::string_view k_swap_suffix = "-SWAP";
+    auto pair_text = wire.inst_id;
+    if (pair_text.ends_with(k_swap_suffix)) {
+        pair_text.remove_suffix(k_swap_suffix.size());
+    }
+    const auto pair = split_symbol(pair_text, '-');
+    if (!pair.has_value()) {
+        return std::nullopt;
+    }
+    return canonical_symbol(pair->first.view(), pair->second.view());
 }
 
 } // namespace
@@ -449,7 +471,14 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Okx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // A row whose pair OKX did not state is DROPPED rather than carried under
+    // the exchange symbol: an instrument nothing can group shows in a
+    // cross-venue view as a market of its own.
+    const auto canonical = canonical_of(wire);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (market == MarketType::Spot) {

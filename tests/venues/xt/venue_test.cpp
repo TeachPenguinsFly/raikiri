@@ -646,6 +646,62 @@ TEST(XtMap, SpotIsRefusedRatherThanAnsweredEmpty) {
     }
 }
 
+TEST(XtMap, TheCanonicalPairIsSplitOutOfTheLowercaseSymbol) {
+    // XT carries the pair in the symbol and in no field beside it, and spells
+    // it lowercase on both catalogues. The split folds the case, so this is the
+    // only thing that lets a cross-venue view put XT's `btc_usdt` beside
+    // Bybit's `BTCUSDT`.
+    static thread_local InstrumentBuffer storage;
+    const auto body = fixture("rest_symbol_list.json");
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    const auto perp = map_instrument(wire->front(), MarketType::Perp);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(base_of(*perp).exchange_symbol.view(), "btc_usdt");
+    EXPECT_EQ(base_of(*perp).local_symbol.view(), "BTC/USDT");
+
+    static thread_local SpotSymbolBuffer spot_storage;
+    const auto spot_body = fixture("rest_spot_symbol_list.json");
+    const auto spot_rows = parse_spot_symbols(spot_body, spot_storage);
+    ASSERT_TRUE(spot_rows.has_value());
+    const auto spot = map_spot_instrument(spot_rows->front());
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "btc_usdt");
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
+}
+
+TEST(XtMap, ARowWhosePairCannotBeReadIsDropped) {
+    WireInstrument wire{};
+    wire.symbol = "btc_usdt";
+    wire.product_type = "perpetual";
+    wire.tick_size = "0.1";
+    wire.contract_size = "0.0001";
+    wire.state = 0;
+    wire.qty_precision = 0;
+    wire.trade_switch = true;
+    wire.open_api = true;
+    ASSERT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
+
+    // `btc_usdt_261225` is the dated spelling; productType turns it away first,
+    // and the third part would refuse it here regardless. A row nothing can
+    // group would show in a cross-venue view as a market of its own.
+    for (const char* symbol : {"btcusdt", "btc_usdt_261225", "_usdt", "btc_", ""}) {
+        wire.symbol = symbol;
+        EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value()) << symbol;
+    }
+
+    WireSpotSymbol row{};
+    row.symbol = "btc_usdt";
+    row.state = "ONLINE";
+    row.price_precision = 2;
+    row.qty_precision = 5;
+    row.trading_enabled = true;
+    row.openapi_enabled = true;
+    ASSERT_TRUE(map_spot_instrument(row).has_value());
+    row.symbol = "btcusdt";
+    EXPECT_FALSE(map_spot_instrument(row).has_value());
+}
+
 // ------------------------------------------------------------ mapping ----
 
 TEST(XtMap, BboComesFromTheTopOfTheDepthSnapshot) {

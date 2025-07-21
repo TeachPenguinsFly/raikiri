@@ -13,6 +13,8 @@ exec::InstrumentTable make_table() {
     exec::InstrumentTable table;
     table.reserve(4);
     WireInstrument btc{};
+    btc.base_coin = "BTC";
+    btc.quote_coin = "USDT";
     btc.symbol = "BTCUSDT";
     btc.status = "Trading";
     btc.tick_size = "0.10";
@@ -24,10 +26,34 @@ exec::InstrumentTable make_table() {
     return table;
 }
 
+TEST(BybitMapInstrument, ADatedContractIsNotAPerpetual) {
+    // Bybit's linear catalogue carries the whole futures curve beside the
+    // perpetual. Interning a dated row as a perp gave it the canonical name of
+    // the perp, so one venue's curve read as nine venues quoting one market at
+    // nine prices — a fake arbitrage, from a catalogue nobody had looked at.
+    WireInstrument dated{};
+    dated.base_coin = "BTC";
+    dated.quote_coin = "USDT";
+    dated.symbol = "BTCUSDT-25DEC26";
+    dated.contract_type = "LinearFutures";
+    dated.status = "Trading";
+    dated.tick_size = "0.10";
+    dated.qty_step = "0.001";
+    EXPECT_FALSE(map_instrument(dated, MarketType::Perp).has_value());
+
+    dated.contract_type = "LinearPerpetual";
+    dated.symbol = "BTCUSDT";
+    const auto perp = map_instrument(dated, MarketType::Perp);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(base_of(*perp).local_symbol.view(), "BTC/USDT");
+}
+
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
 TEST(BybitMapInstrument, TradingEntryBecomesAPerp) {
     WireInstrument wire{};
+    wire.base_coin = "BTC";
+    wire.quote_coin = "USDT";
     wire.symbol = "BTCUSDT";
     wire.status = "Trading";
     wire.tick_size = "0.10";
@@ -45,6 +71,8 @@ TEST(BybitMapInstrument, TradingEntryBecomesAPerp) {
 
 TEST(BybitMapInstrument, UntradableAndUnusableEntriesAreRefused) {
     WireInstrument wire{};
+    wire.base_coin = "BTC";
+    wire.quote_coin = "USDT";
     wire.symbol = "BTCUSDT";
     wire.tick_size = "0.10";
     wire.qty_step = "0.001";
@@ -82,6 +110,8 @@ TEST(BybitInstrumentTable, InterningAssignsIndexableIds) {
 TEST(BybitInstrumentTable, DuplicatesAndInvalidsRefused) {
     auto table = make_table();
     WireInstrument dup{};
+    dup.base_coin = "BTC";
+    dup.quote_coin = "USDT";
     dup.symbol = "BTCUSDT";
     dup.status = "Trading";
     dup.tick_size = "0.10";

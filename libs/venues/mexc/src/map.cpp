@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 
 #include <optional>
@@ -348,7 +349,14 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Mexc, MarketType::Perp, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // A row whose pair MEXC did not state is DROPPED rather than carried under
+    // the exchange symbol: an instrument nothing can group shows in a
+    // cross-venue view as a market of its own.
+    const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract_size;
@@ -381,7 +389,14 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Mexc, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // `BTCUSDT` runs the halves together with nothing between them, so the
+    // catalogue's own fields are the only reading. A row missing either half
+    // is dropped, as on the perpetual above.
+    const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     // A spot lot IS one base unit; there is no contract multiplier to carry.

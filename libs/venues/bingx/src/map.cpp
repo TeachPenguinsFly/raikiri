@@ -1,3 +1,4 @@
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/bingx/client_id.hpp>
 #include <raikiri/venues/bingx/map.hpp>
 
@@ -98,6 +99,18 @@ std::optional<FixedE9> to_number_e9(std::string_view text) {
         return std::nullopt;
     }
     return parse_number_e9(text);
+}
+
+// BingX names the pair nowhere but the symbol, `BTC-USDT`, on both the futures
+// and the spot catalogue. A row whose pair cannot be read is DROPPED rather
+// than carried with the exchange symbol standing in — an instrument nothing can
+// group is one a cross-venue view would show as a market of its own.
+std::optional<SymbolText> canonical_of(std::string_view symbol) {
+    const auto pair = split_symbol(symbol, '-');
+    if (!pair.has_value()) {
+        return std::nullopt;
+    }
+    return canonical_symbol(pair->first.view(), pair->second.view());
 }
 
 } // namespace
@@ -261,7 +274,11 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Bingx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.symbol);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *parse_decimal_e9("1");
@@ -294,7 +311,11 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.symbol);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto notional = to_number_e9(wire.min_notional); notional.has_value()) {

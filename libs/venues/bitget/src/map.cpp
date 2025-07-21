@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/bitget/map.hpp>
 
 #include <optional>
@@ -479,7 +480,14 @@ std::optional<Instrument> map_instrument(const WireSpotSymbol& wire) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Bitget, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // A row whose pair Bitget did not state is DROPPED rather than carried
+    // under the exchange symbol: an instrument nothing can group shows in a
+    // cross-venue view as a market of its own.
+    const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_notional = to_e9(wire.min_trade_usdt); min_notional.has_value()) {
@@ -516,7 +524,12 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Bitget, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // Dropped rather than carried under the exchange symbol, as on spot above.
+    const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_notional = to_e9(wire.min_trade_usdt); min_notional.has_value()) {

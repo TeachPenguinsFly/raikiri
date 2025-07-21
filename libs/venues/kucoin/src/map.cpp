@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
 
 #include <array>
@@ -340,7 +341,15 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Kucoin, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // The catalogue names both halves, which is the only place XBTUSDTM says
+    // what it trades. A row whose pair KuCoin did not state is DROPPED rather
+    // than carried under the exchange symbol: an instrument nothing can group
+    // shows in a cross-venue view as a market of its own.
+    const auto canonical = canonical_symbol(wire.base_currency, wire.quote_currency);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *multiplier;
@@ -573,7 +582,19 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Kucoin, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // The spot symbol carries the pair itself — `BTC-USDT` — where the futures
+    // one does not. A row whose pair KuCoin did not state is DROPPED rather
+    // than carried under the exchange symbol: an instrument nothing can group
+    // shows in a cross-venue view as a market of its own.
+    const auto pair = split_symbol(wire.symbol, '-');
+    if (!pair.has_value()) {
+        return std::nullopt;
+    }
+    const auto canonical = canonical_symbol(pair->first.view(), pair->second.view());
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_funds = to_e9(wire.min_funds); min_funds.has_value()) {

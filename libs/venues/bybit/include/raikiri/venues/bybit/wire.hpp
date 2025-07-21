@@ -231,6 +231,10 @@ struct WireInstrument {
     std::string_view symbol;
     std::string_view base_coin;
     std::string_view quote_coin;
+    // "LinearPerpetual", "LinearFutures", "InversePerpetual", "InverseFutures".
+    // The linear catalogue carries the whole futures curve beside the
+    // perpetual, and only this field tells them apart.
+    std::string_view contract_type;
     std::string_view tick_size;
     std::string_view qty_step;
     std::string_view min_order_qty;

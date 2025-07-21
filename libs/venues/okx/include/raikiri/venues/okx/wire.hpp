@@ -287,6 +287,8 @@ struct WireInstrument {
     std::string_view inst_id;
     std::string_view inst_type; // SWAP, FUTURES, SPOT, OPTION
     std::string_view state;     // live, preopen, suspend, expired
+    std::string_view base_ccy;  // SPOT only; empty on SWAP, FUTURES and OPTION
+    std::string_view quote_ccy; // SPOT only; empty on SWAP, FUTURES and OPTION
     std::string_view tick_size;
     std::string_view lot_size;
     std::string_view min_size;

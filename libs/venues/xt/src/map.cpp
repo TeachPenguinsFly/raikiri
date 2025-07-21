@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/xt/client_id.hpp>
 #include <raikiri/venues/xt/map.hpp>
 
@@ -207,6 +208,22 @@ const WireLevel* top(std::span<const WireLevel> side) noexcept {
     return side.empty() ? nullptr : &side.front();
 }
 
+// XT names the pair nowhere but the symbol, lowercase `btc_usdt` on both
+// catalogues; split_symbol folds the case. A row whose pair cannot be read is
+// DROPPED rather than carried with the exchange symbol standing in — an
+// instrument nothing can group is one a cross-venue view would show as a market
+// of its own.
+//
+// A dated contract is spelled `btc_usdt_261225` and would be refused for its
+// second separator, but productType turns it away before this is reached.
+std::optional<SymbolText> canonical_of(std::string_view symbol) {
+    const auto pair = split_symbol(symbol, '_');
+    if (!pair.has_value()) {
+        return std::nullopt;
+    }
+    return canonical_symbol(pair->first.view(), pair->second.view());
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -366,7 +383,11 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Xt, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.symbol);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_notional = positive_e9(wire.min_notional); min_notional.has_value()) {
@@ -397,7 +418,11 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Xt, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    const auto canonical = canonical_of(wire.symbol);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto notional = positive_e9(wire.min_quote_qty); notional.has_value()) {

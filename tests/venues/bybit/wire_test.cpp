@@ -438,7 +438,7 @@ TEST(BybitBalances, ARowWithNoCoinIsDroppedRatherThanEmitted) {
     EXPECT_FALSE(map_coin_balance(nameless, UnixNanos{}).has_value());
 
     WireCoinBalance overlong{};
-    overlong.coin = "THIRTEENCHARS"; // one past what AssetCode holds
+    overlong.coin = "TWENTYONECHARACTERSXX"; // one past what AssetCode holds
     overlong.wallet_balance = "100";
     EXPECT_FALSE(map_coin_balance(overlong, UnixNanos{}).has_value());
 }

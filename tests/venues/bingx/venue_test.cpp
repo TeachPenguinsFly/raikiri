@@ -506,6 +506,66 @@ TEST(BingxMap, BuildsInstrumentsAndRefusesTheOnesItCannotTrade) {
     EXPECT_FALSE(map_instrument((*rows)[0], MarketType::Spot).has_value());
 }
 
+TEST(BingxMap, TheCanonicalPairIsSplitOutOfTheBingxSymbol) {
+    // BingX carries the pair in the symbol and in no field beside it, so this
+    // split is the only thing that lets a cross-venue view put BingX's
+    // `BTC-USDT` beside Bybit's `BTCUSDT`.
+    static thread_local ContractBuffer storage;
+    const auto body = load("rest_contracts.json");
+    const auto rows = parse_contracts(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto perp = map_instrument((*rows)[0], MarketType::Perp);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(base_of(*perp).exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base_of(*perp).local_symbol.view(), "BTC/USDT");
+
+    static thread_local SpotSymbolBuffer spot_storage;
+    const auto spot_body = load("rest_spot_symbols.json");
+    const auto spot_rows = parse_spot_symbols(spot_body, spot_storage);
+    ASSERT_TRUE(spot_rows.has_value());
+    const auto spot = map_spot_instrument((*spot_rows)[0]);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "BTC-USDT");
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
+}
+
+TEST(BingxMap, ARowWhosePairCannotBeReadIsDropped) {
+    WireContract wire{};
+    wire.symbol = "BTC-USDT";
+    wire.status = 1;
+    wire.price_precision = 1;
+    wire.quantity_precision = 4;
+    ASSERT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
+
+    // A symbol whose pair cannot be read is dropped: no separator, an empty
+    // half, a trailing kind that makes three parts. A row nothing can group
+    // would show in a cross-venue view as a market of its own.
+    for (const char* symbol : {"BTCUSDT", "BTC-USDT-SWAP", "-USDT", "BTC-", ""}) {
+        wire.symbol = symbol;
+        EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value()) << symbol;
+    }
+
+    // `NCCOCOFFEE2USD-USDT` is live on this catalogue and its base is fourteen
+    // characters. It must LOAD: dropping a listing because its ticker is long
+    // is a market silently missing from every view, which is what widening
+    // AssetCode past twelve was for.
+    wire.symbol = "NCCOCOFFEE2USD-USDT";
+    const auto commodity = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(commodity.has_value());
+    EXPECT_EQ(base_of(*commodity).local_symbol.view(), "NCCOCOFFEE2USD/USDT");
+
+    WireSpotSymbol row{};
+    row.symbol = "BTC-USDT";
+    row.tick_size = "0.01";
+    row.step_size = "0.000001";
+    row.status = 1;
+    row.api_buy = true;
+    row.api_sell = true;
+    ASSERT_TRUE(map_spot_instrument(row).has_value());
+    row.symbol = "BTCUSDT";
+    EXPECT_FALSE(map_spot_instrument(row).has_value());
+}
+
 TEST(BingxMap, MapsBbo) {
     const auto table = catalogue();
     const auto frame = load("ws_book_ticker.json");

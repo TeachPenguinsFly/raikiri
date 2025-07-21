@@ -347,6 +347,8 @@ TEST(MexcMap, ScaleFinerThanFixedPointIsRefusedNotRounded) {
     // conversion silently wrong.
     WireInstrument wire{};
     wire.symbol = "SATS_USDT";
+    wire.base_coin = "SATS";
+    wire.quote_coin = "USDT";
     wire.state = 0;
     wire.price_scale = 11;
     wire.vol_scale = 0;
@@ -366,6 +368,8 @@ TEST(MexcMap, SpotIsRefusedBecauseTheEndpointIsFuturesOnly) {
     // position bug.
     WireInstrument wire{};
     wire.symbol = "BTC_USDT";
+    wire.base_coin = "BTC";
+    wire.quote_coin = "USDT";
     wire.state = 0;
     wire.price_scale = 1;
     wire.vol_scale = 0;
@@ -653,6 +657,36 @@ exec::InstrumentTable spot_catalogue() {
         }
     }
     return table;
+}
+
+TEST(MexcMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
+    // Both catalogues state the pair, which is the only reading available on
+    // spot: `BTCUSDT` runs the halves together, where the perpetual's
+    // `BTC_USDT` at least separates them.
+    const auto perps = catalogue();
+    const auto* perp = perps.find("BTC_USDT");
+    ASSERT_NE(perp, nullptr);
+    EXPECT_EQ(base_of(*perp).exchange_symbol.view(), "BTC_USDT");
+    EXPECT_EQ(base_of(*perp).local_symbol.view(), "BTC/USDT");
+
+    const auto spots = spot_catalogue();
+    const auto* spot = spots.find("BTCUSDT");
+    ASSERT_NE(spot, nullptr);
+    EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "BTCUSDT");
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
+
+    // A row naming no pair is refused rather than carried under the exchange
+    // symbol: an instrument nothing can group shows as a market of its own.
+    WireSpotSymbol unnamed{};
+    unnamed.symbol = "BTCUSDT";
+    unnamed.status = "1";
+    unnamed.spot_trading_allowed = true;
+    unnamed.base_size_step = "0.000001";
+    unnamed.quote_precision = 2;
+    EXPECT_FALSE(map_spot_instrument(unnamed).has_value());
+    unnamed.base_asset = "BTC";
+    unnamed.quote_asset = "USDT";
+    EXPECT_TRUE(map_spot_instrument(unnamed).has_value());
 }
 
 TEST(MexcSpotStream, TheEnvelopeNamesTheFrameByFieldNumber) {

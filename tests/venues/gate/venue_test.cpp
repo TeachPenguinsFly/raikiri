@@ -611,6 +611,59 @@ TEST(GateMap, SpotAndDatedMarketsAreRefused) {
     EXPECT_FALSE(map_instrument(wire, MarketType::Future).has_value());
 }
 
+TEST(GateMap, TheCanonicalPairIsSplitOutOfTheGateSymbol) {
+    // Gate carries the pair in the symbol and in no field beside it, so this
+    // split is the only thing that lets a cross-venue view put Gate's
+    // `BTC_USDT` beside Bybit's `BTCUSDT`.
+    auto contracts = std::make_unique<ContractBuffer>();
+    const auto contracts_body = fixture("rest_contracts.json");
+    const auto rows = parse_contracts(contracts_body, *contracts);
+    ASSERT_TRUE(rows.has_value());
+    const auto perp = map_instrument(rows->front(), MarketType::Perp);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(base_of(*perp).exchange_symbol.view(), "BTC_USDT");
+    EXPECT_EQ(base_of(*perp).local_symbol.view(), "BTC/USDT");
+
+    CurrencyPairBuffer pairs_storage;
+    const auto pairs_body = fixture("rest_currency_pairs.json");
+    const auto pairs = parse_currency_pairs(pairs_body, pairs_storage);
+    ASSERT_TRUE(pairs.has_value());
+    ASSERT_GE(pairs->size(), 3U);
+    const auto spot = map_currency_pair((*pairs)[2]);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "BTC_USDT");
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
+    // The spot pair and the perpetual reduce to one name, which is the point:
+    // the table still keys on the exchange symbol, so nothing collides.
+    EXPECT_EQ(base_of(*spot).local_symbol.view(), base_of(*perp).local_symbol.view());
+}
+
+TEST(GateMap, ARowWhosePairCannotBeReadIsDropped) {
+    WireContract wire{};
+    wire.name = "BTC_USDT";
+    wire.status = "trading";
+    wire.order_price_round = "0.1";
+    wire.quanto_multiplier = "0.0001";
+    ASSERT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
+
+    // A dated contract carries a third part and a bare concatenation carries no
+    // quote at all. Either loaded with the exchange symbol standing in would
+    // show in a cross-venue view as a market of its own.
+    for (const char* name : {"BTC_USDT_20261225", "BTCUSDT", "_USDT", "BTC_", ""}) {
+        wire.name = name;
+        EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value()) << name;
+    }
+
+    WireCurrencyPair pair{};
+    pair.id = "BTC_USDT";
+    pair.trade_status = "tradable";
+    pair.precision = 1;
+    pair.amount_precision = 6;
+    ASSERT_TRUE(map_currency_pair(pair).has_value());
+    pair.id = "BTCUSDT";
+    EXPECT_FALSE(map_currency_pair(pair).has_value());
+}
+
 TEST(GateMap, InstrumentWithoutUsableStepsIsRefused) {
     // Every later conversion divides by these, so a zero step must never reach
     // the table.

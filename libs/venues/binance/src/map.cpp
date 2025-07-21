@@ -1,4 +1,5 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/binance/map.hpp>
 
 #include <charconv>
@@ -168,7 +169,14 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Binance, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // A row whose pair binance did not state is DROPPED rather than carried
+    // under the exchange symbol: an instrument nothing can group shows in a
+    // cross-venue view as a market of its own.
+    const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.min_notional = to_e9(wire.min_notional);

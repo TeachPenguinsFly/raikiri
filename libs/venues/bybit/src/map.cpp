@@ -1,6 +1,8 @@
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/venues/bybit/map.hpp>
 
+#include <raikiri/domain/symbol.hpp>
+
 #include <charconv>
 
 namespace raikiri::venues::bybit {
@@ -344,6 +346,16 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.status != "Trading") {
         return std::nullopt; // delisted or pre-launch: not tradable today
     }
+    // THE LINEAR CATALOGUE IS NOT ONLY PERPETUALS. `BTCUSDT-25DEC26` and seven
+    // more dated rows sit beside `BTCUSDT`, and without this every one of them
+    // was interned as a perpetual — then canonicalised to `BTC/USDT`, so one
+    // venue's futures curve read as nine venues quoting the same market at
+    // different prices. A dated contract's identity includes its expiry; this
+    // adapter does not serve dated futures, so it refuses them.
+    if (market == MarketType::Perp && !wire.contract_type.empty() &&
+        !wire.contract_type.ends_with("Perpetual")) {
+        return std::nullopt;
+    }
     const auto tick = parse_decimal_e9(wire.tick_size);
     const auto lot = parse_decimal_e9(wire.qty_step);
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
@@ -358,7 +370,15 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Bybit, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    // Bybit names both halves, so the canonical form costs nothing here. A row
+    // whose pair the venue did not state is DROPPED rather than carried with
+    // the exchange symbol standing in: an instrument nothing can group is one
+    // the cross-venue view would show as a market of its own.
+    const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
+    if (!canonical.has_value()) {
+        return std::nullopt;
+    }
+    base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.min_notional = to_e9(wire.min_notional);

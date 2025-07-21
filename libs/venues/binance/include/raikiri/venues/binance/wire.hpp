@@ -224,6 +224,8 @@ struct RestError {
 
 struct WireInstrument {
     std::string_view symbol;
+    std::string_view base_asset; // binance names both halves on every row
+    std::string_view quote_asset;
     std::string_view contract_type; // PERPETUAL, CURRENT_QUARTER, ...
     std::string_view status;        // TRADING, SETTLING, PENDING_TRADING, ...
     std::string_view tick_size;

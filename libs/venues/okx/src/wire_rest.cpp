@@ -57,6 +57,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.inst_id = *inst_id;
             out.inst_type = *inst_type;
             for (const auto& [key, field] : {std::pair{"state", &out.state},
+                                             std::pair{"baseCcy", &out.base_ccy},
+                                             std::pair{"quoteCcy", &out.quote_ccy},
                                              std::pair{"tickSz", &out.tick_size},
                                              std::pair{"lotSz", &out.lot_size},
                                              std::pair{"minSz", &out.min_size},
