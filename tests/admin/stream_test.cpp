@@ -134,7 +134,9 @@ TEST(AdminStream, CadenceIsNegotiatedRatherThanObeyed) {
     // A focused view earns the sampling rate; a watchlist is a display.
     EXPECT_EQ(default_millihertz(Feed::Quotes, 1), 30'000);
     EXPECT_EQ(default_millihertz(Feed::Quotes, 40), 10'000);
-    EXPECT_EQ(default_millihertz(Feed::Book, 1), 30'000);
+    // A ladder is READ, not raced — see the book test below. The top of it is
+    // on the quotes feed at thirty; the depth behind it is a picture.
+    EXPECT_EQ(default_millihertz(Feed::Book, 1), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Greeks, 8), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Positions, 200), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Health, 0), 1'000);
@@ -259,7 +261,7 @@ TEST(AdminStream, TheBookIsBestFirstAndOnlyAsDeepAsItWasFilled) {
     snapshot.asks[0] = {.price = *base.price_to_ticks(*parse_decimal_e9("79418.40")),
                         .qty = *base.qty_to_lots(*parse_decimal_e9("2"))};
 
-    const auto book = book_of(snapshot, base);
+    const auto book = book_of(snapshot, base, k_default_levels);
     ASSERT_EQ(book.bids.size(), 2U);
     ASSERT_EQ(book.asks.size(), 1U);
     EXPECT_EQ(book.bids[0].price, "79418.3");
@@ -272,6 +274,46 @@ TEST(AdminStream, TheBookIsBestFirstAndOnlyAsDeepAsItWasFilled) {
         << frame;
     EXPECT_NE(frame.find(R"("bids":[{"price":"79418.3","size":"1.5"})"), std::string::npos)
         << frame;
+}
+
+TEST(AdminStream, ADepthVisualiserGetsTheLevelsItDrawsAndNotTheHundredHeld) {
+    const auto base = linear_base();
+    BookSnapshot snapshot{};
+    snapshot.instrument = base.id;
+    snapshot.ts_event = k_ts;
+    snapshot.bid_count = 40;
+    snapshot.ask_count = 40;
+    for (std::size_t i = 0; i < 40; ++i) {
+        const auto step = std::to_string(70'000 + i);
+        snapshot.bids[i] = {.price = *base.price_to_ticks(*parse_decimal_e9(step)),
+                            .qty = *base.qty_to_lots(*parse_decimal_e9("1"))};
+        snapshot.asks[i] = snapshot.bids[i];
+    }
+
+    // A ladder is read, not raced: twenty-five levels is the picture, and the
+    // other fifteen are bytes crossing a socket to be clipped by a container.
+    const auto drawn = book_of(snapshot, base, k_default_levels);
+    EXPECT_EQ(drawn.bids.size(), k_default_levels);
+    EXPECT_EQ(drawn.asks.size(), k_default_levels);
+
+    // Asking for less is honoured exactly.
+    EXPECT_EQ(book_of(snapshot, base, 5).bids.size(), 5U);
+
+    // Asking for more than the VENUE sent yields what the venue sent, never a
+    // ladder padded from the previous snapshot still sitting in the cell.
+    EXPECT_EQ(book_of(snapshot, base, 100).bids.size(), 40U);
+}
+
+TEST(AdminStream, ABookIsSampledOnceASecondUnlessAskedOtherwise) {
+    // Several venues open side by side is the ordinary case for a cross-venue
+    // view. Thirty frames a second of ladders each, times eight, is bandwidth
+    // that buys nothing: the top of the book is on the quotes feed at thirty.
+    EXPECT_EQ(default_millihertz(Feed::Book, 1), 1'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, std::nullopt), 1'000);
+    // A client that wants faster still asks, and is still capped at the rate
+    // the tables are sampled at.
+    EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, 10'000), 10'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, 90'000), k_max_millihertz);
 }
 
 TEST(AdminStream, FundingSaysItsIntervalOrSaysNothing) {

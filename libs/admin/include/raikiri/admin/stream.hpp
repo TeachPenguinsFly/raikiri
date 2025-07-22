@@ -68,6 +68,10 @@ struct ClientMessage {
     std::string id;
     std::vector<InstrumentId> quotes;
     std::optional<InstrumentId> book;
+    // How deep a book to send. A visualiser draws twenty-odd levels; the
+    // snapshot holds a hundred, and a hundred levels times several venues times
+    // a frame a second is the bandwidth nobody was looking at.
+    std::optional<std::size_t> levels;
     std::vector<InstrumentId> greeks;
     std::vector<InstrumentId> funding;
     std::vector<Feed> events;
@@ -129,7 +133,17 @@ private:
 // four numbers, and an undefined one renders empty, which is not a decimal.
 [[nodiscard]] std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base);
 
-[[nodiscard]] Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base);
+// `levels` caps each side. Clamped to what the snapshot actually holds, so a
+// client asking for more than the venue sent gets what the venue sent rather
+// than a ladder padded with the previous snapshot's tail.
+[[nodiscard]] Book book_of(const BookSnapshot& snapshot,
+                           const InstrumentBase& base,
+                           std::size_t levels);
+
+// What a book subscription sends when the client did not say. Twenty-five is
+// what a depth visualiser draws; asking for the hundred the snapshot can hold
+// is asking for four times the bytes to render the same picture.
+inline constexpr std::size_t k_default_levels = 25;
 // No instrument needed: every field is already a ratio or a quote-currency
 // price, and the option's own tick is the premium's step.
 [[nodiscard]] Greeks greeks_of(const OptionGreeks& greeks);

@@ -62,6 +62,9 @@ struct Message {
     // Raw, so the cadence never passes through a double on its way to being an
     // integer count of millihertz.
     std::optional<glz::raw_json> hz;
+    // Raw, like hz: a depth past 2^53 is nonsense, but reading it as a JSON
+    // number here would let a double decide how many levels to send.
+    std::optional<glz::raw_json> levels;
 };
 
 } // namespace stream_wire
@@ -289,6 +292,15 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
                 Problem{.title = "hz must be a number", .status = 400, .detail = wire.hz->str});
         }
     }
+    if (wire.levels.has_value()) {
+        const auto asked = read_id(wire.levels->str);
+        if (!asked.has_value() || asked->packed == 0) {
+            return std::unexpected(Problem{.title = "levels must be a positive whole number",
+                                           .status = 400,
+                                           .detail = wire.levels->str});
+        }
+        out.levels = static_cast<std::size_t>(asked->packed);
+    }
 
     int channels = 0;
     channels += out.quotes.empty() ? 0 : 1;
@@ -321,7 +333,13 @@ std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
         // watchlist of forty is a display, and a display is 10 Hz.
         return instruments <= 1 ? 30'000 : 10'000;
     case Feed::Book:
-        return 30'000;
+        // ONE A SECOND, not thirty. A depth ladder is read, not raced: the eye
+        // takes a picture of it and the hand acts on the top of it, and the top
+        // of it is on the quotes feed at thirty. Several venues open at once is
+        // the ordinary case for a cross-venue view, and thirty frames a second
+        // of hundred-level ladders each is the bandwidth that buys nothing.
+        // A client that wants faster asks, and negotiate_millihertz answers.
+        return 1'000;
     case Feed::Greeks:
     case Feed::Funding:
     case Feed::Positions:
@@ -379,14 +397,15 @@ std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base) {
                  .ts_event = digits(bbo.ts_event)};
 }
 
-Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base) {
+Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels) {
     Book out{};
     out.instrument_id = digits(snapshot.instrument);
     out.ts_event = digits(snapshot.ts_event);
     // Levels past the count are the previous snapshot's, still sitting in the
     // cell: the writer overwrites what it filled and nothing else.
-    const auto bids = std::min<std::size_t>(snapshot.bid_count, k_book_levels);
-    const auto asks = std::min<std::size_t>(snapshot.ask_count, k_book_levels);
+    const auto cap = std::min<std::size_t>(levels, k_book_levels);
+    const auto bids = std::min<std::size_t>(snapshot.bid_count, cap);
+    const auto asks = std::min<std::size_t>(snapshot.ask_count, cap);
     out.bids.reserve(bids);
     out.asks.reserve(asks);
     for (std::size_t i = 0; i < bids; ++i) {
@@ -606,6 +625,10 @@ struct FeedState {
     ChangeGate gate;
     std::vector<EventSource> sources;
     std::uint64_t seq{0};
+    // Book subscriptions only. Kept per subscription because two venues open
+    // side by side may want different depth — a thin book needs every level it
+    // has, a deep one needs the top of it.
+    std::size_t levels{k_default_levels};
 };
 
 // A cell that moved: the payload as copied, the instrument that gives it
@@ -794,6 +817,11 @@ private:
         FeedState feed{};
         feed.id = message.id;
         feed.kind = kind;
+        // Clamped, not refused: a client asking for two hundred levels wants
+        // the deepest book there is, and the deepest book there is is what the
+        // snapshot holds.
+        feed.levels = std::min<std::size_t>(message.levels.value_or(k_default_levels),
+                                            k_book_levels);
         std::vector<std::string> unknown;
         for (const auto id : ids) {
             const auto target = resolve(gateways, id);
@@ -996,7 +1024,7 @@ private:
             return false;
         }
         const auto& cell = moved.front();
-        enqueue(book_frame(feed.id, wall, book_of(cell.record, *cell.base)));
+        enqueue(book_frame(feed.id, wall, book_of(cell.record, *cell.base, feed.levels)));
         feed.gate.accept(cell.slot, cell.version);
         return true;
     }
