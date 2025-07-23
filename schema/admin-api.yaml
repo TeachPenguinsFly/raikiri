@@ -88,6 +88,42 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Account" }
 
+  /v1/markets:
+    get:
+      tags: [catalogue]
+      summary: The catalogue grouped by market, not listed by venue
+      description: |
+        One row per canonical symbol, carrying every venue that lists it. This
+        is what a cross-venue view searches: a market is the thing several
+        venues have in common, and asking "which venues quote BTC/USDT" is a
+        different question from "what does bybit list".
+
+        The grouping happens here and not in the client. Two clients grouping
+        separately is two answers to "is this the same market", which is the
+        question this endpoint exists to settle.
+
+        Ordered by how many venues list a market, then by name — a search for
+        "BTC" answers with what eight venues quote before what one does.
+
+        SPOT AND PERPETUALS ONLY carry a canonical symbol; dated futures and
+        options keep the venue's own, because a dated contract's identity
+        includes its expiry and an option's includes its strike.
+      operationId: listMarkets
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring of the canonical symbol.
+          schema: { type: string, examples: ["BTC"] }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Market" }
+
   /v1/instruments:
     get:
       tags: [catalogue]
@@ -578,6 +614,32 @@ components:
                 it cannot be determined, which is not the same as zero.
 
     # --------------------------------------------------------- catalogue ----
+
+    Listing:
+      type: object
+      required: [instrument_id, account, venue, market, exchange_symbol]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        account: { type: string }
+        venue: { type: string }
+        market: { $ref: "#/components/schemas/MarketType" }
+        exchange_symbol:
+          type: string
+          description: |
+            What the venue calls it. Kept beside the canonical name because it
+            is what a person recognises and what an order carries.
+
+    Market:
+      type: object
+      required: [symbol, listings]
+      properties:
+        symbol:
+          type: string
+          description: 'Canonical and venue-neutral: "BTC/USDT".'
+          examples: ["BTC/USDT"]
+        listings:
+          type: array
+          items: { $ref: "#/components/schemas/Listing" }
 
     Instrument:
       type: object

@@ -56,6 +56,14 @@ public:
     [[nodiscard]] std::vector<Instrument> instruments(std::string_view account,
                                                       std::optional<MarketType> market) const;
 
+    // Every market the attached gateways list, grouped by canonical symbol and
+    // narrowed by `query` — a case-insensitive substring of that symbol.
+    //
+    // Ordered by HOW MANY VENUES list it, then by name. A search for "BTC"
+    // should answer with the market eight venues quote before the one that a
+    // single venue lists, because the first is what a cross-venue view is for.
+    [[nodiscard]] std::vector<Market> markets(std::string_view query, std::size_t limit) const;
+
     [[nodiscard]] std::optional<Instrument> instrument(InstrumentId id) const;
 
     // What each attached gateway's venue last said the account holds, or just

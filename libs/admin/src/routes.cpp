@@ -199,6 +199,14 @@ Handler make_router(const Registry& registry,
             return json(registry.balances(account, wall()));
         }
 
+        if (req.path == "/v1/markets") {
+            // The catalogue GROUPED, which is a different question from the
+            // catalogue listed: a search asks "which market", and a market is
+            // the thing several venues have in common.
+            const auto query = query_param(req.query, "q");
+            return json(registry.markets(query, read_limit(query_param(req.query, "limit"))));
+        }
+
         if (req.path == "/v1/instruments") {
             const auto account = query_param(req.query, "account");
             const auto kind_text = query_param(req.query, "kind");

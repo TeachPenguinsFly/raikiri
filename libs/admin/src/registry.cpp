@@ -2,6 +2,7 @@
 #include <raikiri/admin/registry.hpp>
 
 #include <algorithm>
+#include <unordered_map>
 #include <filesystem>
 #include <variant>
 
@@ -122,6 +123,77 @@ std::vector<Instrument> Registry::instruments(std::string_view account,
         for (const auto& listed : gw.channels.catalogue->all()) {
             out.push_back(describe(listed, gw.name));
         }
+    }
+    return out;
+}
+
+namespace {
+
+// Case-insensitive substring. Both sides are short — a canonical symbol is at
+// most a couple of dozen characters — so this beats building a lowered copy of
+// every symbol on every keystroke.
+[[nodiscard]] bool contains_fold(std::string_view haystack, std::string_view needle) noexcept {
+    if (needle.empty()) {
+        return true;
+    }
+    if (needle.size() > haystack.size()) {
+        return false;
+    }
+    const auto up = [](char c) {
+        return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+    };
+    for (std::size_t start = 0; start + needle.size() <= haystack.size(); ++start) {
+        std::size_t i = 0;
+        while (i < needle.size() && up(haystack[start + i]) == up(needle[i])) {
+            ++i;
+        }
+        if (i == needle.size()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+std::vector<Market> Registry::markets(std::string_view query, std::size_t limit) const {
+    std::unordered_map<std::string, Market> by_symbol;
+    for (const auto& gw : gateways_) {
+        for (const auto& listed : gw.channels.catalogue->all()) {
+            const auto& base = base_of(listed);
+            const auto symbol = std::string{base.local_symbol.view()};
+            if (symbol.empty() || !contains_fold(symbol, query)) {
+                continue;
+            }
+            auto& market = by_symbol[symbol];
+            if (market.symbol.empty()) {
+                market.symbol = symbol;
+            }
+            market.listings.push_back({.instrument_id = digits(base.id.packed),
+                                       .account = gw.name,
+                                       .venue = std::string{to_string(gw.account.venue)},
+                                       .market = std::string{to_string(gw.account.market)},
+                                       .exchange_symbol =
+                                           std::string{base.exchange_symbol.view()}});
+        }
+    }
+
+    std::vector<Market> out;
+    out.reserve(by_symbol.size());
+    for (auto& [symbol, market] : by_symbol) {
+        std::ranges::sort(market.listings, {}, &Listing::venue);
+        out.push_back(std::move(market));
+    }
+    // Most-listed first: a search for "BTC" answers with the market eight
+    // venues quote before the one a single venue lists.
+    std::ranges::sort(out, [](const Market& a, const Market& b) {
+        if (a.listings.size() != b.listings.size()) {
+            return a.listings.size() > b.listings.size();
+        }
+        return a.symbol < b.symbol;
+    });
+    if (out.size() > limit) {
+        out.resize(limit);
     }
     return out;
 }

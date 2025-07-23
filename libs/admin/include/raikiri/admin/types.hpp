@@ -77,6 +77,28 @@ struct InstrumentPage {
     std::optional<std::string> next_cursor;
 };
 
+// One venue's listing of a market. The instrument id is what a subscription
+// takes; the exchange symbol is what the venue calls it, kept because that is
+// what a person recognises and what an order carries.
+struct Listing {
+    std::string instrument_id;
+    std::string account;
+    std::string venue;
+    std::string market;
+    std::string exchange_symbol;
+};
+
+// ONE MARKET, everywhere it is listed.
+//
+// This grouping is the product of the canonical symbol and it is done HERE
+// rather than in the browser: every client would otherwise re-derive it, and
+// two clients deriving it differently is two answers to "is this the same
+// market", which is the question a cross-venue view exists to answer.
+struct Market {
+    std::string symbol; // canonical: "BTC/USDT"
+    std::vector<Listing> listings;
+};
+
 // --------------------------------------------------------------- live ----
 
 struct Quote {
