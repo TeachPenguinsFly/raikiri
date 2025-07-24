@@ -7,6 +7,8 @@ export type AccountBalances = Schema<'AccountBalances'>
 export type Balance = Schema<'Balance'>
 export type Health = Schema<'Health'>
 export type Instrument = Schema<'Instrument'>
+export type Listing = Schema<'Listing'>
+export type Market = Schema<'Market'>
 export type PnlIncrement = Schema<'PnlIncrement'>
 export type PnlKind = Schema<'PnlKind'>
 export type Position = Schema<'Position'>
@@ -46,6 +48,8 @@ export const api = {
   health: () => get<Health>('/v1/health'),
   accounts: () => get<Account[]>('/v1/accounts'),
   instrument: (id: string) => get<Instrument>(`/v1/instruments/${id}`),
+  markets: (params: { q?: string | undefined; limit?: string | undefined } = {}) =>
+    get<Market[]>('/v1/markets', { q: params.q, limit: params.limit }),
   instruments: (params: {
     account?: string | undefined
     kind?: InstrumentQuery['kind'] | undefined

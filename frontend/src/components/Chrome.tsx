@@ -3,10 +3,11 @@ import { NavLink, Outlet } from 'react-router'
 import { Mark, Wordmark } from '@/components/Brand'
 
 const routes = [
-  { to: '/', label: 'Overview', end: true },
+  { to: '/', label: 'Markets', end: true },
   { to: '/treasury', label: 'Treasury' },
   { to: '/instruments', label: 'Instruments' },
   { to: '/options', label: 'Options' },
+  { to: '/gateways', label: 'Gateways' },
 ] as const
 
 export function Chrome() {

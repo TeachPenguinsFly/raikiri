@@ -6,6 +6,7 @@ import { Instruments } from '@/routes/Instruments'
 import { Login } from '@/routes/Login'
 import { Options } from '@/routes/Options'
 import { Overview } from '@/routes/Overview'
+import { Scanner } from '@/routes/Scanner'
 import { Treasury } from '@/routes/Treasury'
 import './index.css'
 
@@ -18,7 +19,8 @@ createRoot(root).render(
       <Routes>
         <Route path="login" element={<Login />} />
         <Route element={<Chrome />}>
-          <Route index element={<Overview />} />
+          <Route index element={<Scanner />} />
+          <Route path="gateways" element={<Overview />} />
           <Route path="treasury" element={<Treasury />} />
           <Route path="instruments" element={<Instruments />} />
           <Route path="options" element={<Options />} />

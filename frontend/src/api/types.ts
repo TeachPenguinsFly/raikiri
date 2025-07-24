@@ -42,6 +42,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/markets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The catalogue grouped by market, not listed by venue
+         * @description One row per canonical symbol, carrying every venue that lists it. This
+         *     is what a cross-venue view searches: a market is the thing several
+         *     venues have in common, and asking "which venues quote BTC/USDT" is a
+         *     different question from "what does bybit list".
+         *
+         *     The grouping happens here and not in the client. Two clients grouping
+         *     separately is two answers to "is this the same market", which is the
+         *     question this endpoint exists to settle.
+         *
+         *     Ordered by how many venues list a market, then by name — a search for
+         *     "BTC" answers with what eight venues quote before what one does.
+         *
+         *     SPOT AND PERPETUALS ONLY carry a canonical symbol; dated futures and
+         *     options keep the venue's own, because a dated contract's identity
+         *     includes its expiry and an option's includes its strike.
+         */
+        get: operations["listMarkets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/instruments": {
         parameters: {
             query?: never;
@@ -403,6 +437,25 @@ export interface components {
                  */
                 lag_seconds?: number | null;
             };
+        };
+        Listing: {
+            instrument_id: components["schemas"]["InstrumentId"];
+            account: string;
+            venue: string;
+            market: components["schemas"]["MarketType"];
+            /**
+             * @description What the venue calls it. Kept beside the canonical name because it
+             *     is what a person recognises and what an order carries.
+             */
+            exchange_symbol: string;
+        };
+        Market: {
+            /**
+             * @description Canonical and venue-neutral: "BTC/USDT".
+             * @example BTC/USDT
+             */
+            symbol: string;
+            listings: components["schemas"]["Listing"][];
         };
         Instrument: {
             instrument_id: components["schemas"]["InstrumentId"];
@@ -844,6 +897,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Account"][];
+                };
+            };
+        };
+    };
+    listMarkets: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive substring of the canonical symbol. */
+                q?: string;
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Market"][];
                 };
             };
         };
