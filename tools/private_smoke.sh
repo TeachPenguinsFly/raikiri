@@ -33,34 +33,21 @@ fi
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
 
-# Resolve each op:// reference ONCE, here, and hand gatewayd an env: reference
-# instead. A gateway resolves every credential at startup, so eight of them
-# back to back is two dozen `op read` calls inside a couple of minutes — and
-# 1Password starts refusing, which arrives at the far end as "credentials not
-# loaded" and reads exactly like a dead key. The value never touches a file:
-# env: is a documented reference scheme, and this process is the only thing
-# that holds it.
-resolve_once() {
-    local name="$1" spec="${!1:-}"
-    [[ -z "$spec" ]] && return 0
-    case "$spec" in
-        op://*|op:*)
-            local value
-            if ! value="$(op read --no-newline "$spec" 2>/dev/null)" || [[ -z "$value" ]]; then
-                echo "cannot read $name from 1password — is the session live?" >&2
-                unset "$name"
-                return 0
-            fi
-            export "RESOLVED_$name=$value"
-            export "$name=env:RESOLVED_$name"
-            ;;
-    esac
-}
-for venue_upper in BYBIT BINANCE OKX GATE KUCOIN BINGX XT BITGET; do
-    for field in API_KEY API_SECRET PASSPHRASE; do
-        resolve_once "${venue_upper}_${field}"
-    done
-done
+# ONE call to 1Password for the whole run, not one per credential.
+#
+# Reading them one at a time meant two dozen invocations — and on a vault in an
+# account the CLI is not signed into, every invocation is proxied through the
+# desktop app over Apple Events, so the terminal's parent is asked for
+# permission two dozen times. `op run` resolves the whole env file in one
+# process. Re-execs itself and returns here with the values in the environment.
+if [[ -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_]*=op://" "$ENV_FILE"; then
+    if command -v op >/dev/null 2>&1; then
+        export RAIKIRI_SECRETS_RESOLVED=1
+        exec op run --env-file="$ENV_FILE" -- "$0" "$@"
+    fi
+    echo "op is not on PATH — nothing to authenticate with" >&2
+    exit 1
+fi
 
 # venue:symbol. Perps only: the spot order path has venue-specific hazards that
 # a read-only smoke cannot exercise, so claiming to cover it would be a lie.
@@ -91,9 +78,11 @@ for entry in "${VENUES[@]}"; do
         continue
     fi
 
+    # env: REFERENCES, never the values: after `op run` these variables hold the
+    # secrets themselves, and a secret on a command line is a secret in `ps`.
     args=(--venue="$venue" --market=perp --symbol="$symbol" --duration "$DURATION"
-          --api-key="${!key}" --api-secret="${!secret}")
-    [[ -n "${!phrase:-}" ]] && args+=(--passphrase="${!phrase}")
+          --api-key="env:$key" --api-secret="env:$secret")
+    [[ -n "${!phrase:-}" ]] && args+=(--passphrase="env:$phrase")
 
     log="$(mktemp)"
     "$BIN" "${args[@]}" > "$log" 2>&1

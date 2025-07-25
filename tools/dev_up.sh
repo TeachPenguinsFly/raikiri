@@ -37,10 +37,18 @@ declare -A MARKET=(
   [bybit]=perp [gate]=perp [binance]=perp [kucoin]=perp [xt]=perp
   [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp
 )
+# EMPTY MEANS EVERY LISTING, and that is the default on purpose: the markets
+# tab lets a person open any of a thousand markets, and a gateway only streams
+# what it subscribed to at startup. Narrow subscriptions would leave every row
+# but two blank, which reads as a dead venue rather than an unsubscribed one.
+#
+# The two costs are separate and only one of them follows the screen. Inbound is
+# the gateway's, paid to the venue once whatever anyone looks at; outbound is
+# the browser's, and the stream sends only what a client subscribed to. Set
+# SYMBOLS_<venue> to narrow a venue when the inbound cost matters more than
+# being able to look at everything.
 declare -A SYMBOLS=(
-  [bybit]="BTCUSDT ETHUSDT" [gate]="BTC_USDT" [binance]="BTCUSDT"
-  [kucoin]="XBTUSDTM" [xt]="btc_usdt" [okx]="BTC-USDT-SWAP"
-  [bingx]="BTC-USDT" [bitget]="BTCUSDT" [deribit]="BTC-PERPETUAL" [deribit-opt]=""
+  [deribit]="BTC-PERPETUAL"
 )
 
 [[ -x "$BIN/gatewayd/gatewayd" ]] || { echo "build first: make build PRESET=$PRESET"; exit 1; }
@@ -58,40 +66,43 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-# Resolve every secret ONCE and pass env: references on. A gateway resolves its
-# credentials at startup, so five of them starting together is a dozen 1Password
-# reads inside a few seconds — and `op` starts refusing, which arrives at the
-# far end as "credentials not loaded" and reads exactly like a dead key.
+# ONE call to 1Password for the whole run, not one per credential.
+#
+# `op run` resolves every op:// reference in the env file inside a single
+# process and hands them down as plain values. Reading them one at a time meant
+# a dozen invocations per start — and on a vault that lives in an account the
+# CLI is not signed into, EVERY invocation is proxied through the desktop app
+# over Apple Events, so macOS asks the terminal's parent for permission a dozen
+# times. One call is one prompt, and none once it is granted.
+#
+# Re-execs itself under `op run` and returns here with the values in the
+# environment, where the `case` below leaves them alone.
+if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_]*=op://" "$ENV_FILE"; then
+    if command -v op >/dev/null 2>&1; then
+        export RAIKIRI_SECRETS_RESOLVED=1
+        exec op run --env-file="$ENV_FILE" -- "$0" "$@"
+    fi
+    echo "op is not on PATH — running public only" >&2
+fi
+
 VENUES="${VENUES:-bybit gate kucoin binance deribit-opt}"
 
 have_credentials=no
-vault_dead=no
 if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     set -a; source "$ENV_FILE"; set +a
     for venue in $VENUES; do
         upper="$(echo "${venue%-opt}" | tr '[:lower:]' '[:upper:]')"
         for field in API_KEY API_SECRET PASSPHRASE; do
-            name="${upper}_${field}"; spec="${!name:-}"
-            [[ -z "$spec" ]] && continue
-            case "$spec" in
+            name="${upper}_${field}"
+            # Still an op:// reference means `op run` did not resolve it —
+            # either it was not run, or that reference is not readable. Cleared
+            # rather than passed on, because gatewayd would then resolve it
+            # itself and reopen the very prompt this avoids.
+            case "${!name:-}" in
                 op://*|op:*)
-                    # A locked vault makes every read hang before it fails, so
-                    # the first failure stops the rest: nine slow refusals in a
-                    # row look like the tool being broken rather than the vault
-                    # being locked.
-                    if [[ "$vault_dead" == yes ]]; then unset "$name"; continue; fi
-                    if value="$(op read --no-newline "$spec" 2>/dev/null)" && [[ -n "$value" ]]; then
-                        export "RESOLVED_$name=$value"
-                        export "$name=env:RESOLVED_$name"
-                    else
-                        vault_dead=yes
-                        echo "1password did not answer. Either it is locked (\`eval \$(op signin)\`)," >&2
-                        echo "or this ran detached — the desktop integration needs a session, so" >&2
-                        echo "resolve the values first and export env: references instead." >&2
-                        echo "continuing with market data only: no balances, no positions" >&2
-                        unset "$name"
-                    fi
+                    echo "warning: $name unresolved — that venue runs public only" >&2
+                    unset "$name"
                     ;;
             esac
             [[ -n "${!name:-}" ]] && have_credentials=yes
@@ -110,10 +121,14 @@ for venue in $VENUES; do
     key="${upper}_API_KEY"; secret="${upper}_API_SECRET"; phrase="${upper}_PASSPHRASE"
 
     args=(--venue="$adapter" --market="$market")
-    for symbol in ${SYMBOLS[$venue]:-}; do args+=(--symbol="$symbol"); done
+    override="SYMBOLS_${venue//-/_}"
+    for symbol in ${!override:-${SYMBOLS[$venue]:-}}; do args+=(--symbol="$symbol"); done
+    # env: REFERENCES, never the values. After `op run` these variables hold the
+    # secrets themselves, and a secret on a command line is a secret in `ps`
+    # for every account on the machine.
     if [[ -n "${!key:-}" && -n "${!secret:-}" ]]; then
-        args+=(--api-key="${!key}" --api-secret="${!secret}")
-        [[ -n "${!phrase:-}" ]] && args+=(--passphrase="${!phrase}")
+        args+=(--api-key="env:$key" --api-secret="env:$secret")
+        [[ -n "${!phrase:-}" ]] && args+=(--passphrase="env:$phrase")
     fi
 
     "$BIN/gatewayd/gatewayd" "${args[@]}" > "$RAIKIRI_DATA_DIR/$venue.log" 2>&1 &
