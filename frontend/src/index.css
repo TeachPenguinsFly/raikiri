@@ -1,44 +1,229 @@
 @import 'tailwindcss';
 
-/* The terminal's palette, carried over from v2 so the two read as one system.
-   Navy-slate surfaces, depth by luminance rather than shadow. */
+/* The terminal's design language, carried over intact. The one change is the
+   accent: TPF LABS cyan rather than a generic blue, so the highlights read as
+   this product rather than as somebody else's. */
+
 @theme {
+  /* System stack, no webfonts: a terminal must render before a font loads, and
+     tabular numerals are the only typographic requirement. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+
+  /* Surfaces: navy slate, depth by luminance rather than by shadow. */
   --color-canvas: #080c17;
-  --color-surface: #0b101e;
-  --color-raised: #111827;
+  --color-panel: #0b101e;
+  --color-panel2: #141c2e;
+  --color-inset: #1d293a;
+  --color-hover: #182236;
+
+  /* Hairlines. */
   --color-line: #1d293a;
+  --color-line2: #2a2f4a;
 
-  --color-ink: #e6ebf5;
-  --color-muted: #8b97ad;
-  --color-faint: #5b6780;
+  /* Type. */
+  --color-fg: #f8fafc;
+  --color-fg-mid: #94a3b8;
+  --color-fg-dim: #64748b;
 
-  /* TPF LABS cyan, from tpf-website/brand. The accent IS the brand colour:
-     a terminal whose highlights are a generic blue reads as somebody else's. */
+  /* Signals. The accent IS the brand colour. */
   --color-brand: #38bdf8;
   --color-accent: #38bdf8;
   --color-accent-deep: #0ea5e9;
-
   --color-up: #22c55e;
   --color-down: #ef4444;
-  --color-warn: #ffa726;
+  --color-amber: #ffa726;
+  --color-violet: #a78bfa;
+  --color-teal: #00a87e;
 
-  /* System stack, no webfonts: a terminal must render before a font loads,
-     and tabular numerals are the only typographic requirement. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 0.875rem;
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.75rem;
 }
 
-html, body, #root { height: 100%; }
-
-body {
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+  html {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas text-fg font-sans antialiased text-[13px] leading-5;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+    outline-offset: 0;
+    border-radius: 6px;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
-/* Every column of numbers lines up. Non-negotiable in a blotter. */
-.tnum { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+@layer components {
+  /* Floating card: luminance over the canvas, hairline edge. */
+  .panel {
+    @apply bg-panel border border-line rounded-2xl overflow-hidden;
+  }
+  .panel-label {
+    @apply text-[13px] font-bold tracking-[-0.01em] text-fg;
+  }
+  .micro-label {
+    @apply text-2xs font-semibold text-fg-dim;
+  }
+  /* Every column of numbers lines up. Non-negotiable in a blotter. */
+  .num {
+    @apply tabular-nums tracking-[-0.01em];
+  }
+  .row-hover {
+    @apply hover:bg-hover transition-colors duration-75;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Ambient mesh behind everything. */
+  .aurora {
+    background:
+      radial-gradient(1100px 600px at 82% -12%, rgba(56, 189, 248, 0.12), transparent 60%),
+      radial-gradient(900px 520px at -8% 112%, rgba(56, 189, 248, 0.05), transparent 60%),
+      var(--color-canvas);
+  }
+  .glow-up {
+    text-shadow: 0 0 14px color-mix(in srgb, var(--color-up) 40%, transparent);
+  }
+  .glow-down {
+    text-shadow: 0 0 14px color-mix(in srgb, var(--color-down) 40%, transparent);
+  }
+}
+
+@keyframes flash-up {
+  0% {
+    background: color-mix(in srgb, var(--color-up) 16%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@keyframes flash-down {
+  0% {
+    background: color-mix(in srgb, var(--color-down) 16%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.flash-up {
+  animation: flash-up 0.6s ease-out;
+}
+.flash-down {
+  animation: flash-down 0.6s ease-out;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* --- loading and entrance ------------------------------------------------ */
+
+/* The sheen sweeps by background-position, and it lives on PLACEHOLDERS only:
+   shimmering loaded content is a screen that looks like it is still waiting. */
+.skeleton {
+  border-radius: 4px;
+  background: linear-gradient(
+    100deg,
+    var(--color-inset) 30%,
+    color-mix(in srgb, #ffffff 7%, var(--color-inset)) 46%,
+    var(--color-inset) 62%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0% 50%;
+  }
+}
+
+/* One-shot entrance for the skeleton-to-content swap, staggered per row through
+   --enter-delay. `both` so a delayed row holds its hidden start rather than
+   flashing in and then animating. */
+.enter-fade-up {
+  animation: enter-fade-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+@keyframes enter-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 
 /* The donut's arcs grow from nothing to whatever length their attributes say.
    A `from`-only keyframe animates towards the element's own computed value, so
@@ -46,5 +231,15 @@ body {
 @keyframes donut-grow {
   from {
     stroke-dasharray: 0 var(--circumference);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+  .enter-fade-up {
+    animation: enter-fade 0.15s ease-out both;
+    animation-delay: 0ms;
   }
 }

@@ -1,13 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router'
-import { Chrome } from '@/components/Chrome'
-import { Instruments } from '@/routes/Instruments'
+import { AppShell } from '@/components/layout/AppShell'
 import { Login } from '@/routes/Login'
-import { Options } from '@/routes/Options'
-import { Overview } from '@/routes/Overview'
-import { Scanner } from '@/routes/Scanner'
-import { Treasury } from '@/routes/Treasury'
+import { MarketsPage } from '@/pages/MarketsPage'
 import './index.css'
 
 const root = document.getElementById('root')
@@ -18,12 +14,8 @@ createRoot(root).render(
     <BrowserRouter>
       <Routes>
         <Route path="login" element={<Login />} />
-        <Route element={<Chrome />}>
-          <Route index element={<Scanner />} />
-          <Route path="gateways" element={<Overview />} />
-          <Route path="treasury" element={<Treasury />} />
-          <Route path="instruments" element={<Instruments />} />
-          <Route path="options" element={<Options />} />
+        <Route element={<AppShell />}>
+          <Route index element={<MarketsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
