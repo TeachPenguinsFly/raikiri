@@ -1,5 +1,5 @@
 export { ChartFrame, type LegendEntry } from './ChartFrame'
 export { Donut, type DonutSegment } from './Donut'
 export { LinePlot, type PlotSeries } from './LinePlot'
-export { colorFor, kindColor, series } from './palette'
+export { colorFor, colorsFor, kindColor, series } from './palette'
 export { linear, niceTicks, paddedDomain, useMeasuredWidth } from './scale'

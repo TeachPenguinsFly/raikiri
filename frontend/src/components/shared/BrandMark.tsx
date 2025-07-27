@@ -1,35 +1,35 @@
 import { cn } from '@/lib/utils'
 
-/** TPF·LABS wordmark, drawn from tpf-website/brand: light weight, letter-spaced,
- *  cyan square separator. Type and a rectangle, so it stays crisp at any size
- *  and there is no asset to go stale against the brand directory. */
+/** TPF LABS, set with weight.
+ *
+ *  The first attempt was light and letter-spaced, which reads as a fashion
+ *  label rather than a trading desk: on a dark, dense screen a thin wordmark
+ *  disappears into the chrome. Institutional software sets its name solid —
+ *  the name is the one thing on screen that never needs to be scanned. */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center font-light tracking-[0.14em] text-fg', className)}>
-      TPF
-      <span className="mx-1.5 inline-block size-[7px] bg-brand" />
-      LABS
+    <span className={cn('inline-flex items-baseline gap-[3px] leading-none', className)}>
+      <span className="font-extrabold tracking-[-0.02em] text-fg">TPF</span>
+      <span className="mb-[2px] size-[6px] shrink-0 self-end bg-brand" />
+      <span className="font-medium tracking-[-0.01em] text-fg-mid">LABS</span>
     </span>
   )
 }
 
-/** The compact mark: the square with the T, for a tab or a tight header. */
-export function Mark({ className }: { className?: string }) {
+/** Stacked, for the sign-in screen.
+ *
+ *  The square carries the mark on its own here rather than a letter inside a
+ *  tile: a "T" in a rounded box is the shape every SaaS login wears, and the
+ *  wordmark underneath already says the name. */
+export function BrandLockup({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className={cn('shrink-0', className)} aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="#38bdf8" />
-      <text
-        x="16"
-        y="17"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontFamily="Inter, Helvetica, Arial, sans-serif"
-        fontWeight="800"
-        fontSize="18"
-        fill="#030508"
-      >
-        T
-      </text>
-    </svg>
+    <div className={cn('flex flex-col items-center gap-3.5', className)}>
+      <span className="relative flex size-11 items-center justify-center">
+        <span className="absolute inset-0 rounded-xl bg-brand/15 blur-md" />
+        <span className="relative size-4 rotate-45 bg-brand shadow-[0_0_24px_rgba(56,189,248,0.55)]" />
+      </span>
+      <BrandMark className="text-xl" />
+      <span className="h-px w-40 bg-brand/25" />
+    </div>
   )
 }

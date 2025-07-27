@@ -133,7 +133,7 @@ export interface MockBalance {
   reported: boolean
 }
 
-const BALANCES: MockBalance[] = [
+export const BALANCES: MockBalance[] = [
   { account: 'kucoin', venue: 'kucoin', asset: 'USDT', total: 1_071.377, available: 1_071.377, reported: true },
   { account: 'binance', venue: 'binance', asset: 'USDT', total: 827.04, available: null, reported: true },
   { account: 'bybit', venue: 'bybit', asset: 'USDT', total: 494.106, available: null, reported: true },
@@ -212,3 +212,116 @@ export function useBook(mid: number | null, levels = 20, ms = 1000): {
     }))
   return { bids: side(-1), asks: side(1) }
 }
+
+// ------------------------------------------------------ blotter fixtures ----
+
+export interface MockOrder {
+  id: string
+  venue: string
+  symbol: string
+  side: 'buy' | 'sell'
+  type: 'limit' | 'market'
+  price: number | null
+  qty: number
+  filled: number
+  status: string
+  age: string
+}
+
+export const ORDERS: MockOrder[] = [
+  { id: 'a4f21c', venue: 'bybit', symbol: 'BTCUSDT', side: 'buy', type: 'limit', price: 79_180.0, qty: 0.25, filled: 0.1, status: 'partially_filled', age: '3m 12s' },
+  { id: 'a4f220', venue: 'binance', symbol: 'ETHUSDT', side: 'sell', type: 'limit', price: 3_142.5, qty: 4, filled: 0, status: 'accepted', age: '11m 04s' },
+  { id: 'a4f21e', venue: 'okx', symbol: 'SOL-USDT-SWAP', side: 'buy', type: 'limit', price: 184.2, qty: 50, filled: 0, status: 'accepted', age: '26m 41s' },
+  { id: 'a4f219', venue: 'gate', symbol: 'BTC_USDT', side: 'sell', type: 'limit', price: 79_960.0, qty: 0.4, filled: 0, status: 'pending_cancel', age: '1h 02m' },
+]
+
+export interface MockTrade {
+  id: string
+  venue: string
+  symbol: string
+  side: 'buy' | 'sell'
+  price: number
+  qty: number
+  fee: number
+  liquidity: 'maker' | 'taker'
+  at: string
+}
+
+export const TRADES: MockTrade[] = [
+  { id: '83956771', venue: 'bybit', symbol: 'BTCUSDT', side: 'buy', price: 79_181.4, qty: 0.1, fee: 0.0158, liquidity: 'maker', at: '08:02:41' },
+  { id: '83956764', venue: 'kucoin', symbol: 'XBTUSDTM', side: 'sell', price: 79_402.0, qty: 0.05, fee: 0.0119, liquidity: 'taker', at: '07:58:12' },
+  { id: '83956740', venue: 'binance', symbol: 'ETHUSDT', side: 'buy', price: 3_118.9, qty: 2, fee: 0.0031, liquidity: 'maker', at: '07:51:03' },
+  { id: '83956702', venue: 'xt', symbol: 'BTC_USDT', side: 'buy', price: 79_120.6, qty: 0.02, fee: 0.0009, liquidity: 'maker', at: '07:44:55' },
+]
+
+export interface MockPosition {
+  venue: string
+  symbol: string
+  qty: number
+  entry: number
+  mark: number
+  /** Null where the venue reports no position endpoint. NULL IS NOT FLAT. */
+  venueQty: number | null
+}
+
+export const POSITIONS: MockPosition[] = [
+  { venue: 'xt', symbol: 'BTC_USDT', qty: 0.02, entry: 79_120.6, mark: 79_419.5, venueQty: 0.02 },
+  { venue: 'bybit', symbol: 'BTCUSDT', qty: 0.1, entry: 79_181.4, mark: 79_410.2, venueQty: 0.1 },
+  { venue: 'binance', symbol: 'ETHUSDT', qty: 2, entry: 3_118.9, mark: 3_121.4, venueQty: null },
+  { venue: 'kucoin', symbol: 'XBTUSDTM', qty: -0.05, entry: 79_402.0, mark: 79_392.4, venueQty: -0.05 },
+]
+
+export interface MockStrategy {
+  name: string
+  kind: string
+  status: string
+  venues: string[]
+  pnl: number
+  orders: number
+}
+
+export const STRATEGIES: MockStrategy[] = [
+  { name: 'funding-carry-btc', kind: 'carry', status: 'alive', venues: ['bybit', 'okx'], pnl: 412.87, orders: 18 },
+  { name: 'basis-eth', kind: 'basis', status: 'alive', venues: ['binance', 'gate'], pnl: -63.2, orders: 7 },
+  { name: 'maker-sol', kind: 'maker', status: 'stale', venues: ['kucoin'], pnl: 88.41, orders: 0 },
+]
+
+// ------------------------------------------------------- series fixtures ----
+
+/** A walk that ends where the caller says it ends.
+ *
+ *  Generated backwards from the last point, so the series agrees with the
+ *  figure printed beside it. A forward walk drifts to wherever it drifts and
+ *  the headline number then has to be read off the chart, which is how a
+ *  screenshot ends up showing a total that no row sums to. */
+function walkTo(end: number, points: number, volatility: number, seed: number): number[] {
+  const rand = makeRandom(seed)
+  const out = new Array<number>(points)
+  let value = end
+  for (let i = points - 1; i >= 0; i--) {
+    out[i] = value
+    value /= 1 + (rand() - 0.48) * volatility
+  }
+  return out
+}
+
+/** Hourly stamps ending at a FIXED instant, not at `Date.now()`.
+ *
+ *  The axis has to be stable for two screenshots to be comparable, and a mock
+ *  that says "now" is a mock whose x-axis changes every reload. */
+const k_last = Date.UTC(2026, 7, 28, 12, 0, 0)
+export const HOURS: number[] = Array.from(
+  { length: 96 },
+  (_, i) => k_last - (95 - i) * 3_600_000,
+)
+
+const k_equity_now = BALANCES.filter((b) => b.reported && b.asset === 'USDT').reduce(
+  (sum, b) => sum + b.total,
+  0,
+)
+
+export const EQUITY: number[] = walkTo(k_equity_now, HOURS.length, 0.012, 0x1234)
+
+export const STRATEGY_PNL: Record<string, number[]> = Object.fromEntries(
+  STRATEGIES.map((s, i) => [s.name, walkTo(s.pnl, HOURS.length, 0.05, 0xa100 + i)]),
+)

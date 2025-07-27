@@ -14,6 +14,22 @@ export interface PlotSeries {
 
 const PAD = { top: 12, right: 52, bottom: 22, left: 8 }
 
+/** Ticks are labelled from the STEP between them, not from their magnitude.
+ *
+ *  `compact` renders 2,850 and 2,900 both as "2.9k", and an axis whose labels
+ *  repeat is an axis that says nothing. */
+function axisLabel(step: number): (value: number) => string {
+  if (step >= 1000) return compact
+  const decimals = Math.max(0, Math.min(6, Math.ceil(-Math.log10(step))))
+  // A tick can land on -0, and "-0" on an axis reads as a value rather than as
+  // the origin. Adding zero folds it back to +0.
+  return (value) =>
+    (value === 0 ? 0 : value).toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+}
+
 function labelFor(span: number): (millis: number) => string {
     if (span > 3 * 86_400_000) return shortDate
     if (span > 6 * 3_600_000) return dateTime
@@ -100,7 +116,11 @@ export function LinePlot({
       py,
       plotWidth,
       zeroY: minY <= 0 && maxY >= 0 ? py(0) : null,
-      yTicks: niceTicks(minY, maxY, 4).map((v) => ({ v, y: py(v) })),
+      yTicks: (() => {
+        const values = niceTicks(minY, maxY, 4)
+        const label = axisLabel((values[1] ?? minY) - (values[0] ?? 0) || maxY - minY)
+        return values.map((v) => ({ v, y: py(v), label: label(v) }))
+      })(),
       xTicks: xTicks(x, tickCount, px),
       // The span decides the label. Five identical timestamps is what a
       // minute-long series gets from a date format, and five dates with a
@@ -168,7 +188,7 @@ export function LinePlot({
               fill="#8b97ad"
               className="tnum"
             >
-              {format(tick.v)}
+              {tick.label}
             </text>
           </g>
         ))}
@@ -249,14 +269,14 @@ export function LinePlot({
             left: Math.min(Math.max(hovered - 70, 0), Math.max(width - 150, 0)),
           }}
         >
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-faint">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-dim">
             {dateTime(x[hoverIndex] as number)}
           </div>
           {series.map((s) => (
             <div key={s.key} className="flex items-center justify-between gap-3 text-xs">
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-                <span className="text-muted">{s.label}</span>
+                <span className="text-fg-mid">{s.label}</span>
               </span>
               <span className="tnum" style={{ color: s.color }}>
                 {format(s.values[hoverIndex] as number)}

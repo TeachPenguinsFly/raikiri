@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { cn } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { useMeasuredWidth } from './scale'
 
 export interface LegendEntry {
@@ -52,17 +52,17 @@ export function ChartFrame({
   return (
     <section
       className={cn(
-        'rounded-xl border border-line bg-surface/80 backdrop-blur-sm',
+        'panel',
         'shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_18px_40px_-24px_rgba(0,0,0,0.9)]',
         className,
       )}
     >
       <header className="flex items-start justify-between gap-4 px-4 pt-3.5">
         <div className="min-w-0">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-fg-mid">
             {title}
           </h2>
-          {note !== undefined && <p className="mt-1 text-xs text-faint">{note}</p>}
+          {note !== undefined && <p className="mt-1 text-xs text-fg-dim">{note}</p>}
         </div>
         {readout !== undefined && <div className="shrink-0 text-right">{readout}</div>}
       </header>
@@ -87,7 +87,7 @@ export function ChartFrame({
                 className="size-1.5 rounded-full"
                 style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}66` }}
               />
-              <span className="text-[10px] uppercase tracking-[0.1em] text-faint">
+              <span className="text-[10px] uppercase tracking-[0.1em] text-fg-dim">
                 {entry.label}
               </span>
               {entry.value !== undefined && (
@@ -102,7 +102,7 @@ export function ChartFrame({
 
       <div ref={ref} className="px-2 pt-2 pb-1" style={{ height }}>
         {placeholder !== undefined ? (
-          <div className="flex h-full items-center justify-center text-xs text-faint">
+          <div className="flex h-full items-center justify-center text-xs text-fg-dim">
             {placeholder}
           </div>
         ) : width > 0 ? (
@@ -111,7 +111,7 @@ export function ChartFrame({
       </div>
 
       {footer !== undefined && (
-        <div className="border-t border-line/60 px-4 py-2 text-[11px] text-faint">{footer}</div>
+        <div className="border-t border-line/60 px-4 py-2 text-[11px] text-fg-dim">{footer}</div>
       )}
     </section>
   )

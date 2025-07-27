@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { BrandLockup } from '@/components/Brand'
-import { cn } from '@/lib/format'
+import { BrandLockup } from '@/components/shared/BrandMark'
+import { cn } from '@/lib/utils'
 
 type Provider = 'google' | 'github'
 
@@ -62,12 +62,12 @@ export function Login() {
 
       <div className="relative flex w-full max-w-sm flex-col items-center">
         <BrandLockup />
-        <p className="mt-5 font-mono text-sm tracking-tight text-muted">raikiri</p>
-        <p className="mt-1 text-sm text-faint">Sign in to the trading terminal.</p>
+        <p className="mt-5 font-mono text-sm tracking-tight text-fg-mid">raikiri</p>
+        <p className="mt-1 text-sm text-fg-dim">Sign in to the trading terminal.</p>
 
-        <div className="mt-7 w-full rounded-3xl border border-line bg-surface/70 p-6 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_40px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        <div className="mt-7 w-full rounded-3xl border border-line bg-panel/70 p-6 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_40px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-xl">
           {notice !== null && (
-            <div className="mb-5 rounded-xl border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-xs leading-relaxed text-muted">
+            <div className="mb-5 rounded-xl border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-xs leading-relaxed text-fg-mid">
               {notice}
             </div>
           )}
@@ -93,7 +93,7 @@ export function Login() {
 
           <div className="my-5 flex items-center gap-3">
             <span className="h-px flex-1 bg-line" />
-            <span className="text-[10px] uppercase tracking-[0.2em] text-faint">or</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-fg-dim">or</span>
             <span className="h-px flex-1 bg-line" />
           </div>
 
@@ -109,8 +109,8 @@ export function Login() {
                   if (invalid !== null) setInvalid(null)
                 }}
                 className={cn(
-                  'h-11 w-full rounded-xl border bg-canvas/60 px-3.5 text-sm text-ink outline-none transition-colors',
-                  'placeholder:text-faint focus:border-accent/70',
+                  'h-11 w-full rounded-xl border bg-canvas/60 px-3.5 text-sm text-fg outline-none transition-colors',
+                  'placeholder:text-fg-dim focus:border-accent/70',
                   invalid !== null ? 'border-down' : 'border-line',
                 )}
               />
@@ -131,7 +131,7 @@ export function Login() {
             </button>
           </form>
 
-          <p className="mt-5 text-center text-[11px] leading-relaxed text-faint">
+          <p className="mt-5 text-center text-[11px] leading-relaxed text-fg-dim">
             Signing in agrees to the desk's access policy. Sessions are scoped to one account and
             every order carries the identity that placed it.
           </p>
@@ -140,12 +140,12 @@ export function Login() {
         <button
           type="button"
           onClick={() => void navigate('/')}
-          className="mt-6 text-sm text-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-muted"
+          className="mt-6 text-sm text-fg-mid underline decoration-line underline-offset-4 transition-colors hover:text-fg hover:decoration-muted"
         >
           Continue without signing in
         </button>
-        <p className="mt-2 max-w-xs text-center text-[11px] leading-relaxed text-faint">
-          admind binds <span className="text-muted">127.0.0.1</span> and enforces nothing yet, so
+        <p className="mt-2 max-w-xs text-center text-[11px] leading-relaxed text-fg-dim">
+          admind binds <span className="text-fg-mid">127.0.0.1</span> and enforces nothing yet, so
           this screen gates nothing. It exists so that the day it does, no screen has to be
           designed under time pressure.
         </p>
@@ -190,7 +190,7 @@ function SsoButton({
       disabled={disabled}
       className={cn(
         'relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-line',
-        'bg-raised/60 text-sm font-medium text-ink transition-[transform,background-color] duration-150',
+        'bg-raised/60 text-sm font-medium text-fg transition-[transform,background-color] duration-150',
         'hover:bg-raised active:scale-[0.985] disabled:opacity-60',
       )}
     >
@@ -199,7 +199,7 @@ function SsoButton({
       <span
         className={cn(
           'pointer-events-none absolute -top-2 -right-2 rounded-md bg-raised px-1.5 py-0.5',
-          'text-[10px] leading-none text-muted ring-1 ring-line transition-all duration-300',
+          'text-[10px] leading-none text-fg-mid ring-1 ring-line transition-all duration-300',
           badge ? 'scale-100 opacity-100' : 'scale-95 opacity-0',
         )}
       >

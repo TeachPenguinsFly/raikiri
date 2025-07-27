@@ -7,6 +7,9 @@ import { VenueTag } from '@/components/shared/VenueTag'
 import { Icon } from '@/components/shared/Icon'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
+import { Blotter } from '@/components/trading/Blotter'
+import { Ladder } from '@/components/trading/Ladder'
+import { OrderTicket } from '@/components/trading/OrderTicket'
 import { useBook, useMarkets, useTickingMarket, type MockListing } from '@/mock/data'
 
 const price = (v: number) =>
@@ -15,7 +18,7 @@ const price = (v: number) =>
 export function MarketsPage() {
   const [query, setQuery] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
-  const [openBook, setOpenBook] = useState<string | null>(null)
+  const [venue, setVenue] = useState<string | null>(null)
 
   const markets = useMarkets(query)
   const selected = useMemo(
@@ -25,8 +28,12 @@ export function MarketsPage() {
   const live = useTickingMarket(selected)
   const entering = useEntranceOnce(live !== null, live?.symbol)
 
-  const bookOf = live?.listings.find((l) => l.venue === openBook) ?? null
-  const book = useBook(bookOf === null ? null : (bookOf.bid + bookOf.ask) / 2)
+  // The row you clicked is what the ticket writes against and what the ladder
+  // shows. Falling back to the first listing means the right column is never
+  // empty on a market you just opened.
+  const chosenVenue =
+    live?.listings.find((l) => l.venue === venue) ?? live?.listings[0] ?? null
+  const book = useBook(chosenVenue === null ? null : (chosenVenue.bid + chosenVenue.ask) / 2, 20)
 
   return (
     <div className="flex h-full min-h-0 gap-2 p-2 pt-0">
@@ -59,7 +66,7 @@ export function MarketsPage() {
                   type="button"
                   onClick={() => {
                     setChosen(m.symbol)
-                    setOpenBook(null)
+                    setVenue(null)
                   }}
                   style={entering ? enterDelay(i) : undefined}
                   className={cn(
@@ -83,7 +90,7 @@ export function MarketsPage() {
       </section>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <section className="panel flex min-h-0 flex-1 flex-col">
+        <section className="panel flex max-h-[55%] shrink-0 flex-col">
           <PanelHeader
             title={
               <>
@@ -107,8 +114,7 @@ export function MarketsPage() {
                   <th className="h-7 px-2 text-right font-medium">Ask</th>
                   <th className="h-7 px-2 text-right font-medium">Spread</th>
                   <th className="h-7 px-2 text-right font-medium">Funding</th>
-                  <th className="h-7 px-2 text-right font-medium">24h vol</th>
-                  <th className="h-7 px-2.5 text-right font-medium">Book</th>
+                  <th className="h-7 px-2.5 text-right font-medium">24h vol</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,8 +122,8 @@ export function MarketsPage() {
                   <VenueRow
                     key={l.venue}
                     listing={l}
-                    open={openBook === l.venue}
-                    onToggle={() => setOpenBook(openBook === l.venue ? null : l.venue)}
+                    selected={chosenVenue?.venue === l.venue}
+                    onSelect={() => setVenue(l.venue)}
                     style={entering ? enterDelay(i) : undefined}
                     entering={entering}
                   />
@@ -127,28 +133,29 @@ export function MarketsPage() {
           </div>
         </section>
 
-        {bookOf !== null && (
-          <section className="panel flex h-[280px] shrink-0 flex-col">
-            <PanelHeader
-              title={
-                <>
-                  <VenueTag venue={bookOf.venue} full />
-                  <span className="text-fg-dim">{bookOf.exchangeSymbol}</span>
-                </>
-              }
-              right={
-                <button
-                  type="button"
-                  onClick={() => setOpenBook(null)}
-                  className="micro-label hover:text-fg"
-                >
-                  close
-                </button>
-              }
-            />
-            <Ladder bids={book.bids} asks={book.asks} />
-          </section>
-        )}
+        {/* The board is as tall as the venues that quote the market; the log
+            takes whatever is left, which is how a log is meant to sit. */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Blotter />
+        </div>
+      </div>
+
+      <div className="flex w-[268px] shrink-0 flex-col gap-2">
+        <OrderTicket
+          venue={chosenVenue?.venue ?? null}
+          symbol={chosenVenue?.exchangeSymbol ?? null}
+          bid={chosenVenue?.bid ?? null}
+          ask={chosenVenue?.ask ?? null}
+        />
+        <section className="panel flex min-h-0 flex-1 flex-col">
+          <PanelHeader
+            title="Depth"
+            right={
+              chosenVenue === null ? null : <VenueTag venue={chosenVenue.venue} full />
+            }
+          />
+          <Ladder bids={book.bids} asks={book.asks} />
+        </section>
       </div>
     </div>
   )
@@ -156,14 +163,14 @@ export function MarketsPage() {
 
 function VenueRow({
   listing,
-  open,
-  onToggle,
+  selected,
+  onSelect,
   style,
   entering,
 }: {
   listing: MockListing
-  open: boolean
-  onToggle: () => void
+  selected: boolean
+  onSelect: () => void
   style: React.CSSProperties | undefined
   entering: boolean
 }) {
@@ -174,7 +181,15 @@ function VenueRow({
   return (
     <tr
       style={style}
-      className={cn('row-hover border-b border-line/40', entering && 'enter-fade-up')}
+      onClick={onSelect}
+      className={cn(
+        'cursor-pointer border-b border-line/40 transition-colors duration-75',
+        entering && 'enter-fade-up',
+        // The selected row is what the ticket and the ladder are pointed at, so
+        // it is marked on the left edge rather than by a fill: a whole row of
+        // accent colour fights the up/down colours the prices carry.
+        selected ? 'bg-accent/8 shadow-[inset_2px_0_0_0_var(--color-accent)]' : 'hover:bg-hover',
+      )}
     >
       <td className="px-2.5 py-1.5">
         <VenueTag venue={listing.venue} full />
@@ -196,81 +211,9 @@ function VenueRow({
             without it compare two different things. */}
         <span className="ml-1 text-3xs text-fg-dim">/{listing.fundingIntervalHours}h</span>
       </td>
-      <td className="num px-2 py-1.5 text-right text-fg-mid">
+      <td className="num px-2.5 py-1.5 text-right text-fg-mid">
         {(listing.volume24h / 1e6).toFixed(1)}M
       </td>
-      <td className="px-2.5 py-1.5 text-right">
-        <button
-          type="button"
-          onClick={onToggle}
-          className={cn(
-            'rounded-md px-2 py-0.5 text-3xs font-semibold transition-colors',
-            open ? 'bg-accent/15 text-accent' : 'text-fg-dim hover:bg-white/6 hover:text-fg-mid',
-          )}
-        >
-          {open ? 'open' : 'depth'}
-        </button>
-      </td>
     </tr>
-  )
-}
-
-/** Depth as a ladder with the size drawn behind the row.
- *
- *  The bar is cumulative, not per level: what a taker wants to know is how far
- *  down the book their order reaches, and a chart of individual levels answers
- *  a question nobody asked. */
-function Ladder({
-  bids,
-  asks,
-}: {
-  bids: { price: number; size: number }[]
-  asks: { price: number; size: number }[]
-}) {
-  const cumulative = (rows: { price: number; size: number }[]) => {
-    let running = 0
-    return rows.map((r) => ({ ...r, depth: (running += r.size) }))
-  }
-  const bidRows = cumulative(bids)
-  const askRows = cumulative(asks)
-  const peak = Math.max(bidRows.at(-1)?.depth ?? 1, askRows.at(-1)?.depth ?? 1)
-
-  const Side = ({
-    rows,
-    tone,
-    align,
-  }: {
-    rows: { price: number; size: number; depth: number }[]
-    tone: 'up' | 'down'
-    align: 'left' | 'right'
-  }) => (
-    <div className="min-w-0 flex-1">
-      {rows.map((r) => (
-        <div key={r.price} className="relative flex h-[18px] items-center px-2 text-[11px]">
-          <span
-            className={cn('absolute inset-y-px', tone === 'up' ? 'bg-up/12' : 'bg-down/12')}
-            style={{ width: `${(r.depth / peak) * 100}%`, [align]: 0 }}
-          />
-          <span
-            className={cn(
-              'num relative z-10 flex w-full',
-              align === 'left' ? 'flex-row-reverse' : 'flex-row',
-              'justify-between',
-            )}
-          >
-            <span className="text-fg-dim">{r.size.toFixed(3)}</span>
-            <span className={tone === 'up' ? 'text-up' : 'text-down'}>{price(r.price)}</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-
-  return (
-    <div className="flex min-h-0 flex-1 overflow-auto py-1">
-      <Side rows={bidRows} tone="up" align="right" />
-      <div className="w-px shrink-0 bg-line" />
-      <Side rows={askRows} tone="down" align="left" />
-    </div>
   )
 }

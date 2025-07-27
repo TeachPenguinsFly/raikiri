@@ -5,12 +5,14 @@
    this product rather than as somebody else's. */
 
 @theme {
-  /* System stack, no webfonts: a terminal must render before a font loads, and
-     tabular numerals are the only typographic requirement. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+  /* Roboto, with the system stack behind it. `display=swap` means the screen
+     paints in the fallback and reflows once — a terminal that shows nothing
+     until a font arrives is a terminal that shows nothing when the CDN is
+     slow. The fallback metrics are close enough that the reflow does not move
+     a table column. */
+  --font-sans: 'Roboto', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue',
     Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'Courier New',
-    monospace;
+  --font-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Surfaces: navy slate, depth by luminance rather than by shadow. */
   --color-canvas: #080c17;

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/shared/Icon'
-import { Mark } from '@/components/shared/BrandMark'
 import { cn } from '@/lib/utils'
 import { useGateways } from '@/mock/data'
 
@@ -112,7 +111,6 @@ export function TopCommandBar({ onSearch }: { onSearch?: () => void }) {
       </button>
       <GatewayStatus />
       <Clock />
-      <Mark className="size-5" />
     </header>
   )
 }
