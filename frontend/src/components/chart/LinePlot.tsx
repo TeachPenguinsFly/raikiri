@@ -184,7 +184,7 @@ export function LinePlot({
             <text
               x={width - PAD.right + 8}
               y={tick.y + 3.5}
-              fontSize={10}
+              fontSize={11}
               fill="#8b97ad"
               className="tnum"
             >
@@ -210,7 +210,7 @@ export function LinePlot({
             key={`x${tick.t}`}
             x={tick.x.toFixed(1)}
             y={height - 6}
-            fontSize={10}
+            fontSize={11}
             fill="#5b6780"
             textAnchor={i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle'}
           >
@@ -264,12 +264,12 @@ export function LinePlot({
 
       {hoverIndex !== null && hovered !== null && (
         <div
-          className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-lg border border-line bg-canvas/95 px-2.5 py-2 shadow-xl backdrop-blur"
+          className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-[4px] border border-line bg-canvas/95 px-2.5 py-2 shadow-xl backdrop-blur"
           style={{
             left: Math.min(Math.max(hovered - 70, 0), Math.max(width - 150, 0)),
           }}
         >
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-dim">
+          <div className="mb-1 text-3xs text-fg-mid">
             {dateTime(x[hoverIndex] as number)}
           </div>
           {series.map((s) => (

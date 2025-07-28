@@ -49,7 +49,7 @@ export function Ladder({
               'justify-between',
             )}
           >
-            <span className="text-fg-dim">{r.size.toFixed(3)}</span>
+            <span className="text-fg-mid">{r.size.toFixed(3)}</span>
             <span className={tone === 'up' ? 'text-up' : 'text-down'}>{price(r.price)}</span>
           </span>
         </div>

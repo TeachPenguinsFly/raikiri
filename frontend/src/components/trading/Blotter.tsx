@@ -40,7 +40,7 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
             type="button"
             onClick={() => setTab(t)}
             className={cn(
-              'flex h-6 items-center gap-1.5 rounded-md px-2.5 text-2xs font-semibold capitalize transition-colors',
+              'flex h-6 items-center gap-1.5 rounded-[3px] px-2.5 text-2xs font-semibold capitalize transition-colors',
               tab === t ? 'bg-white/8 text-fg' : 'text-fg-dim hover:bg-white/4 hover:text-fg-mid',
             )}
           >
@@ -64,9 +64,9 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
 
 function Grid({ head, children }: { head: ReactNode; children: ReactNode }) {
   return (
-    <table className="w-full border-collapse text-[11.5px]">
+    <table className="w-full border-collapse text-[12.5px]">
       <thead className="sticky top-0 z-10 bg-panel">
-        <tr className="border-b border-line text-3xs uppercase tracking-[0.08em] text-fg-dim">
+        <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
           {head}
         </tr>
       </thead>
@@ -87,6 +87,7 @@ function Orders() {
     <Grid
       head={
         <>
+          <Th>Order id</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th>Side</Th>
@@ -101,16 +102,17 @@ function Orders() {
     >
       {ORDERS.map((o) => (
         <tr key={o.id} className="row-hover border-b border-line/40">
+          <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{o.id}</td>
           <td className="px-2 py-1.5">
             <VenueTag venue={o.venue} full />
           </td>
-          <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{o.symbol}</td>
+          <td className="px-2 py-1.5 font-mono text-3xs text-fg">{o.symbol}</td>
           <td className="px-2 py-1.5">
             <StatusBadge status={o.side} />
           </td>
-          <td className="px-2 py-1.5 text-fg-dim">{o.type}</td>
+          <td className="px-2 py-1.5 text-fg-mid">{o.type}</td>
           <td className="num px-2 py-1.5 text-right">{o.price === null ? '—' : num(o.price, 1)}</td>
-          <td className="num px-2 py-1.5 text-right text-fg-mid">{o.qty}</td>
+          <td className="num px-2 py-1.5 text-right text-fg">{o.qty}</td>
           {/* Filled shown against the order, not alone: "0.1" answers nothing
               without the 0.25 it is a tenth of. */}
           <td className="num px-2 py-1.5 text-right">
@@ -120,7 +122,7 @@ function Orders() {
           <td className="px-2 py-1.5">
             <StatusBadge status={o.status} />
           </td>
-          <td className="num px-2 py-1.5 text-right text-fg-dim">{o.age}</td>
+          <td className="num px-2 py-1.5 text-right text-fg-mid">{o.age}</td>
         </tr>
       ))}
     </Grid>
@@ -132,6 +134,7 @@ function Trades() {
     <Grid
       head={
         <>
+          <Th>Exec id</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th>Side</Th>
@@ -145,20 +148,21 @@ function Trades() {
     >
       {TRADES.map((t) => (
         <tr key={t.id} className="row-hover border-b border-line/40">
+          <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{t.id}</td>
           <td className="px-2 py-1.5">
             <VenueTag venue={t.venue} full />
           </td>
-          <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{t.symbol}</td>
+          <td className="px-2 py-1.5 font-mono text-3xs text-fg">{t.symbol}</td>
           <td className="px-2 py-1.5">
             <StatusBadge status={t.side} />
           </td>
           <td className="num px-2 py-1.5 text-right">{num(t.price, 1)}</td>
-          <td className="num px-2 py-1.5 text-right text-fg-mid">{t.qty}</td>
-          <td className="num px-2 py-1.5 text-right text-fg-dim">{t.fee.toFixed(4)}</td>
+          <td className="num px-2 py-1.5 text-right text-fg">{t.qty}</td>
+          <td className="num px-2 py-1.5 text-right text-fg-mid">{t.fee.toFixed(4)}</td>
           <td className="px-2 py-1.5">
             <StatusBadge status={t.liquidity} />
           </td>
-          <td className="num px-2 py-1.5 text-right text-fg-dim">{t.at}</td>
+          <td className="num px-2 py-1.5 text-right text-fg-mid">{t.at}</td>
         </tr>
       ))}
     </Grid>
@@ -170,6 +174,7 @@ function Positions() {
     <Grid
       head={
         <>
+          <Th>Instrument</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th right>Qty</Th>
@@ -185,15 +190,16 @@ function Positions() {
         const agrees = p.venueQty !== null && Math.abs(p.venueQty - p.qty) < 1e-9
         return (
           <tr key={`${p.venue}:${p.symbol}`} className="row-hover border-b border-line/40">
+            <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{p.instrumentId}</td>
             <td className="px-2 py-1.5">
               <VenueTag venue={p.venue} full />
             </td>
-            <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">{p.symbol}</td>
+            <td className="px-2 py-1.5 font-mono text-3xs text-fg">{p.symbol}</td>
             <td className={cn('num px-2 py-1.5 text-right', p.qty >= 0 ? 'text-up' : 'text-down')}>
               {p.qty > 0 ? '+' : ''}
               {p.qty}
             </td>
-            <td className="num px-2 py-1.5 text-right text-fg-mid">{num(p.entry, 1)}</td>
+            <td className="num px-2 py-1.5 text-right text-fg">{num(p.entry, 1)}</td>
             <td className="num px-2 py-1.5 text-right">{num(p.mark, 1)}</td>
             <td className={cn('num px-2 py-1.5 text-right', pnl >= 0 ? 'text-up' : 'text-down')}>
               {pnl >= 0 ? '+' : '−'}
@@ -243,11 +249,11 @@ function Balances() {
           <td className="px-2 py-1.5">
             <VenueTag venue={b.venue} full />
           </td>
-          <td className="px-2 py-1.5 text-fg-mid">{b.asset}</td>
+          <td className="px-2 py-1.5 font-semibold text-fg">{b.asset}</td>
           <td className="num px-2 py-1.5 text-right">{num(b.total, b.total < 1 ? 4 : 2)}</td>
           {/* A venue that publishes a total and no free figure leaves a dash.
               Repeating the total there invites committing margin twice. */}
-          <td className="num px-2 py-1.5 text-right text-fg-mid">
+          <td className="num px-2 py-1.5 text-right text-fg">
             {b.available === null ? (
               <span className="text-fg-dim" title="this venue publishes no per-asset free figure">
                 —

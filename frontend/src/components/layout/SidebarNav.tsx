@@ -10,7 +10,6 @@ const NAV: Array<{
   end?: boolean
 }> = [
   { to: '/', label: 'Markets', icon: Icon.Markets, end: true },
-  { to: '/trading', label: 'Trading', icon: Icon.Radar },
   { to: '/strategies', label: 'Strategies', icon: Icon.Bot },
   { to: '/treasury', label: 'Treasury', icon: Icon.Landmark },
   { to: '/settings', label: 'Settings', icon: Icon.Settings },
@@ -31,7 +30,7 @@ export function SidebarNav() {
             end={end === true}
             className={({ isActive }) =>
               cn(
-                'group flex h-9 items-center gap-2.5 rounded-xl px-3 text-[12.5px] font-semibold transition-colors',
+                'group flex h-9 items-center gap-2.5 rounded-[4px] px-3 text-[13px] font-semibold transition-colors',
                 isActive ? 'bg-white/8 text-fg' : 'text-fg-mid hover:bg-white/4 hover:text-fg',
               )
             }
@@ -51,8 +50,6 @@ export function SidebarNav() {
           </NavLink>
         ))}
       </nav>
-
-      <div className="px-4 pb-3 text-3xs text-fg-dim">raikiri</div>
     </aside>
   )
 }

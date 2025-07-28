@@ -22,7 +22,6 @@ export function StrategiesPage() {
       <ChartFrame
         className="shrink-0"
         title="PnL by strategy"
-        note="Realized plus unrealized, folded per strategy id. Funding is not in it yet — no adapter reports the charge."
         readout={
           <div className="text-right">
             <div className={cn('num text-[19px] font-bold leading-6', total >= 0 ? 'text-up' : 'text-down')}>
@@ -68,14 +67,15 @@ export function StrategiesPage() {
           }
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[11.5px]">
+        <table className="w-full border-collapse text-[12.5px]">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line text-3xs uppercase tracking-[0.08em] text-fg-dim">
+            <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
               <th className="h-7 px-2.5 text-left font-medium">Name</th>
               <th className="h-7 px-2 text-left font-medium">Kind</th>
               <th className="h-7 px-2 text-left font-medium">Status</th>
               <th className="h-7 px-2 text-left font-medium">Venues</th>
               <th className="h-7 px-2 text-right font-medium">Orders</th>
+              <th className="h-7 px-2 text-right font-medium">Trades</th>
               <th className="h-7 px-2.5 text-right font-medium">PnL</th>
             </tr>
           </thead>
@@ -101,7 +101,7 @@ export function StrategiesPage() {
                     <span className="font-semibold text-fg">{s.name}</span>
                   </span>
                 </td>
-                <td className="px-2 py-1.5 text-fg-dim">{s.kind}</td>
+                <td className="px-2 py-1.5 text-fg-mid">{s.kind}</td>
                 <td className="px-2 py-1.5">
                   <StatusBadge status={s.status} />
                 </td>
@@ -114,8 +114,13 @@ export function StrategiesPage() {
                 </td>
                 {/* A strategy alive with no orders is a strategy that is not
                     trading, and the zero has to be readable as that. */}
-                <td className={cn('num px-2 py-1.5 text-right', s.orders === 0 ? 'text-fg-dim' : 'text-fg-mid')}>
+                <td className={cn('num px-2 py-1.5 text-right', s.orders === 0 ? 'text-fg-dim' : 'text-fg')}>
                   {s.orders}
+                </td>
+                {/* Fills, not orders. A maker strategy with nothing working can
+                    still be the one that has traded the most today. */}
+                <td className={cn('num px-2 py-1.5 text-right', s.trades === 0 ? 'text-fg-dim' : 'text-fg')}>
+                  {s.trades}
                 </td>
                 <td className={cn('num px-2.5 py-1.5 text-right', s.pnl >= 0 ? 'text-up' : 'text-down')}>
                   {s.pnl >= 0 ? '+' : '−'}

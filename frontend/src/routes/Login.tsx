@@ -65,9 +65,9 @@ export function Login() {
         <p className="mt-5 font-mono text-sm tracking-tight text-fg-mid">raikiri</p>
         <p className="mt-1 text-sm text-fg-dim">Sign in to the trading terminal.</p>
 
-        <div className="mt-7 w-full rounded-3xl border border-line bg-panel/70 p-6 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_40px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        <div className="mt-7 w-full rounded-[5px] border border-line bg-panel/70 p-6 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_40px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-xl">
           {notice !== null && (
-            <div className="mb-5 rounded-xl border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-xs leading-relaxed text-fg-mid">
+            <div className="mb-5 rounded-[4px] border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-xs leading-relaxed text-fg-mid">
               {notice}
             </div>
           )}
@@ -109,7 +109,7 @@ export function Login() {
                   if (invalid !== null) setInvalid(null)
                 }}
                 className={cn(
-                  'h-11 w-full rounded-xl border bg-canvas/60 px-3.5 text-sm text-fg outline-none transition-colors',
+                  'h-11 w-full rounded-[4px] border bg-canvas/60 px-3.5 text-sm text-fg outline-none transition-colors',
                   'placeholder:text-fg-dim focus:border-accent/70',
                   invalid !== null ? 'border-down' : 'border-line',
                 )}
@@ -120,7 +120,7 @@ export function Login() {
               type="submit"
               disabled={busy}
               className={cn(
-                'flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium',
+                'flex h-11 w-full items-center justify-center gap-2 rounded-[4px] text-sm font-medium',
                 // Dark on cyan, as the mark itself is: light text on this
                 // cyan is the one low-contrast pair in the palette.
                 'bg-accent text-canvas transition-[transform,background-color] duration-150',
@@ -131,9 +131,8 @@ export function Login() {
             </button>
           </form>
 
-          <p className="mt-5 text-center text-[11px] leading-relaxed text-fg-dim">
-            Signing in agrees to the desk's access policy. Sessions are scoped to one account and
-            every order carries the identity that placed it.
+          <p className="mt-5 text-center text-3xs text-fg-mid">
+            Every order carries the identity that placed it.
           </p>
         </div>
 
@@ -144,11 +143,9 @@ export function Login() {
         >
           Continue without signing in
         </button>
-        <p className="mt-2 max-w-xs text-center text-[11px] leading-relaxed text-fg-dim">
-          admind binds <span className="text-fg-mid">127.0.0.1</span> and enforces nothing yet, so
-          this screen gates nothing. It exists so that the day it does, no screen has to be
-          designed under time pressure.
-        </p>
+        {/* The gate is not wired yet, and the link says so in one line rather
+            than letting a reader assume it is. */}
+        <p className="mt-2 text-center text-3xs text-fg-dim">This screen gates nothing yet.</p>
       </div>
     </div>
   )
@@ -189,7 +186,7 @@ function SsoButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-line',
+        'relative flex h-11 w-full items-center justify-center gap-2.5 rounded-[4px] border border-line',
         'bg-raised/60 text-sm font-medium text-fg transition-[transform,background-color] duration-150',
         'hover:bg-raised active:scale-[0.985] disabled:opacity-60',
       )}
@@ -198,7 +195,7 @@ function SsoButton({
       <span>{label}</span>
       <span
         className={cn(
-          'pointer-events-none absolute -top-2 -right-2 rounded-md bg-raised px-1.5 py-0.5',
+          'pointer-events-none absolute -top-2 -right-2 rounded-[3px] bg-raised px-1.5 py-0.5',
           'text-[10px] leading-none text-fg-mid ring-1 ring-line transition-all duration-300',
           badge ? 'scale-100 opacity-100' : 'scale-95 opacity-0',
         )}

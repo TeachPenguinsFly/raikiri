@@ -53,7 +53,7 @@ export function MarketsPage() {
               }}
               placeholder="BTC, ETH, SOL…"
               autoFocus
-              className="h-7 w-full rounded-lg border border-line bg-canvas/60 pl-8 pr-2 text-2xs text-fg outline-none transition-colors placeholder:text-fg-dim focus:border-accent/70"
+              className="h-7 w-full rounded-[4px] border border-line bg-canvas/60 pl-8 pr-2 text-2xs text-fg outline-none transition-colors placeholder:text-fg-dim focus:border-accent/70"
             />
           </div>
         </div>
@@ -70,15 +70,15 @@ export function MarketsPage() {
                   }}
                   style={entering ? enterDelay(i) : undefined}
                   className={cn(
-                    'flex h-8 w-full items-center justify-between rounded-lg px-2 text-2xs transition-colors',
+                    'flex h-8 w-full items-center justify-between rounded-[4px] px-2 text-2xs transition-colors',
                     entering && 'enter-fade-up',
-                    active ? 'bg-white/8 font-semibold text-fg' : 'text-fg-mid hover:bg-white/4',
+                    active ? 'bg-white/10 font-bold text-fg' : 'text-fg-mid hover:bg-white/5 hover:text-fg',
                   )}
                 >
                   <span className="truncate">{m.symbol}</span>
                   {/* The count is why this view exists: a market four venues
                       quote is worth opening, a market one venue lists is not. */}
-                  <span className="num shrink-0 text-3xs text-fg-dim">{m.listings.length}</span>
+                  <span className="num shrink-0 text-3xs text-fg-mid">{m.listings.length}</span>
                 </button>
               </li>
             )
@@ -105,9 +105,9 @@ export function MarketsPage() {
             }
           />
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full border-collapse text-[11.5px]">
+            <table className="w-full border-collapse text-[12.5px]">
               <thead className="sticky top-0 z-10 bg-panel">
-                <tr className="border-b border-line text-3xs uppercase tracking-[0.08em] text-fg-dim">
+                <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
                   <th className="h-7 px-2.5 text-left font-medium">Venue</th>
                   <th className="h-7 px-2 text-left font-medium">Symbol</th>
                   <th className="h-7 px-2 text-right font-medium">Bid</th>
@@ -194,14 +194,14 @@ function VenueRow({
       <td className="px-2.5 py-1.5">
         <VenueTag venue={listing.venue} full />
       </td>
-      <td className="px-2 py-1.5 font-mono text-3xs text-fg-dim">{listing.exchangeSymbol}</td>
+      <td className="px-2 py-1.5 font-mono text-3xs text-fg">{listing.exchangeSymbol}</td>
       <td className="px-2 py-1.5 text-right">
         <FlashPrice value={listing.bid} format={price} className="text-up" />
       </td>
       <td className="px-2 py-1.5 text-right">
         <FlashPrice value={listing.ask} format={price} className="text-down" />
       </td>
-      <td className="num px-2 py-1.5 text-right text-fg-mid">{spread.toFixed(1)} bp</td>
+      <td className="num px-2 py-1.5 text-right text-fg">{spread.toFixed(1)} bp</td>
       <td className="num px-2 py-1.5 text-right">
         <span className={listing.fundingRate >= 0 ? 'text-up' : 'text-down'}>
           {(listing.fundingRate * 100).toFixed(4)}%
@@ -209,9 +209,9 @@ function VenueRow({
         {/* The interval travels with the rate. okx funds every four hours where
             the others fund every eight, and identical numbers side by side
             without it compare two different things. */}
-        <span className="ml-1 text-3xs text-fg-dim">/{listing.fundingIntervalHours}h</span>
+        <span className="ml-1 text-3xs text-fg-mid">/{listing.fundingIntervalHours}h</span>
       </td>
-      <td className="num px-2.5 py-1.5 text-right text-fg-mid">
+      <td className="num px-2.5 py-1.5 text-right text-fg">
         {(listing.volume24h / 1e6).toFixed(1)}M
       </td>
     </tr>

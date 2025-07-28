@@ -71,7 +71,7 @@ export function OrderTicket({
               type="button"
               onClick={() => setSide(s)}
               className={cn(
-                'h-8 rounded-lg text-2xs font-bold uppercase tracking-[0.06em] transition-colors',
+                'h-8 rounded-[4px] text-2xs font-bold uppercase tracking-[0.06em] transition-colors',
                 side === s
                   ? s === 'buy'
                     ? 'bg-up/20 text-up'
@@ -91,7 +91,7 @@ export function OrderTicket({
               type="button"
               onClick={() => setKind(k)}
               className={cn(
-                'h-6 flex-1 rounded-md text-3xs font-semibold uppercase tracking-[0.06em] transition-colors',
+                'h-6 flex-1 rounded-[3px] text-3xs font-semibold uppercase tracking-[0.06em] transition-colors',
                 kind === k ? 'bg-white/10 text-fg' : 'text-fg-dim hover:text-fg-mid',
               )}
             >
@@ -111,8 +111,8 @@ export function OrderTicket({
         <Field label="Quantity" suffix={symbol.replace(/USDT.*|_.*|-.*/, '')} value={qty} onChange={setQty} />
 
         <div className="flex items-baseline justify-between px-0.5 text-3xs">
-          <span className="text-fg-dim">Notional</span>
-          <span className="num text-fg-mid">
+          <span className="text-fg-mid">Notional</span>
+          <span className="num text-fg">
             {Number.isFinite(notional) && notional > 0 ? `${notional.toFixed(2)} USDT` : '—'}
           </span>
         </div>
@@ -122,7 +122,7 @@ export function OrderTicket({
           disabled={!armed}
           onClick={() => setSent(`${side} ${qty} ${symbol} on ${venue}`)}
           className={cn(
-            'h-9 rounded-lg text-2xs font-bold uppercase tracking-[0.08em] transition-[transform,background-color] duration-150',
+            'h-9 rounded-[4px] text-2xs font-bold uppercase tracking-[0.08em] transition-[transform,background-color] duration-150',
             'active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-40',
             side === 'buy' ? 'bg-up/85 text-canvas hover:bg-up' : 'bg-down/85 text-canvas hover:bg-down',
           )}
@@ -132,9 +132,7 @@ export function OrderTicket({
 
         {/* The write path does not exist yet, and the ticket says so rather than
             pretending an order went somewhere. */}
-        <p className="text-3xs leading-relaxed text-fg-dim">
-          {sent ?? 'Nothing is sent: admind serves reads only, and order entry needs a producer into strategyd.'}
-        </p>
+        <p className="text-3xs text-fg-dim">{sent ?? 'Reads only — nothing is sent yet.'}</p>
       </div>
     </section>
   )
@@ -158,12 +156,12 @@ function Field({
   return (
     <label
       className={cn(
-        'flex h-9 items-center gap-2 rounded-lg border border-line bg-canvas/60 px-2.5',
+        'flex h-9 items-center gap-2 rounded-[4px] border border-line bg-canvas/60 px-2.5',
         'transition-colors focus-within:border-accent/70',
         disabled === true && 'opacity-45',
       )}
     >
-      <span className="w-14 shrink-0 text-3xs font-semibold text-fg-dim">{label}</span>
+      <span className="w-14 shrink-0 text-3xs font-semibold text-fg-mid">{label}</span>
       <input
         inputMode="decimal"
         value={value}
@@ -172,7 +170,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         className="num min-w-0 flex-1 bg-transparent text-right text-[13px] text-fg outline-none placeholder:text-fg-dim"
       />
-      <span className="shrink-0 text-3xs text-fg-dim">{suffix}</span>
+      <span className="shrink-0 text-3xs text-fg-mid">{suffix}</span>
     </label>
   )
 }

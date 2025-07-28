@@ -27,8 +27,8 @@
 
   /* Type. */
   --color-fg: #f8fafc;
-  --color-fg-mid: #94a3b8;
-  --color-fg-dim: #64748b;
+  --color-fg-mid: #b8c4d6;
+  --color-fg-dim: #8895a9;
 
   /* Signals. The accent IS the brand colour. */
   --color-brand: #38bdf8;
@@ -40,10 +40,10 @@
   --color-violet: #a78bfa;
   --color-teal: #00a87e;
 
-  --text-2xs: 0.6875rem;
-  --text-2xs--line-height: 0.875rem;
-  --text-3xs: 0.625rem;
-  --text-3xs--line-height: 0.75rem;
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.6875rem;
+  --text-3xs--line-height: 0.875rem;
 }
 
 @layer base {
@@ -89,7 +89,7 @@
   :focus-visible {
     outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
     outline-offset: 0;
-    border-radius: 6px;
+    border-radius: 3px;
   }
   input[type='number']::-webkit-outer-spin-button,
   input[type='number']::-webkit-inner-spin-button {
@@ -105,13 +105,13 @@
 @layer components {
   /* Floating card: luminance over the canvas, hairline edge. */
   .panel {
-    @apply bg-panel border border-line rounded-2xl overflow-hidden;
+    @apply bg-panel border border-line rounded-[5px] overflow-hidden;
   }
   .panel-label {
     @apply text-[13px] font-bold tracking-[-0.01em] text-fg;
   }
   .micro-label {
-    @apply text-2xs font-semibold text-fg-dim;
+    @apply text-2xs font-semibold text-fg-mid;
   }
   /* Every column of numbers lines up. Non-negotiable in a blotter. */
   .num {

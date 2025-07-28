@@ -17,7 +17,6 @@ export function TreasuryPage() {
   const [hover, setHover] = useState<string | null>(null)
 
   const reported = BALANCES.filter((b) => b.reported)
-  const silent = BALANCES.filter((b) => !b.reported)
   const denominated = reported.filter((b) => b.asset === k_denomination)
   const total = denominated.reduce((sum, b) => sum + b.total, 0)
   const entering = useEntranceOnce(true, 'treasury')
@@ -38,7 +37,6 @@ export function TreasuryPage() {
       <div className="grid shrink-0 grid-cols-1 items-start gap-2 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ChartFrame
           title="Equity"
-          note={`${k_denomination} across every account that answers. Four days, hourly.`}
           readout={
             <div className="text-right">
               <div className="num text-[19px] font-bold leading-6 text-fg">{usd(total)}</div>
@@ -65,8 +63,7 @@ export function TreasuryPage() {
 
         <ChartFrame
           title="Split by venue"
-          note="Wallet balances, not exposure. A venue holding margin against a short still shows the margin."
-          height={260}
+          height={228}
           legend={segments.map((s) => ({
             key: s.key,
             label: s.label,
@@ -79,7 +76,7 @@ export function TreasuryPage() {
             <div className="flex h-full items-center justify-center">
               <Donut
                 segments={segments}
-                size={Math.min(height, 190)}
+                size={Math.min(height, 200)}
                 active={hover}
                 onHover={setHover}
                 center={
@@ -100,9 +97,9 @@ export function TreasuryPage() {
           right={<span className="micro-label num">{reported.length} rows</span>}
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[11.5px]">
+        <table className="w-full border-collapse text-[12.5px]">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line text-3xs uppercase tracking-[0.08em] text-fg-dim">
+            <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
               <th className="h-7 px-2.5 text-left font-medium">Account</th>
               <th className="h-7 px-2 text-left font-medium">Market</th>
               <th className="h-7 px-2 text-left font-medium">Asset</th>
@@ -129,12 +126,12 @@ export function TreasuryPage() {
                 </td>
                 {/* The market is read off the account name — perp is the
                     unsuffixed default, as format_account writes it. */}
-                <td className="px-2 py-1.5 text-3xs text-fg-dim">
+                <td className="px-2 py-1.5 text-3xs text-fg-mid">
                   {b.account === b.venue ? 'perp' : b.account.slice(b.venue.length + 1)}
                 </td>
-                <td className="px-2 py-1.5 text-fg-mid">{b.asset}</td>
+                <td className="px-2 py-1.5 font-semibold text-fg">{b.asset}</td>
                 <td className="num px-2 py-1.5 text-right">{usd(b.total)}</td>
-                <td className="num px-2 py-1.5 text-right text-fg-mid">
+                <td className="num px-2 py-1.5 text-right text-fg">
                   {b.available === null ? (
                     <span
                       className="text-fg-dim"
@@ -148,7 +145,7 @@ export function TreasuryPage() {
                 </td>
                 {/* Only the denominated rows have a share. A share of a total
                     that does not include you is not a share. */}
-                <td className="num px-2.5 py-1.5 text-right text-fg-dim">
+                <td className="num px-2.5 py-1.5 text-right text-fg-mid">
                   {b.asset === k_denomination ? `${((b.total / total) * 100).toFixed(1)}%` : '—'}
                 </td>
               </tr>
@@ -156,13 +153,6 @@ export function TreasuryPage() {
           </tbody>
         </table>
         </div>
-        {silent.length > 0 && (
-          <div className="shrink-0 border-t border-line px-2.5 py-2 text-3xs text-fg-dim">
-            {/* Named, not counted: an account that has not answered is a hole in
-                the total, and the reader has to know which one. */}
-            {silent.map((b) => b.venue).join(', ')} did not answer. The figure above is a floor.
-          </div>
-        )}
       </section>
     </div>
   )

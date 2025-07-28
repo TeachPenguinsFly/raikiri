@@ -58,7 +58,7 @@ function GatewayStatus() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-7 items-center gap-2 rounded-lg px-2.5 text-2xs font-semibold transition-colors',
+          'flex h-7 items-center gap-2 rounded-[4px] px-2.5 text-2xs font-semibold transition-colors',
           open ? 'bg-white/8 text-fg' : 'text-fg-mid hover:bg-white/4 hover:text-fg',
         )}
       >
@@ -70,9 +70,9 @@ function GatewayStatus() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-8 z-20 w-64 rounded-xl border border-line bg-panel p-1.5 shadow-2xl">
+        <div className="absolute right-0 top-8 z-20 w-64 rounded-[4px] border border-line bg-panel p-1.5 shadow-2xl">
           {gateways.map((g) => (
-            <div key={g.account} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-2xs">
+            <div key={g.account} className="flex items-center gap-2 rounded-[4px] px-2 py-1.5 text-2xs">
               <span className={cn('size-1.5 rounded-full', g.alive ? 'bg-up' : 'bg-down')} />
               <span className="text-fg">{g.account}</span>
               <span className="num ml-auto text-fg-dim">
@@ -98,7 +98,7 @@ export function TopCommandBar({ onSearch }: { onSearch?: () => void }) {
         type="button"
         onClick={onSearch}
         className={cn(
-          'flex h-8 flex-1 items-center gap-2 rounded-xl border border-line bg-panel/60 px-3',
+          'flex h-8 flex-1 items-center gap-2 rounded-[4px] border border-line bg-panel/60 px-3',
           'text-2xs text-fg-dim transition-colors hover:border-line2 hover:text-fg-mid',
           onSearch === undefined && 'pointer-events-none opacity-60',
         )}

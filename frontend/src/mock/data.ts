@@ -255,6 +255,9 @@ export const TRADES: MockTrade[] = [
 ]
 
 export interface MockPosition {
+  /** The interned instrument id. A position has no id of its own — this is
+   *  what the book, the journal and the ledger key it by. */
+  instrumentId: string
   venue: string
   symbol: string
   qty: number
@@ -265,10 +268,10 @@ export interface MockPosition {
 }
 
 export const POSITIONS: MockPosition[] = [
-  { venue: 'xt', symbol: 'BTC_USDT', qty: 0.02, entry: 79_120.6, mark: 79_419.5, venueQty: 0.02 },
-  { venue: 'bybit', symbol: 'BTCUSDT', qty: 0.1, entry: 79_181.4, mark: 79_410.2, venueQty: 0.1 },
-  { venue: 'binance', symbol: 'ETHUSDT', qty: 2, entry: 3_118.9, mark: 3_121.4, venueQty: null },
-  { venue: 'kucoin', symbol: 'XBTUSDTM', qty: -0.05, entry: 79_402.0, mark: 79_392.4, venueQty: -0.05 },
+  { instrumentId: '6', venue: 'xt', symbol: 'BTC_USDT', qty: 0.02, entry: 79_120.6, mark: 79_419.5, venueQty: 0.02 },
+  { instrumentId: '0', venue: 'bybit', symbol: 'BTCUSDT', qty: 0.1, entry: 79_181.4, mark: 79_410.2, venueQty: 0.1 },
+  { instrumentId: '101', venue: 'binance', symbol: 'ETHUSDT', qty: 2, entry: 3_118.9, mark: 3_121.4, venueQty: null },
+  { instrumentId: '4', venue: 'kucoin', symbol: 'XBTUSDTM', qty: -0.05, entry: 79_402.0, mark: 79_392.4, venueQty: -0.05 },
 ]
 
 export interface MockStrategy {
@@ -278,12 +281,13 @@ export interface MockStrategy {
   venues: string[]
   pnl: number
   orders: number
+  trades: number
 }
 
 export const STRATEGIES: MockStrategy[] = [
-  { name: 'funding-carry-btc', kind: 'carry', status: 'alive', venues: ['bybit', 'okx'], pnl: 412.87, orders: 18 },
-  { name: 'basis-eth', kind: 'basis', status: 'alive', venues: ['binance', 'gate'], pnl: -63.2, orders: 7 },
-  { name: 'maker-sol', kind: 'maker', status: 'stale', venues: ['kucoin'], pnl: 88.41, orders: 0 },
+  { name: 'funding-carry-btc', kind: 'carry', status: 'alive', venues: ['bybit', 'okx'], pnl: 412.87, orders: 18, trades: 41 },
+  { name: 'basis-eth', kind: 'basis', status: 'alive', venues: ['binance', 'gate'], pnl: -63.2, orders: 7, trades: 12 },
+  { name: 'maker-sol', kind: 'maker', status: 'stale', venues: ['kucoin'], pnl: 88.41, orders: 0, trades: 156 },
 ]
 
 // ------------------------------------------------------- series fixtures ----
