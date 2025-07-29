@@ -142,10 +142,9 @@ export function MarketsPage() {
 
       <div className="flex w-[268px] shrink-0 flex-col gap-2">
         <OrderTicket
+          listings={live?.listings ?? []}
           venue={chosenVenue?.venue ?? null}
-          symbol={chosenVenue?.exchangeSymbol ?? null}
-          bid={chosenVenue?.bid ?? null}
-          ask={chosenVenue?.ask ?? null}
+          onVenue={setVenue}
         />
         <section className="panel flex min-h-0 flex-1 flex-col">
           <PanelHeader

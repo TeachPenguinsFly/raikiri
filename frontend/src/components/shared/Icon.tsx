@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-/** The seven icons the shell actually uses, drawn rather than installed.
+/** The icons the shell actually uses, drawn rather than installed.
  *
  *  `lucide-react` was reached for in eighteen files to draw about a dozen
  *  glyphs; the package is a thousand icons and a build-time dependency for
@@ -73,6 +73,16 @@ export const Icon = {
     <Glyph {...p}>
       <circle cx="11" cy="11" r="6.5" />
       <path d="m16 16 4 4" />
+    </Glyph>
+  ),
+  Chevron: (p: Props) => (
+    <Glyph {...p}>
+      <path d="m6 9 6 6 6-6" />
+    </Glyph>
+  ),
+  Check: (p: Props) => (
+    <Glyph {...p}>
+      <path d="m5 12.5 4.5 4.5L19 7" />
     </Glyph>
   ),
 }
