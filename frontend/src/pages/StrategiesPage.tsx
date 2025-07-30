@@ -24,7 +24,7 @@ export function StrategiesPage() {
         title="PnL by strategy"
         readout={
           <div className="text-right">
-            <div className={cn('num text-[19px] font-bold leading-6', total >= 0 ? 'text-up' : 'text-down')}>
+            <div className={cn('num text-xl font-semibold tracking-[-0.015em]', total >= 0 ? 'text-up' : 'text-down')}>
               {total >= 0 ? '+' : '−'}
               {usd(Math.abs(total))}
             </div>
@@ -61,22 +61,22 @@ export function StrategiesPage() {
         <PanelHeader
           title="Strategies"
           right={
-            <span className="micro-label num">
+            <span className="meta num">
               {STRATEGIES.filter((s) => s.status === 'alive').length} alive
             </span>
           }
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
-              <th className="h-7 px-2.5 text-left font-medium">Name</th>
-              <th className="h-7 px-2 text-left font-medium">Kind</th>
-              <th className="h-7 px-2 text-left font-medium">Status</th>
-              <th className="h-7 px-2 text-left font-medium">Venues</th>
-              <th className="h-7 px-2 text-right font-medium">Orders</th>
-              <th className="h-7 px-2 text-right font-medium">Trades</th>
-              <th className="h-7 px-2.5 text-right font-medium">PnL</th>
+            <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+              <th className="col-head px-3 text-left font-medium">Name</th>
+              <th className="col-head px-3 text-left font-medium">Kind</th>
+              <th className="col-head px-3 text-left font-medium">Status</th>
+              <th className="col-head px-3 text-left font-medium">Venues</th>
+              <th className="col-head px-3 text-right font-medium">Orders</th>
+              <th className="col-head px-3 text-right font-medium">Trades</th>
+              <th className="col-head px-3 text-right font-medium">PnL</th>
             </tr>
           </thead>
           <tbody>
@@ -87,12 +87,12 @@ export function StrategiesPage() {
                 onMouseEnter={() => setHover(s.name)}
                 onMouseLeave={() => setHover(null)}
                 className={cn(
-                  'row-hover border-b border-line/40',
+                  'row',
                   entering && 'enter-fade-up',
                   hover === s.name && 'bg-hover',
                 )}
               >
-                <td className="px-2.5 py-1.5">
+                <td className="px-3">
                   <span className="inline-flex items-center gap-2">
                     <span
                       className="size-1.5 shrink-0 rounded-full"
@@ -101,11 +101,11 @@ export function StrategiesPage() {
                     <span className="font-semibold text-fg">{s.name}</span>
                   </span>
                 </td>
-                <td className="px-2 py-1.5 text-fg-mid">{s.kind}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-3 text-fg-mid">{s.kind}</td>
+                <td className="px-3">
                   <StatusBadge status={s.status} />
                 </td>
-                <td className="px-2 py-1.5">
+                <td className="px-3">
                   <span className="inline-flex items-center gap-1">
                     {s.venues.map((v) => (
                       <VenueTag key={v} venue={v} />
@@ -114,15 +114,15 @@ export function StrategiesPage() {
                 </td>
                 {/* A strategy alive with no orders is a strategy that is not
                     trading, and the zero has to be readable as that. */}
-                <td className={cn('num px-2 py-1.5 text-right', s.orders === 0 ? 'text-fg-dim' : 'text-fg')}>
+                <td className={cn('num px-3 text-right', s.orders === 0 ? 'text-fg-dim' : 'text-fg')}>
                   {s.orders}
                 </td>
                 {/* Fills, not orders. A maker strategy with nothing working can
                     still be the one that has traded the most today. */}
-                <td className={cn('num px-2 py-1.5 text-right', s.trades === 0 ? 'text-fg-dim' : 'text-fg')}>
+                <td className={cn('num px-3 text-right', s.trades === 0 ? 'text-fg-dim' : 'text-fg')}>
                   {s.trades}
                 </td>
-                <td className={cn('num px-2.5 py-1.5 text-right', s.pnl >= 0 ? 'text-up' : 'text-down')}>
+                <td className={cn('num px-3 text-right', s.pnl >= 0 ? 'text-up' : 'text-down')}>
                   {s.pnl >= 0 ? '+' : '−'}
                   {usd(Math.abs(s.pnl))}
                 </td>

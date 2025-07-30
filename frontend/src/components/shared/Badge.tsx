@@ -1,21 +1,20 @@
 import type { HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
-/** Seven looks, one lookup.
+/** A small state chip.
  *
- *  `class-variance-authority` was a dependency to turn a variant name into a
- *  class string; that is a record. Keeping it a record also keeps the variants
- *  where a reader can see all of them at once. */
-export type BadgeTone = 'neutral' | 'outline' | 'up' | 'down' | 'amber' | 'accent' | 'violet'
+ *  Tinted text on a barely-there wash rather than a filled pill: a blotter
+ *  where every row carries a saturated capsule reads as a status board, and
+ *  the status is the least important column in it. */
+export type BadgeTone = 'neutral' | 'up' | 'down' | 'amber' | 'accent' | 'violet'
 
 const tones: Record<BadgeTone, string> = {
-  neutral: 'bg-white/7 text-fg-mid',
-  outline: 'border border-line2 bg-transparent text-fg-dim',
-  up: 'bg-up/12 text-up',
-  down: 'bg-down/12 text-down',
-  amber: 'bg-amber/12 text-amber',
-  accent: 'bg-accent/15 text-accent',
-  violet: 'bg-violet/12 text-violet',
+  neutral: 'bg-white/[0.05] text-fg-mid',
+  up: 'bg-up/[0.12] text-up',
+  down: 'bg-down/[0.12] text-down',
+  amber: 'bg-amber/[0.12] text-amber',
+  accent: 'bg-accent/[0.12] text-accent',
+  violet: 'bg-violet/[0.12] text-violet',
 }
 
 export function Badge({
@@ -26,7 +25,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-[3px] px-1.5 py-px text-2xs leading-4 font-semibold whitespace-nowrap',
+        'inline-flex h-[18px] items-center rounded-sm px-1.5 text-2xs font-medium whitespace-nowrap',
         tones[tone],
         className,
       )}

@@ -13,6 +13,16 @@ const k_denomination = 'USDT'
 const usd = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** A held amount, at enough precision to be true.
+ *
+ *  Two decimals turn 0.001 XRP into "0.00", which is a screen saying a wallet
+ *  is empty when it is not. Sub-unit holdings get the digits they need. */
+const held = (v: number) =>
+  v.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: v !== 0 && Math.abs(v) < 1 ? 6 : 2,
+  })
+
 export function TreasuryPage() {
   const [hover, setHover] = useState<string | null>(null)
 
@@ -39,8 +49,10 @@ export function TreasuryPage() {
           title="Equity"
           readout={
             <div className="text-right">
-              <div className="num text-[19px] font-bold leading-6 text-fg">{usd(total)}</div>
-              <div className={cn('num text-2xs font-semibold', change >= 0 ? 'text-up' : 'text-down')}>
+              <div className="num text-xl font-semibold tracking-[-0.015em] text-fg">
+                {usd(total)}
+              </div>
+              <div className={cn('num text-2xs font-medium', change >= 0 ? 'text-up' : 'text-down')}>
                 {change >= 0 ? '+' : '−'}
                 {(Math.abs(change) * 100).toFixed(2)}% · 96h
               </div>
@@ -81,8 +93,8 @@ export function TreasuryPage() {
                 onHover={setHover}
                 center={
                   <div className="text-center">
-                    <div className="num text-[15px] font-bold text-fg">{usd(total)}</div>
-                    <div className="text-3xs text-fg-dim">{k_denomination}</div>
+                    <div className="num text-base font-semibold text-fg">{usd(total)}</div>
+                    <div className="text-2xs text-fg-dim">{k_denomination}</div>
                   </div>
                 }
               />
@@ -94,18 +106,18 @@ export function TreasuryPage() {
       <section className="panel flex min-h-0 flex-1 flex-col">
         <PanelHeader
           title="Balances"
-          right={<span className="micro-label num">{reported.length} rows</span>}
+          right={<span className="meta num">{reported.length} rows</span>}
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
-              <th className="h-7 px-2.5 text-left font-medium">Account</th>
-              <th className="h-7 px-2 text-left font-medium">Market</th>
-              <th className="h-7 px-2 text-left font-medium">Asset</th>
-              <th className="h-7 px-2 text-right font-medium">Total</th>
-              <th className="h-7 px-2 text-right font-medium">Available</th>
-              <th className="h-7 px-2.5 text-right font-medium">Share</th>
+            <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+              <th className="col-head px-3 text-left font-medium">Account</th>
+              <th className="col-head px-3 text-left font-medium">Market</th>
+              <th className="col-head px-3 text-left font-medium">Asset</th>
+              <th className="col-head px-3 text-right font-medium">Total</th>
+              <th className="col-head px-3 text-right font-medium">Available</th>
+              <th className="col-head px-3 text-right font-medium">Share</th>
             </tr>
           </thead>
           <tbody>
@@ -116,22 +128,22 @@ export function TreasuryPage() {
                 onMouseEnter={() => setHover(b.venue)}
                 onMouseLeave={() => setHover(null)}
                 className={cn(
-                  'row-hover border-b border-line/40',
+                  'row',
                   entering && 'enter-fade-up',
                   hover === b.venue && 'bg-hover',
                 )}
               >
-                <td className="px-2.5 py-1.5">
+                <td className="px-3">
                   <VenueTag venue={b.venue} full />
                 </td>
                 {/* The market is read off the account name — perp is the
                     unsuffixed default, as format_account writes it. */}
-                <td className="px-2 py-1.5 text-3xs text-fg-mid">
+                <td className="px-3 text-2xs text-fg-mid">
                   {b.account === b.venue ? 'perp' : b.account.slice(b.venue.length + 1)}
                 </td>
-                <td className="px-2 py-1.5 font-semibold text-fg">{b.asset}</td>
-                <td className="num px-2 py-1.5 text-right">{usd(b.total)}</td>
-                <td className="num px-2 py-1.5 text-right text-fg">
+                <td className="px-3 text-fg-mid">{b.asset}</td>
+                <td className="num px-3 text-right text-fg">{held(b.total)}</td>
+                <td className="num px-3 text-right text-fg">
                   {b.available === null ? (
                     <span
                       className="text-fg-dim"
@@ -140,12 +152,12 @@ export function TreasuryPage() {
                       —
                     </span>
                   ) : (
-                    usd(b.available)
+                    held(b.available)
                   )}
                 </td>
                 {/* Only the denominated rows have a share. A share of a total
                     that does not include you is not a share. */}
-                <td className="num px-2.5 py-1.5 text-right text-fg-mid">
+                <td className="num px-3 text-right text-fg-mid">
                   {b.asset === k_denomination ? `${((b.total / total) * 100).toFixed(1)}%` : '—'}
                 </td>
               </tr>

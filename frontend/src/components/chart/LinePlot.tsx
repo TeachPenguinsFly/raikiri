@@ -264,12 +264,12 @@ export function LinePlot({
 
       {hoverIndex !== null && hovered !== null && (
         <div
-          className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-[4px] border border-line bg-canvas/95 px-2.5 py-2 shadow-xl backdrop-blur"
+          className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-md bg-raised px-2.5 py-2 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]"
           style={{
             left: Math.min(Math.max(hovered - 70, 0), Math.max(width - 150, 0)),
           }}
         >
-          <div className="mb-1 text-3xs text-fg-mid">
+          <div className="mb-1 text-2xs text-fg-dim">
             {dateTime(x[hoverIndex] as number)}
           </div>
           {series.map((s) => (

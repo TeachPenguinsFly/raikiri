@@ -54,7 +54,7 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
   const c = cn('inline-block shrink-0', className)
   const favicon = FAVICONS[venue]
   if (favicon) {
-    return <img src={favicon} alt={venue} className={cn(c, 'rounded-[4px] object-cover')} />
+    return <img src={favicon} alt={venue} className={cn(c, 'rounded-sm object-cover')} />
   }
   switch (venue) {
     case 'binance':

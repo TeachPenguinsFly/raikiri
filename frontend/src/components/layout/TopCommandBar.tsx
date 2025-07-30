@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { Icon } from '@/components/shared/Icon'
 import { cn } from '@/lib/utils'
 import { useGateways } from '@/mock/data'
 
@@ -15,9 +14,9 @@ function Clock() {
     return () => clearInterval(id)
   }, [])
   return (
-    <div className="num flex items-baseline gap-1.5 text-[12px] text-fg-mid">
+    <div className="num flex items-baseline gap-1 text-xs text-fg-mid">
       <span>{now.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' })}</span>
-      <span className="text-3xs text-fg-dim">UTC</span>
+      <span className="text-2xs text-fg-dim">UTC</span>
     </div>
   )
 }
@@ -58,32 +57,30 @@ function GatewayStatus() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-7 items-center gap-2 rounded-[4px] px-2.5 text-2xs font-semibold transition-colors',
-          open ? 'bg-white/8 text-fg' : 'text-fg-mid hover:bg-white/4 hover:text-fg',
+          'flex h-8 items-center gap-2 rounded-md px-2.5 text-xs transition-colors duration-150',
+          open ? 'bg-active text-fg' : 'text-fg-mid hover:bg-hover hover:text-fg',
         )}
       >
-        <span className={cn('size-1.5 rounded-full', tone, alive < all && 'pulse-dot')} />
-        <span className="num">
+        <span className={cn('size-[5px] rounded-full', tone, alive < all && 'pulse-dot')} />
+        <span className="num tabular-nums">
           {alive}/{all}
         </span>
         <span className="text-fg-dim">gateways</span>
       </button>
 
       {open && (
-        <div className="absolute right-0 top-8 z-20 w-64 rounded-[4px] border border-line bg-panel p-1.5 shadow-2xl">
+        <div className="absolute right-0 top-9 z-30 w-60 rounded-lg bg-raised p-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]">
           {gateways.map((g) => (
-            <div key={g.account} className="flex items-center gap-2 rounded-[4px] px-2 py-1.5 text-2xs">
-              <span className={cn('size-1.5 rounded-full', g.alive ? 'bg-up' : 'bg-down')} />
+            <div key={g.account} className="flex h-7 items-center gap-2 rounded-sm px-2 text-xs">
+              <span className={cn('size-[5px] rounded-full', g.alive ? 'bg-up' : 'bg-down')} />
               <span className="text-fg">{g.account}</span>
-              <span className="num ml-auto text-fg-dim">
-                {g.instruments.toLocaleString()}
+              <span className="num ml-auto text-2xs text-fg-dim">
+                {g.alive ? g.instruments.toLocaleString() : '—'}
               </span>
             </div>
           ))}
           {gateways.length === 0 && (
-            <div className="px-2 py-3 text-center text-2xs text-fg-dim">
-              No gateway is attached.
-            </div>
+            <div className="px-2 py-3 text-center text-xs text-fg-dim">No gateway is attached.</div>
           )}
         </div>
       )}
@@ -91,25 +88,17 @@ function GatewayStatus() {
   )
 }
 
-export function TopCommandBar({ onSearch }: { onSearch?: () => void }) {
+/** System status, and nothing else.
+ *
+ *  The bar used to open with a search field that did nothing — the working
+ *  filter lives in the market list, where the thing being filtered is. A
+ *  disabled control in the most prominent position on the page teaches the
+ *  reader to distrust the row it sits in. */
+export function TopCommandBar() {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 px-4">
-      <button
-        type="button"
-        onClick={onSearch}
-        className={cn(
-          'flex h-8 flex-1 items-center gap-2 rounded-[4px] border border-line bg-panel/60 px-3',
-          'text-2xs text-fg-dim transition-colors hover:border-line2 hover:text-fg-mid',
-          onSearch === undefined && 'pointer-events-none opacity-60',
-        )}
-      >
-        <Icon.Search className="size-3.5" strokeWidth={2} />
-        Search markets
-        <kbd className="ml-auto rounded border border-line2 px-1.5 py-px text-3xs text-fg-dim">
-          /
-        </kbd>
-      </button>
+    <header className="flex h-12 shrink-0 items-center justify-end gap-2 px-3">
       <GatewayStatus />
+      <span className="h-4 w-px bg-line" />
       <Clock />
     </header>
   )

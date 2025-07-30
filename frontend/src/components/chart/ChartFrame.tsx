@@ -53,21 +53,20 @@ export function ChartFrame({
     <section
       className={cn(
         'panel',
-        'shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_18px_40px_-24px_rgba(0,0,0,0.9)]',
         className,
       )}
     >
-      <header className="flex items-start justify-between gap-4 px-2.5 pt-2">
+      <header className="flex items-start justify-between gap-4 px-3 pt-3">
         <div className="min-w-0">
           <h2 className="panel-label">{title}</h2>
-          {note !== undefined && <p className="mt-1 text-2xs text-fg-mid">{note}</p>}
+          {note !== undefined && <p className="mt-1 text-xs text-fg-dim">{note}</p>}
         </div>
         {readout !== undefined && <div className="shrink-0 text-right">{readout}</div>}
       </header>
 
       {legend !== undefined && legend.length > 0 && (
         <div
-          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2.5 pt-2.5"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 pt-3"
           onMouseLeave={() => onLegendHover?.(null)}
         >
           {legend.map((entry) => (
@@ -76,7 +75,7 @@ export function ChartFrame({
               type="button"
               onMouseEnter={() => onLegendHover?.(entry.key)}
               className={cn(
-                'flex items-center gap-1.5 rounded transition-opacity',
+                'flex items-center gap-1.5 rounded-sm transition-opacity duration-150',
                 entry.muted === true ? 'opacity-40' : 'opacity-100',
                 onLegendHover !== undefined ? 'cursor-pointer' : 'cursor-default',
               )}
@@ -85,9 +84,9 @@ export function ChartFrame({
                 className="size-1.5 rounded-full"
                 style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}66` }}
               />
-              <span className="text-2xs font-medium text-fg-mid">{entry.label}</span>
+              <span className="text-xs text-fg-mid">{entry.label}</span>
               {entry.value !== undefined && (
-                <span className="num text-2xs font-semibold" style={{ color: entry.color }}>
+                <span className="num text-xs font-medium" style={{ color: entry.color }}>
                   {entry.value}
                 </span>
               )}
@@ -96,7 +95,7 @@ export function ChartFrame({
         </div>
       )}
 
-      <div ref={ref} className="px-2 pt-2 pb-1" style={{ height }}>
+      <div ref={ref} className="px-2 pt-3 pb-2" style={{ height }}>
         {placeholder !== undefined ? (
           <div className="flex h-full items-center justify-center text-xs text-fg-dim">
             {placeholder}
@@ -107,7 +106,7 @@ export function ChartFrame({
       </div>
 
       {footer !== undefined && (
-        <div className="border-t border-line/60 px-2.5 py-2 text-3xs text-fg-mid">{footer}</div>
+        <div className="px-3 pb-3 text-2xs text-fg-dim">{footer}</div>
       )}
     </section>
   )

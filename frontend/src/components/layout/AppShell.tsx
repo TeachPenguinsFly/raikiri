@@ -4,11 +4,11 @@ import { TopCommandBar } from './TopCommandBar'
 
 export function AppShell() {
   return (
-    <div className="aurora flex h-screen w-screen overflow-hidden">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas">
       <SidebarNav />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopCommandBar />
-        <main className="min-h-0 flex-1 overflow-hidden">
+        <main className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
           <Outlet />
         </main>
       </div>

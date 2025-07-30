@@ -2,7 +2,7 @@
  *  line and the legend beside them. Hues are picked for the navy canvas: each
  *  clears the surface luminance by enough to read at 1.5 px stroke width. */
 export const series = [
-  '#38bdf8', // brand cyan
+  '#4c9aff', // accent azure
   '#a78bfa', // violet
   '#f59e0b', // amber
   '#818cf8', // indigo
@@ -28,10 +28,10 @@ export function colorFor(name: string): string {
 /** The ledger's three kinds, fixed rather than hashed: these are the same three
  *  everywhere and the reader learns them. */
 export const kindColor: Record<string, string> = {
-  realized: '#22c55e',
-  fee: '#f59e0b',
-  funding: '#38bdf8',
-  net: '#e6ebf5',
+  realized: '#3fb950',
+  fee: '#d8a13a',
+  funding: '#4c9aff',
+  net: '#e9edf4',
 }
 
 /** Distinct colours for a set drawn TOGETHER.

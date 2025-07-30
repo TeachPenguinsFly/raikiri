@@ -1,55 +1,91 @@
 @import 'tailwindcss';
 
-/* The terminal's design language, carried over intact. The one change is the
-   accent: TPF LABS cyan rather than a generic blue, so the highlights read as
-   this product rather than as somebody else's. */
+/* ---------------------------------------------------------------------------
+   The terminal's design system.
+
+   Everything visual is named here. A component that needs a colour, a size, a
+   radius or a height takes it from this file; a component that invents one is
+   a component that will drift. The rules the tokens encode:
+
+   - SURFACE CARRIES STRUCTURE, NOT BORDERS. Five neutral steps separate the
+     app from a panel from a popover from a hovered row. A hairline is drawn
+     only where a surface step cannot do the job — under a table header, and
+     nowhere else. Every rectangle having an outline is what makes a screen
+     read as a developer tool.
+   - GREEN AND RED ARE MARKET SEMANTICS. They say up and down, bid and ask,
+     long and short. They never decorate a container, a tab or a badge that is
+     not about direction.
+   - NUMBERS ARE TABULAR EVERYWHERE. A column of prices that does not align is
+     a column you have to read twice.
+--------------------------------------------------------------------------- */
 
 @theme {
-  /* Roboto, with the system stack behind it. `display=swap` means the screen
-     paints in the fallback and reflows once — a terminal that shows nothing
-     until a font arrives is a terminal that shows nothing when the CDN is
-     slow. The fallback metrics are close enough that the reflow does not move
-     a table column. */
-  --font-sans: 'Roboto', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue',
-    Arial, sans-serif;
-  --font-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* --- type ------------------------------------------------------------- */
+  /* Inter for the interface: a tall x-height and true tabular figures, which
+     is the whole job on a screen that is mostly numbers. JetBrains Mono for
+     identifiers only — exchange symbols, order ids — where the reader is
+     comparing characters rather than reading words. */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Surfaces: navy slate, depth by luminance rather than by shadow. */
-  --color-canvas: #080c17;
-  --color-panel: #0b101e;
-  --color-panel2: #141c2e;
-  --color-inset: #1d293a;
-  --color-hover: #182236;
+  /* Six steps, and the smallest is 11px. A label below that is a label nobody
+     reads, which makes it a label that should not have been drawn. */
+  --text-2xs: 0.6875rem; /* 11 — column headers, units, counts */
+  --text-2xs--line-height: 0.875rem;
+  --text-xs: 0.75rem; /* 12 — secondary metadata */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem; /* 13 — table primary data */
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.875rem; /* 14 — section headers */
+  --text-base--line-height: 1.25rem;
+  --text-lg: 0.9375rem; /* 15 — page and market titles */
+  --text-lg--line-height: 1.375rem;
+  --text-xl: 1.25rem; /* 20 — headline figures */
+  --text-xl--line-height: 1.625rem;
+  --text-2xl: 1.5rem; /* 24 */
+  --text-2xl--line-height: 1.875rem;
 
-  /* Hairlines. */
-  --color-line: #1d293a;
-  --color-line2: #2a2f4a;
+  /* --- surfaces --------------------------------------------------------- */
+  /* Graphite with a blue undertone, never pure black: black clips on OLED and
+     leaves no room to sit a panel BELOW the workspace when one is needed. */
+  --color-canvas: #0b0e14; /* the application behind everything */
+  --color-panel: #11151d; /* a workspace panel */
+  --color-raised: #171c26; /* popovers, inputs, header strips */
+  --color-hover: #1c222d; /* a row or control under the pointer */
+  --color-active: #232a37; /* pressed, or selected and not hovered */
 
-  /* Type. */
-  --color-fg: #f8fafc;
-  --color-fg-mid: #b8c4d6;
-  --color-fg-dim: #8895a9;
+  /* --- lines ------------------------------------------------------------ */
+  /* Two, and both are quiet. `line` is a separator; `line-strong` outlines a
+     control that has to look like a control. */
+  --color-line: #1d232e;
+  --color-line-strong: #2b3341;
 
-  /* Signals. The accent IS the brand colour. */
-  --color-brand: #38bdf8;
-  --color-accent: #38bdf8;
-  --color-accent-deep: #0ea5e9;
-  --color-up: #22c55e;
-  --color-down: #ef4444;
-  --color-amber: #ffa726;
-  --color-violet: #a78bfa;
-  --color-teal: #00a87e;
+  /* --- text ------------------------------------------------------------- */
+  /* Not #fff at the top: pure white on a dark panel vibrates at 13px. */
+  --color-fg: #e9edf4;
+  --color-fg-mid: #97a2b2;
+  --color-fg-dim: #646e7c;
 
-  --text-2xs: 0.75rem;
-  --text-2xs--line-height: 1rem;
-  --text-3xs: 0.6875rem;
-  --text-3xs--line-height: 0.875rem;
+  /* --- semantics -------------------------------------------------------- */
+  /* Chosen to read at 13px on `panel` without glowing. The pair is matched in
+     lightness so a column of gains does not look louder than a column of
+     losses. */
+  --color-up: #3fb950;
+  --color-down: #e5534b;
+  --color-accent: #4c9aff;
+  --color-amber: #d8a13a;
+  --color-violet: #9d8df1;
+
+  /* --- radii ------------------------------------------------------------ */
+  /* Three. A trading terminal that rounds like a phone app stops looking
+     precise. */
+  --radius-sm: 4px; /* chips, badges, small controls */
+  --radius-md: 6px; /* buttons, inputs, rows */
+  --radius-lg: 8px; /* panels and popovers */
 }
 
 @layer base {
-  * {
-    border-color: var(--color-line);
-  }
   html {
     color-scheme: dark;
   }
@@ -59,109 +95,111 @@
     height: 100%;
   }
   body {
-    @apply bg-canvas text-fg font-sans antialiased text-[13px] leading-5;
+    @apply bg-canvas text-fg font-sans text-sm antialiased;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv05' 1; /* Inter's straight-legged l, easier at 11px */
     overscroll-behavior: none;
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
   }
+
+  /* The scrollbar is chrome, not content: it appears against the surface it
+     scrolls and never draws a track. */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-    border-radius: 99px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
+  ::-webkit-scrollbar-track,
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
   :focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
-    outline-offset: 0;
-    border-radius: 3px;
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+    outline-offset: 1px;
+    border-radius: var(--radius-sm);
   }
   input[type='number']::-webkit-outer-spin-button,
   input[type='number']::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  input[type='number'] {
-    -moz-appearance: textfield;
-    appearance: textfield;
-  }
 }
 
 @layer components {
-  /* Floating card: luminance over the canvas, hairline edge. */
+  /* A workspace panel. NO BORDER — the step from canvas to panel is what
+     separates it, and an outline on top of that step is the thing that makes
+     a screen look like a wireframe. */
   .panel {
-    @apply bg-panel border border-line rounded-[5px] overflow-hidden;
+    @apply bg-panel rounded-lg;
   }
-  .panel-label {
-    @apply text-[13px] font-bold tracking-[-0.01em] text-fg;
+
+  /* The name of a panel or a chart. One size, one weight, everywhere. */
+  .panel-title {
+    @apply text-base font-semibold tracking-[-0.011em] text-fg;
   }
-  .micro-label {
-    @apply text-2xs font-semibold text-fg-mid;
+
+  /* A table's column header. Sentence case, not small caps: uppercase with
+     letter-spacing is slower to read and is the house style of the developer
+     tools this is not. */
+  .col-head {
+    @apply text-2xs font-medium text-fg-dim;
   }
-  /* Every column of numbers lines up. Non-negotiable in a blotter. */
+
+  /* Secondary status set beside a title. */
+  .meta {
+    @apply text-2xs font-medium text-fg-dim;
+  }
+
+  /* Every figure lines up. Non-negotiable in a blotter. */
   .num {
-    @apply tabular-nums tracking-[-0.01em];
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.006em;
   }
-  .row-hover {
-    @apply hover:bg-hover transition-colors duration-75;
+
+  /* One row rhythm for every table in the product. */
+  .row {
+    @apply h-8 transition-colors duration-150;
+  }
+  .row:hover {
+    background: var(--color-hover);
   }
 }
 
 @layer utilities {
-  .tabular {
-    font-variant-numeric: tabular-nums;
+  /* A value that briefly tints when it changes. 220ms out, because the point
+     is which row moved, and a tint that lingers turns the board into a
+     christmas tree. */
+  .flash-up {
+    animation: flash-up 0.55s ease-out;
   }
-  /* Ambient mesh behind everything. */
-  .aurora {
-    background:
-      radial-gradient(1100px 600px at 82% -12%, rgba(56, 189, 248, 0.12), transparent 60%),
-      radial-gradient(900px 520px at -8% 112%, rgba(56, 189, 248, 0.05), transparent 60%),
-      var(--color-canvas);
-  }
-  .glow-up {
-    text-shadow: 0 0 14px color-mix(in srgb, var(--color-up) 40%, transparent);
-  }
-  .glow-down {
-    text-shadow: 0 0 14px color-mix(in srgb, var(--color-down) 40%, transparent);
+  .flash-down {
+    animation: flash-down 0.55s ease-out;
   }
 }
 
 @keyframes flash-up {
-  0% {
-    background: color-mix(in srgb, var(--color-up) 16%, transparent);
-  }
-  100% {
-    background: transparent;
+  from {
+    background: color-mix(in srgb, var(--color-up) 14%, transparent);
   }
 }
 @keyframes flash-down {
-  0% {
-    background: color-mix(in srgb, var(--color-down) 16%, transparent);
+  from {
+    background: color-mix(in srgb, var(--color-down) 14%, transparent);
   }
-  100% {
-    background: transparent;
-  }
-}
-.flash-up {
-  animation: flash-up 0.6s ease-out;
-}
-.flash-down {
-  animation: flash-down 0.6s ease-out;
 }
 
 @keyframes pulse-dot {
@@ -170,24 +208,22 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.4;
   }
 }
 .pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
+  animation: pulse-dot 2.4s ease-in-out infinite;
 }
 
-/* --- loading and entrance ------------------------------------------------ */
-
-/* The sheen sweeps by background-position, and it lives on PLACEHOLDERS only:
-   shimmering loaded content is a screen that looks like it is still waiting. */
+/* Placeholders only. Shimmering content that has already loaded is a screen
+   that looks like it is still waiting. */
 .skeleton {
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(
     100deg,
-    var(--color-inset) 30%,
-    color-mix(in srgb, #ffffff 7%, var(--color-inset)) 46%,
-    var(--color-inset) 62%
+    var(--color-raised) 30%,
+    color-mix(in srgb, #ffffff 6%, var(--color-raised)) 46%,
+    var(--color-raised) 62%
   );
   background-size: 400% 100%;
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
@@ -201,35 +237,27 @@
   }
 }
 
-/* One-shot entrance for the skeleton-to-content swap, staggered per row through
-   --enter-delay. `both` so a delayed row holds its hidden start rather than
-   flashing in and then animating. */
+/* One-shot entrance for the skeleton-to-content swap, staggered per row.
+   `both` so a delayed row holds its hidden start rather than flashing in. */
 .enter-fade-up {
-  animation: enter-fade-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: enter-fade-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--enter-delay, 0ms);
 }
 @keyframes enter-fade-up {
   from {
     opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    transform: translateY(4px);
   }
 }
 @keyframes enter-fade {
   from {
     opacity: 0;
   }
-  to {
-    opacity: 1;
-  }
 }
 
-/* The donut's arcs grow from nothing to whatever length their attributes say.
-   A `from`-only keyframe animates towards the element's own computed value, so
-   the geometry stays in the component and the motion stays in CSS. */
+/* The donut's arcs grow to whatever length their attributes say. A `from`-only
+   keyframe animates towards the element's own computed value, so the geometry
+   stays in the component and the motion stays in CSS. */
 @keyframes donut-grow {
   from {
     stroke-dasharray: 0 var(--circumference);
@@ -237,7 +265,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton {
+  .skeleton,
+  .pulse-dot {
     animation: none;
   }
   .enter-fade-up {

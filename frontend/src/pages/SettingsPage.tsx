@@ -29,21 +29,21 @@ export function SettingsPage() {
         <PanelHeader
           title="Gateways"
           right={
-            <span className="micro-label num">
+            <span className="meta num">
               {gateways.filter((g) => g.alive).length}/{gateways.length} attached
             </span>
           }
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line text-3xs uppercase tracking-[0.06em] text-fg-mid">
-              <th className="h-7 px-2.5 text-left font-medium">Account</th>
-              <th className="h-7 px-2 text-left font-medium">Market</th>
-              <th className="h-7 px-2 text-left font-medium">Segment</th>
-              <th className="h-7 px-2 text-right font-medium">Instruments</th>
-              <th className="h-7 px-2 text-left font-medium">Credential</th>
-              <th className="h-7 px-2.5 text-left font-medium">State</th>
+            <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+              <th className="col-head px-3 text-left font-medium">Account</th>
+              <th className="col-head px-3 text-left font-medium">Market</th>
+              <th className="col-head px-3 text-left font-medium">Segment</th>
+              <th className="col-head px-3 text-right font-medium">Instruments</th>
+              <th className="col-head px-3 text-left font-medium">Credential</th>
+              <th className="col-head px-3 text-left font-medium">State</th>
             </tr>
           </thead>
           <tbody>
@@ -51,34 +51,35 @@ export function SettingsPage() {
               <tr
                 key={g.account}
                 style={entering ? enterDelay(i) : undefined}
-                className={cn('row-hover border-b border-line/40', entering && 'enter-fade-up')}
+                className={cn('row', entering && 'enter-fade-up')}
               >
-                <td className="px-2.5 py-1.5">
+                <td className="px-3">
                   <VenueTag venue={g.venue} full />
                 </td>
-                <td className="px-2 py-1.5 text-fg-mid">{g.market}</td>
+                <td className="px-3 text-fg-mid">{g.market}</td>
                 {/* One segment per (venue, market), and perp is the unsuffixed
                     default — so the path a reader sees here is the path on disk. */}
-                <td className="px-2 py-1.5 font-mono text-3xs text-fg">gw.{g.account}</td>
-                <td className={cn('num px-2 py-1.5 text-right', g.alive ? 'text-fg-mid' : 'text-fg-dim')}>
+                <td className="px-3 font-mono text-2xs text-fg">gw.{g.account}</td>
+                <td className={cn('num px-3 text-right', g.alive ? 'text-fg-mid' : 'text-fg-dim')}>
                   {g.alive ? g.instruments : '—'}
                 </td>
-                <td className="px-2 py-1.5 font-mono text-3xs text-fg-mid">
+                <td className="px-3 font-mono text-2xs text-fg-mid">
                   {SOURCES[g.venue] ?? (
                     <span className="text-amber">not configured</span>
                   )}
                 </td>
-                <td className="px-2.5 py-1.5">
+                <td className="px-3">
                   <StatusBadge status={g.alive ? 'alive' : 'dead'} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        </div>
-        {/* Said once, because it is the invariant the column depends on. */}
-        <div className="shrink-0 border-t border-line px-2.5 py-2 text-3xs text-fg-mid">
+        {/* Said once, under the column it is about, rather than pinned to the
+            bottom of a panel three hundred pixels below it. */}
+        <p className="px-3 pt-3 text-2xs text-fg-dim">
           References, never values — no key reaches this screen.
+        </p>
         </div>
       </section>
     </div>

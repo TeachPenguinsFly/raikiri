@@ -1,23 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
 import { Icon } from '@/components/shared/Icon'
-import { PanelHeader } from '@/components/shared/PanelHeader'
 import { cn } from '@/lib/utils'
 import type { MockListing } from '@/mock/data'
 
 type Side = 'buy' | 'sell'
 type Kind = 'limit' | 'market'
 
-const num = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
+const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
+const grouped = (v: number) =>
+  v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /** Where an order is written.
  *
  *  Docked beside the board rather than behind a button: a ticket you have to
  *  open is a ticket you fill in after the price you wanted has gone.
  *
- *  The venue is chosen INSIDE the ticket as well as on the board, and both
- *  write the same state — a ticket whose venue can only be changed somewhere
- *  else is a ticket you send to the wrong exchange. */
+ *  The side is chosen once, at the top, and after that the panel does not
+ *  change colour. Green belongs to the selected Buy and to the Buy action, and
+ *  to nothing else — a panel that turns green makes the direction ambient
+ *  instead of deliberate, which is the wrong property for the one control on
+ *  the screen that spends money. */
 export function OrderTicket({
   listings,
   venue,
@@ -29,7 +32,7 @@ export function OrderTicket({
 }) {
   const [side, setSide] = useState<Side>('buy')
   const [kind, setKind] = useState<Kind>('limit')
-  const [price, setPrice] = useState('')
+  const [limit, setLimit] = useState('')
   const [qty, setQty] = useState('')
   const [sent, setSent] = useState<string | null>(null)
 
@@ -40,46 +43,53 @@ export function OrderTicket({
   // the spread by half of it.
   const touch = listing === null ? null : side === 'buy' ? listing.bid : listing.ask
   useEffect(() => {
-    if (touch !== null) setPrice(num(touch))
+    if (touch !== null) setLimit(price(touch))
   }, [listing?.venue, listing?.exchangeSymbol, side, touch])
-
-  const notional = Number(price) * Number(qty)
-  const armed = listing !== null && Number(qty) > 0 && (kind === 'market' || Number(price) > 0)
 
   if (listing === null) {
     return (
       <section className="panel flex flex-col overflow-visible">
-        <PanelHeader title="Ticket" />
-        <div className="px-3 py-8 text-center text-2xs text-fg-mid">
-          Pick a market to write an order against it.
-        </div>
+        <div className="panel-title px-3 pt-3">Ticket</div>
+        <p className="px-3 py-10 text-center text-xs text-fg-dim">
+          Pick a market to write an order against.
+        </p>
       </section>
     )
   }
 
+  const base = listing.exchangeSymbol.replace(/USDT.*|_.*|-.*/, '')
+  const working = kind === 'market' ? (touch ?? 0) : Number(limit)
+  const notional = working * Number(qty)
+  const armed = Number(qty) > 0 && (kind === 'market' || Number(limit) > 0)
+
   return (
     <section className="panel flex flex-col overflow-visible">
-      <PanelHeader
-        title="Ticket"
-        right={<span className="micro-label font-mono">{listing.exchangeSymbol}</span>}
-      />
+      <div className="flex h-11 items-center justify-between px-3">
+        <span className="panel-title">Ticket</span>
+        <span className="font-mono text-2xs text-fg-dim">{listing.exchangeSymbol}</span>
+      </div>
 
-      <div className="flex flex-col gap-2.5 p-3">
+      <div className="flex flex-col gap-3 px-3 pb-3">
         <VenuePicker listings={listings} chosen={listing} onChoose={onVenue} />
 
-        <div className="grid grid-cols-2 gap-1.5">
+        {/* One segmented control, one thumb. Two buttons that each light up
+            read as two independent toggles; a track with a moving thumb reads
+            as one choice with two positions, which is what it is. */}
+        <div className="relative grid h-8 grid-cols-2 rounded-md bg-raised p-0.5">
+          <span
+            className={cn(
+              'absolute inset-y-0.5 w-[calc(50%-2px)] rounded-[4px] transition-transform duration-150 ease-out',
+              side === 'buy' ? 'translate-x-0 bg-up/[0.16]' : 'translate-x-[calc(100%+0px)] bg-down/[0.16]',
+            )}
+          />
           {(['buy', 'sell'] as const).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => setSide(s)}
               className={cn(
-                'h-8 rounded-[4px] text-2xs font-bold uppercase tracking-[0.06em] transition-colors',
-                side === s
-                  ? s === 'buy'
-                    ? 'bg-up/20 text-up'
-                    : 'bg-down/20 text-down'
-                  : 'bg-white/4 text-fg-mid hover:bg-white/8 hover:text-fg',
+                'relative z-10 text-sm font-medium capitalize transition-colors duration-150',
+                side === s ? (s === 'buy' ? 'text-up' : 'text-down') : 'text-fg-mid hover:text-fg',
               )}
             >
               {s}
@@ -87,15 +97,17 @@ export function OrderTicket({
           ))}
         </div>
 
-        <div className="flex gap-1.5">
+        <div className="flex gap-4">
           {(['limit', 'market'] as const).map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => setKind(k)}
               className={cn(
-                'h-6 flex-1 rounded-[3px] text-3xs font-semibold uppercase tracking-[0.06em] transition-colors',
-                kind === k ? 'bg-white/10 text-fg' : 'text-fg-mid hover:text-fg',
+                'relative h-6 text-xs capitalize transition-colors duration-150',
+                kind === k
+                  ? 'font-medium text-fg after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-accent'
+                  : 'text-fg-dim hover:text-fg-mid',
               )}
             >
               {k}
@@ -105,42 +117,37 @@ export function OrderTicket({
 
         <Field
           label="Price"
-          suffix="USDT"
-          value={kind === 'market' ? '' : price}
-          placeholder={kind === 'market' ? 'at the touch' : ''}
+          unit="USDT"
+          value={kind === 'market' ? '' : limit}
+          placeholder={kind === 'market' ? price(touch ?? 0) : ''}
           disabled={kind === 'market'}
-          onChange={setPrice}
+          onChange={setLimit}
         />
-        <Field
-          label="Quantity"
-          suffix={listing.exchangeSymbol.replace(/USDT.*|_.*|-.*/, '')}
-          value={qty}
-          onChange={setQty}
-        />
+        <Field label="Quantity" unit={base} value={qty} onChange={setQty} />
 
-        <div className="flex items-baseline justify-between px-0.5 text-3xs">
-          <span className="text-fg-mid">Notional</span>
-          <span className="num text-fg">
-            {Number.isFinite(notional) && notional > 0 ? `${notional.toFixed(2)} USDT` : '—'}
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs text-fg-dim">Notional</span>
+          <span className="num text-sm text-fg-mid">
+            {Number.isFinite(notional) && notional > 0 ? `≈ ${grouped(notional)} USDT` : '—'}
           </span>
         </div>
 
         <button
           type="button"
           disabled={!armed}
-          onClick={() => setSent(`${side} ${qty} ${listing.exchangeSymbol} on ${listing.venue}`)}
+          onClick={() => setSent(`${side} ${qty} ${base} on ${listing.venue}`)}
           className={cn(
-            'h-9 rounded-[4px] text-2xs font-bold uppercase tracking-[0.08em] transition-[transform,background-color] duration-150',
-            'active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-40',
-            side === 'buy' ? 'bg-up/85 text-canvas hover:bg-up' : 'bg-down/85 text-canvas hover:bg-down',
+            'h-9 rounded-md text-sm font-semibold transition-all duration-150',
+            'active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-active disabled:text-fg-dim',
+            armed && (side === 'buy' ? 'bg-up text-canvas hover:brightness-110' : 'bg-down text-canvas hover:brightness-110'),
           )}
         >
-          {side} {kind}
+          {side === 'buy' ? 'Buy' : 'Sell'} {base}
         </button>
 
-        {/* The write path does not exist yet, and the ticket says so rather than
-            pretending an order went somewhere. */}
-        <p className="text-3xs text-fg-dim">{sent ?? 'Reads only — nothing is sent yet.'}</p>
+        {/* The write path does not exist yet, and the ticket says so rather
+            than pretending an order went somewhere. */}
+        <p className="text-2xs text-fg-dim">{sent ?? 'Reads only — nothing is sent yet.'}</p>
       </div>
     </section>
   )
@@ -150,7 +157,7 @@ export function OrderTicket({
  *
  *  A native select cannot draw the venue's own mark, and the mark is how every
  *  other row in the terminal is identified — so this is a button and a panel.
- *  Each row carries the side's touch, because "which venue" and "at what price"
+ *  Each row carries both touches, because "which venue" and "at what price"
  *  are the same question. */
 function VenuePicker({
   listings,
@@ -186,20 +193,21 @@ function VenuePicker({
         type="button"
         onClick={() => setOpen(!open)}
         className={cn(
-          'flex h-9 w-full items-center gap-2 rounded-[4px] border bg-canvas/60 px-2.5 transition-colors',
-          open ? 'border-accent/70' : 'border-line hover:border-line2',
+          'flex h-9 w-full items-center gap-2 rounded-md px-2.5 transition-colors duration-150',
+          open ? 'bg-active' : 'bg-raised hover:bg-hover',
         )}
       >
-        <ExchangeIcon venue={chosen.venue} className="size-[17px]" />
-        <span className="text-2xs font-semibold text-fg">{chosen.venue}</span>
-        <span className="num ml-auto text-3xs text-fg-mid">{num(chosen.bid)}</span>
+        <ExchangeIcon venue={chosen.venue} className="size-[18px]" />
+        <span className="text-sm text-fg">{chosen.venue}</span>
+        <span className="num ml-auto text-xs text-fg-dim">{price(chosen.bid)}</span>
         <Icon.Chevron
-          className={cn('size-3.5 text-fg-mid transition-transform', open && 'rotate-180')}
+          className={cn('size-3.5 text-fg-dim transition-transform duration-150', open && 'rotate-180')}
+          strokeWidth={1.75}
         />
       </button>
 
       {open && (
-        <div className="panel absolute inset-x-0 top-10 z-20 max-h-64 overflow-auto py-1 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.85)]">
+        <div className="absolute inset-x-0 top-10 z-30 max-h-64 overflow-auto rounded-lg bg-raised p-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]">
           {listings.map((l) => (
             <button
               key={l.venue}
@@ -209,21 +217,16 @@ function VenuePicker({
                 setOpen(false)
               }}
               className={cn(
-                'flex h-8 w-full items-center gap-2 px-2.5 text-left transition-colors',
-                l.venue === chosen.venue ? 'bg-accent/10' : 'hover:bg-hover',
+                'flex h-8 w-full items-center gap-2 rounded-sm px-1.5 text-left transition-colors duration-150',
+                l.venue === chosen.venue ? 'bg-active' : 'hover:bg-hover',
               )}
             >
-              <ExchangeIcon venue={l.venue} className="size-[15px]" />
-              <span
-                className={cn(
-                  'text-2xs',
-                  l.venue === chosen.venue ? 'font-semibold text-fg' : 'text-fg-mid',
-                )}
-              >
+              <ExchangeIcon venue={l.venue} className="size-4" />
+              <span className={cn('text-sm', l.venue === chosen.venue ? 'text-fg' : 'text-fg-mid')}>
                 {l.venue}
               </span>
-              <span className="num ml-auto text-3xs text-up">{num(l.bid)}</span>
-              <span className="num text-3xs text-down">{num(l.ask)}</span>
+              <span className="num ml-auto text-2xs text-up">{price(l.bid)}</span>
+              <span className="num w-[52px] text-right text-2xs text-down">{price(l.ask)}</span>
             </button>
           ))}
         </div>
@@ -232,39 +235,46 @@ function VenuePicker({
   )
 }
 
+/** Label above, value and unit inside.
+ *
+ *  The label sits outside the box rather than inside it: a label competing for
+ *  the same 36px as the number you are typing is a label you read every time
+ *  and a number you read around. */
 function Field({
   label,
-  suffix,
+  unit,
   value,
   placeholder,
   disabled,
   onChange,
 }: {
   label: string
-  suffix: string
+  unit: string
   value: string
   placeholder?: string
   disabled?: boolean
   onChange: (v: string) => void
 }) {
   return (
-    <label
-      className={cn(
-        'flex h-9 items-center gap-2 rounded-[4px] border border-line bg-canvas/60 px-2.5',
-        'transition-colors focus-within:border-accent/70',
-        disabled === true && 'opacity-45',
-      )}
-    >
-      <span className="w-14 shrink-0 text-3xs font-semibold text-fg-mid">{label}</span>
-      <input
-        inputMode="decimal"
-        value={value}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        className="num min-w-0 flex-1 bg-transparent text-right text-[13px] text-fg outline-none placeholder:text-fg-dim"
-      />
-      <span className="shrink-0 text-3xs text-fg-mid">{suffix}</span>
+    <label className={cn('flex flex-col gap-1.5', disabled === true && 'opacity-45')}>
+      <span className="text-xs text-fg-dim">{label}</span>
+      <span
+        className={cn(
+          'flex h-9 items-center gap-2 rounded-md bg-raised px-2.5',
+          'transition-shadow duration-150',
+          'focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]',
+        )}
+      >
+        <input
+          inputMode="decimal"
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="num min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-dim"
+        />
+        <span className="shrink-0 text-xs text-fg-dim">{unit}</span>
+      </span>
     </label>
   )
 }
