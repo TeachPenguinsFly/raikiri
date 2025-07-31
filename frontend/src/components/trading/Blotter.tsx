@@ -50,7 +50,7 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
             )}
           >
             {t}
-            <span className={cn('num text-2xs', tab === t ? 'text-fg-mid' : 'text-fg-dim')}>
+            <span className={cn('num text-xs', tab === t ? 'text-fg-mid' : 'text-fg-dim')}>
               {counts[t]}
             </span>
           </button>
@@ -83,7 +83,7 @@ function Grid({ head, children }: { head: ReactNode; children: ReactNode }) {
 }
 
 const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
-  <th className={cn('col-head px-3 font-medium', right === true ? 'text-right' : 'text-left')}>
+  <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>
     {children}
   </th>
 )
@@ -91,7 +91,7 @@ const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
 /** Cell shorthands, so the alignment and the colour of a kind of value are
  *  decided once rather than per column. */
 const Id = ({ children }: { children: ReactNode }) => (
-  <td className="px-3 font-mono text-2xs text-fg-dim">{children}</td>
+  <td className="px-3 font-mono text-xs text-fg-dim">{children}</td>
 )
 const Sym = ({ children }: { children: ReactNode }) => (
   <td className="px-3 font-mono text-xs text-fg-mid">{children}</td>

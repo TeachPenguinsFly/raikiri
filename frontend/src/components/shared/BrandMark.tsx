@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-2 leading-none', className)}>
-      <span className="size-1.5 shrink-0 rotate-45 rounded-[1px] bg-accent" />
+      <span className="size-1.5 shrink-0 rotate-45 bg-accent" />
       <span className="tracking-[-0.015em]">
         <span className="font-semibold text-fg">TPF</span>
         <span className="font-medium text-fg-mid"> LABS</span>

@@ -38,12 +38,12 @@ export function SettingsPage() {
         <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-              <th className="col-head px-3 text-left font-medium">Account</th>
-              <th className="col-head px-3 text-left font-medium">Market</th>
-              <th className="col-head px-3 text-left font-medium">Segment</th>
-              <th className="col-head px-3 text-right font-medium">Instruments</th>
-              <th className="col-head px-3 text-left font-medium">Credential</th>
-              <th className="col-head px-3 text-left font-medium">State</th>
+              <th className="col-head px-3 text-left">Account</th>
+              <th className="col-head px-3 text-left">Market</th>
+              <th className="col-head px-3 text-left">Segment</th>
+              <th className="col-head px-3 text-right">Instruments</th>
+              <th className="col-head px-3 text-left">Credential</th>
+              <th className="col-head px-3 text-left">State</th>
             </tr>
           </thead>
           <tbody>
@@ -59,11 +59,11 @@ export function SettingsPage() {
                 <td className="px-3 text-fg-mid">{g.market}</td>
                 {/* One segment per (venue, market), and perp is the unsuffixed
                     default — so the path a reader sees here is the path on disk. */}
-                <td className="px-3 font-mono text-2xs text-fg">gw.{g.account}</td>
+                <td className="px-3 font-mono text-xs text-fg">gw.{g.account}</td>
                 <td className={cn('num px-3 text-right', g.alive ? 'text-fg-mid' : 'text-fg-dim')}>
                   {g.alive ? g.instruments : '—'}
                 </td>
-                <td className="px-3 font-mono text-2xs text-fg-mid">
+                <td className="px-3 font-mono text-xs text-fg-mid">
                   {SOURCES[g.venue] ?? (
                     <span className="text-amber">not configured</span>
                   )}
@@ -77,7 +77,7 @@ export function SettingsPage() {
         </table>
         {/* Said once, under the column it is about, rather than pinned to the
             bottom of a panel three hundred pixels below it. */}
-        <p className="px-3 pt-3 text-2xs text-fg-dim">
+        <p className="px-3 pt-3 text-xs text-fg-dim">
           References, never values — no key reaches this screen.
         </p>
         </div>

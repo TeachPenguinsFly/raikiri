@@ -35,7 +35,7 @@ export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Each side labels its own columns, so the header sits over the figures
           it names rather than over the gap between them. */}
-      <div className="flex shrink-0 pb-1">
+      <div className="flex h-7 shrink-0 items-center">
         <div className="flex flex-1 justify-between px-3">
           <span className="col-head">Size</span>
           <span className="col-head">Bid</span>
@@ -55,7 +55,7 @@ export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
           doing arithmetic on every glance. */}
       <div className="flex h-9 shrink-0 items-center justify-between px-3">
         <span className="num text-sm text-fg">{mid === null ? '—' : price(mid)}</span>
-        <span className="num text-2xs text-fg-dim">
+        <span className="num text-xs text-fg-dim">
           {spread === null || mid === null
             ? '—'
             : `${((spread / mid) * 10_000).toFixed(1)} bp spread`}
@@ -82,7 +82,7 @@ function Side({
         <div
           key={r.price}
           className={cn(
-            'relative flex min-h-[17px] flex-1 items-center px-3 text-xs transition-colors duration-150',
+            'relative flex min-h-[18px] flex-1 items-center px-3 text-xs transition-colors duration-150',
             'hover:bg-hover',
           )}
         >

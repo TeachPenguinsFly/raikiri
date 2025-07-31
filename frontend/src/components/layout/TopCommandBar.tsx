@@ -74,7 +74,7 @@ function GatewayStatus() {
             <div key={g.account} className="flex h-7 items-center gap-2 rounded-sm px-2 text-xs">
               <span className={cn('size-[5px] rounded-full', g.alive ? 'bg-up' : 'bg-down')} />
               <span className="text-fg">{g.account}</span>
-              <span className="num ml-auto text-2xs text-fg-dim">
+              <span className="num ml-auto text-xs text-fg-dim">
                 {g.alive ? g.instruments.toLocaleString() : '—'}
               </span>
             </div>

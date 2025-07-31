@@ -56,13 +56,13 @@ export function MarketsPage() {
             <table className="w-full border-collapse text-sm whitespace-nowrap">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-                  <th className="col-head px-3 text-left font-medium">Venue</th>
-                  <th className="col-head px-3 text-left font-medium">Symbol</th>
-                  <th className="col-head px-3 text-right font-medium">Bid</th>
-                  <th className="col-head px-3 text-right font-medium">Ask</th>
-                  <th className="col-head px-3 text-right font-medium">Spread</th>
-                  <th className="col-head px-3 text-right font-medium">Funding</th>
-                  <th className="col-head px-3 text-right font-medium">24h volume</th>
+                  <th className="col-head px-3 text-left">Venue</th>
+                  <th className="col-head px-3 text-left">Symbol</th>
+                  <th className="col-head px-3 text-right">Bid</th>
+                  <th className="col-head px-3 text-right">Ask</th>
+                  <th className="col-head px-3 text-right">Spread</th>
+                  <th className="col-head px-3 text-right">Funding</th>
+                  <th className="col-head px-3 text-right">24h volume</th>
                 </tr>
               </thead>
               <tbody>
@@ -88,13 +88,13 @@ export function MarketsPage() {
         </div>
       </div>
 
-      <div className="flex w-[264px] shrink-0 flex-col gap-3">
+      <div className="flex w-66 shrink-0 flex-col gap-3">
         <OrderTicket
           listings={live?.listings ?? []}
           venue={chosenVenue?.venue ?? null}
           onVenue={setVenue}
         />
-        <section className="panel flex min-h-0 flex-1 flex-col pb-1">
+        <section className="panel flex min-h-0 flex-1 flex-col">
           <PanelHeader
             title="Order book"
             right={chosenVenue === null ? null : <VenueTag venue={chosenVenue.venue} full />}
@@ -118,12 +118,14 @@ function MarketHeader({ symbol, venues }: { symbol: string; venues: number }) {
           <h1 className="text-lg font-semibold tracking-[-0.015em] text-fg">{symbol}</h1>
           <span className="text-2xs font-medium text-fg-dim">PERP</span>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-2xs text-fg-dim">
-          <span className="num">{venues}</span>
-          <span>venues</span>
-          <span className="text-line-strong">·</span>
-          <span className="size-[5px] rounded-full bg-up" />
-          <span>live</span>
+        <div className="mt-1 flex items-center gap-3 text-xs text-fg-dim">
+          <span>
+            <span className="num">{venues}</span> venues
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-[5px] rounded-full bg-up" />
+            live
+          </span>
         </div>
       </div>
     </div>
@@ -146,7 +148,7 @@ function MarketList({
   onPick: (symbol: string) => void
 }) {
   return (
-    <section className="panel flex w-[236px] shrink-0 flex-col">
+    <section className="panel flex w-60 shrink-0 flex-col">
       <PanelHeader
         title="Markets"
         right={<span className="meta num">{markets.length}</span>}
@@ -173,7 +175,7 @@ function MarketList({
         </div>
       </div>
 
-      <ul className="min-h-0 flex-1 overflow-auto px-2 pb-2">
+      <ul className="min-h-0 flex-1 overflow-auto px-1.5 pb-2">
         {markets.map((m, i) => {
           const active = m.symbol === selected
           return (
@@ -183,21 +185,23 @@ function MarketList({
                 onClick={() => onPick(m.symbol)}
                 style={entering ? enterDelay(i) : undefined}
                 className={cn(
-                  'relative flex h-8 w-full items-center justify-between rounded-md px-2.5',
+                  'relative flex h-8 w-full items-center justify-between overflow-hidden rounded-md px-1.5',
                   'transition-colors duration-150',
                   entering && 'enter-fade-up',
                   // Selected is a raised surface plus a two-pixel accent edge,
                   // not a bright block: the list is scanned continuously and a
-                  // filled slab in it pulls the eye off the board.
+                  // filled slab in it pulls the eye off the board. The same
+                  // edge marks the selected row on the board, so one mark
+                  // means one thing across the screen.
                   active
-                    ? 'bg-active text-fg before:absolute before:inset-y-1.5 before:left-0 before:w-[2px] before:rounded-full before:bg-accent'
+                    ? 'bg-active text-fg before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-accent'
                     : 'text-fg-mid hover:bg-hover hover:text-fg',
                 )}
               >
                 <span className={cn('truncate text-sm', active && 'font-medium')}>{m.symbol}</span>
                 {/* The count is why this view exists: a market four venues
                     quote is worth opening, a market one venue lists is not. */}
-                <span className="num shrink-0 text-2xs text-fg-dim">{m.listings.length}</span>
+                <span className="num shrink-0 text-xs text-fg-dim">{m.listings.length}</span>
               </button>
             </li>
           )
@@ -258,8 +262,14 @@ function VenueRow({
         <span className="ml-1 text-2xs text-fg-dim">bp</span>
       </td>
       <td className="num px-3 text-right">
-        <span className={listing.fundingRate >= 0 ? 'text-up' : 'text-down'}>
-          {(listing.fundingRate * 100).toFixed(4)}%
+        {/* The sign is always printed, so a positive rate occupies the same
+            width as a negative one and the column's digits line up.
+            Colour marks only the negative: paying to be long is the exception
+            worth finding, and a column that is mostly green is a column the
+            eye stops reading. */}
+        <span className={listing.fundingRate < 0 ? 'text-down' : 'text-fg'}>
+          {listing.fundingRate >= 0 ? '+' : '−'}
+          {(Math.abs(listing.fundingRate) * 100).toFixed(4)}%
         </span>
         {/* The interval travels with the rate. okx funds every four hours where
             the others fund every eight, and identical numbers side by side

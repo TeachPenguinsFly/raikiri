@@ -28,7 +28,7 @@ export function StrategiesPage() {
               {total >= 0 ? '+' : '−'}
               {usd(Math.abs(total))}
             </div>
-            <div className="text-2xs text-fg-dim">USDT · 96h</div>
+            <div className="text-xs text-fg-dim">USDT · 96h</div>
           </div>
         }
         height={250}
@@ -70,13 +70,13 @@ export function StrategiesPage() {
         <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-              <th className="col-head px-3 text-left font-medium">Name</th>
-              <th className="col-head px-3 text-left font-medium">Kind</th>
-              <th className="col-head px-3 text-left font-medium">Status</th>
-              <th className="col-head px-3 text-left font-medium">Venues</th>
-              <th className="col-head px-3 text-right font-medium">Orders</th>
-              <th className="col-head px-3 text-right font-medium">Trades</th>
-              <th className="col-head px-3 text-right font-medium">PnL</th>
+              <th className="col-head px-3 text-left">Name</th>
+              <th className="col-head px-3 text-left">Kind</th>
+              <th className="col-head px-3 text-left">Status</th>
+              <th className="col-head px-3 text-left">Venues</th>
+              <th className="col-head px-3 text-right">Orders</th>
+              <th className="col-head px-3 text-right">Trades</th>
+              <th className="col-head px-3 text-right">PnL</th>
             </tr>
           </thead>
           <tbody>

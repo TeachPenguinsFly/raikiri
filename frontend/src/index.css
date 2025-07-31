@@ -154,14 +154,18 @@
 
   /* A table's column header. Sentence case, not small caps: uppercase with
      letter-spacing is slower to read and is the house style of the developer
-     tools this is not. */
+     tools this is not.
+
+     12px, not 11. The smallest step in the scale belongs to units riding
+     beside a figure — bp, M, /8h — and to chips. A HEADER at that size is a
+     header the eye skips, and then the column it names is unlabelled. */
   .col-head {
-    @apply text-2xs font-medium text-fg-dim;
+    @apply text-xs font-medium text-fg-dim;
   }
 
-  /* Secondary status set beside a title. */
+  /* Secondary status set beside a title: a count, a span, a row total. */
   .meta {
-    @apply text-2xs font-medium text-fg-dim;
+    @apply text-xs font-medium text-fg-dim;
   }
 
   /* Every figure lines up. Non-negotiable in a blotter. */
@@ -215,29 +219,8 @@
   animation: pulse-dot 2.4s ease-in-out infinite;
 }
 
-/* Placeholders only. Shimmering content that has already loaded is a screen
-   that looks like it is still waiting. */
-.skeleton {
-  border-radius: var(--radius-sm);
-  background: linear-gradient(
-    100deg,
-    var(--color-raised) 30%,
-    color-mix(in srgb, #ffffff 6%, var(--color-raised)) 46%,
-    var(--color-raised) 62%
-  );
-  background-size: 400% 100%;
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
-}
-@keyframes skeleton-shimmer {
-  from {
-    background-position: 100% 50%;
-  }
-  to {
-    background-position: 0% 50%;
-  }
-}
 
-/* One-shot entrance for the skeleton-to-content swap, staggered per row.
+/* One-shot entrance when a screen first has data, staggered per row.
    `both` so a delayed row holds its hidden start rather than flashing in. */
 .enter-fade-up {
   animation: enter-fade-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -265,8 +248,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .pulse-dot {
+  .pulse-dot,
+  .flash-up,
+  .flash-down {
     animation: none;
   }
   .enter-fade-up {

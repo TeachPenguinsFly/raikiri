@@ -28,7 +28,7 @@ export function SidebarNav() {
         <BrandMark className="text-base" />
       </div>
 
-      <nav className="flex flex-1 flex-col gap-px overflow-y-auto px-2 py-1">
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-1">
         {NAV.map(({ to, label, icon: Glyph, end }) => (
           <NavLink
             key={to}
@@ -36,7 +36,7 @@ export function SidebarNav() {
             end={end === true}
             className={({ isActive }) =>
               cn(
-                'group flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors duration-150',
+                'group flex h-9 items-center gap-2.5 rounded-md px-2 text-sm transition-colors duration-150',
                 isActive
                   ? 'bg-active font-medium text-fg'
                   : 'font-normal text-fg-mid hover:bg-hover hover:text-fg',

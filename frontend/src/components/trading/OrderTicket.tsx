@@ -66,7 +66,7 @@ export function OrderTicket({
     <section className="panel flex flex-col overflow-visible">
       <div className="flex h-11 items-center justify-between px-3">
         <span className="panel-title">Ticket</span>
-        <span className="font-mono text-2xs text-fg-dim">{listing.exchangeSymbol}</span>
+        <span className="font-mono text-xs text-fg-dim">{listing.exchangeSymbol}</span>
       </div>
 
       <div className="flex flex-col gap-3 px-3 pb-3">
@@ -75,10 +75,10 @@ export function OrderTicket({
         {/* One segmented control, one thumb. Two buttons that each light up
             read as two independent toggles; a track with a moving thumb reads
             as one choice with two positions, which is what it is. */}
-        <div className="relative grid h-8 grid-cols-2 rounded-md bg-raised p-0.5">
+        <div className="relative grid h-9 grid-cols-2 rounded-md bg-raised p-0.5">
           <span
             className={cn(
-              'absolute inset-y-0.5 w-[calc(50%-2px)] rounded-[4px] transition-transform duration-150 ease-out',
+              'absolute inset-y-0.5 w-[calc(50%-2px)] rounded-sm transition-transform duration-150 ease-out',
               side === 'buy' ? 'translate-x-0 bg-up/[0.16]' : 'translate-x-[calc(100%+0px)] bg-down/[0.16]',
             )}
           />
@@ -104,7 +104,7 @@ export function OrderTicket({
               type="button"
               onClick={() => setKind(k)}
               className={cn(
-                'relative h-6 text-xs capitalize transition-colors duration-150',
+                'relative h-7 text-xs capitalize transition-colors duration-150',
                 kind === k
                   ? 'font-medium text-fg after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-accent'
                   : 'text-fg-dim hover:text-fg-mid',
@@ -138,7 +138,7 @@ export function OrderTicket({
           onClick={() => setSent(`${side} ${qty} ${base} on ${listing.venue}`)}
           className={cn(
             'h-9 rounded-md text-sm font-semibold transition-all duration-150',
-            'active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-active disabled:text-fg-dim',
+            'active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-raised disabled:text-fg-dim',
             armed && (side === 'buy' ? 'bg-up text-canvas hover:brightness-110' : 'bg-down text-canvas hover:brightness-110'),
           )}
         >
@@ -225,8 +225,8 @@ function VenuePicker({
               <span className={cn('text-sm', l.venue === chosen.venue ? 'text-fg' : 'text-fg-mid')}>
                 {l.venue}
               </span>
-              <span className="num ml-auto text-2xs text-up">{price(l.bid)}</span>
-              <span className="num w-[52px] text-right text-2xs text-down">{price(l.ask)}</span>
+              <span className="num ml-auto text-xs text-up">{price(l.bid)}</span>
+              <span className="num w-[52px] text-right text-xs text-down">{price(l.ask)}</span>
             </button>
           ))}
         </div>

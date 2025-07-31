@@ -52,7 +52,7 @@ export function TreasuryPage() {
               <div className="num text-xl font-semibold tracking-[-0.015em] text-fg">
                 {usd(total)}
               </div>
-              <div className={cn('num text-2xs font-medium', change >= 0 ? 'text-up' : 'text-down')}>
+              <div className={cn('num text-xs font-medium', change >= 0 ? 'text-up' : 'text-down')}>
                 {change >= 0 ? '+' : '−'}
                 {(Math.abs(change) * 100).toFixed(2)}% · 96h
               </div>
@@ -112,12 +112,12 @@ export function TreasuryPage() {
         <table className="w-full border-collapse text-sm whitespace-nowrap">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-              <th className="col-head px-3 text-left font-medium">Account</th>
-              <th className="col-head px-3 text-left font-medium">Market</th>
-              <th className="col-head px-3 text-left font-medium">Asset</th>
-              <th className="col-head px-3 text-right font-medium">Total</th>
-              <th className="col-head px-3 text-right font-medium">Available</th>
-              <th className="col-head px-3 text-right font-medium">Share</th>
+              <th className="col-head px-3 text-left">Account</th>
+              <th className="col-head px-3 text-left">Market</th>
+              <th className="col-head px-3 text-left">Asset</th>
+              <th className="col-head px-3 text-right">Total</th>
+              <th className="col-head px-3 text-right">Available</th>
+              <th className="col-head px-3 text-right">Share</th>
             </tr>
           </thead>
           <tbody>
@@ -138,7 +138,7 @@ export function TreasuryPage() {
                 </td>
                 {/* The market is read off the account name — perp is the
                     unsuffixed default, as format_account writes it. */}
-                <td className="px-3 text-2xs text-fg-mid">
+                <td className="px-3 text-xs text-fg-mid">
                   {b.account === b.venue ? 'perp' : b.account.slice(b.venue.length + 1)}
                 </td>
                 <td className="px-3 text-fg-mid">{b.asset}</td>
