@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { ChartFrame, colorsFor, Donut, LinePlot } from '@/components/chart'
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { VenueTag } from '@/components/shared/VenueTag'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
 import { BALANCES, EQUITY, HOURS } from '@/mock/data'
@@ -133,9 +132,7 @@ export function TreasuryPage() {
                   hover === b.venue && 'bg-hover',
                 )}
               >
-                <td className="px-3">
-                  <VenueTag venue={b.venue} full />
-                </td>
+                <td className="px-3 text-fg-mid">{b.venue}</td>
                 {/* The market is read off the account name — perp is the
                     unsuffixed default, as format_account writes it. */}
                 <td className="px-3 text-xs text-fg-mid">

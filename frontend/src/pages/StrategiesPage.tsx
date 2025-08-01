@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ChartFrame, colorsFor, LinePlot } from '@/components/chart'
 import { PanelHeader } from '@/components/shared/PanelHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { VenueTag } from '@/components/shared/VenueTag'
+import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
 import { HOURS, STRATEGIES, STRATEGY_PNL } from '@/mock/data'
@@ -108,7 +108,7 @@ export function StrategiesPage() {
                 <td className="px-3">
                   <span className="inline-flex items-center gap-1">
                     {s.venues.map((v) => (
-                      <VenueTag key={v} venue={v} />
+                      <ExchangeIcon key={v} venue={v} className="size-[15px]" />
                     ))}
                   </span>
                 </td>

@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { VenueTag } from '@/components/shared/VenueTag'
 import { cn } from '@/lib/utils'
 import { BALANCES, ORDERS, POSITIONS, TRADES } from '@/mock/data'
 
@@ -125,9 +124,7 @@ function Orders() {
       {ORDERS.map((o) => (
         <tr key={o.id} className="row">
           <Id>{o.id}</Id>
-          <td className="px-3">
-            <VenueTag venue={o.venue} full />
-          </td>
+          <td className="px-3 text-fg-mid">{o.venue}</td>
           <Sym>{o.symbol}</Sym>
           <td className="px-3">
             <StatusBadge status={o.side} />
@@ -170,9 +167,7 @@ function Trades() {
       {TRADES.map((t) => (
         <tr key={t.id} className="row">
           <Id>{t.id}</Id>
-          <td className="px-3">
-            <VenueTag venue={t.venue} full />
-          </td>
+          <td className="px-3 text-fg-mid">{t.venue}</td>
           <Sym>{t.symbol}</Sym>
           <td className="px-3">
             <StatusBadge status={t.side} />
@@ -210,9 +205,7 @@ function Positions() {
         return (
           <tr key={`${p.venue}:${p.symbol}`} className="row">
             <Id>{p.instrumentId}</Id>
-            <td className="px-3">
-              <VenueTag venue={p.venue} full />
-            </td>
+            <td className="px-3 text-fg-mid">{p.venue}</td>
             <Sym>{p.symbol}</Sym>
             <N className={p.qty >= 0 ? 'text-up' : 'text-down'}>
               {p.qty > 0 ? '+' : ''}
@@ -262,9 +255,7 @@ function Balances() {
     >
       {reported.map((b) => (
         <tr key={`${b.account}:${b.asset}`} className="row">
-          <td className="px-3">
-            <VenueTag venue={b.venue} full />
-          </td>
+          <td className="px-3 text-fg-mid">{b.venue}</td>
           <td className="px-3 text-fg-mid">{b.asset}</td>
           <N>{num(b.total, b.total < 1 ? 4 : 2)}</N>
           {/* A venue that publishes a total and no free figure leaves a dash.

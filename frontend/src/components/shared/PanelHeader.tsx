@@ -3,10 +3,11 @@ import { cn } from '@/lib/utils'
 
 /** The head of a panel.
  *
- *  No rule underneath it. The title is separated from the content by its own
- *  weight and by 12px of air, which is what separates a heading from a
- *  paragraph in every well-set document; a hairline there is one more line on
- *  a screen that already has a table's worth. */
+ *  A 28px strip carrying a 12px label, and no rule underneath it. A panel head
+ *  set at a web heading's size spends forty-four pixels of a trading screen
+ *  saying a word the reader already knows; the separation comes from the
+ *  label's weight, not from a hairline on a screen that already has a table's
+ *  worth. */
 export function PanelHeader({
   title,
   right,
@@ -19,7 +20,7 @@ export function PanelHeader({
   return (
     <div
       className={cn(
-        'flex h-11 shrink-0 items-center justify-between gap-3 px-3',
+        'flex h-7 shrink-0 items-center justify-between gap-3 px-3',
         className,
       )}
     >

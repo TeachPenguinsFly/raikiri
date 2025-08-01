@@ -57,7 +57,7 @@ function GatewayStatus() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex h-8 items-center gap-2 rounded-md px-2.5 text-xs transition-colors duration-150',
+          'flex h-6 items-center gap-2 rounded-sm px-2 text-xs transition-colors duration-150',
           open ? 'bg-active text-fg' : 'text-fg-mid hover:bg-hover hover:text-fg',
         )}
       >
@@ -69,9 +69,9 @@ function GatewayStatus() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-9 z-30 w-60 rounded-lg bg-raised p-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]">
+        <div className="absolute right-0 top-7 z-30 w-56 rounded-md bg-raised p-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.8)]">
           {gateways.map((g) => (
-            <div key={g.account} className="flex h-7 items-center gap-2 rounded-sm px-2 text-xs">
+            <div key={g.account} className="flex h-6 items-center gap-2 px-2 text-xs">
               <span className={cn('size-[5px] rounded-full', g.alive ? 'bg-up' : 'bg-down')} />
               <span className="text-fg">{g.account}</span>
               <span className="num ml-auto text-xs text-fg-dim">
@@ -96,7 +96,7 @@ function GatewayStatus() {
  *  reader to distrust the row it sits in. */
 export function TopCommandBar() {
   return (
-    <header className="flex h-12 shrink-0 items-center justify-end gap-2 px-3">
+    <header className="flex h-10 shrink-0 items-center justify-end gap-3 px-3">
       <GatewayStatus />
       <span className="h-4 w-px bg-line" />
       <Clock />

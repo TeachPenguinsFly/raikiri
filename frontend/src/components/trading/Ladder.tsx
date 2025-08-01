@@ -1,23 +1,27 @@
 import { cn } from '@/lib/utils'
 
-const price = (v: number) =>
-  v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5)
+const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
 
 interface Level {
   price: number
   size: number
 }
 
-/** Depth as two ladders around the touch.
+/** The book as one column: asks above, the inside market across the middle,
+ *  bids below.
  *
- *  The depth bar is CUMULATIVE, not per level: what a taker wants to know is
+ *  It used to be two ladders side by side. In a 256px rail that halves every
+ *  column, and it puts the two prices a taker compares — best bid and best ask
+ *  — at opposite ends of the panel instead of one line apart. Stacked, the
+ *  spread is where the eye already is.
+ *
+ *  The depth bar is CUMULATIVE from the touch: what a taker wants to know is
  *  how far down the book their order reaches, and a chart of individual levels
  *  answers a question nobody asked.
  *
- *  The bars are drawn at 9% opacity. A book whose backgrounds are as saturated
- *  as its prices turns the whole column into a colour field, and then the one
- *  thing the column exists for — which price, at what size — is the hardest
- *  thing on it to read. */
+ *  Twelve levels a side. The rail's height is fixed by the ticket above it, and
+ *  a book asked for more levels than it has room for cuts its outermost row in
+ *  half — which reads as a rendering fault, not as the end of the book. */
 export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
   const cumulative = (rows: Level[]) => {
     let running = 0
@@ -26,90 +30,71 @@ export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
   const bidRows = cumulative(bids)
   const askRows = cumulative(asks)
   const peak = Math.max(bidRows.at(-1)?.depth ?? 1, askRows.at(-1)?.depth ?? 1)
-  const spread =
-    bids[0] !== undefined && asks[0] !== undefined ? asks[0].price - bids[0].price : null
-  const mid =
-    bids[0] !== undefined && asks[0] !== undefined ? (asks[0].price + bids[0].price) / 2 : null
+  const spread = bids[0] !== undefined && asks[0] !== undefined ? asks[0].price - bids[0].price : null
+  const mid = bids[0] !== undefined && asks[0] !== undefined ? (asks[0].price + bids[0].price) / 2 : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Each side labels its own columns, so the header sits over the figures
-          it names rather than over the gap between them. */}
-      <div className="flex h-7 shrink-0 items-center">
-        <div className="flex flex-1 justify-between px-3">
-          <span className="col-head">Size</span>
-          <span className="col-head">Bid</span>
-        </div>
-        <div className="flex flex-1 justify-between px-3">
-          <span className="col-head">Ask</span>
-          <span className="col-head">Size</span>
-        </div>
+      <div className="flex h-5 shrink-0 items-center justify-between px-3">
+        <span className="col-head">Price</span>
+        <span className="col-head">Size</span>
+        <span className="col-head">Total</span>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-y-auto">
-        <Side rows={bidRows} peak={peak} tone="up" align="right" />
-        <Side rows={askRows} peak={peak} tone="down" align="left" />
+      {/* Asks run outward from the touch, so the row nearest the spread sits
+          nearest the spread. */}
+      <div className="flex min-h-0 flex-1 flex-col-reverse justify-start overflow-hidden">
+        {askRows.map((r, i) => (
+          <Row key={r.price} row={r} peak={peak} tone="down" faded={i} />
+        ))}
       </div>
 
-      {/* The inside market, stated once. Reading it off the top two rows means
-          doing arithmetic on every glance. */}
-      <div className="flex h-9 shrink-0 items-center justify-between px-3">
-        <span className="num text-sm text-fg">{mid === null ? '—' : price(mid)}</span>
-        <span className="num text-xs text-fg-dim">
-          {spread === null || mid === null
-            ? '—'
-            : `${((spread / mid) * 10_000).toFixed(1)} bp spread`}
+      <div className="flex h-7 shrink-0 items-center justify-between bg-raised px-3">
+        <span className="num text-sm font-medium text-fg">{mid === null ? '—' : price(mid)}</span>
+        <span className="num text-2xs text-fg-dim">
+          {spread === null || mid === null ? '—' : `${((spread / mid) * 10_000).toFixed(1)} bp`}
         </span>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {bidRows.map((r, i) => (
+          <Row key={r.price} row={r} peak={peak} tone="up" faded={i} />
+        ))}
       </div>
     </div>
   )
 }
 
-function Side({
-  rows,
+function Row({
+  row,
   peak,
   tone,
-  align,
+  faded,
 }: {
-  rows: Array<Level & { depth: number }>
+  row: Level & { depth: number }
   peak: number
   tone: 'up' | 'down'
-  align: 'left' | 'right'
+  faded: number
 }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      {rows.map((r, i) => (
-        <div
-          key={r.price}
-          className={cn(
-            'relative flex min-h-[18px] flex-1 items-center px-3 text-xs transition-colors duration-150',
-            'hover:bg-hover',
-          )}
+    <div className="relative flex min-h-[14px] flex-1 items-center px-3 text-[11px] leading-none transition-colors duration-150 hover:bg-hover">
+      <span
+        className={cn('absolute inset-y-0 right-0', tone === 'up' ? 'bg-up/[0.08]' : 'bg-down/[0.08]')}
+        style={{ width: `${(row.depth / peak) * 100}%` }}
+      />
+      <span className="num relative z-10 flex w-full justify-between">
+        {/* Only the touch is at full strength, and the rest fade with depth.
+            Forty saturated figures turn the book into a colour field, and then
+            the one thing it exists for is the hardest thing on it to read. */}
+        <span
+          className={cn('w-[62px]', tone === 'up' ? 'text-up' : 'text-down')}
+          style={faded === 0 ? undefined : { opacity: Math.max(0.45, 0.8 - faded * 0.02) }}
         >
-          <span
-            className={cn('absolute inset-y-0', tone === 'up' ? 'bg-up/[0.09]' : 'bg-down/[0.09]')}
-            style={{ width: `${(r.depth / peak) * 100}%`, [align]: 0 }}
-          />
-          <span
-            className={cn(
-              'num relative z-10 flex w-full justify-between',
-              align === 'left' ? 'flex-row-reverse' : 'flex-row',
-            )}
-          >
-            <span className="text-fg-dim">{r.size.toFixed(3)}</span>
-            {/* Only the touch is at full strength, and the rest fade with
-                depth. Forty saturated figures turn the book into a colour
-                field, and then the one thing it exists for — which price, at
-                what size — is the hardest thing on it to read. */}
-            <span
-              className={tone === 'up' ? 'text-up' : 'text-down'}
-              style={i === 0 ? undefined : { opacity: Math.max(0.42, 0.78 - i * 0.02) }}
-            >
-              {price(r.price)}
-            </span>
-          </span>
-        </div>
-      ))}
+          {price(row.price)}
+        </span>
+        <span className="flex-1 text-right text-fg-mid">{row.size.toFixed(3)}</span>
+        <span className="w-[52px] text-right text-fg-dim">{row.depth.toFixed(1)}</span>
+      </span>
     </div>
   )
 }

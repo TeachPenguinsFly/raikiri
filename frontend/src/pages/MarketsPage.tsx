@@ -2,16 +2,27 @@ import { useMemo, useState } from 'react'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FlashPrice } from '@/components/shared/FlashPrice'
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { VenueTag } from '@/components/shared/VenueTag'
+import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
 import { Icon } from '@/components/shared/Icon'
 import { Blotter } from '@/components/trading/Blotter'
 import { Ladder } from '@/components/trading/Ladder'
 import { OrderTicket } from '@/components/trading/OrderTicket'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
-import { useBook, useMarkets, useTickingMarket, type MockListing } from '@/mock/data'
+import {
+  useBook,
+  useMarkets,
+  useTickingMarket,
+  type MockListing,
+  type MockMarket,
+} from '@/mock/data'
 
 const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
+
+/** The best bid across the venues quoting a market — the one figure that
+ *  answers "what is this trading at" without picking a venue for the reader. */
+const best = (m: MockMarket): number | null =>
+  m.listings.length === 0 ? null : Math.max(...m.listings.map((l) => l.bid))
 
 export function MarketsPage() {
   const [query, setQuery] = useState('')
@@ -30,10 +41,10 @@ export function MarketsPage() {
   // shows. Falling back to the first listing means the right column is never
   // empty on a market you just opened.
   const chosenVenue = live?.listings.find((l) => l.venue === venue) ?? live?.listings[0] ?? null
-  const book = useBook(chosenVenue === null ? null : (chosenVenue.bid + chosenVenue.ask) / 2, 20)
+  const book = useBook(chosenVenue === null ? null : (chosenVenue.bid + chosenVenue.ask) / 2, 12)
 
   return (
-    <div className="flex h-full min-h-0 gap-3">
+    <div className="flex h-full min-h-0 gap-2">
       <MarketList
         markets={markets}
         selected={selected?.symbol ?? null}
@@ -49,8 +60,8 @@ export function MarketsPage() {
         }}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <section className="panel flex max-h-[56%] shrink-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <section className="panel flex max-h-[52%] shrink-0 flex-col">
           <MarketHeader symbol={live?.symbol ?? '—'} venues={live?.listings.length ?? 0} />
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full border-collapse text-sm whitespace-nowrap">
@@ -62,7 +73,7 @@ export function MarketsPage() {
                   <th className="col-head px-3 text-right">Ask</th>
                   <th className="col-head px-3 text-right">Spread</th>
                   <th className="col-head px-3 text-right">Funding</th>
-                  <th className="col-head px-3 text-right">24h volume</th>
+                  <th className="col-head px-3 text-right">24h vol</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,14 +92,15 @@ export function MarketsPage() {
           </div>
         </section>
 
-        {/* The board is as tall as the venues that quote the market; the log
-            takes whatever is left, which is how a log is meant to sit. */}
+        {/* The board grows with the venues quoting the market — it is what the
+            screen is for. The log is a fixed strip: it holds what you did, and
+            what you did does not expand to fill a window. */}
         <div className="flex min-h-0 flex-1 flex-col">
           <Blotter />
         </div>
       </div>
 
-      <div className="flex w-66 shrink-0 flex-col gap-3">
+      <div className="flex w-64 shrink-0 flex-col gap-2">
         <OrderTicket
           listings={live?.listings ?? []}
           venue={chosenVenue?.venue ?? null}
@@ -97,7 +109,11 @@ export function MarketsPage() {
         <section className="panel flex min-h-0 flex-1 flex-col">
           <PanelHeader
             title="Order book"
-            right={chosenVenue === null ? null : <VenueTag venue={chosenVenue.venue} full />}
+            right={
+              chosenVenue === null ? null : (
+                <span className="meta">{chosenVenue.venue}</span>
+              )
+            }
           />
           <Ladder bids={book.bids} asks={book.asks} />
         </section>
@@ -112,22 +128,11 @@ export function MarketsPage() {
  *  what kind of contract it is, and how many venues are answering. */
 function MarketHeader({ symbol, venues }: { symbol: string; venues: number }) {
   return (
-    <div className="flex h-14 shrink-0 items-center justify-between px-3">
-      <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-lg font-semibold tracking-[-0.015em] text-fg">{symbol}</h1>
-          <span className="text-2xs font-medium text-fg-dim">PERP</span>
-        </div>
-        <div className="mt-1 flex items-center gap-3 text-xs text-fg-dim">
-          <span>
-            <span className="num">{venues}</span> venues
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-[5px] rounded-full bg-up" />
-            live
-          </span>
-        </div>
-      </div>
+    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3">
+      <span className="text-sm font-semibold tracking-[-0.01em] text-fg">{symbol}</span>
+      <span className="text-2xs text-fg-dim">PERP</span>
+      <span className="meta ml-auto">{venues} venues</span>
+      <span className="size-[5px] rounded-full bg-up" />
     </div>
   )
 }
@@ -140,7 +145,7 @@ function MarketList({
   onQuery,
   onPick,
 }: {
-  markets: Array<{ symbol: string; listings: MockListing[] }>
+  markets: MockMarket[]
   selected: string | null
   query: string
   entering: boolean
@@ -148,7 +153,7 @@ function MarketList({
   onPick: (symbol: string) => void
 }) {
   return (
-    <section className="panel flex w-60 shrink-0 flex-col">
+    <section className="panel flex w-52 shrink-0 flex-col">
       <PanelHeader
         title="Markets"
         right={<span className="meta num">{markets.length}</span>}
@@ -156,7 +161,7 @@ function MarketList({
       <div className="px-3 pb-2">
         <div className="relative">
           <Icon.Search
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-dim"
+            className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-fg-dim"
             strokeWidth={1.75}
           />
           <input
@@ -164,7 +169,7 @@ function MarketList({
             onChange={(e) => onQuery(e.target.value)}
             placeholder="Filter pairs"
             className={cn(
-              'h-8 w-full rounded-md bg-raised pr-2.5 pl-8 text-xs text-fg outline-none',
+              'h-7 w-full rounded-sm bg-raised pr-2.5 pl-7 text-xs text-fg outline-none',
               'transition-shadow duration-150 placeholder:text-fg-dim',
               // Focus is marked at 55% of the accent. A full-strength ring on a
               // field that is focused for most of a session makes the filter
@@ -185,7 +190,7 @@ function MarketList({
                 onClick={() => onPick(m.symbol)}
                 style={entering ? enterDelay(i) : undefined}
                 className={cn(
-                  'relative flex h-8 w-full items-center justify-between overflow-hidden rounded-md px-1.5',
+                  'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm px-1.5',
                   'transition-colors duration-150',
                   entering && 'enter-fade-up',
                   // Selected is a raised surface plus a two-pixel accent edge,
@@ -198,10 +203,19 @@ function MarketList({
                     : 'text-fg-mid hover:bg-hover hover:text-fg',
                 )}
               >
-                <span className={cn('truncate text-sm', active && 'font-medium')}>{m.symbol}</span>
-                {/* The count is why this view exists: a market four venues
-                    quote is worth opening, a market one venue lists is not. */}
-                <span className="num shrink-0 text-xs text-fg-dim">{m.listings.length}</span>
+                <span className={cn('truncate text-xs', active && 'font-medium')}>
+                  {m.symbol.replace('/USDT', '')}
+                  <span className="text-fg-dim">/USDT</span>
+                </span>
+                <span className="flex shrink-0 items-baseline gap-2">
+                  {/* The count is why this view exists: a market four venues
+                      quote is worth opening, a market one venue lists is not.
+                      The price is why you would open THIS one. */}
+                  <span className="num text-[10px] text-fg-dim">{m.listings.length}</span>
+                  <span className="num w-16 text-right text-xs text-fg-mid">
+                    {best(m) === null ? '—' : price(best(m) as number)}
+                  </span>
+                </span>
               </button>
             </li>
           )
@@ -247,8 +261,13 @@ function VenueRow({
         selected && 'bg-active shadow-[inset_2px_0_0_0_var(--color-accent)] hover:bg-active',
       )}
     >
-      <td className="px-3">
-        <VenueTag venue={listing.venue} full />
+      {/* The mark identifies the venue and the word confirms it. This is the
+          one table where the logo earns its place: comparing venues IS the
+          view, and a column of names alone is a column you read instead of
+          scan. Every other table gets the word only. */}
+      <td className="flex h-7 items-center gap-2 px-3">
+        <ExchangeIcon venue={listing.venue} className="size-[15px]" />
+        <span className="text-fg-mid">{listing.venue}</span>
       </td>
       <td className="px-3 font-mono text-xs text-fg-mid">{listing.exchangeSymbol}</td>
       <td className="px-3 text-right">

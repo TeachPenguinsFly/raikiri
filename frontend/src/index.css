@@ -47,35 +47,39 @@
   --text-2xl--line-height: 1.875rem;
 
   /* --- surfaces --------------------------------------------------------- */
-  /* Graphite with a blue undertone, never pure black: black clips on OLED and
-     leaves no room to sit a panel BELOW the workspace when one is needed. */
-  --color-canvas: #0b0e14; /* the application behind everything */
-  --color-panel: #11151d; /* a workspace panel */
-  --color-raised: #171c26; /* popovers, inputs, header strips */
-  --color-hover: #1c222d; /* a row or control under the pointer */
-  --color-active: #232a37; /* pressed, or selected and not hovered */
+  /* Near-black with a plum undertone. The step from canvas to panel is wide —
+     twice what a graphite ramp needs — because THE GUTTER IS THE BORDER: the
+     dark ground running between panels is what separates them, and it can only
+     do that job if the panels are clearly lighter than it. */
+  --color-canvas: #0a0710; /* the ground the panels sit on */
+  --color-panel: #16121c; /* a workspace panel */
+  --color-raised: #1e1927; /* popovers, inputs, title strips */
+  --color-hover: #241e2e; /* a row or control under the pointer */
+  --color-active: #2c2536; /* pressed, or selected and not hovered */
 
   /* --- lines ------------------------------------------------------------ */
-  /* Two, and both are quiet. `line` is a separator; `line-strong` outlines a
-     control that has to look like a control. */
-  --color-line: #1d232e;
-  --color-line-strong: #2b3341;
+  /* One separator, used under a table header and nowhere else. */
+  --color-line: #262030;
+  --color-line-strong: #332b3f;
 
   /* --- text ------------------------------------------------------------- */
-  /* Not #fff at the top: pure white on a dark panel vibrates at 13px. */
-  --color-fg: #e9edf4;
-  --color-fg-mid: #97a2b2;
-  --color-fg-dim: #646e7c;
+  /* Not #fff at the top: pure white on a dark panel vibrates at 13px. Both
+     greys carry the same plum cast as the surfaces, so nothing reads as a
+     foreign blue-grey laid over a warm ground. */
+  --color-fg: #f0ecf7;
+  --color-fg-mid: #9a94a6;
+  --color-fg-dim: #6b6478;
 
   /* --- semantics -------------------------------------------------------- */
-  /* Chosen to read at 13px on `panel` without glowing. The pair is matched in
-     lightness so a column of gains does not look louder than a column of
-     losses. */
-  --color-up: #3fb950;
-  --color-down: #e5534b;
-  --color-accent: #4c9aff;
-  --color-amber: #d8a13a;
-  --color-violet: #9d8df1;
+  /* Mint and rose rather than grass and vermilion. On a plum ground a yellow
+     green reads sickly and an orange red reads as a warning rather than as a
+     side; these two are the same distance from the background and from each
+     other, so a column of gains is no louder than a column of losses. */
+  --color-up: #2ec98a;
+  --color-down: #e35f7b;
+  --color-accent: #6d8bff;
+  --color-amber: #e0a541;
+  --color-violet: #a98cf5;
 
   /* --- radii ------------------------------------------------------------ */
   /* Three. A trading terminal that rounds like a phone app stops looking
@@ -147,25 +151,26 @@
     @apply bg-panel rounded-lg;
   }
 
-  /* The name of a panel or a chart. One size, one weight, everywhere. */
+  /* The name of a panel: a 12px label on a 28px strip. A panel head set at a
+     web heading's size and height spends forty-four pixels of a trading screen
+     saying a word the reader already knows. */
   .panel-title {
-    @apply text-base font-semibold tracking-[-0.011em] text-fg;
+    @apply text-xs font-medium tracking-[-0.005em] text-fg-mid;
   }
 
-  /* A table's column header. Sentence case, not small caps: uppercase with
-     letter-spacing is slower to read and is the house style of the developer
-     tools this is not.
-
-     12px, not 11. The smallest step in the scale belongs to units riding
-     beside a figure — bp, M, /8h — and to chips. A HEADER at that size is a
-     header the eye skips, and then the column it names is unlabelled. */
+  /* A table's column header.
+     Small, upper, tracked, dim. Not a style choice — a header set like the
+     data under it competes with the data; set like this it disappears until
+     you look for it, which is the only time a column header is wanted. This
+     is the one place uppercase earns its keep. */
   .col-head {
-    @apply text-xs font-medium text-fg-dim;
+    @apply text-[10px] leading-4 font-medium tracking-[0.06em] text-fg-dim uppercase;
   }
 
   /* Secondary status set beside a title: a count, a span, a row total. */
   .meta {
-    @apply text-xs font-medium text-fg-dim;
+    @apply text-xs text-fg-dim;
+    font-variant-numeric: tabular-nums;
   }
 
   /* Every figure lines up. Non-negotiable in a blotter. */
@@ -174,9 +179,11 @@
     letter-spacing: -0.006em;
   }
 
-  /* One row rhythm for every table in the product. */
+  /* One row rhythm for every table in the product. 28px, not 32: the screen is
+     read by scanning a column down, and four pixels a row is two more venues
+     visible without the type getting any smaller. */
   .row {
-    @apply h-8 transition-colors duration-150;
+    @apply h-7 transition-colors duration-150;
   }
   .row:hover {
     background: var(--color-hover);

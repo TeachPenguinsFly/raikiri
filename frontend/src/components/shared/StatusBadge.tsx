@@ -1,41 +1,40 @@
-import { Badge, type BadgeTone } from './Badge'
+import { cn } from '@/lib/utils'
 
-/** One vocabulary for every state the terminal shows, so `filled` is the same
- *  green on an order blotter and on a fill tape. A status with no entry reads
- *  neutral rather than inventing a colour for a word nobody mapped.
+/** A state, written as a word.
  *
- *  Most of these are NEUTRAL on purpose. `accepted` is not good news and
- *  `cancelling` is not bad news — they are just where the order is, and only
- *  the states that carry direction or trouble earn a colour. */
-const tone: Record<string, BadgeTone> = {
-  // orders — colour only where the state is a problem or a completion
-  initialized: 'neutral', submitted: 'neutral', accepted: 'neutral',
-  partially_filled: 'amber', filled: 'up', canceled: 'neutral',
-  rejected: 'down', denied: 'down', expired: 'neutral', triggered: 'amber',
-  pending_update: 'amber', pending_cancel: 'amber',
-  // reconciliation
-  agree: 'up', break: 'down', unknown: 'amber',
-  // liveness — `alive` is the expected state and reads neutral. Eight green
-  // pills in a column of eight is a column nobody scans, and the one row that
-  // matters is the one that is not green.
-  alive: 'neutral', stale: 'amber', dead: 'down', reachable: 'neutral',
-  // sides and liquidity
-  buy: 'up', sell: 'down', long: 'up', short: 'down',
-  maker: 'neutral', taker: 'neutral',
-  // markets
-  perp: 'neutral', spot: 'neutral', future: 'violet', option: 'violet',
+ *  This was a filled capsule. Five of them in four rows of a blotter is five
+ *  coloured objects competing with the figures that are the point of the row,
+ *  and the capsule adds nothing the word did not already say. A terminal
+ *  writes `Long` in green and `Rejected` in red and leaves it at that.
+ *
+ *  Colour is spent only where the state carries direction or trouble.
+ *  `accepted` is not good news and `cancelling` is not bad news — they are
+ *  just where the order is. */
+const tone: Record<string, string> = {
+  // sides and direction
+  buy: 'text-up', sell: 'text-down', long: 'text-up', short: 'text-down',
+  // trouble, and completion
+  filled: 'text-up', rejected: 'text-down', denied: 'text-down', dead: 'text-down',
+  break: 'text-down',
+  partially_filled: 'text-amber', triggered: 'text-amber',
+  pending_update: 'text-amber', pending_cancel: 'text-amber',
+  stale: 'text-amber', unknown: 'text-amber',
+  agree: 'text-up',
 }
 
 const label: Record<string, string> = {
-  partially_filled: 'partial',
-  pending_update: 'amending',
-  pending_cancel: 'cancelling',
+  partially_filled: 'Partial',
+  pending_update: 'Amending',
+  pending_cancel: 'Cancelling',
+  partially: 'Partial',
 }
+
+const title = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   return (
-    <Badge tone={tone[status] ?? 'neutral'} className={className}>
-      {label[status] ?? status.replace(/_/g, ' ')}
-    </Badge>
+    <span className={cn(tone[status] ?? 'text-fg-mid', className)}>
+      {label[status] ?? title(status.replace(/_/g, ' '))}
+    </span>
   )
 }

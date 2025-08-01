@@ -1,6 +1,5 @@
 import { PanelHeader } from '@/components/shared/PanelHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { VenueTag } from '@/components/shared/VenueTag'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
 import { useGateways } from '@/mock/data'
@@ -53,9 +52,7 @@ export function SettingsPage() {
                 style={entering ? enterDelay(i) : undefined}
                 className={cn('row', entering && 'enter-fade-up')}
               >
-                <td className="px-3">
-                  <VenueTag venue={g.venue} full />
-                </td>
+                <td className="px-3 text-fg-mid">{g.venue}</td>
                 <td className="px-3 text-fg-mid">{g.market}</td>
                 {/* One segment per (venue, market), and perp is the unsuffixed
                     default — so the path a reader sees here is the path on disk. */}
