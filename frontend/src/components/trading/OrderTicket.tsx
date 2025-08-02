@@ -70,7 +70,7 @@ export function OrderTicket({
     <section className="panel flex flex-col overflow-visible">
       <div className="flex h-7 items-center justify-between px-3">
         <span className="panel-title">Ticket</span>
-        <span className="font-mono text-2xs text-fg-dim">{listing.exchangeSymbol}</span>
+        <span className="text-2xs text-fg-dim">{listing.exchangeSymbol}</span>
       </div>
 
       <div className="flex flex-col gap-2 px-3 pb-3">

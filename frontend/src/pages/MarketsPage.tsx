@@ -71,8 +71,9 @@ export function MarketsPage() {
                   <th className="col-head px-3 text-left">Symbol</th>
                   <th className="col-head px-3 text-right">Bid</th>
                   <th className="col-head px-3 text-right">Ask</th>
-                  <th className="col-head px-3 text-right">Spread</th>
+                  <th className="col-head px-3 text-right">Spread bp</th>
                   <th className="col-head px-3 text-right">Funding</th>
+                  <th className="col-head px-3 text-right">Every</th>
                   <th className="col-head px-3 text-right">24h vol</th>
                 </tr>
               </thead>
@@ -153,7 +154,7 @@ function MarketList({
   onPick: (symbol: string) => void
 }) {
   return (
-    <section className="panel flex w-52 shrink-0 flex-col">
+    <section className="panel flex w-68 shrink-0 flex-col">
       <PanelHeader
         title="Markets"
         right={<span className="meta num">{markets.length}</span>}
@@ -190,7 +191,7 @@ function MarketList({
                 onClick={() => onPick(m.symbol)}
                 style={entering ? enterDelay(i) : undefined}
                 className={cn(
-                  'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm px-1.5',
+                  'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm px-2',
                   'transition-colors duration-150',
                   entering && 'enter-fade-up',
                   // Selected is a raised surface plus a two-pixel accent edge,
@@ -203,16 +204,18 @@ function MarketList({
                     : 'text-fg-mid hover:bg-hover hover:text-fg',
                 )}
               >
-                <span className={cn('truncate text-xs', active && 'font-medium')}>
+                <span className={cn('truncate text-sm', active && 'font-medium')}>
                   {m.symbol.replace('/USDT', '')}
                   <span className="text-fg-dim">/USDT</span>
                 </span>
-                <span className="flex shrink-0 items-baseline gap-2">
+                <span className="flex shrink-0 items-baseline gap-3">
                   {/* The count is why this view exists: a market four venues
                       quote is worth opening, a market one venue lists is not.
                       The price is why you would open THIS one. */}
-                  <span className="num text-[10px] text-fg-dim">{m.listings.length}</span>
-                  <span className="num w-16 text-right text-xs text-fg-mid">
+                  <span className="num w-3 text-right text-2xs text-fg-dim">
+                    {m.listings.length}
+                  </span>
+                  <span className="num w-20 text-right text-sm text-fg">
                     {best(m) === null ? '—' : price(best(m) as number)}
                   </span>
                 </span>
@@ -269,17 +272,14 @@ function VenueRow({
         <ExchangeIcon venue={listing.venue} className="size-[15px]" />
         <span className="text-fg-mid">{listing.venue}</span>
       </td>
-      <td className="px-3 font-mono text-xs text-fg-mid">{listing.exchangeSymbol}</td>
+      <td className="px-3 text-xs text-fg-mid">{listing.exchangeSymbol}</td>
       <td className="px-3 text-right">
         <FlashPrice value={listing.bid} format={price} className="text-up" />
       </td>
       <td className="px-3 text-right">
         <FlashPrice value={listing.ask} format={price} className="text-down" />
       </td>
-      <td className="num px-3 text-right text-fg-mid">
-        {spread.toFixed(1)}
-        <span className="ml-1 text-2xs text-fg-dim">bp</span>
-      </td>
+      <td className="num px-3 text-right text-fg-mid">{spread.toFixed(1)}</td>
       <td className="num px-3 text-right">
         {/* The sign is always printed, so a positive rate occupies the same
             width as a negative one and the column's digits line up.
@@ -290,15 +290,12 @@ function VenueRow({
           {listing.fundingRate >= 0 ? '+' : '−'}
           {(Math.abs(listing.fundingRate) * 100).toFixed(4)}%
         </span>
-        {/* The interval travels with the rate. okx funds every four hours where
-            the others fund every eight, and identical numbers side by side
-            without it compare two different things. */}
-        <span className="ml-1 text-2xs text-fg-dim">/{listing.fundingIntervalHours}h</span>
       </td>
-      <td className="num px-3 text-right text-fg">
-        {(listing.volume24h / 1e6).toFixed(1)}
-        <span className="ml-1 text-2xs text-fg-dim">M</span>
-      </td>
+      {/* The interval travels with the rate, in a column of its own. okx funds
+          every four hours where the others fund every eight, and two identical
+          rates side by side without it compare different things. */}
+      <td className="num px-3 text-right text-fg-dim">{listing.fundingIntervalHours}h</td>
+      <td className="num px-3 text-right text-fg">{(listing.volume24h / 1e6).toFixed(1)}M</td>
     </tr>
   )
 }

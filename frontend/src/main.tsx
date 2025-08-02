@@ -6,6 +6,7 @@ import { Login } from '@/routes/Login'
 import { MarketsPage } from '@/pages/MarketsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { StrategiesPage } from '@/pages/StrategiesPage'
+import { StrategyPage } from '@/pages/StrategyPage'
 import { TreasuryPage } from '@/pages/TreasuryPage'
 import './index.css'
 
@@ -20,6 +21,7 @@ createRoot(root).render(
         <Route element={<AppShell />}>
           <Route index element={<MarketsPage />} />
           <Route path="strategies" element={<StrategiesPage />} />
+          <Route path="strategies/:name" element={<StrategyPage />} />
           <Route path="treasury" element={<TreasuryPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

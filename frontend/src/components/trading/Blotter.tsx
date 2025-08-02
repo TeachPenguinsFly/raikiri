@@ -90,10 +90,10 @@ const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
 /** Cell shorthands, so the alignment and the colour of a kind of value are
  *  decided once rather than per column. */
 const Id = ({ children }: { children: ReactNode }) => (
-  <td className="px-3 font-mono text-xs text-fg-dim">{children}</td>
+  <td className="px-3 text-xs text-fg-dim">{children}</td>
 )
 const Sym = ({ children }: { children: ReactNode }) => (
-  <td className="px-3 font-mono text-xs text-fg-mid">{children}</td>
+  <td className="px-3 text-xs text-fg-mid">{children}</td>
 )
 const N = ({
   children,

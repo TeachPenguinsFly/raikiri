@@ -1,19 +1,23 @@
 import { cn } from '@/lib/utils'
 
-/** TPF LABS.
+/** TPF·LABS.
  *
- *  Set as one word in two weights rather than two colours: at 14px in a 200px
- *  rail the colour break was the loudest thing in the navigation, and a logo
- *  that outshouts the data under it is a logo in the wrong place. The accent
- *  is spent on the mark instead, which is four pixels wide. */
+ *  The original wordmark, restored: solid weight, a hair of letter-spacing,
+ *  and the brand cyan square between the two words. The versions in between —
+ *  a light letter-spaced setting, then a colour break with no separator —
+ *  were both attempts to make it quieter, and both cost it its identity. A
+ *  wordmark is the one thing on a screen that is allowed to be itself. */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-2 leading-none', className)}>
-      <span className="size-1.5 shrink-0 rotate-45 bg-accent" />
-      <span className="tracking-[-0.015em]">
-        <span className="font-semibold text-fg">TPF</span>
-        <span className="font-medium text-fg-mid"> LABS</span>
-      </span>
+    <span
+      className={cn(
+        'inline-flex items-center font-extrabold tracking-[0.03em] text-fg',
+        className,
+      )}
+    >
+      TPF
+      <span className="mx-[5px] inline-block size-[9px] rounded-[1px] bg-accent" />
+      LABS
     </span>
   )
 }

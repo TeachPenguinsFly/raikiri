@@ -56,11 +56,11 @@ export function SettingsPage() {
                 <td className="px-3 text-fg-mid">{g.market}</td>
                 {/* One segment per (venue, market), and perp is the unsuffixed
                     default — so the path a reader sees here is the path on disk. */}
-                <td className="px-3 font-mono text-xs text-fg">gw.{g.account}</td>
+                <td className="px-3 text-xs text-fg">gw.{g.account}</td>
                 <td className={cn('num px-3 text-right', g.alive ? 'text-fg-mid' : 'text-fg-dim')}>
                   {g.alive ? g.instruments : '—'}
                 </td>
-                <td className="px-3 font-mono text-xs text-fg-mid">
+                <td className="px-3 text-xs text-fg-mid">
                   {SOURCES[g.venue] ?? (
                     <span className="text-amber">not configured</span>
                   )}

@@ -62,7 +62,7 @@ export function Login() {
 
       <div className="relative flex w-full max-w-sm flex-col items-center">
         <BrandLockup />
-        <p className="mt-5 font-mono text-sm tracking-tight text-fg-mid">raikiri</p>
+        <p className="mt-5 text-sm tracking-tight text-fg-mid">raikiri</p>
         <p className="mt-1 text-sm text-fg-dim">Sign in to the trading terminal.</p>
 
         <div className="mt-7 w-full rounded-lg bg-panel p-6">

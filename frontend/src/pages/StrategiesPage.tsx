@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { ChartFrame, colorsFor, LinePlot } from '@/components/chart'
 import { PanelHeader } from '@/components/shared/PanelHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -93,13 +94,16 @@ export function StrategiesPage() {
                 )}
               >
                 <td className="px-3">
-                  <span className="inline-flex items-center gap-2">
+                  <Link
+                    to={`/strategies/${s.name}`}
+                    className="inline-flex items-center gap-2 hover:text-accent"
+                  >
                     <span
                       className="size-1.5 shrink-0 rounded-full"
                       style={{ background: colors[s.name] as string }}
                     />
-                    <span className="font-semibold text-fg">{s.name}</span>
-                  </span>
+                    <span className="font-medium text-fg">{s.name}</span>
+                  </Link>
                 </td>
                 <td className="px-3 text-fg-mid">{s.kind}</td>
                 <td className="px-3">
