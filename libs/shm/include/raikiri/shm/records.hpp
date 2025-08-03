@@ -142,6 +142,7 @@ using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 using MdReader = BroadcastReader<MdEvent, k_md_ring>;
 using ExecReader = BroadcastReader<ExecEventRec, k_exec_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
+using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
 
 // Resolved channel pointers of one gateway segment. Owner and client views
 // are structurally identical; ownership semantics differ (segment.hpp).
@@ -157,6 +158,19 @@ struct GatewayChannels {
     BalanceTable* balances{nullptr};
     CmdRing* cmd_create{nullptr};
     CmdRing* cmd_cancel{nullptr};
+    // A HUMAN'S INTENT, on its way to the risk gate.
+    //
+    // admind writes here and strategyd reads; the command rings above stay
+    // strategyd's alone. That indirection is not ceremony — these are SPSC
+    // rings, so a second writer on cmd_create would be a data race, and the
+    // losslessness the ring is chosen for depends on there being exactly one.
+    // Routing the manual path through strategyd also means a hand-placed order
+    // meets the same risk gate, the same halt and the same journal as one a
+    // strategy sends, instead of walking around all three.
+    //
+    // It carries OrderCmd, the same 128-byte slot the command rings carry: an
+    // intent and a command differ in who has vouched for them, not in shape.
+    CmdRing* order_intents{nullptr};
 };
 
 [[nodiscard]] std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& owner);
