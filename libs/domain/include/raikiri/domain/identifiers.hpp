@@ -127,6 +127,15 @@ struct ClientOrderId {
     friend constexpr auto operator<=>(ClientOrderId, ClientOrderId) noexcept = default;
 };
 
+// The manual desk's strategy id, reserved and never handed to a strategy.
+//
+// A hand-placed order still needs a client order id, and every one of those
+// packs the strategy that owns it. Reserving one value means an order a person
+// placed is distinguishable from a strategy's in the book, the journal and the
+// ledger — and it means strategyd can refuse an intent that claims to be
+// somebody else, because the only id a desk may mint is this one.
+inline constexpr std::uint16_t k_manual_strategy_id = 1;
+
 // OMS-minted, sent to the venue as its client-order-id field
 // (orderLinkId / clientOid / newClientOrderId depending on venue).
 using ExchangeClientOrderId = Ulid;
