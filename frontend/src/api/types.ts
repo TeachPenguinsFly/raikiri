@@ -119,7 +119,29 @@ export interface paths {
         /** Orders, newest first */
         get: operations["listOrders"];
         put?: never;
-        post?: never;
+        /**
+         * Place an order by hand
+         * @description The manual path into execution.
+         *
+         *     **202, not 201.** What this returns means the desk accepted the intent
+         *     and wrote it to the command ring — NOT that a venue accepted an order.
+         *     The venue's answer arrives later as order events, and a 2xx that implied
+         *     otherwise would have callers believing they are in a market they are not
+         *     in. Follow `GET /v1/orders/{client_order_id}/events`, or the `orders`
+         *     feed on `/v1/stream`, for what actually happened.
+         *
+         *     **The id is minted here, not supplied.** A `client_order_id` packs
+         *     `{strategy_id|seq}`, and the manual desk owns a reserved strategy id —
+         *     letting a caller choose one would let two clients collide on a key the
+         *     whole ledger is built around, and would let a caller impersonate a
+         *     strategy.
+         *
+         *     **Retries need `Idempotency-Key`.** An order request that times out is
+         *     the one case where a client cannot tell "never arrived" from "arrived
+         *     and I lost the answer", and retrying without a key is how one intent
+         *     becomes two positions.
+         */
+        post: operations["placeOrder"];
         delete?: never;
         options?: never;
         head?: never;
@@ -136,7 +158,13 @@ export interface paths {
         get: operations["getOrder"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Cancel a working order
+         * @description 202 for the same reason as placing one: the cancel has been queued, not
+         *     confirmed. An order can fill in the time a cancel is in flight, and a
+         *     response that said "canceled" would be a guess.
+         */
+        delete: operations["cancelOrder"];
         options?: never;
         head?: never;
         patch?: never;
@@ -543,6 +571,50 @@ export interface components {
              */
             interval_seconds?: number | null;
             ts_event: components["schemas"]["Nanos"];
+        };
+        NewOrder: {
+            /**
+             * @description Which gateway sends it, as `format_account` writes the name —
+             *     `bybit`, `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
+             */
+            account: string;
+            instrument_id: components["schemas"]["InstrumentId"];
+            side: components["schemas"]["Side"];
+            /** @enum {string} */
+            order_type: "limit" | "market";
+            /**
+             * @default gtc
+             * @enum {string}
+             */
+            tif: "gtc" | "ioc" | "fok";
+            /**
+             * @description Required for `limit`, refused for `market`. A market order carrying
+             *     a price is an instruction with two meanings.
+             */
+            price?: components["schemas"]["Decimal"];
+            qty: components["schemas"]["Decimal"];
+            /**
+             * @description Refused where the venue has no native post-only.
+             * @default false
+             */
+            post_only: boolean;
+            /**
+             * @description The flag that makes a close a close. Without it an order sized to
+             *     flatten a position that has moved since you read it opens the
+             *     opposite one instead.
+             * @default false
+             */
+            reduce_only: boolean;
+        };
+        OrderAccepted: {
+            /** @description Minted by the desk. Everything downstream keys on it. */
+            client_order_id: components["schemas"]["ClientOrderId"];
+            /**
+             * @description The only value this endpoint can honestly return. A venue status
+             *     appears on the order itself once the venue has answered.
+             * @enum {string}
+             */
+            status: "queued";
         };
         Order: {
             client_order_id: components["schemas"]["ClientOrderId"];
@@ -1023,6 +1095,69 @@ export interface operations {
             };
         };
     };
+    placeOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Any opaque string, stable across retries of the SAME intent. A
+                 *     repeat returns the original 202 and places nothing.
+                 */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewOrder"];
+            };
+        };
+        responses: {
+            /** @description Accepted by the desk and queued for the venue */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderAccepted"];
+                };
+            };
+            /**
+             * @description Refused by the DESK, before anything was queued: an instrument no
+             *     attached gateway lists, a price that is not a multiple of the tick,
+             *     a quantity that is not a multiple of the lot, a market order
+             *     carrying a price or a limit order without one.
+             *
+             *     THE RISK GATE DOES NOT ANSWER HERE. It lives in strategyd, past
+             *     this ring, so a fat-finger price or a size over the limit is
+             *     accepted with a 202 and refused a moment later — the refusal
+             *     arrives on the order's events, not in this response. A caller that
+             *     treats 202 as "the order is good" will be wrong about exactly the
+             *     orders it most needs to be right about.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description No desk is attached, so there is nothing to hand the intent to.
+             *     Distinct from a refusal: this one is worth retrying.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getOrder: {
         parameters: {
             query?: never;
@@ -1044,6 +1179,50 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    cancelOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_order_id: components["parameters"]["ClientOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancel queued for the venue */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /**
+             * @description The order is already in a state a cancel cannot reach — filled,
+             *     expired or canceled. Nothing was queued.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No desk is attached. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listOrderEvents: {

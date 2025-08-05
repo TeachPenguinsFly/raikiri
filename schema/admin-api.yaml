@@ -207,6 +207,73 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/Order" }
 
+    post:
+      tags: [trading]
+      summary: Place an order by hand
+      operationId: placeOrder
+      description: |
+        The manual path into execution.
+
+        **202, not 201.** What this returns means the desk accepted the intent
+        and wrote it to the command ring — NOT that a venue accepted an order.
+        The venue's answer arrives later as order events, and a 2xx that implied
+        otherwise would have callers believing they are in a market they are not
+        in. Follow `GET /v1/orders/{client_order_id}/events`, or the `orders`
+        feed on `/v1/stream`, for what actually happened.
+
+        **The id is minted here, not supplied.** A `client_order_id` packs
+        `{strategy_id|seq}`, and the manual desk owns a reserved strategy id —
+        letting a caller choose one would let two clients collide on a key the
+        whole ledger is built around, and would let a caller impersonate a
+        strategy.
+
+        **Retries need `Idempotency-Key`.** An order request that times out is
+        the one case where a client cannot tell "never arrived" from "arrived
+        and I lost the answer", and retrying without a key is how one intent
+        becomes two positions.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            Any opaque string, stable across retries of the SAME intent. A
+            repeat returns the original 202 and places nothing.
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewOrder" }
+      responses:
+        "202":
+          description: Accepted by the desk and queued for the venue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderAccepted" }
+        "422":
+          description: |
+            Refused by the DESK, before anything was queued: an instrument no
+            attached gateway lists, a price that is not a multiple of the tick,
+            a quantity that is not a multiple of the lot, a market order
+            carrying a price or a limit order without one.
+
+            THE RISK GATE DOES NOT ANSWER HERE. It lives in strategyd, past
+            this ring, so a fat-finger price or a size over the limit is
+            accepted with a 202 and refused a moment later — the refusal
+            arrives on the order's events, not in this response. A caller that
+            treats 202 as "the order is good" will be wrong about exactly the
+            orders it most needs to be right about.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: |
+            No desk is attached, so there is nothing to hand the intent to.
+            Distinct from a refusal: this one is worth retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/orders/{client_order_id}:
     get:
       tags: [trading]
@@ -220,6 +287,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Order" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+    delete:
+      tags: [trading]
+      summary: Cancel a working order
+      operationId: cancelOrder
+      description: |
+        202 for the same reason as placing one: the cancel has been queued, not
+        confirmed. An order can fill in the time a cancel is in flight, and a
+        response that said "canceled" would be a guess.
+      parameters:
+        - { $ref: "#/components/parameters/ClientOrderId" }
+      responses:
+        "202":
+          description: Cancel queued for the venue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderAccepted" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            The order is already in a state a cancel cannot reach — filled,
+            expired or canceled. Nothing was queued.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+          description: No desk is attached.
 
   /v1/orders/{client_order_id}/events:
     get:
@@ -760,6 +857,54 @@ components:
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     # ----------------------------------------------------------- trading ----
+
+    NewOrder:
+      type: object
+      required: [account, instrument_id, side, order_type, qty]
+      properties:
+        account:
+          type: string
+          description: |
+            Which gateway sends it, as `format_account` writes the name —
+            `bybit`, `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        side: { $ref: "#/components/schemas/Side" }
+        order_type: { type: string, enum: [limit, market] }
+        tif:
+          type: string
+          enum: [gtc, ioc, fok]
+          default: gtc
+        price:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            Required for `limit`, refused for `market`. A market order carrying
+            a price is an instruction with two meanings.
+        qty: { $ref: "#/components/schemas/Decimal" }
+        post_only:
+          type: boolean
+          default: false
+          description: Refused where the venue has no native post-only.
+        reduce_only:
+          type: boolean
+          default: false
+          description: |
+            The flag that makes a close a close. Without it an order sized to
+            flatten a position that has moved since you read it opens the
+            opposite one instead.
+
+    OrderAccepted:
+      type: object
+      required: [client_order_id, status]
+      properties:
+        client_order_id:
+          allOf: [{ $ref: "#/components/schemas/ClientOrderId" }]
+          description: Minted by the desk. Everything downstream keys on it.
+        status:
+          type: string
+          enum: [queued]
+          description: |
+            The only value this endpoint can honestly return. A venue status
+            appears on the order itself once the venue has answered.
 
     Order:
       type: object
