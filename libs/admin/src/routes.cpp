@@ -7,6 +7,27 @@
 
 namespace raikiri::admin {
 
+// The request body of POST /v1/orders, exactly as the contract writes it.
+// Every field is a string or a bool because the contract says so: a decimal
+// arrives as text, and parsing it to a double here would undo the whole reason
+// it is text.
+struct NewOrderBody {
+    std::string account;
+    std::string instrument_id;
+    std::string side;
+    std::string order_type;
+    std::string tif{"gtc"};
+    std::string price;
+    std::string qty;
+    bool post_only{false};
+    bool reduce_only{false};
+};
+
+struct OrderAcceptedBody {
+    std::string client_order_id;
+    std::string status{"queued"};
+};
+
 namespace {
 
 // glaze omits an empty optional, which is exactly the contract's rule: a field
@@ -163,17 +184,122 @@ Response problem(int status, std::string_view title, std::string_view detail) {
     return {.status = status, .content_type = "application/problem+json", .body = std::move(body)};
 }
 
+
+namespace {
+
+// The status a refusal deserves. A ring that is full is the one worth
+// retrying; everything else is the caller's request being wrong, and telling
+// them to try again would be telling them to place the same bad order twice.
+int status_for(DeskError error) noexcept {
+    return error == DeskError::RingFull ? 503 : 422;
+}
+
+Response place_order(ManualDesk* desk, const Request& req, UnixNanos now) {
+    if (desk == nullptr) {
+        return problem(503, "no desk", "no gateway is attached to place orders through");
+    }
+    if (req.idempotency_key.empty()) {
+        // Required, not optional. An order request that times out is the one
+        // case where a caller cannot tell "never arrived" from "arrived and I
+        // lost the answer", and a retry without a key turns one intent into
+        // two positions.
+        return problem(400, "Idempotency-Key required", "see schema/admin-api.yaml");
+    }
+    NewOrderBody body{};
+    if (const auto ec = glz::read_json(body, req.body); ec) {
+        return problem(400, "malformed body");
+    }
+
+    DeskOrder order{};
+    const auto id = read_digits(body.instrument_id);
+    if (!id.has_value()) {
+        return problem(422, "bad instrument_id", "expected the packed id as decimal digits");
+    }
+    order.instrument = InstrumentId{*id};
+
+    if (body.side == "buy") {
+        order.side = Side::Buy;
+    } else if (body.side == "sell") {
+        order.side = Side::Sell;
+    } else {
+        return problem(422, "bad side", "expected buy or sell");
+    }
+    if (body.order_type == "limit") {
+        order.type = OrderType::Limit;
+    } else if (body.order_type == "market") {
+        order.type = OrderType::Market;
+    } else {
+        return problem(422, "bad order_type", "expected limit or market");
+    }
+    if (body.tif == "gtc") {
+        order.tif = TimeInForce::Gtc;
+    } else if (body.tif == "ioc") {
+        order.tif = TimeInForce::Ioc;
+    } else if (body.tif == "fok") {
+        order.tif = TimeInForce::Fok;
+    } else {
+        return problem(422, "bad tif", "expected gtc, ioc or fok");
+    }
+    if (body.post_only) {
+        order.flags = order.flags | OrderFlags::PostOnly;
+    }
+    if (body.reduce_only) {
+        order.flags = order.flags | OrderFlags::ReduceOnly;
+    }
+    order.price = body.price;
+    order.qty = body.qty;
+
+    const auto placed = desk->place(order, req.idempotency_key, now);
+    if (!placed.has_value()) {
+        return problem(status_for(placed.error()), "refused", describe(placed.error()));
+    }
+    const OrderAcceptedBody accepted{.client_order_id = std::to_string(placed->raw)};
+    auto answer = json(accepted);
+    // 202: the desk has it, no venue has yet seen it. Anything else would have
+    // callers believing they are in a market they are not in.
+    answer.status = 202;
+    return answer;
+}
+
+Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNanos now) {
+    if (desk == nullptr) {
+        return problem(503, "no desk", "no gateway is attached to place orders through");
+    }
+    const auto raw = read_digits(id_text);
+    if (!raw.has_value()) {
+        return problem(404, "no such order", id_text);
+    }
+    const auto done = desk->cancel(ClientOrderId{*raw}, now);
+    if (!done.has_value()) {
+        const auto error = done.error();
+        return problem(error == DeskError::NoSuchOrder ? 404 : status_for(error),
+                       "refused",
+                       describe(error));
+    }
+    const OrderAcceptedBody accepted{.client_order_id = std::to_string(*raw)};
+    auto answer = json(accepted);
+    answer.status = 202;
+    return answer;
+}
+
+} // namespace
+
 Handler make_router(const Registry& registry,
                     const History* history,
+                    ManualDesk* desk,
                     std::function<MonoNanos()> now,
                     std::function<UnixNanos()> wall) {
-    return [&registry, history, now = std::move(now), wall = std::move(wall)](
+    return [&registry, history, desk, now = std::move(now), wall = std::move(wall)](
                const Request& req) -> Response {
+        if (req.method == "POST" && req.path == "/v1/orders") {
+            return place_order(desk, req, wall());
+        }
+        if (req.method == "DELETE" && req.path.starts_with("/v1/orders/")) {
+            return cancel_order(desk, req.path.substr(std::string_view{"/v1/orders/"}.size()),
+                                wall());
+        }
         if (req.method != "GET") {
-            return problem(405,
-                           "read-only",
-                           "v1 serves reads; writes need a second producer into strategyd's "
-                           "command rings, which is a decision not yet made");
+            return problem(405, "method not allowed", "this path serves reads");
         }
 
         if (req.path == "/v1/health") {

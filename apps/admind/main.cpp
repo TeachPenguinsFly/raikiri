@@ -104,9 +104,14 @@ int main(int argc, char** argv) {
                    history->connected() ? "reachable" : "not answering, will retry per request");
     }
 
+    // One desk for the process. It mints client order ids and remembers
+    // idempotency keys, so it has to outlive a request and be the only thing
+    // doing either — two would mint colliding ids.
+    admin::ManualDesk desk{registry};
+
     admin::Server server{address, port,
                          admin::make_router(
-                             registry, history.get(), [&clock] { return clock.mono(); },
+                             registry, history.get(), &desk, [&clock] { return clock.mono(); },
                              [&clock] { return clock.wall(); })};
     if (!server.start()) {
         fmt::print(stderr, "admind: cannot bind {}:{}\n", address, port);

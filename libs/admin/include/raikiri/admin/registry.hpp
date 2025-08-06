@@ -66,6 +66,18 @@ public:
 
     [[nodiscard]] std::optional<Instrument> instrument(InstrumentId id) const;
 
+    // The gateway that lists an instrument, and the catalogue row itself.
+    //
+    // A writer needs both and the DTO above gives neither: the row carries the
+    // tick and lot sizes a decimal has to be converted through, and the
+    // gateway carries the ring the command goes into. Pointers into the
+    // mapping, valid while this Registry is.
+    struct CatalogueRow {
+        const Gateway* gateway{nullptr};
+        const raikiri::Instrument* instrument{nullptr};
+    };
+    [[nodiscard]] std::optional<CatalogueRow> catalogue_row(InstrumentId id) const noexcept;
+
     // What each attached gateway's venue last said the account holds, or just
     // one of them when `account` names it. A gateway whose venue cannot report
     // balances is present with an empty asset list and `reported_at` absent —
@@ -77,6 +89,12 @@ public:
     [[nodiscard]] const Gateway* find(std::string_view account) const noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return gateways_.size(); }
+
+    // Positional access, for a caller that has to reach every attached
+    // gateway rather than one it can name.
+    [[nodiscard]] const Gateway* at(std::size_t index) const noexcept {
+        return index < gateways_.size() ? &gateways_[index] : nullptr;
+    }
 
 private:
     std::vector<Gateway> gateways_;

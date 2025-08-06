@@ -7,6 +7,7 @@
 // the property that lets a contract test assert the JSON without binding a
 // port.
 
+#include <raikiri/admin/desk.hpp>
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/server.hpp>
@@ -25,8 +26,12 @@ namespace raikiri::admin {
 // question and staleness of a venue's own report is a wall-clock one, because
 // that is the clock the report was stamped with. Reading one with the other is
 // how a fresh snapshot came out looking fifty years old.
+// `desk` may be null, and then the write paths answer 503 — "nothing is
+// attached to place orders through", which is a different fact from a refusal
+// and the one case worth retrying.
 [[nodiscard]] Handler make_router(const Registry& registry,
                                   const History* history,
+                                  ManualDesk* desk,
                                   std::function<MonoNanos()> now,
                                   std::function<UnixNanos()> wall);
 

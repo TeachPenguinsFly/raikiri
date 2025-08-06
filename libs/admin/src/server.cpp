@@ -64,10 +64,16 @@ private:
     void dispatch() {
         const auto target = std::string_view{request_->get().target()};
         const auto split = target.find('?');
-        const Request req{.method = std::string_view{request_->get().method_string()},
-                          .path = target.substr(0, split),
-                          .query = split == std::string_view::npos ? std::string_view{}
-                                                                   : target.substr(split + 1)};
+        const auto& parsed = request_->get();
+        const auto idempotency = parsed.find("Idempotency-Key");
+        const Request req{
+            .method = std::string_view{parsed.method_string()},
+            .path = target.substr(0, split),
+            .query = split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
+            .body = std::string_view{parsed.body()},
+            .idempotency_key = idempotency == parsed.end() ? std::string_view{}
+                                                           : std::string_view{idempotency->value()},
+        };
         Response answer{};
         try {
             answer = (*handler_)(req);

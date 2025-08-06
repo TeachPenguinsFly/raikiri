@@ -198,6 +198,18 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
     return out;
 }
 
+std::optional<Registry::CatalogueRow> Registry::catalogue_row(InstrumentId id) const noexcept {
+    for (const auto& gw : gateways_) {
+        if (gw.account.venue != id.venue() || gw.account.market != id.market()) {
+            continue;
+        }
+        if (const auto* listed = gw.channels.catalogue->find(id); listed != nullptr) {
+            return CatalogueRow{.gateway = &gw, .instrument = listed};
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<Instrument> Registry::instrument(InstrumentId id) const {
     for (const auto& gw : gateways_) {
         // The (venue, market) prefix says which gateway can possibly hold it,

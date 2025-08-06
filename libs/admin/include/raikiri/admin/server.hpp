@@ -25,6 +25,13 @@ struct Request {
     std::string_view method;
     std::string_view path;
     std::string_view query; // raw, without the '?'
+    std::string_view body;  // empty on GET; the parser caps it at 16 KiB
+
+    // Named rather than held in a header map, because exactly one endpoint
+    // reads a header and a map would allocate on every request to carry a
+    // field almost none of them use. When a second header needs reading, that
+    // is the moment to grow a general accessor — not before.
+    std::string_view idempotency_key;
 };
 
 struct Response {

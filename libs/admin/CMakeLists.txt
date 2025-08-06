@@ -1,7 +1,8 @@
 add_library(raikiri_admin STATIC
   src/format.cpp
   src/history.cpp
-  src/registry.cpp
+  src/desk.cpp
+    src/registry.cpp
   src/routes.cpp
   src/server.cpp
   src/stream.cpp
