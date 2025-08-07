@@ -31,7 +31,9 @@ enum class RiskReject : std::uint8_t {
     BadFlags,
     LongLimit,
     ShortLimit,
+    PriceBand,
 };
+
 
 struct RiskConfig {
     std::size_t max_open_orders{64};
@@ -40,6 +42,16 @@ struct RiskConfig {
     // decided a limit is not silently given one.
     QtyLots max_long_lots{QtyLots::from_raw(std::numeric_limits<std::int64_t>::max())};
     QtyLots max_short_lots{QtyLots::from_raw(std::numeric_limits<std::int64_t>::max())};
+
+    // HOW FAR A LIMIT MAY SIT FROM THE MARKET, in basis points.
+    //
+    // Every other limit here bounds size. This one bounds a typo: a strategy
+    // computes its price and will not misplace a decimal, but a person typing
+    // 7940 for 79400 places an order that fills instantly against them and is
+    // gone before it can be cancelled. Zero disables the check, which is the
+    // right default for a caller that has not decided — the same reasoning as
+    // the unlimited sizes above.
+    std::int64_t max_price_band_bp{0};
 };
 
 // The mutable state the gate needs, assembled by the caller.
@@ -53,6 +65,12 @@ struct Exposure {
     QtyLots position_lots{QtyLots::from_raw(0)};     // signed: + long, - short
     QtyLots working_buy_lots{QtyLots::from_raw(0)};  // leaves over live buys
     QtyLots working_sell_lots{QtyLots::from_raw(0)}; // leaves over live sells
+
+    // The market to measure a limit price against. UNDEF IS NOT ZERO: a
+    // caller that has no quote leaves this undefined and the band is not
+    // checked, because banding against a price nobody published would refuse
+    // orders on the strength of a number that does not exist.
+    PriceTicks reference_price{};
 };
 
 class RiskGate {
@@ -83,6 +101,28 @@ public:
         }
         if (cmd.order_type == OrderType::Limit && (cmd.price.is_undef() || cmd.price.raw <= 0)) {
             return std::unexpected{RiskReject::BadPrice};
+        }
+        // The band, once the price is known to be a price at all.
+        if (cmd.order_type == OrderType::Limit && config_.max_price_band_bp > 0 &&
+            !exposure.reference_price.is_undef() && exposure.reference_price.raw > 0) {
+            const auto reference = exposure.reference_price.raw;
+            const auto away = cmd.price.raw > reference ? cmd.price.raw - reference
+                                                        : reference - cmd.price.raw;
+            // CROSS-MULTIPLIED, never `reference / 10'000 * bp`.
+            //
+            // These are TICK COUNTS, and dividing first truncates. An
+            // instrument quoted at 1.38 with a 0.0001 tick is 13'865 ticks, so
+            // `13'865 / 10'000` is 1 and a 500 bp band collapses to 500 ticks —
+            // 3.6 %, not 5. The error scales with the tick, so the band was
+            // wide on an expensive instrument and arbitrary on a cheap one,
+            // which is the opposite of what a fixed basis-point limit means.
+            //
+            // Both sides stay in int64: `away` never exceeds `reference` in
+            // any case worth allowing, and a price of 10^12 ticks times 10'000
+            // is still four orders of magnitude below the type's ceiling.
+            if (away * 10'000 > reference * config_.max_price_band_bp) {
+                return std::unexpected{RiskReject::PriceBand};
+            }
         }
         if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
             // Post-only is a maker constraint; a market order is a taker by definition.

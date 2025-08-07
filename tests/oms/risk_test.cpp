@@ -215,5 +215,41 @@ TEST(Risk, AReconciliationBreakRefusesEverythingItGates) {
     EXPECT_TRUE(gate.check(valid_limit(), Exposure{}).has_value());
 }
 
+// The band is a RATIO, so it has to mean the same thing on an instrument
+// quoted in 790'000 ticks and one quoted in 13'865. It did not: the first
+// draft divided the reference by 10'000 before multiplying, and on a small
+// tick count that division truncated to 1 — turning a 500 bp band into
+// whatever 500 ticks happened to be worth. A live XRP order 4.0 % from the mid
+// was refused against a 5 % limit because of it, and the same code let a BTC
+// order through at 4.94 %. The error scaled with the tick, which is precisely
+// what a basis-point limit exists not to do.
+TEST(RiskGate, ThePriceBandMeansTheSameAtAnyTickScale) {
+    RiskGate gate{RiskConfig{.max_price_band_bp = 500}};
+
+    const auto admits = [&gate](std::int64_t reference, std::int64_t price) {
+        auto cmd = valid_limit(10, price);
+        Exposure exposure{};
+        exposure.reference_price = PriceTicks::from_raw(reference);
+        return gate.check(cmd, exposure).has_value();
+    };
+
+    // A cheap instrument: 13'865 ticks, so 500 bp admits 693 ticks either way.
+    EXPECT_TRUE(admits(13'865, 13'865 - 550));  // 3.97 %
+    EXPECT_TRUE(admits(13'865, 13'865 + 550));
+    EXPECT_FALSE(admits(13'865, 13'865 - 800)); // 5.77 %
+
+    // An expensive one, in the same ratio terms.
+    EXPECT_TRUE(admits(790'000, 790'000 - 39'000));  // 4.94 %
+    EXPECT_FALSE(admits(790'000, 790'000 - 40'000)); // 5.06 %
+}
+
+// UNDEF IS NOT ZERO. A caller with no quote leaves the reference undefined,
+// and banding against a price nobody published would refuse orders on the
+// strength of a number that does not exist.
+TEST(RiskGate, NoReferencePriceMeansNoBandRatherThanARefusal) {
+    RiskGate gate{RiskConfig{.max_price_band_bp = 500}};
+    EXPECT_TRUE(gate.check(valid_limit(10, 1), Exposure{}).has_value());
+}
+
 } // namespace
 } // namespace raikiri::oms
