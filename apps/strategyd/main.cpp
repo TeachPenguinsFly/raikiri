@@ -82,6 +82,7 @@ struct Gateway {
     shm::MdReader md;
     shm::CmdProducer creates;
     shm::CmdProducer cancels;
+    shm::CmdConsumer intents;
     std::vector<std::uint32_t> bbo_seen;
     std::vector<std::uint32_t> funding_seen;
     std::uint64_t recon_due{0};
@@ -92,7 +93,7 @@ struct Gateway {
             shm::GatewayChannels channels)
         : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
           exec{channels.exec_events}, md{channels.md_events}, creates{channels.cmd_create},
-          cancels{channels.cmd_cancel},
+          cancels{channels.cmd_cancel}, intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
 };
@@ -123,6 +124,20 @@ public:
 
     std::expected<ClientOrderId, strategy::RejectReason>
     submit(const strategy::NewOrder& order) noexcept override {
+        return submit_as(order, ids_->next_client_id());
+    }
+
+    /** Place an order under an id somebody else already minted.
+     *
+     *  The manual desk needs this: admind answered its caller with a client
+     *  order id before the intent ever reached this process, and the book has
+     *  to agree with what that caller was told. Everything else — the risk
+     *  gate, the store, the journal-before-wire, the local Submitted
+     *  transition — is the one path both callers take, because a hand-placed
+     *  order that skipped any of it would be an order the system cannot
+     *  reconcile, halt or replay. */
+    std::expected<ClientOrderId, strategy::RejectReason>
+    submit_as(const strategy::NewOrder& order, ClientOrderId id) noexcept {
         const auto t0 = clock_->mono();
 
         OrderCmd cmd{};
@@ -132,7 +147,7 @@ public:
         cmd.tif = order.tif;
         cmd.flags = order.flags;
         cmd.instrument = order.instrument;
-        cmd.client_order_id = ids_->next_client_id();
+        cmd.client_order_id = id;
         cmd.exchange_client_order_id = ids_->next_exchange_client_id(clock_->wall());
         cmd.price = order.price;
         cmd.qty = order.qty;
@@ -153,6 +168,12 @@ public:
         const auto working = oms::working_lots(*store_, order.instrument);
         exposure.working_buy_lots = working.buy;
         exposure.working_sell_lots = working.sell;
+        // The mid, where there is one. Left undefined otherwise, which turns
+        // the band off rather than banding against a price nobody published.
+        if (const auto quote = bbo(order.instrument);
+            quote.has_value() && !quote->bid.is_undef() && !quote->ask.is_undef()) {
+            exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
+        }
         if (!risk_->check(cmd, exposure).has_value()) {
             return std::unexpected{strategy::RejectReason::Risk};
         }
@@ -660,6 +681,20 @@ Restoration restore_book(portfolio::PositionBook& book,
     return out;
 }
 
+namespace {
+[[nodiscard]] constexpr std::string_view reject_name(strategy::RejectReason why) noexcept {
+    switch (why) {
+    case strategy::RejectReason::Risk:
+        return "risk gate";
+    case strategy::RejectReason::Capacity:
+        return "order store full";
+    case strategy::RejectReason::VenueDown:
+        return "no gateway for this instrument, or its command ring is full";
+    }
+    return "unknown";
+}
+} // namespace
+
 int main(int argc, char** argv) {
     std::uint64_t duration_s = 10;
     // Account names, which are also the segment names: "bybit" is bybit perp,
@@ -741,7 +776,12 @@ int main(int argc, char** argv) {
     }
 
     oms::OrderStore store{4096};
-    oms::RiskGate risk{{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(1'000)}};
+    // 500 bp — five per cent off the mid. Wide enough that a limit resting a
+    // long way out is still allowed, narrow enough that a misplaced decimal
+    // never reaches a venue.
+    oms::RiskGate risk{{.max_open_orders = 64,
+                        .max_qty_lots = QtyLots::from_raw(1'000),
+                        .max_price_band_bp = 500}};
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
 
@@ -802,6 +842,8 @@ int main(int argc, char** argv) {
     std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
     std::uint64_t position_refusals = 0; // position book full: must stay 0
     std::uint64_t funding_ticks = 0;
+    std::uint64_t desk_intents = 0;  // hand-placed intents seen
+    std::uint64_t desk_refusals = 0; // and how many never reached a venue
 
     for (auto& gw : gateways) {
         gw.recon_due = clock.mono().ns; // once at start, then on the interval
@@ -824,6 +866,66 @@ int main(int argc, char** argv) {
         // Verdicts drain before market data, across EVERY gateway: a strategy
         // must never act on a price tick while its own order state is a poll
         // behind, and the order it is behind on may be on another venue.
+        // A person's intents drain FIRST, ahead of verdicts and market data.
+        //
+        // Someone watching the screen has already decided; the cost of holding
+        // their order for one more poll is a tick of slippage they did not ask
+        // for. Nothing downstream is skipped by going first — the desk hands
+        // each intent to the same submit path a strategy uses, so the risk
+        // gate, the store, the journal and the halt all still see it.
+        OrderCmd intent{};
+        for (auto& gw : gateways) {
+            while (gw.intents.try_pop(intent)) {
+                desk_intents += 1;
+                // AN INTENT MAY ONLY SPEAK FOR THE DESK. The id packs the
+                // strategy that owns the order, so an intent carrying anyone
+                // else's is a caller trying to place orders in a strategy's
+                // name — refused here rather than trusted because it arrived
+                // over a loopback socket.
+                if (intent.client_order_id.strategy_id() != k_manual_strategy_id) {
+                    desk_refusals += 1;
+                    continue;
+                }
+                switch (intent.kind) {
+                case CmdKind::Create: {
+                    const strategy::NewOrder order{.instrument = intent.instrument,
+                                                   .side = intent.side,
+                                                   .type = intent.order_type,
+                                                   .tif = intent.tif,
+                                                   .flags = intent.flags,
+                                                   .price = intent.price,
+                                                   .qty = intent.qty};
+                    const auto placed = ctx.submit_as(order, intent.client_order_id);
+                    if (!placed.has_value()) {
+                        desk_refusals += 1;
+                        // WHY, not just that. A desk that refuses in silence is
+                        // a desk nobody can debug: from the caller's side a
+                        // rejected order and a lost one look identical.
+                        fmt::print(stderr,
+                                   "strategyd: desk order {} refused — {}\n",
+                                   intent.client_order_id.raw,
+                                   reject_name(placed.error()));
+                    }
+                    break;
+                }
+                case CmdKind::Cancel:
+                    if (!ctx.cancel(intent.client_order_id)) {
+                        desk_refusals += 1;
+                        fmt::print(stderr,
+                                   "strategyd: desk cancel {} refused — no such order here\n",
+                                   intent.client_order_id.raw);
+                    }
+                    break;
+                case CmdKind::Amend:
+                    // The desk does not amend. A person changing their mind
+                    // cancels and re-places, which is two decisions they can
+                    // see rather than one the venue may or may not support.
+                    desk_refusals += 1;
+                    break;
+                }
+            }
+        }
+
         shm::ExecEventRec rec{};
         for (auto& gw : gateways) {
             for (;;) {
@@ -1011,6 +1113,9 @@ int main(int argc, char** argv) {
                exec_overruns,
                bad_transitions,
                position_refusals);
+    // Refusals are reported beside the count, not hidden: a desk whose orders
+    // are all being turned away looks exactly like a quiet desk otherwise.
+    fmt::print("manual desk: intents={}  refused={}\n", desk_intents, desk_refusals);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,
