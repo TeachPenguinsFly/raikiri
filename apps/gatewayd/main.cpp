@@ -50,6 +50,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <thread>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -223,7 +224,9 @@ private:
 
 // A pull every 30s, and once at startup. Not a hot path: this is the slow,
 // authoritative check that the fast path is still telling the truth.
-constexpr std::uint64_t k_recon_interval_ns = 30ULL * 1'000'000'000ULL;
+// How often the account poller asks the venue what it holds. Thirty seconds,
+// as before — what changed is which thread waits for the answer.
+constexpr int k_recon_interval_slices = 300; // 300 x 100 ms
 
 // Publishes what the venue says it holds, and nothing else.
 //
@@ -238,6 +241,21 @@ constexpr std::uint64_t k_recon_interval_ns = 30ULL * 1'000'000'000ULL;
 // is what makes a fresh zero mean "the venue says flat" rather than "nobody
 // asked". A pull that fails writes nothing at all, leaving the cells stale,
 // which is how the reader reaches Unknown without a flag saying so.
+// The account poller's sink, which accepts nothing.
+//
+// The poller's adapter is REST-only and never starts a socket, so in principle
+// it has nothing to push. This makes that a property of the code rather than
+// of anyone's reading of it: if a future adapter did emit from a pull path, it
+// would land here and be dropped, not double-counted into the gateway's real
+// event stream from a second thread.
+struct NullSink final : raikiri::exec::GatewaySink {
+    void on_bbo(const raikiri::Bbo&) noexcept override {}
+    void on_trade(const raikiri::TradeTick&) noexcept override {}
+    void on_funding(const raikiri::FundingUpdate&) noexcept override {}
+    void on_order_event(const raikiri::OrderEvent&) noexcept override {}
+    void on_connectivity(const raikiri::exec::ConnEvent&) noexcept override {}
+};
+
 void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        raikiri::MarketType market,
                        const raikiri::shm::CatalogueTable& catalogue,
@@ -672,10 +690,82 @@ int main(int argc, char** argv) {
     shm::SpscConsumer creates{channels->cmd_create};
     shm::SpscConsumer cancels{channels->cmd_cancel};
 
+    // THE ACCOUNT POLLER — the venue's word on what this account holds, asked
+    // for on its own thread.
+    //
+    // It gets its OWN adapter rather than sharing the loop's. Every venue
+    // adapter documents its state as single-threaded ("the gateway loop is the
+    // only caller, which is why nothing here synchronises"), and a shared one
+    // would need a lock the loop would then wait on for the length of an HTTP
+    // round trip — the same stall, moved. A second adapter is a second signer
+    // and a second connection pool, and that is the price of the isolation.
+    //
+    // `data->start()` is NOT called: a second market-data socket would be pure
+    // waste. `execution->start()` IS, because it does three things and the
+    // pulls need two of them — it brings up the REST client and, critically,
+    // syncs this client's clock against the venue. Signing with an unsynced
+    // clock gets every request refused with "check your server timestamp",
+    // which is exactly what happened when this was left out.
+    //
+    // Its third act is opening a user socket, and that is why the poller has a
+    // sink that accepts nothing: the duplicate fills it would deliver are
+    // dropped at the boundary rather than counted twice. The cost is one extra
+    // private connection per gateway, which is the price of not threading a
+    // pull-only start through sixteen adapters.
+    //
+    // It is also the ONLY writer of these two tables, which keeps the
+    // single-writer contract the seqlock rests on.
+    std::unique_ptr<exec::VenueAdapter> poller_adapter;
+    NullSink poller_sink;
+    std::thread poller;
+    if (can_trade) {
+        auto made = exec::make_venue({.venue = venue,
+                                      .market = market,
+                                      .testnet = testnet,
+                                      .api_key_env = api_key_ref,
+                                      .api_secret_env = api_secret_ref,
+                                      .passphrase_env = passphrase_ref},
+                                     poller_sink,
+                                     clock);
+        if (made.has_value()) {
+            poller_adapter = std::make_unique<exec::VenueAdapter>(std::move(*made));
+            if (const auto up = poller_adapter->execution->start(); !up.has_value()) {
+                fmt::print(stderr,
+                           "gatewayd: account poller could not start — {}\n",
+                           up.error().message.view());
+                poller_adapter.reset();
+            }
+        }
+        if (poller_adapter != nullptr) {
+            poller = std::thread([&] {
+                auto* channels_ptr = &*channels;
+                while (!g_stop.load(std::memory_order_relaxed)) {
+                    publish_positions(*poller_adapter,
+                                      market,
+                                      *channels_ptr->catalogue,
+                                      *channels_ptr->positions,
+                                      clock.wall());
+                    // On the same pass as the positions: both are the venue's
+                    // word on this account, and asking for one without the
+                    // other invites a reader to compare numbers taken thirty
+                    // seconds apart.
+                    publish_balances(
+                        *poller_adapter, market, *channels_ptr->balances, clock.wall());
+                    // Woken in slices so a shutdown does not wait out the
+                    // whole interval.
+                    for (int i = 0;
+                         i < k_recon_interval_slices && !g_stop.load(std::memory_order_relaxed);
+                         ++i) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+                    }
+                }
+            });
+        }
+    }
+
     const auto t_end =
         duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
-    std::uint64_t recon_due = 0; // first pass runs immediately
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -715,15 +805,14 @@ int main(int argc, char** argv) {
             }
         }
         adapter->data->poll(clock.wall());
-        if (mono.ns >= recon_due) {
-            publish_positions(
-                *adapter, market, *channels->catalogue, *channels->positions, clock.wall());
-            // On the same tick as the positions: both are the venue's word on
-            // this account, and asking for one without the other invites a
-            // reader to compare numbers taken thirty seconds apart.
-            publish_balances(*adapter, market, *channels->balances, clock.wall());
-            recon_due = mono.ns + k_recon_interval_ns;
-        }
+        // THE ACCOUNT PULL IS NOT HERE ANY MORE. It used to sit between two
+        // heartbeats and took as long as a round trip to the venue — measured
+        // at 460 ms against bybit, against a 200 ms staleness threshold — so
+        // every ordinary reconciliation made this process look dead to every
+        // peer, and strategyd correctly stopped. The heartbeat was the loud
+        // symptom; the quiet one was worse, because for that same 460 ms the
+        // command rings below were not being drained either and a person's
+        // order sat waiting on an HTTP response it had nothing to do with.
         owner->beat(mono.ns);
         if (mono.ns >= flush_due) {
             journal_writer->flush();
@@ -731,6 +820,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (poller.joinable()) {
+        poller.join();
+    }
     adapter->data->stop();
     adapter->execution->stop();
     journal_writer->flush();
