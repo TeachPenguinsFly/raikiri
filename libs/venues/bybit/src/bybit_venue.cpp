@@ -578,7 +578,7 @@ private:
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
                                    : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            reject(cmd, "request build failed");
+            reject(cmd, to_string(request.error()));
             return;
         }
         const auto client_order_id = cmd.client_order_id;
@@ -602,12 +602,24 @@ private:
                      Kind kind) {
         if (response.transport_failed()) {
             // No verdict from the venue at all.
-            emit_reject(client_order_id, instrument, side, qty, kind);
+            emit_reject(client_order_id,
+                        instrument,
+                        side,
+                        qty,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity, 0, "no response from venue"));
             return;
         }
         const auto envelope = parse_envelope(response.body);
         if (!envelope.has_value()) {
-            emit_reject(client_order_id, instrument, side, qty, kind);
+            emit_reject(
+                client_order_id,
+                instrument,
+                side,
+                qty,
+                kind,
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->ret_code == k_ret_ok) {
@@ -616,11 +628,25 @@ private:
         if (kind == Kind::Cancel && is_benign_cancel_failure(envelope->ret_code)) {
             return;
         }
-        emit_reject(client_order_id, instrument, side, qty, kind);
+        emit_reject(client_order_id,
+                    instrument,
+                    side,
+                    qty,
+                    kind,
+                    exec::VenueError::make(
+                        classify(envelope->ret_code), envelope->ret_code, envelope->ret_msg));
     }
 
-    void emit_reject(
-        ClientOrderId client_order_id, InstrumentId instrument, Side side, QtyLots qty, Kind kind) {
+    // The reason is not optional. Every refusal here reaches the sink with the
+    // verdict that caused it, because the terminal event itself has no room for
+    // one and a rejection nobody can explain costs an hour at the exchange.
+    void emit_reject(ClientOrderId client_order_id,
+                     InstrumentId instrument,
+                     Side side,
+                     QtyLots qty,
+                     Kind kind,
+                     const exec::VenueError& error) {
+        state_->sink->on_order_error(client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected
@@ -635,14 +661,15 @@ private:
         state_->sink->on_order_event(event);
     }
 
-    void reject(const OrderCmd& cmd, std::string_view) noexcept {
+    void reject(const OrderCmd& cmd, std::string_view why) noexcept {
         emit_reject(cmd.client_order_id,
                     cmd.instrument,
                     cmd.side,
                     cmd.qty,
                     cmd.kind == CmdKind::Cancel  ? Kind::Cancel
                     : cmd.kind == CmdKind::Amend ? Kind::Amend
-                                                 : Kind::Create);
+                                                 : Kind::Create,
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, why));
     }
 
     std::shared_ptr<VenueState> state_;

@@ -60,6 +60,25 @@
 
 namespace {
 
+// The class decides what a human does next — retry, back off, or page someone —
+// so a refusal prints it by name rather than as an integer.
+[[nodiscard]] constexpr std::string_view error_class_name(raikiri::exec::ErrorClass cls) noexcept {
+    using enum raikiri::exec::ErrorClass;
+    switch (cls) {
+    case Terminal:
+        return "terminal";
+    case Retryable:
+        return "retryable";
+    case RateLimited:
+        return "rate-limited";
+    case AuthFailure:
+        return "auth";
+    case Connectivity:
+        return "connectivity";
+    }
+    return "unknown";
+}
+
 std::atomic<bool> g_stop{false};
 
 void on_signal(int) {
@@ -159,8 +178,25 @@ public:
         event.leaves_qty = raikiri::QtyLots::from_raw(0);
         event.ts_event = cmd.ts_created;
         event.ts_init = cmd.ts_created;
-        fmt::print(stderr, "gatewayd: refused coid={:#x} — {}\n", cmd.client_order_id.raw, why);
+        on_order_error(cmd.client_order_id,
+                       raikiri::exec::VenueError::make(
+                           raikiri::exec::ErrorClass::Terminal, 0, why));
         on_order_event(event);
+    }
+
+    // The only place a refusal becomes readable. Nothing else in the process
+    // prints one: `OrderEvent` reaches shm and the journal carrying the fact of
+    // a rejection and no reason for it, so an order that dies at the venue is
+    // invisible here unless this line runs.
+    void on_order_error(raikiri::ClientOrderId client_order_id,
+                        const raikiri::exec::VenueError& error) noexcept override {
+        ++counts_.order_errors;
+        fmt::print(stderr,
+                   "gatewayd: refused coid={:#x} — {} (class={}, code={})\n",
+                   client_order_id.raw,
+                   error.message.view(),
+                   error_class_name(error.cls),
+                   error.venue_code);
     }
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
@@ -197,6 +233,7 @@ public:
         std::uint64_t funding{0};
         std::uint64_t greeks{0};
         std::uint64_t order_events{0};
+        std::uint64_t order_errors{0};
     };
 
     [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
@@ -828,7 +865,7 @@ int main(int argc, char** argv) {
     journal_writer->flush();
     const auto& counts = sink.counts();
     fmt::print("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-               "order-events={}\n",
+               "order-events={} refusals={}\n",
                account_name,
                counts.bbo,
                counts.depth,
@@ -836,6 +873,7 @@ int main(int argc, char** argv) {
                counts.trades,
                counts.funding,
                counts.greeks,
-               counts.order_events);
+               counts.order_events,
+               counts.order_errors);
     return 0;
 }
