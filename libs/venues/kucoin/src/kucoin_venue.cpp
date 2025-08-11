@@ -1045,7 +1045,11 @@ private:
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         auto* link = link_for(cmd.instrument.market());
         if (link == nullptr) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal,
+                                               0,
+                                               "no link for this instrument's market"));
             return;
         }
         const auto now = state_->venue_now();
@@ -1055,7 +1059,11 @@ private:
                 ? link->builder().cancel_order(cmd, state_->instruments, now)
                 : link->builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(
+                cmd,
+                kind,
+                exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto client_order_id = cmd.client_order_id;
@@ -1079,7 +1087,7 @@ private:
                                                qty,
                                                kind);
                                })) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -1090,16 +1098,16 @@ private:
                      Side side,
                      QtyLots qty,
                      Kind kind) {
-        const auto refuse = [&] {
-            emit(client_order_id, exchange_client_order_id, instrument, side, qty, kind);
+        const auto refuse = [&](const exec::VenueError& error) {
+            emit(client_order_id, exchange_client_order_id, instrument, side, qty, kind, error);
         };
         if (response.transport_failed()) {
-            refuse(); // no verdict from the venue at all
+            refuse(exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            refuse();
+            refuse(exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code == k_ok) {
@@ -1108,26 +1116,33 @@ private:
         if (kind == Kind::Cancel && is_benign_cancel_failure(envelope->code, envelope->msg)) {
             return; // the order was already gone, which is what was asked for
         }
-        refuse();
+        refuse(exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg));
     }
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
         emit(cmd.client_order_id,
              cmd.exchange_client_order_id,
              cmd.instrument,
              cmd.side,
              cmd.qty,
-             kind);
+             kind,
+             error);
     }
 
     // A REST refusal never reaches the private socket, so the lifecycle event
     // the OMS is waiting for has to be made here or the order sits open forever.
+    //
+    // The reason is not optional, and it is demanded HERE rather than in
+    // `emit_reject` above: this is the funnel both refusal paths pass through,
+    // and the other one holds no OrderCmd to name itself with.
     void emit(ClientOrderId client_order_id,
               ExchangeClientOrderId exchange_client_order_id,
               InstrumentId instrument,
               Side side,
               QtyLots qty,
-              Kind kind) noexcept {
+              Kind kind,
+              const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected

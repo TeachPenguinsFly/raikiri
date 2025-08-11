@@ -494,13 +494,15 @@ public:
     void submit(const OrderCmd& cmd) noexcept override {
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
-            emit(cmd, OrderEventType::Rejected);
+            emit(cmd,
+                 OrderEventType::Rejected,
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
         const auto request =
             state_->builder.create_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
-            emit(cmd, OrderEventType::Rejected);
+            emit(cmd, OrderEventType::Rejected, build_failed(request.error()));
             return;
         }
         send_order(*request, cmd, OrderEventType::Rejected);
@@ -509,13 +511,15 @@ public:
     void cancel(const OrderCmd& cmd) noexcept override {
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
-            emit(cmd, OrderEventType::CancelRejected);
+            emit(cmd,
+                 OrderEventType::CancelRejected,
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
         const auto request =
             state_->builder.cancel_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
-            emit(cmd, OrderEventType::CancelRejected);
+            emit(cmd, OrderEventType::CancelRejected, build_failed(request.error()));
             return;
         }
         send_order(*request, cmd, OrderEventType::CancelRejected);
@@ -524,13 +528,15 @@ public:
     void amend(const OrderCmd& cmd) noexcept override {
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
-            emit(cmd, OrderEventType::ModifyRejected);
+            emit(cmd,
+                 OrderEventType::ModifyRejected,
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
         const auto request =
             state_->builder.amend_order(cmd, base_of(*instrument), state_->venue_now());
         if (!request.has_value()) {
-            emit(cmd, OrderEventType::ModifyRejected);
+            emit(cmd, OrderEventType::ModifyRejected, build_failed(request.error()));
             return;
         }
         send_order(*request, cmd, OrderEventType::ModifyRejected);
@@ -777,11 +783,21 @@ private:
         const auto captured = cmd;
         const auto sent = rest_.send(request, [this, captured, on_failure](net::RestResponse&& r) {
             if (r.transport_failed()) {
-                emit(captured, on_failure);
+                emit(captured,
+                     on_failure,
+                     exec::VenueError::make(
+                         exec::ErrorClass::Connectivity, 0, "no response from venue"));
                 return;
             }
             const auto err = parse_rest_error(r.body);
-            if (!err.has_value() || err->code == k_ok) {
+            if (!err.has_value()) {
+                emit(captured,
+                     on_failure,
+                     exec::VenueError::make(
+                         exec::ErrorClass::Terminal, 0, "unparseable error body"));
+                return;
+            }
+            if (err->code == k_ok) {
                 return; // accepted; the user stream reports what happens next
             }
             if (on_failure == OrderEventType::CancelRejected &&
@@ -789,14 +805,24 @@ private:
                 // The order already filled or was already gone.
                 return;
             }
-            emit(captured, on_failure);
+            emit(captured,
+                 on_failure,
+                 exec::VenueError::make(classify(err->code), err->code, err->msg));
         });
         if (!sent) {
-            emit(cmd, on_failure);
+            emit(cmd,
+                 on_failure,
+                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit(const OrderCmd& cmd,
+              OrderEventType type,
+              const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;
         event.side = cmd.side;

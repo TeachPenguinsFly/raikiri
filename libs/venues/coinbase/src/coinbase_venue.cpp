@@ -361,6 +361,15 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
 // A refusal to build is terminal by construction: the same command built again
 // produces the same refusal. NotSigned is the exception, and it points at the
 // config rather than at the venue.
+// The body may not parse; the status classifies either way.
+exec::VenueError http_failure(const net::RestResponse& response) noexcept {
+    const auto message = parse_rest_error(response.body);
+    return exec::VenueError::make(classify_http(response.status),
+                                  response.status,
+                                  message.has_value() ? *message
+                                                      : std::string_view{"http error"});
+}
+
 exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
@@ -523,7 +532,7 @@ private:
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
                                    : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, build_failure(request.error()));
             return;
         }
         if (kind == Kind::Create) {
@@ -534,13 +543,17 @@ private:
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd, kind);
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind, // no verdict from the venue at all
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity, 0, "no response from venue"));
             return;
         }
         if (response.status < 200 || response.status >= 300) {
@@ -551,7 +564,7 @@ private:
             if (kind == Kind::Cancel && response.status == k_http_not_found) {
                 return;
             }
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, http_failure(response));
             return;
         }
         switch (kind) {
@@ -561,7 +574,10 @@ private:
             // waiting on a stream this adapter does not hold.
             const auto order = parse_order(response.body);
             if (!order.has_value()) {
-                emit_reject(cmd, kind);
+                emit_reject(
+                    cmd,
+                    kind,
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order row"));
                 return;
             }
             if (const auto event = map_order_event(*order, state_->instruments,
@@ -601,7 +617,11 @@ private:
         state_->sink->on_order_event(event);
     }
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected

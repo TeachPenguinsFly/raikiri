@@ -1020,8 +1020,9 @@ private:
         const auto request =
             builder_.cancel_batch(group, state_->instruments, state_->venue_now());
         if (!request.has_value()) {
+            const auto refusal = build_failure(request.error());
             for (const auto& cmd : group) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, refusal);
             }
             return;
         }
@@ -1034,12 +1035,14 @@ private:
                     response.status < 300) {
                     return;
                 }
+                const auto refusal =
+                    response.transport_failed() ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue") : rest_failure(response.body);
                 for (const auto& cmd : pending) {
-                    emit_reject(cmd, Kind::Cancel);
+                    emit_reject(cmd, Kind::Cancel, refusal);
                 }
             })) {
             for (const auto& cmd : group) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             }
         }
     }
@@ -1051,7 +1054,7 @@ private:
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
                                    : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, build_failure(request.error()));
             return;
         }
         const auto market = cmd.instrument.market();
@@ -1062,7 +1065,7 @@ private:
                                                  net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -1084,7 +1087,7 @@ private:
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
                      MarketType market) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind); // no verdict from the venue at all
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -1109,14 +1112,16 @@ private:
                 is_benign_cancel_failure(outcome->code)) {
                 return;
             }
-            emit_reject(cmd, kind);
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, outcome->code));
             return;
         }
         if (kind == Kind::Cancel && envelope.has_value() &&
             is_benign_cancel_failure(envelope->code)) {
             return; // the order already finished; reconciliation settles it
         }
-        emit_reject(cmd, kind);
+        emit_reject(cmd, kind, rest_failure(response.body));
     }
 
     void bind_ack(std::string_view body, const OrderCmd& cmd, MarketType market) {
@@ -1135,7 +1140,11 @@ private:
         }
     }
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected

@@ -862,21 +862,22 @@ private:
                            ? builder_.cancel_order(cmd, state_->instruments, now)
                            : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, build_failure(request.error()));
             return;
         }
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
     void send_batch(std::span<const OrderCmd> chunk) noexcept {
         auto request = builder_.cancel_batch(chunk, state_->instruments, state_->clock->wall());
         if (!request.has_value()) {
+            const auto refusal = build_failure(request.error());
             for (const auto& cmd : chunk) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, refusal);
             }
             return;
         }
@@ -885,23 +886,26 @@ private:
                 on_batch_response(std::move(response), pending);
             })) {
             for (const auto& cmd : chunk) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             }
         }
     }
 
     void on_batch_response(net::RestResponse&& response, const std::vector<OrderCmd>& pending) {
         if (response.transport_failed() || response.status != k_ok) {
+            const auto refusal = response.transport_failed() ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue") : rest_failure(response);
             for (const auto& cmd : pending) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, refusal);
             }
             return;
         }
         static thread_local OrderBuffer storage;
         const auto rows = parse_orders(response.body, storage);
         if (!rows.has_value()) {
+            const auto refusal =
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order rows");
             for (const auto& cmd : pending) {
-                emit_reject(cmd, Kind::Cancel);
+                emit_reject(cmd, Kind::Cancel, refusal);
             }
             return;
         }
@@ -915,7 +919,10 @@ private:
             }
             for (const auto& cmd : pending) {
                 if (cmd.target_exchange_order_id.view() == wire.order_id) {
-                    emit_reject(cmd, Kind::Cancel);
+                    emit_reject(
+                        cmd,
+                        Kind::Cancel,
+                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, wire.error));
                 }
             }
         }
@@ -924,7 +931,7 @@ private:
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         const auto received = state_->clock->wall();
         if (response.transport_failed()) {
-            emit_reject(cmd, kind); // no verdict from the venue at all
+            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
             return;
         }
         if (response.status != k_ok) {
@@ -933,7 +940,7 @@ private:
             if (kind == Kind::Cancel && response.status == k_not_found) {
                 return;
             }
-            emit_reject(cmd, kind);
+            emit_reject(cmd, kind, rest_failure(response));
             return;
         }
         if (kind == Kind::Cancel) {
@@ -942,7 +949,10 @@ private:
         }
         const auto wire = parse_order(response.body);
         if (!wire.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(
+                cmd,
+                kind,
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order row"));
             return;
         }
         if (kind == Kind::Amend) {
@@ -982,7 +992,11 @@ private:
         state_->sink->on_order_event(event);
     }
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected

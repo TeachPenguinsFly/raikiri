@@ -494,7 +494,10 @@ public:
         // does not know, a wedged queue — is refused out loud. A cancel that
         // vanishes leaves an order live that the strategy believes is gone.
         for (const auto& cmd : cmds.subspan(sent)) {
-            emit(cmd, OrderEventType::CancelRejected);
+            emit(cmd,
+                 OrderEventType::CancelRejected,
+                 exec::VenueError::make(
+                     exec::ErrorClass::Terminal, 0, "batch would not take this cancel"));
         }
     }
 
@@ -656,17 +659,23 @@ private:
               const OrderCmd& cmd,
               OrderEventType on_failure) noexcept {
         if (!request.has_value()) {
-            emit(cmd, on_failure);
+            emit(cmd,
+                 on_failure,
+                 exec::VenueError::make(
+                     exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto captured = cmd;
         const auto sent = rest_.send(*request, [this, captured, on_failure](net::RestResponse&& r) {
-            if (verdict(r, captured.exchange_client_order_id, on_failure) == Verdict::Refused) {
-                emit(captured, on_failure);
+            if (const auto refusal = verdict(r, captured.exchange_client_order_id, on_failure);
+                refusal.has_value()) {
+                emit(captured, on_failure, *refusal);
             }
         });
         if (!sent) {
-            emit(cmd, on_failure);
+            emit(cmd,
+                 on_failure,
+                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -674,56 +683,68 @@ private:
         std::vector<OrderCmd> captured{chunk.begin(), chunk.end()};
         return rest_.send(request, [this, captured](net::RestResponse&& r) {
             for (const auto& cmd : captured) {
-                if (verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected) ==
-                    Verdict::Refused) {
-                    emit(cmd, OrderEventType::CancelRejected);
+                if (const auto refusal = verdict(
+                        r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
+                    refusal.has_value()) {
+                    emit(cmd, OrderEventType::CancelRejected, *refusal);
                 }
             }
         });
     }
 
-    enum class Verdict : std::uint8_t { Accepted, Refused };
-
     // OKX answers a refused single order with envelope code "1" — "Operation
     // failed" — and puts the reason in data[].sCode. Reading only the
     // envelope turns every rejection into the same unclassifiable failure,
     // and reading only sCode misses a request that never reached the matcher.
-    [[nodiscard]] Verdict verdict(const net::RestResponse& response,
-                                  const ExchangeClientOrderId& id,
-                                  OrderEventType on_failure) const {
+    //
+    // ABSENT MEANS ACCEPTED. The refusal carries its own reason rather than a
+    // bare verdict, because sCode is the only place the reason exists and a
+    // caller that got back an enum has already lost it.
+    [[nodiscard]] std::optional<exec::VenueError> verdict(const net::RestResponse& response,
+                                                          const ExchangeClientOrderId& id,
+                                                          OrderEventType on_failure) const {
         if (response.transport_failed()) {
-            return Verdict::Refused; // no verdict from the venue at all
+            return exec::VenueError::make(
+                exec::ErrorClass::Connectivity, 0, "no response from venue");
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            return Verdict::Refused;
+            return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope");
         }
         static thread_local AckBuffer storage;
         const auto acks = parse_order_acks(response.body, storage);
         std::int64_t code = envelope->code;
+        std::string_view text = envelope->msg;
         if (acks.has_value()) {
             for (const auto& ack : *acks) {
                 // A batch answers for several orders at once, so the entry
                 // that matters is the one carrying this order's id.
                 if (ack.cl_ord_id == id.view() || acks->size() == 1) {
                     code = ack.s_code;
+                    text = ack.s_msg;
                     break;
                 }
             }
         }
         if (code == k_ok) {
-            return Verdict::Accepted; // the private stream reports what follows
+            return std::nullopt; // the private stream reports what follows
         }
         if (on_failure == OrderEventType::CancelRejected && is_benign_cancel_failure(code)) {
-            return Verdict::Accepted; // the order already filled or was gone
+            return std::nullopt; // the order already filled or was gone
         }
         if (on_failure == OrderEventType::ModifyRejected && is_benign_amend_failure(code)) {
-            return Verdict::Accepted;
+            return std::nullopt;
         }
-        return Verdict::Refused;
+        return exec::VenueError::make(classify(code), code, text);
     }
 
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit(const OrderCmd& cmd,
+              OrderEventType type,
+              const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;
         event.side = cmd.side;

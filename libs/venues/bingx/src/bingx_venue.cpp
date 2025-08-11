@@ -775,19 +775,27 @@ private:
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
                                    : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
-            emit_reject(cmd, kind);
+            emit_reject(
+                cmd,
+                kind,
+                exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd, kind);
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind, // no verdict from the venue at all
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity, 0, "no response from venue"));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -808,10 +816,25 @@ private:
             is_benign_cancel_failure(envelope->code)) {
             return; // the order already finished; reconciliation settles it
         }
-        emit_reject(cmd, kind);
+        if (!envelope.has_value()) {
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal,
+                                               response.status,
+                                               "unparseable envelope"));
+            return;
+        }
+        emit_reject(
+            cmd,
+            kind,
+            exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg));
     }
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected

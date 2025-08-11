@@ -813,7 +813,11 @@ private:
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind);
 
-    void emit_reject(const OrderCmd& cmd, Kind kind) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = kind == Kind::Create   ? OrderEventType::Rejected
                      : kind == Kind::Cancel ? OrderEventType::CancelRejected
@@ -925,7 +929,7 @@ void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
                              ? builder_.cancel_order(cmd, state_->instruments, now)
                              : builder_.amend_order(cmd, state_->instruments, now);
     if (!request.has_value()) {
-        emit_reject(cmd, kind);
+        emit_reject(cmd, kind, build_failure(request.error()));
         return;
     }
     if (kind == Kind::Create) {
@@ -938,21 +942,42 @@ void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
     if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
             on_response(std::move(response), cmd, kind);
         })) {
-        emit_reject(cmd, kind);
+        emit_reject(
+            cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
     }
 }
 
 void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
     if (response.transport_failed()) {
-        emit_reject(cmd, kind); // no verdict from the venue at all
+        emit_reject(cmd,
+                    kind, // no verdict from the venue at all
+                    exec::VenueError::make(
+                        exec::ErrorClass::Connectivity, 0, "no response from venue"));
+        return;
+    }
+    // An `["error",code,text]` body is the other shape a refusal arrives in,
+    // and it names itself where the notification below would not.
+    if (const auto refusal = rest_error(response.body); refusal.has_value()) {
+        emit_reject(cmd, kind, *refusal);
         return;
     }
     // BITFINEX ANSWERS HTTP 200 TO A REFUSED ORDER. The notification's STATUS
     // is the verdict, and an adapter that read the status code instead would
     // report every rejection as an acceptance and leave the order open forever.
     const auto notification = parse_notification(response.body);
-    if (!notification.has_value() || !notification_ok(*notification)) {
-        emit_reject(cmd, kind);
+    if (!notification.has_value()) {
+        emit_reject(
+            cmd,
+            kind,
+            exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(notification.error())));
+        return;
+    }
+    if (!notification_ok(*notification)) {
+        emit_reject(cmd,
+                    kind,
+                    exec::VenueError::make(
+                        classify(notification->code), notification->code, notification->text));
         return;
     }
     if (kind == Kind::Create && notification->has_order) {

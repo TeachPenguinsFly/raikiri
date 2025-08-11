@@ -726,6 +726,12 @@ private:
     // Through the sink, like every other outcome: nothing is pushed for a
     // REST-level failure, so a returned error would leave the order in doubt.
     void refuse(const OrderCmd& cmd, Kind kind, std::string_view reason) noexcept {
+        // The reason was already named by every caller and went only to the
+        // auth check below; `OrderEvent` has no room for it, so it reaches the
+        // sink here or not at all.
+        state_->sink->on_order_error(
+            cmd.client_order_id,
+            exec::VenueError::make(classify_reason(reason), 0, reason));
         OrderEvent event{};
         populate(event, cmd);
         event.type = kind == Kind::Create   ? OrderEventType::Rejected

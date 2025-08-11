@@ -468,7 +468,10 @@ public:
     // The caps row says amend_order = false and callers cancel and replace
     // with two ids of their own — which is what Bitget does internally anyway.
     void amend(const OrderCmd& cmd) noexcept override {
-        emit(cmd, OrderEventType::ModifyRejected);
+        emit(cmd,
+             OrderEventType::ModifyRejected,
+             exec::VenueError::make(
+                 exec::ErrorClass::Terminal, 0, "bitget has no in-place amend"));
     }
 
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
@@ -492,7 +495,10 @@ public:
                                 on_batch_response(std::move(response), members);
                             })) {
                 for (const auto& member : members) {
-                    emit(member, OrderEventType::CancelRejected);
+                    emit(member,
+                         OrderEventType::CancelRejected,
+                         exec::VenueError::make(
+                             exec::ErrorClass::Retryable, 0, "rest queue full"));
                 }
             }
             sent += batch->consumed;
@@ -689,14 +695,19 @@ private:
                 ? builder_.create_order(cmd, state_->instruments, state_->product(), now)
                 : builder_.cancel_order(cmd, state_->instruments, state_->product(), now);
         if (!request.has_value()) {
-            emit(cmd, refusal_of(kind));
+            emit(cmd,
+                 refusal_of(kind),
+                 exec::VenueError::make(
+                     exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const OrderCmd snapshot = cmd; // 128 trivially-copyable bytes
         if (!rest_.send(*request, [this, snapshot, kind](net::RestResponse&& response) {
                 on_response(std::move(response), snapshot, kind);
             })) {
-            emit(cmd, refusal_of(kind));
+            emit(cmd,
+                 refusal_of(kind),
+                 exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -707,12 +718,18 @@ private:
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         if (response.transport_failed()) {
-            emit(cmd, refusal_of(kind)); // no verdict from the venue at all
+            emit(cmd,
+                 refusal_of(kind), // no verdict from the venue at all
+                 exec::VenueError::make(
+                     exec::ErrorClass::Connectivity, 0, "no response from venue"));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            emit(cmd, refusal_of(kind));
+            emit(cmd,
+                 refusal_of(kind),
+                 exec::VenueError::make(
+                     exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code == k_ok) {
@@ -724,27 +741,33 @@ private:
         if (kind == Kind::Cancel && is_benign_cancel_failure(envelope->code)) {
             return;
         }
-        emit(cmd, refusal_of(kind));
+        emit(cmd,
+             refusal_of(kind),
+             exec::VenueError::make(
+                 classify(envelope->code), code_number(envelope->code), envelope->msg));
     }
 
     void on_batch_response(net::RestResponse&& response, const std::vector<OrderCmd>& members) {
-        const auto reject_all = [&] {
+        const auto reject_all = [&](const exec::VenueError& error) {
             for (const auto& member : members) {
-                emit(member, OrderEventType::CancelRejected);
+                emit(member, OrderEventType::CancelRejected, error);
             }
         };
         if (response.transport_failed()) {
-            reject_all();
+            reject_all(exec::VenueError::make(
+                exec::ErrorClass::Connectivity, 0, "no response from venue"));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
         if (!envelope.has_value()) {
-            reject_all();
+            reject_all(
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code != k_ok) {
             if (!is_benign_cancel_failure(envelope->code)) {
-                reject_all();
+                reject_all(exec::VenueError::make(
+                    classify(envelope->code), code_number(envelope->code), envelope->msg));
             }
             return;
         }
@@ -762,13 +785,22 @@ private:
             }
             for (const auto& member : members) {
                 if (member.exchange_client_order_id.view() == failure.client_oid) {
-                    emit(member, OrderEventType::CancelRejected);
+                    emit(member,
+                         OrderEventType::CancelRejected,
+                         exec::VenueError::make(
+                             classify(failure.code), code_number(failure.code), failure.msg));
                 }
             }
         }
     }
 
-    void emit(const OrderCmd& cmd, OrderEventType type) noexcept {
+    // The reason is not optional. `OrderEvent` has no room for text, so every
+    // refusal hands the sink the verdict that caused it — otherwise an order
+    // that dies here is indistinguishable from one that was never sent.
+    void emit(const OrderCmd& cmd,
+              OrderEventType type,
+              const exec::VenueError& error) noexcept {
+        state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;
         event.side = cmd.side;
