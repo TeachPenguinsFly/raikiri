@@ -174,7 +174,14 @@ public:
             quote.has_value() && !quote->bid.is_undef() && !quote->ask.is_undef()) {
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
         }
-        if (!risk_->check(cmd, exposure).has_value()) {
+        // The gate knows exactly which rule refused; `RejectReason` has one code
+        // for all ten. Named here because this is the last place the specific
+        // reason exists — past this return it is gone.
+        if (const auto allowed = risk_->check(cmd, exposure); !allowed.has_value()) {
+            fmt::print(stderr,
+                       "strategyd: risk refused coid={} — {}\n",
+                       cmd.client_order_id.raw,
+                       oms::to_string(allowed.error()));
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {

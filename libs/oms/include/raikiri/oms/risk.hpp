@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <expected>
 #include <limits>
+#include <string_view>
 
 namespace raikiri::oms {
 
@@ -34,6 +35,34 @@ enum class RiskReject : std::uint8_t {
     PriceBand,
 };
 
+// A refusal nobody can name is a refusal nobody can act on: every caller here
+// collapses the reason into one coarse code, so the name has to travel with it.
+[[nodiscard]] constexpr std::string_view to_string(RiskReject why) noexcept {
+    using enum RiskReject;
+    switch (why) {
+    case ReconBreak:
+        return "venue and book disagree on this instrument";
+    case TooManyOpen:
+        return "too many open orders";
+    case BadQty:
+        return "quantity is undefined or not positive";
+    case QtyTooLarge:
+        return "quantity above the per-order ceiling";
+    case BadPrice:
+        return "limit order with no price, or market order carrying one";
+    case BadInstrument:
+        return "instrument is undefined";
+    case BadFlags:
+        return "post-only on a market order";
+    case LongLimit:
+        return "long exposure limit";
+    case ShortLimit:
+        return "short exposure limit";
+    case PriceBand:
+        return "price outside the band around the reference";
+    }
+    return "unknown";
+}
 
 struct RiskConfig {
     std::size_t max_open_orders{64};

@@ -251,5 +251,26 @@ TEST(RiskGate, NoReferencePriceMeansNoBandRatherThanARefusal) {
     EXPECT_TRUE(gate.check(valid_limit(10, 1), Exposure{}).has_value());
 }
 
+// A refusal that reaches a log as "unknown" is a refusal nobody can act on,
+// and the only way that happens is an enumerator added without a name. The
+// list is spelled out rather than iterated so adding one breaks this file.
+TEST(RiskGate, EveryRefusalCanNameItself) {
+    using enum RiskReject;
+    for (const auto why : {ReconBreak,
+                           TooManyOpen,
+                           BadQty,
+                           QtyTooLarge,
+                           BadPrice,
+                           BadInstrument,
+                           BadFlags,
+                           LongLimit,
+                           ShortLimit,
+                           PriceBand}) {
+        EXPECT_NE(to_string(why), "unknown") << "unnamed RiskReject";
+        EXPECT_FALSE(to_string(why).empty());
+    }
+    EXPECT_EQ(to_string(static_cast<RiskReject>(200)), "unknown");
+}
+
 } // namespace
 } // namespace raikiri::oms
