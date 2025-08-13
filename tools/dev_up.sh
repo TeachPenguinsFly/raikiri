@@ -70,15 +70,55 @@ trap cleanup INT TERM EXIT
 #
 # `op run` resolves every op:// reference in the env file inside a single
 # process and hands them down as plain values. Reading them one at a time meant
-# a dozen invocations per start — and on a vault that lives in an account the
-# CLI is not signed into, EVERY invocation is proxied through the desktop app
-# over Apple Events, so macOS asks the terminal's parent for permission a dozen
-# times. One call is one prompt, and none once it is granted.
+# a dozen invocations per start.
+#
+# HOW IT AUTHENTICATES IS THE WHOLE STORY.
+#
+# With no CLI session, `op` authenticates through the 1Password DESKTOP APP,
+# and macOS treats that handshake as one process controlling another — so it
+# asks the terminal's parent (VS Code, Terminal, whatever launched this) for
+# Automation permission. The grant is per-app and does not survive the app
+# being updated, which is why the prompt keeps coming back.
+#
+# A SERVICE ACCOUNT REMOVES THE DESKTOP APP FROM THE LOOP. `op` authenticates
+# with the token in the environment, over the network, with no app to control
+# and nothing for macOS to ask about. It is also the only one of the three that
+# works headless — over ssh, in CI, or from a process with no window.
+#
+# Create one (once), scoped read-only to the vault holding these credentials:
+#
+#     op account add --address <your>.1password.com     # if not already added
+#     eval "$(op signin)"
+#     op service-account create raikiri-dev \
+#         --expires-in 90d --vault "<vault>:read_items"
+#
+# Put the printed token where your shell picks it up but git does not:
+#
+#     echo 'export OP_SERVICE_ACCOUNT_TOKEN=ops_...' >> ~/.zshrc
 #
 # Re-execs itself under `op run` and returns here with the values in the
 # environment, where the `case` below leaves them alone.
+# The service-account token, if this machine has one. Sourced rather than
+# exported by hand so it survives a new shell, and kept in its own file rather
+# than in credentials.env because that file holds REFERENCES and this one holds
+# a secret — mixing the two invites pasting the wrong one somewhere.
+TOKEN_FILE="$(dirname "$0")/op.env"
+if [[ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" && -f "$TOKEN_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$TOKEN_FILE"
+fi
+
 if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_]*=op://" "$ENV_FILE"; then
     if command -v op >/dev/null 2>&1; then
+        if [[ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]] && ! op whoami >/dev/null 2>&1; then
+            # Said before the prompt appears, not after: otherwise the reader
+            # is looking at a macOS dialog with no idea what asked for it.
+            echo "op: no CLI session and no service-account token." >&2
+            echo "    1Password will authenticate through the desktop app, and macOS" >&2
+            echo "    will ask this terminal for permission to control it — every run." >&2
+            echo "    Set OP_SERVICE_ACCOUNT_TOKEN to stop that; see the comment in" >&2
+            echo "    tools/dev_up.sh for how to mint one." >&2
+        fi
         export RAIKIRI_SECRETS_RESOLVED=1
         exec op run --env-file="$ENV_FILE" -- "$0" "$@"
     fi
