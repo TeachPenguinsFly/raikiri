@@ -1,181 +1,85 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
-import { BrandLockup } from '@/components/shared/BrandMark'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { BrandMark } from '@/components/shared/BrandMark'
 import { cn } from '@/lib/utils'
 
-type Provider = 'google' | 'github'
+/** The shader lives behind a split point: it is used on exactly one screen,
+ *  and nobody trading should carry it in the terminal's bundle. */
+const Lightning = lazy(() => import('@/components/backdrop/Lightning'))
 
-const LAST_USED = 'raikiri.last-provider'
+/** The brand cyan #38bdf8 as a hue angle. Sampling the mark rather than
+ *  picking a blue that looks close keeps one accent on the whole product. */
+const k_accent_hue = 199
 
-/** Deliberately not a full RFC 5322 parser. The address is checked by the
- *  service that mails it; this only catches the typo before a round trip. */
-function looksLikeEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim())
-}
-
+/** ONE WAY IN.
+ *
+ *  The magic-link form and the bypass link are gone. A second route into a
+ *  terminal is a second thing to get right — a link that mails a session and a
+ *  door with nothing behind it — and the screen's job is to say who you are
+ *  before anything places an order in your name. */
 export function Login() {
-  const navigate = useNavigate()
-  const [email, setEmail] = useState('')
-  const [invalid, setInvalid] = useState<string | null>(null)
-  const [pending, setPending] = useState<Provider | 'email' | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [lastUsed, setLastUsed] = useState<Provider | null>(null)
+  const [pending, setPending] = useState(false)
 
+  // A provider tab that never comes back would leave the button spinning for
+  // the rest of the session. Regaining focus is the signal that it did.
   useEffect(() => {
-    const stored = localStorage.getItem(LAST_USED)
-    if (stored === 'google' || stored === 'github') setLastUsed(stored)
-  }, [])
-
-  // A provider tab that never returns would leave the button spinning for the
-  // rest of the session; coming back to the window is the signal that it did.
-  useEffect(() => {
-    const onFocus = () => setPending(null)
+    const onFocus = () => setPending(false)
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  const startSso = (provider: Provider) => {
-    setPending(provider)
-    setNotice(null)
-    localStorage.setItem(LAST_USED, provider)
-    setLastUsed(provider)
-    unavailable(setPending, setNotice)
+  // Nothing is wired behind this yet. The button reports its own state and
+  // stops there rather than explaining the backend on a sign-in screen.
+  const startGoogle = () => {
+    setPending(true)
+    window.setTimeout(() => setPending(false), 900)
   }
-
-  const submitEmail = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!looksLikeEmail(email)) {
-      setInvalid('That is not an address this will reach.')
-      return
-    }
-    setInvalid(null)
-    setPending('email')
-    setNotice(null)
-    unavailable(setPending, setNotice)
-  }
-
-  const busy = pending !== null
 
   return (
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-6 py-12">
       <Backdrop />
 
-      <div className="relative flex w-full max-w-sm flex-col items-center">
-        <BrandLockup />
-        <p className="mt-5 text-sm tracking-tight text-fg-mid">raikiri</p>
-        <p className="mt-1 text-sm text-fg-dim">Sign in to the trading terminal.</p>
+      {/* A pool of ground under the content, not a dimmer over the whole
+          backdrop. The bolt wanders and will cross the wordmark, which sits
+          straight on the background with nothing behind it; the card does not
+          need this because it is opaque. Local, so the effect keeps its full
+          strength everywhere it is not in the way. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 30% 26% at 50% 50%, var(--color-canvas) 0%, color-mix(in srgb, var(--color-canvas) 78%, transparent) 45%, transparent 72%)',
+        }}
+      />
 
-        <div className="mt-7 w-full rounded-lg bg-panel p-6">
-          {notice !== null && (
-            <div className="mb-5 rounded-md border bg-amber/[0.09] px-3 py-2.5 text-xs leading-relaxed text-fg-mid">
-              {notice}
-            </div>
-          )}
+      <div className="relative flex w-full max-w-[352px] flex-col items-center">
+        <BrandMark className="text-lg" />
 
-          <div className="flex flex-col gap-2.5">
-            <SsoButton
-              label="Continue with Google"
-              badge={lastUsed === 'google'}
-              loading={pending === 'google'}
-              disabled={busy}
-              onClick={() => startSso('google')}
-              icon={<GoogleIcon />}
-            />
-            <SsoButton
-              label="Continue with GitHub"
-              badge={lastUsed === 'github'}
-              loading={pending === 'github'}
-              disabled={busy}
-              onClick={() => startSso('github')}
-              icon={<GitHubIcon />}
-            />
-          </div>
+        <div className="panel mt-6 w-full p-4">
 
-          <div className="my-5 flex items-center gap-3">
-            <span className="h-px flex-1 bg-line" />
-            <span className="text-2xs text-fg-dim">or</span>
-            <span className="h-px flex-1 bg-line" />
-          </div>
-
-          <form onSubmit={submitEmail} className="flex flex-col gap-3">
-            <div>
-              <input
-                type="email"
-                value={email}
-                placeholder="you@desk.com"
-                autoComplete="email"
-                onChange={(event) => {
-                  setEmail(event.target.value)
-                  if (invalid !== null) setInvalid(null)
-                }}
-                className={cn(
-                  'h-9 w-full rounded-md bg-raised px-3 text-sm text-fg outline-none transition-colors',
-                  'placeholder:text-fg-dim focus:border-accent/70',
-                  invalid !== null ? 'border-down' : 'border-line',
-                )}
-              />
-              {invalid !== null && <p className="mt-1.5 text-xs text-down">{invalid}</p>}
-            </div>
-            <button
-              type="submit"
-              disabled={busy}
-              className={cn(
-                'flex h-9 w-full items-center justify-center gap-2 rounded-md text-sm font-semibold',
-                // Dark on cyan, as the mark itself is: light text on this
-                // cyan is the one low-contrast pair in the palette.
-                'bg-accent text-canvas transition-[transform,background-color] duration-150',
-                'hover:brightness-110 active:scale-[0.985] disabled:opacity-60',
-              )}
-            >
-              {pending === 'email' ? <Spinner /> : 'Send a sign-in link'}
-            </button>
-          </form>
-
-          <p className="mt-5 text-center text-2xs text-fg-mid">
-            Every order carries the identity that placed it.
-          </p>
+          <SsoButton
+            label="Continue with Google"
+            loading={pending}
+            disabled={pending}
+            onClick={startGoogle}
+            icon={<GoogleIcon />}
+          />
         </div>
-
-        <button
-          type="button"
-          onClick={() => void navigate('/')}
-          className="mt-6 text-sm text-fg-mid underline decoration-line underline-offset-4 transition-colors hover:text-fg hover:decoration-muted"
-        >
-          Continue without signing in
-        </button>
-        {/* The gate is not wired yet, and the link says so in one line rather
-            than letting a reader assume it is. */}
-        <p className="mt-2 text-center text-2xs text-fg-dim">This screen gates nothing yet.</p>
       </div>
     </div>
   )
 }
 
-/** There is no auth endpoint in the contract. Saying which is missing beats a
- *  spinner that resolves into a screen the user never signed in to. */
-function unavailable(
-  setPending: (value: null) => void,
-  setNotice: (value: string) => void,
-): void {
-  window.setTimeout(() => {
-    setPending(null)
-    setNotice(
-      'admind serves no auth endpoint yet — schema/admin-api.yaml describes a read-only v1 on loopback. Nothing was sent.',
-    )
-  }, 700)
-}
 
 function SsoButton({
   label,
   icon,
-  badge,
   loading,
   disabled,
   onClick,
 }: {
   label: string
   icon: React.ReactNode
-  badge: boolean
   loading: boolean
   disabled: boolean
   onClick: () => void
@@ -187,28 +91,19 @@ function SsoButton({
       disabled={disabled}
       className={cn(
         'relative flex h-9 w-full items-center justify-center gap-2.5 rounded-md bg-raised',
-        'bg-raised/60 text-sm font-medium text-fg transition-[transform,background-color] duration-150',
-        'hover:bg-raised active:scale-[0.985] disabled:opacity-60',
+        'text-sm font-medium text-fg transition-[transform,background-color,opacity] duration-150',
+        'hover:bg-hover active:scale-[0.99] disabled:opacity-50',
       )}
     >
-      {loading ? <Spinner /> : icon}
+      <span className="flex size-4 items-center justify-center">{loading ? <Spinner /> : icon}</span>
       <span>{label}</span>
-      <span
-        className={cn(
-          'pointer-events-none absolute -top-2 -right-2 rounded-sm bg-raised px-1.5 py-0.5',
-          'text-2xs leading-none text-fg-mid transition-all duration-300',
-          badge ? 'scale-100 opacity-100' : 'scale-95 opacity-0',
-        )}
-      >
-        last used
-      </span>
     </button>
   )
 }
 
 function Spinner() {
   return (
-    <svg viewBox="0 0 24 24" className="size-4 animate-spin" aria-label="Working">
+    <svg viewBox="0 0 24 24" className="size-4 animate-spin" role="status" aria-label="Working">
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity={0.25} strokeWidth={3} />
       <path
         d="M21 12a9 9 0 0 0-9-9"
@@ -221,56 +116,48 @@ function Spinner() {
   )
 }
 
-/** Two soft lights and a rule grid. Everything is a gradient — no image asset,
- *  so the screen paints on the first frame and there is nothing to 404. */
 function Backdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -top-40 left-1/2 size-[520px] -translate-x-1/2 rounded-full bg-accent/[0.14] blur-[120px]" />
-      <div className="absolute -bottom-56 right-[-10%] size-[420px] rounded-full bg-accent/[0.07] blur-[120px]" />
-      <div
-        className="absolute inset-0 opacity-[0.55]"
-        style={{
-          backgroundImage:
-            'linear-gradient(#1d293a 1px, transparent 1px), linear-gradient(90deg, #1d293a 1px, transparent 1px)',
-          backgroundSize: '48px 48px',
-          maskImage: 'radial-gradient(ellipse 80% 60% at 50% 40%, #000 0%, transparent 75%)',
-          WebkitMaskImage:
-            'radial-gradient(ellipse 80% 60% at 50% 40%, #000 0%, transparent 75%)',
-          opacity: 0.25,
-        }}
-      />
+      {/* Nothing renders in its place while it loads: a fallback that flashes
+          a different background and then swaps is worse than a beat of the
+          page's own colour. */}
+      <Suspense fallback={null}>
+        {/* Full strength, and nothing stacked on top of it.
+            The first pass dimmed this four separate ways at once — intensity,
+            speed, size, a layer opacity and a mask cutting the middle out — and
+            the halo died first. That soft glow IS the effect: the core is a
+            thin line, and everything that makes it read as lightning is the
+            falloff around it, which is the part a chain of multipliers removes.
+            The card sits on an opaque surface, so it does not need the backdrop
+            held back to stay legible. */}
+        <div className="absolute inset-0">
+          {/* Intensity past 1 on purpose. The core then exceeds full white and
+              clamps there, which is what gives a bolt its hot centre — held at
+              1.0 it stays the accent colour all the way through and reads as a
+              drawn line rather than as something burning. */}
+          <Lightning
+            hue={k_accent_hue}
+            xOffset={0}
+            speed={0.7}
+            intensity={1.35}
+            size={3}
+            glow={0.11}
+          />
+        </div>
+      </Suspense>
     </div>
   )
 }
 
 function GoogleIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-      />
+    <svg viewBox="0 0 24 24" className="size-4" role="img" aria-label="Google">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
     </svg>
   )
 }
 
-function GitHubIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-    </svg>
-  )
-}
