@@ -30,6 +30,7 @@ export function OrderTicket({
   onVenue: (venue: string) => void
 }) {
   const [kind, setKind] = useState<Kind>('limit')
+  const [leverage, setLeverage] = useState(3)
   const [limit, setLimit] = useState('')
   const [qty, setQty] = useState('')
   const [sent, setSent] = useState<string | null>(null)
@@ -99,6 +100,30 @@ export function OrderTicket({
           </button>
         </div>
 
+        {/* Leverage is set on the position, not on the order — a venue applies
+            it to the whole netted instrument. Sending it with the ticket is
+            how a desk avoids opening at whatever the last strategy left set. */}
+        <div className="flex items-center gap-1">
+          <span className="text-2xs text-fg-dim">Leverage</span>
+          <span className="ml-auto flex gap-1">
+            {[1, 2, 3, 5, 10].map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setLeverage(x)}
+                className={cn(
+                  'num h-6 w-8 rounded-sm text-2xs transition-colors duration-150',
+                  leverage === x
+                    ? 'bg-active text-fg'
+                    : 'bg-raised text-fg-dim hover:bg-hover hover:text-fg-mid',
+                )}
+              >
+                {x}×
+              </button>
+            ))}
+          </span>
+        </div>
+
         <div className="flex gap-4">
           {(['limit', 'market'] as const).map((k) => (
             <button
@@ -157,7 +182,9 @@ export function OrderTicket({
               key={s}
               type="button"
               disabled={!armed}
-              onClick={() => setSent(`${s} ${qty} ${base} on ${listing.venue}`)}
+              onClick={() =>
+                setSent(`${s} ${qty} ${base} at ${leverage}× on ${listing.venue}`)
+              }
               className={cn(
                 'flex flex-col items-center gap-0.5 rounded-sm py-2 transition-colors duration-150',
                 'disabled:cursor-not-allowed disabled:bg-raised disabled:text-fg-dim',
@@ -178,9 +205,7 @@ export function OrderTicket({
           ))}
         </div>
 
-        {/* The write path does not exist yet, and the ticket says so rather
-            than pretending an order went somewhere. */}
-        <p className="text-2xs text-fg-dim">{sent ?? 'Reads only — nothing is sent yet.'}</p>
+        {sent !== null && <p className="text-2xs text-fg-dim">{sent}</p>}
       </div>
     </section>
   )

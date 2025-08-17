@@ -18,7 +18,7 @@ const tone: Record<string, string> = {
   break: 'text-down',
   partially_filled: 'text-amber', triggered: 'text-amber',
   pending_update: 'text-amber', pending_cancel: 'text-amber',
-  stale: 'text-amber', unknown: 'text-amber',
+  stale: 'text-amber', unknown: 'text-amber', stopped: 'text-fg-dim',
   agree: 'text-up',
 }
 

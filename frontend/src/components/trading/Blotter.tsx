@@ -1,25 +1,48 @@
 import { useState, type ReactNode } from 'react'
+import { BalanceTree } from '@/components/BalanceTree'
+import { ClosePosition } from '@/components/trading/ClosePosition'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { Venue } from '@/components/shared/Venue'
 import { cn } from '@/lib/utils'
-import { BALANCES, ORDERS, POSITIONS, TRADES } from '@/mock/data'
+import { BALANCES, ORDERS, POSITIONS, TRADES, type MockPosition } from '@/mock/data'
 
 export type Tab = 'orders' | 'trades' | 'positions' | 'balances'
 
-const k_all: Tab[] = ['orders', 'trades', 'positions', 'balances']
+const k_all: Tab[] = ['positions', 'orders', 'trades', 'balances']
+
+/** THE THREE BLOTTERS ARE READ BY SWITCHING BETWEEN THEM, so the columns they
+ *  share must not move when you do.
+ *
+ *  On the default `auto` table layout every table measures its own content and
+ *  arrives at its own widths, so tabbing from Positions to Orders slid the id,
+ *  the venue and the symbol sideways — three columns that hold the same thing
+ *  in all three tables. Fixed layout plus one shared prefix pins them: the eye
+ *  keeps its anchor and only the columns that genuinely differ differ.
+ *
+ *  Exactly one column per table is left unsized, and it absorbs whatever the
+ *  panel has spare. Sizing all of them would make the browser scale every
+ *  column to fill the width, which is the same drift by another route. */
+const LEAD = { id: 92, venue: 128, symbol: 112 }
+
+function Cols({ rest }: { rest: Array<number | null> }) {
+  return (
+    <colgroup>
+      <col style={{ width: LEAD.id }} />
+      <col style={{ width: LEAD.venue }} />
+      <col style={{ width: LEAD.symbol }} />
+      {rest.map((w, i) => (
+        <col key={i} style={w === null ? undefined : { width: w }} />
+      ))}
+    </colgroup>
+  )
+}
 
 const num = (v: number, dp = 2) =>
   v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
+const signed = (v: number, dp = 2) => `${v >= 0 ? '+' : '−'}${num(Math.abs(v), dp)}`
 
-/** The bottom of the screen, where what you have done lives.
- *
- *  Tabbed rather than four panels: they answer one question at four distances —
- *  what is working, what filled, what is held, what is left — and a trader is
- *  in one of those at a time. The COUNT stays on every tab so a fill landing on
- *  a tab you are not looking at is still visible.
- *
- *  `tabs` narrows it. A screen that already shows positions in full does not
- *  want them a second time three inches lower. */
+/** The bottom of the screen, where what you have done lives. */
 export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
   const [tab, setTab] = useState<Tab>(tabs[0] as Tab)
 
@@ -32,24 +55,21 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
 
   return (
     <section className="panel flex min-h-0 flex-1 flex-col">
-      {/* The active tab is marked by weight and a two-pixel rule, not by a
-          filled capsule: four capsules in a row is a segmented control, and
-          this is navigation between views. */}
-      <div className="flex h-11 shrink-0 items-center gap-5 px-3">
+      <div className="flex h-8 shrink-0 items-center gap-5 px-3">
         {tabs.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={cn(
-              'relative flex h-11 items-center gap-1.5 text-sm capitalize transition-colors duration-150',
+              'relative flex h-8 items-center gap-1.5 text-xs capitalize transition-colors duration-150',
               tab === t
                 ? 'font-medium text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent'
                 : 'text-fg-dim hover:text-fg-mid',
             )}
           >
             {t}
-            <span className={cn('num text-xs', tab === t ? 'text-fg-mid' : 'text-fg-dim')}>
+            <span className={cn('num text-2xs', tab === t ? 'text-fg-mid' : 'text-fg-dim')}>
               {counts[t]}
             </span>
           </button>
@@ -60,21 +80,26 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
         {tab === 'orders' && <Orders />}
         {tab === 'trades' && <Trades />}
         {tab === 'positions' && <Positions />}
-        {tab === 'balances' && <Balances />}
+        {tab === 'balances' && <BalanceTree />}
       </div>
     </section>
   )
 }
 
-/** A table with one hairline in it: the one under the header.
- *
- *  Rows are separated by rhythm and by hover, not by rules. Twelve rules in a
- *  twelve-row table is a grid, and a grid competes with the figures it holds. */
-function Grid({ head, children }: { head: ReactNode; children: ReactNode }) {
+function Grid({
+  cols,
+  head,
+  children,
+}: {
+  cols: Array<number | null>
+  head: ReactNode
+  children: ReactNode
+}) {
   return (
-    <table className="w-full border-collapse text-sm whitespace-nowrap">
+    <table className="w-full min-w-[1080px] table-fixed border-collapse text-sm whitespace-nowrap">
+      <Cols rest={cols} />
       <thead className="sticky top-0 z-10 bg-panel">
-        <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">{head}</tr>
+        <tr className="h-6 shadow-[inset_0_-1px_0_0_var(--color-line)]">{head}</tr>
       </thead>
       <tbody>{children}</tbody>
     </table>
@@ -82,34 +107,23 @@ function Grid({ head, children }: { head: ReactNode; children: ReactNode }) {
 }
 
 const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
-  <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>
-    {children}
-  </th>
+  <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>{children}</th>
 )
-
-/** Cell shorthands, so the alignment and the colour of a kind of value are
- *  decided once rather than per column. */
 const Id = ({ children }: { children: ReactNode }) => (
-  <td className="px-3 text-xs text-fg-dim">{children}</td>
+  <td className="num px-3 text-xs text-fg-dim">{children}</td>
 )
-const Sym = ({ children }: { children: ReactNode }) => (
-  <td className="px-3 text-xs text-fg-mid">{children}</td>
+const N = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
 )
-const N = ({
-  children,
-  className,
-}: {
-  children: ReactNode
-  className?: string
-}) => <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
 
 function Orders() {
   if (ORDERS.length === 0) return <EmptyState title="Nothing working" />
   return (
     <Grid
+      cols={[64, 80, 112, 116, null, 168]}
       head={
         <>
-          <Th>Order</Th>
+          <Th>ID</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th>Side</Th>
@@ -117,22 +131,22 @@ function Orders() {
           <Th right>Price</Th>
           <Th right>Filled</Th>
           <Th>Status</Th>
-          <Th right>Age</Th>
+          <Th right>Time</Th>
         </>
       }
     >
       {ORDERS.map((o) => (
         <tr key={o.id} className="row">
           <Id>{o.id}</Id>
-          <td className="px-3 text-fg-mid">{o.venue}</td>
-          <Sym>{o.symbol}</Sym>
+          <td className="px-3">
+            <Venue venue={o.venue} market={o.market} />
+          </td>
+          <td className="px-3 text-fg">{o.symbol}</td>
           <td className="px-3">
             <StatusBadge status={o.side} />
           </td>
           <td className="px-3 text-fg-mid capitalize">{o.type}</td>
           <N>{o.price === null ? '—' : num(o.price, 1)}</N>
-          {/* Filled shown against the order, not alone: "0.1" answers nothing
-              without the 0.25 it is a tenth of. */}
           <N>
             <span className={o.filled > 0 ? 'text-amber' : 'text-fg-dim'}>{o.filled}</span>
             <span className="text-fg-dim"> / {o.qty}</span>
@@ -140,7 +154,9 @@ function Orders() {
           <td className="px-3">
             <StatusBadge status={o.status} />
           </td>
-          <td className="num px-3 text-right text-xs text-fg-dim">{o.age}</td>
+          {/* The stamp, not an age. An age has to be recomputed before it can
+              be compared with anything else in the journal. */}
+          <td className="num px-3 text-right text-xs text-fg-mid">{o.placedAt}</td>
         </tr>
       ))}
     </Grid>
@@ -150,16 +166,18 @@ function Orders() {
 function Trades() {
   return (
     <Grid
+      cols={[64, 112, 88, 96, 96, null, 168]}
       head={
         <>
-          <Th>Execution</Th>
+          <Th>ID</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th>Side</Th>
           <Th right>Price</Th>
           <Th right>Qty</Th>
           <Th right>Fee</Th>
-          <Th>Liquidity</Th>
+          <Th right>Funding</Th>
+          <Th>Type</Th>
           <Th right>Time</Th>
         </>
       }
@@ -167,16 +185,28 @@ function Trades() {
       {TRADES.map((t) => (
         <tr key={t.id} className="row">
           <Id>{t.id}</Id>
-          <td className="px-3 text-fg-mid">{t.venue}</td>
-          <Sym>{t.symbol}</Sym>
+          <td className="px-3">
+            <Venue venue={t.venue} market={t.market} />
+          </td>
+          <td className="px-3 text-fg">{t.symbol}</td>
           <td className="px-3">
             <StatusBadge status={t.side} />
           </td>
           <N>{num(t.price, 1)}</N>
           <N>{t.qty}</N>
           <td className="num px-3 text-right text-fg-mid">{t.fee.toFixed(4)}</td>
-          <td className="px-3 text-fg-mid">{t.liquidity}</td>
-          <td className="num px-3 text-right text-xs text-fg-dim">{t.at}</td>
+          {/* Funding accrued on the position this fill belongs to. Spot has
+              none and shows nothing — a zero would claim it was measured. */}
+          <td
+            className={cn(
+              'num px-3 text-right',
+              t.fundingUsd === null ? 'text-fg-dim' : t.fundingUsd >= 0 ? 'text-up' : 'text-down',
+            )}
+          >
+            {t.fundingUsd === null ? '—' : signed(t.fundingUsd)}
+          </td>
+          <td className="px-3 text-fg-mid capitalize">{t.liquidity}</td>
+          <td className="num px-3 text-right text-xs text-fg-mid">{t.at}</td>
         </tr>
       ))}
     </Grid>
@@ -184,100 +214,92 @@ function Trades() {
 }
 
 function Positions() {
+  const [closing, setClosing] = useState<MockPosition | null>(null)
   return (
+    <>
     <Grid
+      cols={[88, 52, 104, 104, 104, 96, 104, null, 120]}
       head={
         <>
-          <Th>Instrument</Th>
+          <Th>ID</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th right>Qty</Th>
+          <Th right>Lev</Th>
           <Th right>Entry</Th>
           <Th right>Mark</Th>
+          <Th right>Liq.</Th>
+          <Th right>Funding</Th>
           <Th right>Unrealized</Th>
-          <Th right>Venue says</Th>
+          <Th>Owner</Th>
+          <Th right>Close</Th>
         </>
       }
     >
       {POSITIONS.map((p) => {
         const pnl = (p.mark - p.entry) * p.qty
-        const agrees = p.venueQty !== null && Math.abs(p.venueQty - p.qty) < 1e-9
         return (
-          <tr key={`${p.venue}:${p.symbol}`} className="row">
-            <Id>{p.instrumentId}</Id>
-            <td className="px-3 text-fg-mid">{p.venue}</td>
-            <Sym>{p.symbol}</Sym>
+          <tr key={p.id} className="row">
+            <Id>{p.id}</Id>
+            <td className="px-3">
+              <Venue venue={p.venue} market={p.market} />
+            </td>
+            <td className="px-3 text-fg">{p.symbol}</td>
             <N className={p.qty >= 0 ? 'text-up' : 'text-down'}>
               {p.qty > 0 ? '+' : ''}
               {p.qty}
             </N>
+            <td className="num px-2 text-right text-fg-mid">{p.leverage}×</td>
             <td className="num px-3 text-right text-fg-mid">{num(p.entry, 1)}</td>
             <N>{num(p.mark, 1)}</N>
-            <N className={pnl >= 0 ? 'text-up' : 'text-down'}>
-              {pnl >= 0 ? '+' : '−'}
-              {num(Math.abs(pnl))}
-            </N>
-            {/* NULL IS NOT FLAT. A venue that cannot report and a venue
-                reporting zero are different facts, and only one of them means
-                the position is gone. */}
-            <td className="num px-3 text-right text-xs">
-              {p.venueQty === null ? (
-                <span className="text-fg-dim" title="this venue reports no position endpoint">
-                  not reported
-                </span>
-              ) : agrees ? (
-                <span className="text-fg-mid">agrees</span>
-              ) : (
-                <span className="text-down">{p.venueQty}</span>
+            {/* Spot cannot be liquidated, so it shows nothing rather than a
+                price that does not exist. */}
+            <td className="num px-3 text-right text-amber">
+              {p.liqPrice === null ? <span className="text-fg-dim">—</span> : num(p.liqPrice, 1)}
+            </td>
+            <td
+              className={cn(
+                'num px-3 text-right',
+                p.fundingUsd === null ? 'text-fg-dim' : p.fundingUsd >= 0 ? 'text-up' : 'text-down',
               )}
+            >
+              {p.fundingUsd === null ? '—' : signed(p.fundingUsd)}
+            </td>
+            <N className={pnl >= 0 ? 'text-up' : 'text-down'}>{signed(pnl)}</N>
+            <td className="px-2 text-xs text-fg-mid">
+              {p.strategy ?? <span className="text-fg-dim">manual</span>}
+            </td>
+            {/* Only a hand-opened position gets close controls. A strategy's
+                position is closed by the strategy — a button that unwinds one
+                behind its back leaves the strategy holding a leg it thinks it
+                still has. */}
+            <td className="px-2 text-right">
+              {p.strategy === null ? (
+                <span className="inline-flex gap-1">
+                  <CloseButton onClick={() => setClosing(p)}>Limit</CloseButton>
+                  <CloseButton>Market</CloseButton>
+                </span>
+              ) : null}
             </td>
           </tr>
         )
       })}
     </Grid>
+    {closing !== null && (
+      <ClosePosition position={closing} onClose={() => setClosing(null)} />
+    )}
+    </>
   )
 }
 
-function Balances() {
-  const reported = BALANCES.filter((b) => b.reported)
-  const total = reported.filter((b) => b.asset === 'USDT').reduce((sum, b) => sum + b.total, 0)
-
+function CloseButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
-    <Grid
-      head={
-        <>
-          <Th>Venue</Th>
-          <Th>Asset</Th>
-          <Th right>Total</Th>
-          <Th right>Available</Th>
-        </>
-      }
+    <button
+      type="button"
+      onClick={onClick}
+      className="h-5 rounded-sm bg-raised px-1.5 text-2xs text-fg-mid transition-colors duration-150 hover:bg-hover hover:text-fg"
     >
-      {reported.map((b) => (
-        <tr key={`${b.account}:${b.asset}`} className="row">
-          <td className="px-3 text-fg-mid">{b.venue}</td>
-          <td className="px-3 text-fg-mid">{b.asset}</td>
-          <N>{num(b.total, b.total < 1 ? 4 : 2)}</N>
-          {/* A venue that publishes a total and no free figure leaves a dash.
-              Repeating the total there invites committing margin twice. */}
-          <N className="text-fg-mid">
-            {b.available === null ? (
-              <span className="text-fg-dim" title="this venue publishes no per-asset free figure">
-                —
-              </span>
-            ) : (
-              num(b.available, b.available < 1 ? 4 : 2)
-            )}
-          </N>
-        </tr>
-      ))}
-      <tr className="h-8 shadow-[inset_0_1px_0_0_var(--color-line)]">
-        <td colSpan={2} className="px-3 text-xs text-fg-dim">
-          USDT across venues
-        </td>
-        <N className="font-medium">{num(total)}</N>
-        <td />
-      </tr>
-    </Grid>
+      {children}
+    </button>
   )
 }

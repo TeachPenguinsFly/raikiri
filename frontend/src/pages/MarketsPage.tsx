@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FlashPrice } from '@/components/shared/FlashPrice'
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
+import { Venue } from '@/components/shared/Venue'
 import { Icon } from '@/components/shared/Icon'
 import { Blotter } from '@/components/trading/Blotter'
 import { Ladder } from '@/components/trading/Ladder'
@@ -24,12 +24,83 @@ const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) :
 const best = (m: MockMarket): number | null =>
   m.listings.length === 0 ? null : Math.max(...m.listings.map((l) => l.bid))
 
+/** What the board can be ordered by. Funding is the reason the sort exists:
+ *  the venue paying the most and the venue charging the most are the two ends
+ *  of a carry, and finding them by eye across sixteen rows is the work this
+ *  removes. */
+type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding' | 'volume'
+
+const sortValue = (l: MockListing, key: SortKey): number | string => {
+  const mid = (l.bid + l.ask) / 2
+  switch (key) {
+    case 'venue':
+      return l.venue
+    case 'bid':
+      return l.bid
+    case 'ask':
+      return l.ask
+    case 'spread':
+      return ((l.ask - l.bid) / mid) * 10_000
+    // Normalised to eight hours before comparing. okx funds every four, and
+    // two raw rates side by side compare different things.
+    case 'funding':
+      return (l.fundingRate / l.fundingIntervalHours) * 8
+    case 'volume':
+      return l.volume24h
+  }
+}
+
+/** The pairs a desk actually watches, kept in the browser.
+ *
+ *  Per-viewer, not per-desk: which markets one person keeps an eye on is a
+ *  convenience, not a position, and putting it on the server would make two
+ *  people on one account fight over the list. A read that throws — a private
+ *  window, cleared site data — starts empty rather than breaking the screen. */
+const k_favorites = 'raikiri.favorites'
+
+function useFavorites() {
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(k_favorites) ?? '[]') as string[])
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(k_favorites, JSON.stringify([...favorites]))
+    } catch {
+      // A viewer with site data blocked keeps their list for the session only.
+    }
+  }, [favorites])
+
+  const toggle = (symbol: string) =>
+    setFavorites((prev) => {
+      const next = new Set(prev)
+      if (next.has(symbol)) next.delete(symbol)
+      else next.add(symbol)
+      return next
+    })
+  return { favorites, toggle }
+}
+
 export function MarketsPage() {
   const [query, setQuery] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
   const [venue, setVenue] = useState<string | null>(null)
 
-  const markets = useMarkets(query)
+  const { favorites, toggle } = useFavorites()
+  const [onlyFavorites, setOnlyFavorites] = useState(false)
+
+  const found = useMarkets(query)
+  // Starred pairs float to the top rather than into a separate list: a desk
+  // watching six markets still wants the seventh to be one scroll away.
+  const markets = useMemo(() => {
+    const kept = onlyFavorites ? found.filter((m) => favorites.has(m.symbol)) : found
+    return [...kept].sort(
+      (a, b) => Number(favorites.has(b.symbol)) - Number(favorites.has(a.symbol)),
+    )
+  }, [found, favorites, onlyFavorites])
   const selected = useMemo(
     () => markets.find((m) => m.symbol === chosen) ?? markets[0] ?? null,
     [markets, chosen],
@@ -40,8 +111,17 @@ export function MarketsPage() {
   // The row you clicked is what the ticket writes against and what the ladder
   // shows. Falling back to the first listing means the right column is never
   // empty on a market you just opened.
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'venue', desc: false })
+
   const chosenVenue = live?.listings.find((l) => l.venue === venue) ?? live?.listings[0] ?? null
   const book = useBook(chosenVenue === null ? null : (chosenVenue.bid + chosenVenue.ask) / 2, 12)
+
+  const ordered = [...(live?.listings ?? [])].sort((a, b) => {
+    const x = sortValue(a, sort.key)
+    const y = sortValue(b, sort.key)
+    const c = typeof x === 'string' ? x.localeCompare(y as string) : x - (y as number)
+    return sort.desc ? -c : c
+  })
 
   return (
     <div className="flex h-full min-h-0 gap-2">
@@ -50,6 +130,11 @@ export function MarketsPage() {
         selected={selected?.symbol ?? null}
         query={query}
         entering={entering}
+        favorites={favorites}
+        total={found.length}
+        onFavorite={toggle}
+        onlyFavorites={onlyFavorites}
+        onToggleFilter={() => setOnlyFavorites((v) => !v)}
         onQuery={(q) => {
           setQuery(q)
           setChosen(null)
@@ -61,24 +146,36 @@ export function MarketsPage() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <section className="panel flex max-h-[52%] shrink-0 flex-col">
+        <section className="panel flex min-h-0 flex-[3] flex-col">
           <MarketHeader symbol={live?.symbol ?? '—'} venues={live?.listings.length ?? 0} />
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full border-collapse text-sm whitespace-nowrap">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-                  <th className="col-head px-3 text-left">Venue</th>
+                  <SortHead k="venue" sort={sort} onSort={setSort}>
+                    Venue
+                  </SortHead>
                   <th className="col-head px-3 text-left">Symbol</th>
-                  <th className="col-head px-3 text-right">Bid</th>
-                  <th className="col-head px-3 text-right">Ask</th>
-                  <th className="col-head px-3 text-right">Spread bp</th>
-                  <th className="col-head px-3 text-right">Funding</th>
+                  <SortHead k="bid" sort={sort} onSort={setSort} right>
+                    Bid
+                  </SortHead>
+                  <SortHead k="ask" sort={sort} onSort={setSort} right>
+                    Ask
+                  </SortHead>
+                  <SortHead k="spread" sort={sort} onSort={setSort} right>
+                    Spread bp
+                  </SortHead>
+                  <SortHead k="funding" sort={sort} onSort={setSort} right>
+                    Funding
+                  </SortHead>
                   <th className="col-head px-3 text-right">Every</th>
-                  <th className="col-head px-3 text-right">24h vol</th>
+                  <SortHead k="volume" sort={sort} onSort={setSort} right>
+                    24h vol
+                  </SortHead>
                 </tr>
               </thead>
               <tbody>
-                {(live?.listings ?? []).map((l, i) => (
+                {ordered.map((l, i) => (
                   <VenueRow
                     key={l.venue}
                     listing={l}
@@ -93,11 +190,12 @@ export function MarketsPage() {
           </div>
         </section>
 
-        {/* The board grows with the venues quoting the market — it is what the
-            screen is for. The log is a fixed strip: it holds what you did, and
-            what you did does not expand to fill a window. */}
-        <div className="flex min-h-0 flex-1 flex-col">
-          <Blotter />
+        {/* Three to two in favour of the board: it is what the screen is for,
+            and the log below it is read a row at a time rather than scanned. */}
+        {/* Balances are not a market's business — they live in Treasury, and
+            a fourth tab here only widens the strip you tab across. */}
+        <div className="flex min-h-0 flex-[2] flex-col">
+          <Blotter tabs={['positions', 'orders', 'trades']} />
         </div>
       </div>
 
@@ -143,6 +241,11 @@ function MarketList({
   selected,
   query,
   entering,
+  favorites,
+  total,
+  onFavorite,
+  onlyFavorites,
+  onToggleFilter,
   onQuery,
   onPick,
 }: {
@@ -150,15 +253,43 @@ function MarketList({
   selected: string | null
   query: string
   entering: boolean
+  favorites: Set<string>
+  /** The catalogue before the favorites filter. The All tab has to count what
+   *  it would show, not what the current tab is showing. */
+  total: number
+  onFavorite: (symbol: string) => void
+  onlyFavorites: boolean
+  onToggleFilter: () => void
   onQuery: (q: string) => void
   onPick: (symbol: string) => void
 }) {
   return (
     <section className="panel flex w-68 shrink-0 flex-col">
-      <PanelHeader
-        title="Markets"
-        right={<span className="meta num">{markets.length}</span>}
-      />
+      {/* Two views of one list rather than a toggle: a filter you switch on
+          and forget looks like an empty catalogue the next time you open the
+          screen, where a tab tells you which of the two you are in. */}
+      <div className="flex h-7 shrink-0 items-center gap-4 px-3">
+        {([false, true] as const).map((only) => (
+          <button
+            key={String(only)}
+            type="button"
+            onClick={() => {
+              if (onlyFavorites !== only) onToggleFilter()
+            }}
+            className={cn(
+              'relative flex h-7 items-center gap-1.5 text-xs transition-colors duration-150',
+              onlyFavorites === only
+                ? 'font-medium text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent'
+                : 'text-fg-dim hover:text-fg-mid',
+            )}
+          >
+            {only ? 'Favorites' : 'All'}
+            <span className="num text-2xs text-fg-dim">
+              {only ? favorites.size : total}
+            </span>
+          </button>
+        ))}
+      </div>
       <div className="px-3 pb-2">
         <div className="relative">
           <Icon.Search
@@ -184,14 +315,30 @@ function MarketList({
       <ul className="min-h-0 flex-1 overflow-auto px-1.5 pb-2">
         {markets.map((m, i) => {
           const active = m.symbol === selected
-          return (
-            <li key={m.symbol}>
+            const starred = favorites.has(m.symbol)
+            return (
+            <li key={m.symbol} className="group relative">
+              {/* The star sits over the row rather than in a column of its own:
+                  a column that is empty on most rows is a column of nothing. */}
+              <button
+                type="button"
+                onClick={() => onFavorite(m.symbol)}
+                title={starred ? 'Remove from favorites' : 'Add to favorites'}
+                className={cn(
+                  'absolute top-1/2 left-1.5 z-10 -translate-y-1/2 text-xs transition-opacity duration-150',
+                  starred
+                    ? 'text-amber opacity-100'
+                    : 'text-fg-dim opacity-0 group-hover:opacity-100 hover:text-fg-mid',
+                )}
+              >
+                ★
+              </button>
               <button
                 type="button"
                 onClick={() => onPick(m.symbol)}
                 style={entering ? enterDelay(i) : undefined}
                 className={cn(
-                  'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm px-2',
+                  'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm pr-2 pl-5',
                   'transition-colors duration-150',
                   entering && 'enter-fade-up',
                   // Selected is a raised surface plus a two-pixel accent edge,
@@ -264,13 +411,8 @@ function VenueRow({
         selected && 'bg-active shadow-[inset_2px_0_0_0_var(--color-accent)] hover:bg-active',
       )}
     >
-      {/* The mark identifies the venue and the word confirms it. This is the
-          one table where the logo earns its place: comparing venues IS the
-          view, and a column of names alone is a column you read instead of
-          scan. Every other table gets the word only. */}
-      <td className="flex h-7 items-center gap-2 px-3">
-        <ExchangeIcon venue={listing.venue} className="size-[15px]" />
-        <span className="text-fg-mid">{listing.venue}</span>
+      <td className="px-3">
+        <Venue venue={listing.venue} />
       </td>
       <td className="px-3 text-xs text-fg-mid">{listing.exchangeSymbol}</td>
       <td className="px-3 text-right">
@@ -297,5 +439,38 @@ function VenueRow({
       <td className="num px-3 text-right text-fg-dim">{listing.fundingIntervalHours}h</td>
       <td className="num px-3 text-right text-fg">{(listing.volume24h / 1e6).toFixed(1)}M</td>
     </tr>
+  )
+}
+
+/** A column header that sorts. The caret shows only on the active column —
+ *  eight carets in a header row is a row of decoration. */
+function SortHead({
+  k,
+  sort,
+  onSort,
+  right,
+  children,
+}: {
+  k: SortKey
+  sort: { key: SortKey; desc: boolean }
+  onSort: (s: { key: SortKey; desc: boolean }) => void
+  right?: boolean
+  children: React.ReactNode
+}) {
+  const active = sort.key === k
+  return (
+    <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>
+      <button
+        type="button"
+        onClick={() => onSort({ key: k, desc: active ? !sort.desc : true })}
+        className={cn(
+          'inline-flex items-center gap-1 transition-colors duration-150 hover:text-fg-mid',
+          active && 'text-fg-mid',
+        )}
+      >
+        {children}
+        {active && <span className="text-[8px] leading-none">{sort.desc ? '▼' : '▲'}</span>}
+      </button>
+    </th>
   )
 }

@@ -127,6 +127,9 @@ const MARKETS: MockMarket[] = BASES.map(([base, price], index) => {
 export interface MockBalance {
   account: string
   venue: string
+  /** Read off the account name — perp is the unsuffixed default, as
+   *  `format_account` writes it. */
+  market: 'perp' | 'spot'
   asset: string
   total: number
   available: number | null
@@ -134,14 +137,16 @@ export interface MockBalance {
 }
 
 export const BALANCES: MockBalance[] = [
-  { account: 'kucoin', venue: 'kucoin', asset: 'USDT', total: 1_071.377, available: 1_071.377, reported: true },
-  { account: 'binance', venue: 'binance', asset: 'USDT', total: 827.04, available: null, reported: true },
-  { account: 'bybit', venue: 'bybit', asset: 'USDT', total: 494.106, available: null, reported: true },
-  { account: 'bybit', venue: 'bybit', asset: 'XRP', total: 0.001, available: null, reported: true },
-  { account: 'xt', venue: 'xt', asset: 'USDT', total: 288.18, available: 286.33, reported: true },
-  { account: 'gate', venue: 'gate', asset: 'USDT', total: 191.951, available: 191.951, reported: true },
-  { account: 'okx', venue: 'okx', asset: '', total: 0, available: null, reported: false },
-  { account: 'bitget', venue: 'bitget', asset: '', total: 0, available: null, reported: false },
+  { account: 'kucoin', venue: 'kucoin', market: 'perp', asset: 'USDT', total: 1_071.377, available: 1_071.377, reported: true },
+  { account: 'kucoin-spot', venue: 'kucoin', market: 'spot', asset: 'USDT', total: 214.09, available: 214.09, reported: true },
+  { account: 'kucoin-spot', venue: 'kucoin', market: 'spot', asset: 'BTC', total: 0.0041, available: 0.0041, reported: true },
+  { account: 'binance', venue: 'binance', market: 'perp', asset: 'USDT', total: 827.04, available: null, reported: true },
+  { account: 'bybit', venue: 'bybit', market: 'perp', asset: 'USDT', total: 494.106, available: null, reported: true },
+  { account: 'bybit', venue: 'bybit', market: 'perp', asset: 'XRP', total: 0.001, available: null, reported: true },
+  { account: 'xt', venue: 'xt', market: 'perp', asset: 'USDT', total: 288.18, available: 286.33, reported: true },
+  { account: 'gate', venue: 'gate', market: 'perp', asset: 'USDT', total: 191.951, available: 191.951, reported: true },
+  { account: 'okx', venue: 'okx', market: 'perp', asset: '', total: 0, available: null, reported: false },
+  { account: 'bitget', venue: 'bitget', market: 'perp', asset: '', total: 0, available: null, reported: false },
 ]
 
 // ---------------------------------------------------------------- hooks ----
@@ -215,63 +220,108 @@ export function useBook(mid: number | null, levels = 20, ms = 1000): {
 
 // ------------------------------------------------------ blotter fixtures ----
 
+/** THE CANONICAL SYMBOL IS WHAT THE SCREEN SHOWS.
+ *
+ *  `BTC_USDT`, `XBTUSDTM` and `BTC-USDT-SWAP` are three venues spelling one
+ *  market, and a blotter that prints the venue's spelling makes the reader do
+ *  the normalisation the domain layer already did. The exchange symbol stays
+ *  on the record — it is what you quote at support — but it is not the label.
+ *
+ *  EVERY RECORD CARRIES AN ID OF OURS, and all of them are the same shape:
+ *  eight lowercase hex characters. A sequence number is not an identifier —
+ *  `P-1043` says how many positions came before it and nothing else, it
+ *  collides the moment two processes mint one, and it cannot be spoken over a
+ *  phone without the listener wondering what the P stands for. Eight hex
+ *  characters is 32 bits, which is enough to be unique across a desk's
+ *  lifetime of records and short enough to read back in one breath.
+ *
+ *  The three namespaces are separate: an order id is minted when the intent is
+ *  written, a fill id is DERIVED from (order, leaves, venue execution id) so a
+ *  resend produces the same key, and a position id is minted by the book when
+ *  a flat instrument stops being flat. The venue's own execution id stays on
+ *  the fill beside ours — it is the reconciliation key and the thing you quote
+ *  at support, and it is not ours to replace. */
+
 export interface MockOrder {
   id: string
   venue: string
+  market: 'perp' | 'spot'
   symbol: string
+  exchangeSymbol: string
   side: 'buy' | 'sell'
   type: 'limit' | 'market'
   price: number | null
   qty: number
   filled: number
   status: string
-  age: string
+  /** When it was accepted, in UTC. An age is a number that has to be recomputed
+   *  to be compared with anything else in the journal. */
+  placedAt: string
 }
 
 export const ORDERS: MockOrder[] = [
-  { id: 'a4f21c', venue: 'bybit', symbol: 'BTCUSDT', side: 'buy', type: 'limit', price: 79_180.0, qty: 0.25, filled: 0.1, status: 'partially_filled', age: '3m 12s' },
-  { id: 'a4f220', venue: 'binance', symbol: 'ETHUSDT', side: 'sell', type: 'limit', price: 3_142.5, qty: 4, filled: 0, status: 'accepted', age: '11m 04s' },
-  { id: 'a4f21e', venue: 'okx', symbol: 'SOL-USDT-SWAP', side: 'buy', type: 'limit', price: 184.2, qty: 50, filled: 0, status: 'accepted', age: '26m 41s' },
-  { id: 'a4f219', venue: 'gate', symbol: 'BTC_USDT', side: 'sell', type: 'limit', price: 79_960.0, qty: 0.4, filled: 0, status: 'pending_cancel', age: '1h 02m' },
+  { id: '7f3a91c4', venue: 'bybit', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTCUSDT', side: 'buy', type: 'limit', price: 79_180.0, qty: 0.25, filled: 0.1, status: 'partially_filled', placedAt: '2026-08-30 08:19:29' },
+  { id: 'b20e4d17', venue: 'binance', market: 'perp', symbol: 'ETH/USDT', exchangeSymbol: 'ETHUSDT', side: 'sell', type: 'limit', price: 3_142.5, qty: 4, filled: 0, status: 'accepted', placedAt: '2026-08-30 08:11:37' },
+  { id: '3c8f0a62', venue: 'okx', market: 'perp', symbol: 'SOL/USDT', exchangeSymbol: 'SOL-USDT-SWAP', side: 'buy', type: 'limit', price: 184.2, qty: 50, filled: 0, status: 'accepted', placedAt: '2026-08-30 07:56:00' },
+  { id: 'e94b7205', venue: 'gate', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTC_USDT', side: 'sell', type: 'limit', price: 79_960.0, qty: 0.4, filled: 0, status: 'pending_cancel', placedAt: '2026-08-30 07:20:14' },
 ]
 
 export interface MockTrade {
+  /** Ours, derived from the order and the leaves so a resend keys the same. */
   id: string
+  /** The venue's. Not shown in the blotter — nobody reads a column of foreign
+   *  ids down — but kept on the record, because it is the reconciliation key
+   *  and the reference you quote at support. */
+  venueExecId: string
+  at: string
   venue: string
+  market: 'perp' | 'spot'
   symbol: string
+  exchangeSymbol: string
   side: 'buy' | 'sell'
   price: number
   qty: number
   fee: number
   liquidity: 'maker' | 'taker'
-  at: string
+  /** Funding accrued on the position this fill belongs to, since it opened.
+   *  Spot has none and shows nothing rather than a zero. */
+  fundingUsd: number | null
 }
 
 export const TRADES: MockTrade[] = [
-  { id: '83956771', venue: 'bybit', symbol: 'BTCUSDT', side: 'buy', price: 79_181.4, qty: 0.1, fee: 0.0158, liquidity: 'maker', at: '08:02:41' },
-  { id: '83956764', venue: 'kucoin', symbol: 'XBTUSDTM', side: 'sell', price: 79_402.0, qty: 0.05, fee: 0.0119, liquidity: 'taker', at: '07:58:12' },
-  { id: '83956740', venue: 'binance', symbol: 'ETHUSDT', side: 'buy', price: 3_118.9, qty: 2, fee: 0.0031, liquidity: 'maker', at: '07:51:03' },
-  { id: '83956702', venue: 'xt', symbol: 'BTC_USDT', side: 'buy', price: 79_120.6, qty: 0.02, fee: 0.0009, liquidity: 'maker', at: '07:44:55' },
+  { id: 'a1d5602f', venueExecId: '83956771', at: '2026-08-30 08:02:41', venue: 'bybit', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTCUSDT', side: 'buy', price: 79_181.4, qty: 0.1, fee: 0.0158, liquidity: 'maker', fundingUsd: -4.18 },
+  { id: 'c47e13b8', venueExecId: '55120944', at: '2026-08-30 07:58:12', venue: 'kucoin', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'XBTUSDTM', side: 'sell', price: 79_402.0, qty: 0.05, fee: 0.0119, liquidity: 'taker', fundingUsd: 2.31 },
+  { id: '5b90ea31', venueExecId: '83956740', at: '2026-08-30 07:51:03', venue: 'binance', market: 'perp', symbol: 'ETH/USDT', exchangeSymbol: 'ETHUSDT', side: 'buy', price: 3_118.9, qty: 2, fee: 0.0031, liquidity: 'maker', fundingUsd: -2.41 },
+  { id: 'd8207f46', venueExecId: '77120410', at: '2026-08-30 07:44:55', venue: 'xt', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTC_USDT', side: 'buy', price: 79_120.6, qty: 0.02, fee: 0.0009, liquidity: 'maker', fundingUsd: 0.87 },
 ]
 
 export interface MockPosition {
-  /** The interned instrument id. A position has no id of its own — this is
-   *  what the book, the journal and the ledger key it by. */
-  instrumentId: string
+  /** Minted by the book when a flat instrument stops being flat. A venue has
+   *  no id for a netted position and the instrument id names the market rather
+   *  than the holding, so this is the only handle the position has. */
+  id: string
   venue: string
+  market: 'perp' | 'spot'
   symbol: string
+  exchangeSymbol: string
   qty: number
   entry: number
   mark: number
-  /** Null where the venue reports no position endpoint. NULL IS NOT FLAT. */
-  venueQty: number | null
+  leverage: number
+  /** Perp only. Spot cannot be liquidated and shows nothing, not a zero. */
+  liqPrice: number | null
+  fundingUsd: number | null
+  /** Null where a person opened it by hand. A strategy's position is closed by
+   *  the strategy; a manual one is closed by whoever opened it, which is why
+   *  only these carry close controls. */
+  strategy: string | null
 }
 
 export const POSITIONS: MockPosition[] = [
-  { instrumentId: '6', venue: 'xt', symbol: 'BTC_USDT', qty: 0.02, entry: 79_120.6, mark: 79_419.5, venueQty: 0.02 },
-  { instrumentId: '0', venue: 'bybit', symbol: 'BTCUSDT', qty: 0.1, entry: 79_181.4, mark: 79_410.2, venueQty: 0.1 },
-  { instrumentId: '101', venue: 'binance', symbol: 'ETHUSDT', qty: 2, entry: 3_118.9, mark: 3_121.4, venueQty: null },
-  { instrumentId: '4', venue: 'kucoin', symbol: 'XBTUSDTM', qty: -0.05, entry: 79_402.0, mark: 79_392.4, venueQty: -0.05 },
+  { id: '2e6c8b40', venue: 'xt', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTC_USDT', qty: 0.02, entry: 79_120.6, mark: 79_419.5, leverage: 5, liqPrice: 64_318.2, fundingUsd: 0.87, strategy: null },
+  { id: '9a41d3e7', venue: 'bybit', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'BTCUSDT', qty: 0.1, entry: 79_181.4, mark: 79_410.2, leverage: 3, liqPrice: 53_902.7, fundingUsd: -4.18, strategy: 'funding-carry-btc' },
+  { id: 'f0725ac9', venue: 'binance', market: 'perp', symbol: 'ETH/USDT', exchangeSymbol: 'ETHUSDT', qty: 2, entry: 3_118.9, mark: 3_121.4, leverage: 4, liqPrice: 2_365.1, fundingUsd: -2.41, strategy: 'basis-eth' },
+  { id: '4d18e05b', venue: 'kucoin', market: 'perp', symbol: 'BTC/USDT', exchangeSymbol: 'XBTUSDTM', qty: -0.05, entry: 79_402.0, mark: 79_392.4, leverage: 2, liqPrice: 117_884.0, fundingUsd: 2.31, strategy: null },
 ]
 
 export interface MockStrategy {
