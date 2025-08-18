@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router'
 import { AppShell } from '@/components/layout/AppShell'
 import { Login } from '@/routes/Login'
 import { MarketsPage } from '@/pages/MarketsPage'
+import { ScannerPage } from '@/pages/ScannerPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { StrategiesPage } from '@/pages/StrategiesPage'
 import { StrategyPage } from '@/pages/StrategyPage'
@@ -20,6 +21,7 @@ createRoot(root).render(
         <Route path="login" element={<Login />} />
         <Route element={<AppShell />}>
           <Route index element={<MarketsPage />} />
+          <Route path="scanner" element={<ScannerPage />} />
           <Route path="strategies" element={<StrategiesPage />} />
           <Route path="strategies/:name" element={<StrategyPage />} />
           <Route path="treasury" element={<TreasuryPage />} />
