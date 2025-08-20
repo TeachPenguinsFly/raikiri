@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChartFrame, colorsFor, Donut, LinePlot } from '@/components/chart'
+import { BalanceTree } from '@/components/BalanceTree'
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
 import { BALANCES, EQUITY, HOURS } from '@/mock/data'
 
@@ -12,15 +12,6 @@ const k_denomination = 'USDT'
 const usd = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** A held amount, at enough precision to be true.
- *
- *  Two decimals turn 0.001 XRP into "0.00", which is a screen saying a wallet
- *  is empty when it is not. Sub-unit holdings get the digits they need. */
-const held = (v: number) =>
-  v.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: v !== 0 && Math.abs(v) < 1 ? 6 : 2,
-  })
 
 export function TreasuryPage() {
   const [hover, setHover] = useState<string | null>(null)
@@ -28,9 +19,14 @@ export function TreasuryPage() {
   const reported = BALANCES.filter((b) => b.reported)
   const denominated = reported.filter((b) => b.asset === k_denomination)
   const total = denominated.reduce((sum, b) => sum + b.total, 0)
-  const entering = useEntranceOnce(true, 'treasury')
 
-  const ranked = [...denominated].sort((a, b) => b.total - a.total)
+  // A venue with a spot wallet and a perp wallet is ONE slice. Two segments
+  // labelled `kucoin` is a chart asking the reader to add them up.
+  const byVenue = new Map<string, number>()
+  for (const b of denominated) byVenue.set(b.venue, (byVenue.get(b.venue) ?? 0) + b.total)
+  const ranked = [...byVenue.entries()]
+    .map(([venue, total]) => ({ venue, total }))
+    .sort((a, b) => b.total - a.total)
   const colors = colorsFor(ranked.map((b) => b.venue))
   const segments = ranked.map((b) => ({
     key: b.venue,
@@ -108,59 +104,7 @@ export function TreasuryPage() {
           right={<span className="meta num">{reported.length} rows</span>}
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm whitespace-nowrap">
-          <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-              <th className="col-head px-3 text-left">Account</th>
-              <th className="col-head px-3 text-left">Market</th>
-              <th className="col-head px-3 text-left">Asset</th>
-              <th className="col-head px-3 text-right">Total</th>
-              <th className="col-head px-3 text-right">Available</th>
-              <th className="col-head px-3 text-right">Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reported.map((b, i) => (
-              <tr
-                key={`${b.account}:${b.asset}`}
-                style={entering ? enterDelay(i) : undefined}
-                onMouseEnter={() => setHover(b.venue)}
-                onMouseLeave={() => setHover(null)}
-                className={cn(
-                  'row',
-                  entering && 'enter-fade-up',
-                  hover === b.venue && 'bg-hover',
-                )}
-              >
-                <td className="px-3 text-fg-mid">{b.venue}</td>
-                {/* The market is read off the account name — perp is the
-                    unsuffixed default, as format_account writes it. */}
-                <td className="px-3 text-xs text-fg-mid">
-                  {b.account === b.venue ? 'perp' : b.account.slice(b.venue.length + 1)}
-                </td>
-                <td className="px-3 text-fg-mid">{b.asset}</td>
-                <td className="num px-3 text-right text-fg">{held(b.total)}</td>
-                <td className="num px-3 text-right text-fg">
-                  {b.available === null ? (
-                    <span
-                      className="text-fg-dim"
-                      title="this venue publishes no per-asset free figure"
-                    >
-                      —
-                    </span>
-                  ) : (
-                    held(b.available)
-                  )}
-                </td>
-                {/* Only the denominated rows have a share. A share of a total
-                    that does not include you is not a share. */}
-                <td className="num px-3 text-right text-fg-mid">
-                  {b.asset === k_denomination ? `${((b.total / total) * 100).toFixed(1)}%` : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <BalanceTree />
         </div>
       </section>
     </div>
