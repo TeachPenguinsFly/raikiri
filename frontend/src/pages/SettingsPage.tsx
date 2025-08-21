@@ -1,14 +1,30 @@
 import { PanelHeader } from '@/components/shared/PanelHeader'
-import { StatusBadge } from '@/components/shared/StatusBadge'
-import { enterDelay, useEntranceOnce } from '@/lib/entrance'
-import { cn } from '@/lib/utils'
-import { useGateways } from '@/mock/data'
+import { Venue } from '@/components/shared/Venue'
+import { VENUES } from '@/mock/data'
 
-/** How a credential reaches a gateway. A REFERENCE, never a value.
+/** Which markets a venue's key actually opens.
  *
- *  This screen shows the reference and nothing else, because the value is not
- *  something the terminal is ever given: a secret that reaches the browser has
- *  been in a process, a log and a devtools panel on the way. */
+ *  The screen used to report a state, an instrument count and a segment path —
+ *  three facts about a process, none of which is the question anyone opens
+ *  Settings to ask. That question is: can I trade this venue, and on which
+ *  markets. A key is per venue and the permissions are per market, so the grid
+ *  is venue by market and nothing else. */
+const MARKETS = ['spot', 'perp'] as const
+type Market = (typeof MARKETS)[number]
+
+/** `null` where the venue has no key at all — which is a different fact from a
+ *  key that is present and refused, and the two get different words. */
+const KEYS: Record<string, Partial<Record<Market, boolean>> | null> = {
+  bybit: { spot: true, perp: true },
+  binance: { spot: false, perp: true },
+  okx: { spot: true, perp: true },
+  gate: { spot: false, perp: true },
+  kucoin: { spot: true, perp: true },
+  bitget: null,
+  xt: { spot: false, perp: true },
+  bingx: null,
+}
+
 const SOURCES: Record<string, string> = {
   bybit: 'env:RAIKIRI_BYBIT_KEY',
   binance: 'env:RAIKIRI_BINANCE_KEY',
@@ -19,64 +35,59 @@ const SOURCES: Record<string, string> = {
 }
 
 export function SettingsPage() {
-  const gateways = useGateways()
-  const entering = useEntranceOnce(true, 'settings')
+  const working = VENUES.filter((v) => KEYS[v] !== null && KEYS[v] !== undefined).length
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-2 pt-0">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <section className="panel flex min-h-0 flex-1 flex-col">
         <PanelHeader
-          title="Gateways"
+          title="API keys"
           right={
-            <span className="meta num">
-              {gateways.filter((g) => g.alive).length}/{gateways.length} attached
+            <span className="meta">
+              {working}/{VENUES.length} venues keyed
             </span>
           }
         />
         <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm whitespace-nowrap">
-          <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="h-7 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-              <th className="col-head px-3 text-left">Account</th>
-              <th className="col-head px-3 text-left">Market</th>
-              <th className="col-head px-3 text-left">Segment</th>
-              <th className="col-head px-3 text-right">Instruments</th>
-              <th className="col-head px-3 text-left">Credential</th>
-              <th className="col-head px-3 text-left">State</th>
-            </tr>
-          </thead>
-          <tbody>
-            {gateways.map((g, i) => (
-              <tr
-                key={g.account}
-                style={entering ? enterDelay(i) : undefined}
-                className={cn('row', entering && 'enter-fade-up')}
-              >
-                <td className="px-3 text-fg-mid">{g.venue}</td>
-                <td className="px-3 text-fg-mid">{g.market}</td>
-                {/* One segment per (venue, market), and perp is the unsuffixed
-                    default — so the path a reader sees here is the path on disk. */}
-                <td className="px-3 text-xs text-fg">gw.{g.account}</td>
-                <td className={cn('num px-3 text-right', g.alive ? 'text-fg-mid' : 'text-fg-dim')}>
-                  {g.alive ? g.instruments : '—'}
-                </td>
-                <td className="px-3 text-xs text-fg-mid">
-                  {SOURCES[g.venue] ?? (
-                    <span className="text-amber">not configured</span>
-                  )}
-                </td>
-                <td className="px-3">
-                  <StatusBadge status={g.alive ? 'alive' : 'dead'} />
-                </td>
+          <table className="w-full border-collapse text-sm whitespace-nowrap">
+            <thead className="sticky top-0 z-10 bg-panel">
+              <tr className="h-6 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+                <th className="col-head px-3 text-left">Venue</th>
+                {MARKETS.map((m) => (
+                  <th key={m} className="col-head w-24 px-3 text-left">
+                    {m}
+                  </th>
+                ))}
+                <th className="col-head px-3 text-left">Credential</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {/* Said once, under the column it is about, rather than pinned to the
-            bottom of a panel three hundred pixels below it. */}
-        <p className="px-3 pt-3 text-xs text-fg-dim">
-          References, never values — no key reaches this screen.
-        </p>
+            </thead>
+            <tbody>
+              {VENUES.map((venue) => {
+                const key = KEYS[venue]
+                return (
+                  <tr key={venue} className="row">
+                    <td className="px-3">
+                      <Venue venue={venue} />
+                    </td>
+                    {MARKETS.map((m) => (
+                      <td key={m} className="px-3">
+                        {key === null || key === undefined ? (
+                          <span className="text-fg-dim">no key</span>
+                        ) : key[m] === true ? (
+                          <span className="text-up">ok</span>
+                        ) : (
+                          <span className="text-down">refused</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-3 text-xs text-fg-mid">
+                      {SOURCES[venue] ?? <span className="text-amber">not configured</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
