@@ -601,14 +601,20 @@ private:
                      QtyLots qty,
                      Kind kind) {
         if (response.transport_failed()) {
-            // No verdict from the venue at all.
+            // No verdict from the venue at all. The transport's own words, not a
+            // stand-in for them: "no response" is true of a refused connection,
+            // a timeout and a TLS failure alike, and those are three different
+            // things to go and fix.
             emit_reject(client_order_id,
                         instrument,
                         side,
                         qty,
                         kind,
-                        exec::VenueError::make(
-                            exec::ErrorClass::Connectivity, 0, "no response from venue"));
+                        exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                               0,
+                                               response.error.empty()
+                                                   ? std::string_view{"no response from venue"}
+                                                   : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_envelope(response.body);
