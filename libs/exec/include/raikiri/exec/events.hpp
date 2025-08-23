@@ -6,6 +6,7 @@
 // tables / broadcast rings / journal appends) and never throw; adapters may
 // call from their I/O thread at full tick rate.
 
+#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/error.hpp>
@@ -41,6 +42,13 @@ public:
     virtual void on_depth(const BookSnapshot& book) noexcept { (void)book; }
 
     virtual void on_funding(const FundingUpdate& funding) noexcept = 0;
+
+    // What the venue CHARGED, as opposed to the rate above, which is what it
+    // said it would charge. Declining by default and paired with the
+    // `funding_charge` capability bit: an adapter that cannot read its venue's
+    // account ledger must stay silent here rather than let a caller mistake
+    // silence for nothing having been charged.
+    virtual void on_funding_charge(const FundingCharge& charge) noexcept { (void)charge; }
 
     // Declining by default: one venue publishes greeks today, and an adapter
     // for a venue that lists no options has nothing to say here.

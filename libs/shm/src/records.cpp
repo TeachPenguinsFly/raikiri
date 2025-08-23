@@ -12,6 +12,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.greeks = owner.create_channel<GreeksTable>("greeks");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
+    ch.funding_charges = owner.create_channel<FundingChargeRing>("funding_charges");
     ch.positions = owner.create_channel<PositionTable>("positions");
     ch.balances = owner.create_channel<BalanceTable>("balances");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
@@ -19,6 +20,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
+        ch.funding_charges == nullptr ||
         ch.greeks == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
         ch.cmd_create == nullptr || ch.cmd_cancel == nullptr ||
         ch.order_intents == nullptr) {
@@ -56,6 +58,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!exec) {
         return std::unexpected{exec.error()};
     }
+    const auto charges = client.open_channel<FundingChargeRing>("funding_charges");
+    if (!charges) {
+        return std::unexpected{charges.error()};
+    }
     const auto positions = client.open_channel<PositionTable>("positions");
     if (!positions) {
         return std::unexpected{positions.error()};
@@ -83,6 +89,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
                            *greeks,
                            *md,
                            *exec,
+                           *charges,
                            *positions,
                            *balances,
                            *create,

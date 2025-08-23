@@ -32,11 +32,11 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 5; // 5: the order-intent channel
+inline constexpr std::uint32_t k_abi_version = 6; // 6: the funding-charge channel
 // Sized past today's nine so the next channel is a directory entry rather than
 // another header-layout change: every slot costs 32 bytes of segment header,
 // and the ABI bump that a resize forces costs every process a rebuild.
-inline constexpr std::size_t k_max_channels = 12;
+inline constexpr std::size_t k_max_channels = 16;
 inline constexpr std::size_t k_max_readers = 4;
 inline constexpr std::uint64_t k_owner_stale_ns = 200'000'000; // 200 ms
 

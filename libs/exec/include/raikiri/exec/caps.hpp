@@ -65,6 +65,13 @@ struct VenueCaps {
     // above: absence of a balance and an inability to ask are different facts,
     // and a margin model built on the wrong one is built on nothing.
     bool balance_pull{false};
+    // Whether the adapter reads the venue's own record of what funding it
+    // charged. Same rule again, and it matters most here: funding is the one
+    // number a caller is tempted to reconstruct from the public rate, and a
+    // reconstruction disagrees with the venue's books in an append-only
+    // ledger. False means this venue contributes no funding PnL, which is the
+    // honest state rather than a wrong one.
+    bool funding_charge{false};
 
     // A third credential beyond key and secret. The adapters that need one
     // refuse to sign without it, and two of them refuse quietly — okx and

@@ -16,6 +16,7 @@
 //   cmd_*        SpscRing       command: lossless; Full = venue down
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -63,6 +64,19 @@ struct ExecEventRec {
 
 static_assert(sizeof(ExecEventRec) == 192);
 static_assert(std::is_trivially_copyable_v<ExecEventRec>);
+
+// What the venue charged for carrying a position through a settlement.
+//
+// A RING, NOT A TABLE, and that is the whole point. A table answers "what is
+// true now" and overwrites; funding is a sequence of separate charges, and one
+// overwriting another is money that silently never happened. The seqlock
+// tables above can afford to lose an update because the next one restates the
+// whole truth — a charge restates nothing.
+struct FundingChargeRec {
+    FundingCharge charge{};
+};
+
+static_assert(std::is_trivially_copyable_v<FundingChargeRec>);
 
 // What the venue says it holds, as of the pull that wrote it.
 //
@@ -118,6 +132,9 @@ inline constexpr std::size_t k_position_cells = 4096;
 inline constexpr std::size_t k_md_ring = 65536;
 inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
+// Funding settles a handful of times a day per instrument, not per tick, so
+// this is years of history rather than seconds of it.
+inline constexpr std::size_t k_funding_charge_ring = 4096;
 // 100 book levels a side put the depth table at 12.8 MiB, which no longer
 // fits alongside the rings in 32. The whole table is zeroed at creation, so
 // this is resident memory per gateway, not just address space.
@@ -138,9 +155,11 @@ using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
+using FundingChargeRing = BroadcastRing<FundingChargeRec, k_funding_charge_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 using MdReader = BroadcastReader<MdEvent, k_md_ring>;
 using ExecReader = BroadcastReader<ExecEventRec, k_exec_ring>;
+using FundingChargeReader = BroadcastReader<FundingChargeRec, k_funding_charge_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
 
@@ -154,6 +173,10 @@ struct GatewayChannels {
     GreeksTable* greeks{nullptr};
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};
+    // What the venue TOOK, beside what it quoted. The `funding` table above
+    // holds the rate and is overwritten every tick; this carries the charges
+    // and must not lose one.
+    FundingChargeRing* funding_charges{nullptr};
     PositionTable* positions{nullptr};
     BalanceTable* balances{nullptr};
     CmdRing* cmd_create{nullptr};
