@@ -761,6 +761,16 @@ public:
         return true;
     }
 
+    // The order path's heartbeat, once per market link. The REST pool drops a
+    // connection the venue has already closed only if something sweeps it;
+    // nothing did, so an idle gateway wrote its next order into a dead socket
+    // and read back an end of stream — after the venue had filled it.
+    void poll(UnixNanos now) noexcept override {
+        for (auto& link : links_) {
+            link->rest().keepalive(now);
+        }
+    }
+
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
     void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }

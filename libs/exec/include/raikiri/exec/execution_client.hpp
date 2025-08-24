@@ -69,6 +69,14 @@ public:
 
     virtual void amend(const OrderCmd& cmd) noexcept { (void)cmd; }
 
+    // Driven every loop by the gateway. WITHOUT THIS THE ORDER PATH ROTS WHILE
+    // IDLE: the REST pool holds a connection open, the venue closes its end
+    // after its own idle timeout, and the next order is written into a socket
+    // that is already gone. That failure is worse than a refusal — the request
+    // can reach the matcher before the read fails, so the venue fills an order
+    // this process has recorded as rejected.
+    virtual void poll(UnixNanos now) noexcept { (void)now; }
+
     virtual void cancel_batch(std::span<const OrderCmd> cmds) noexcept {
         for (const auto& cmd : cmds) {
             cancel(cmd);

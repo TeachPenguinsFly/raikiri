@@ -391,6 +391,8 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return ws_.connected(); }
 
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
+
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
     void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }

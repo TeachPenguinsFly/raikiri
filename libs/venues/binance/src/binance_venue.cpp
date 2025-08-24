@@ -491,6 +491,14 @@ public:
         return client_ != nullptr && client_->connected();
     }
 
+    // The order path's heartbeat. The REST pool drops a connection the venue
+    // has already closed only if something sweeps it; nothing did, so an idle
+    // gateway wrote its next order into a dead socket and read back an end of
+    // stream — after the venue had filled it.
+    void poll(UnixNanos now) noexcept override {
+        rest_.keepalive(now);
+    }
+
     void submit(const OrderCmd& cmd) noexcept override {
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {

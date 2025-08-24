@@ -842,6 +842,10 @@ int main(int argc, char** argv) {
             }
         }
         adapter->data->poll(clock.wall());
+        // The order path needs the same heartbeat the market-data path gets. A
+        // gateway that only polls data keeps a warm socket for quotes and a
+        // cold one for orders, and only finds out which at the worst moment.
+        adapter->execution->poll(clock.wall());
         // THE ACCOUNT PULL IS NOT HERE ANY MORE. It used to sit between two
         // heartbeats and took as long as a round trip to the venue — measured
         // at 460 ms against bybit, against a 200 ms staleness threshold — so
