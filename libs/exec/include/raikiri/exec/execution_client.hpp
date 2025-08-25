@@ -7,6 +7,7 @@
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/error.hpp>
@@ -95,6 +96,20 @@ public:
 
     [[nodiscard]] virtual std::expected<std::vector<PositionReport>, VenueError>
     position_reports(MarketType market) = 0;
+
+    // What the venue CHARGED for funding, from its own ledger — never derived
+    // from the public rate. Declining by default and gated by
+    // `VenueCaps::funding_charge` for the reason position_pull exists: an
+    // adapter that returns nothing because it cannot ask, and one that returns
+    // nothing because nothing was charged, are different facts, and booking
+    // the second when the first is true loses money silently.
+    [[nodiscard]] virtual std::expected<std::vector<FundingCharge>, VenueError>
+    funding_charges(MarketType market, UnixNanos since) {
+        (void)market;
+        (void)since;
+        return std::unexpected{
+            VenueError::make(ErrorClass::Terminal, 0, "venue reports no funding charges")};
+    }
 
     // What the account HOLDS, as opposed to what it is long or short. Defaulted
     // to a refusal rather than made pure: an adapter opts in, and `caps

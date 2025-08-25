@@ -195,6 +195,26 @@ struct PositionBuffer {
     WirePosition positions[k_max_updates];
 };
 
+// One row of the account's transaction log, filtered to settlements.
+//
+// `id` IS THE IDENTITY. bybit mints a unique one per row, which is what lets a
+// charge be booked exactly once — most venues mint nothing for funding, and
+// the ledger downstream keys on this.
+struct WireFundingCharge {
+    std::string_view id;
+    std::string_view symbol;
+    std::string_view funding;  // SIGNED: positive received, negative paid away
+    std::string_view currency; // the settlement asset, never assumed
+    std::uint64_t transaction_ms{0};
+};
+
+struct FundingChargeBuffer {
+    WireFundingCharge charges[k_max_updates];
+};
+
+[[nodiscard]] std::expected<std::span<const WireFundingCharge>, WireError>
+parse_funding_charges(std::string_view result, FundingChargeBuffer& storage);
+
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
 parse_positions(std::string_view frame, PositionBuffer& storage);
 

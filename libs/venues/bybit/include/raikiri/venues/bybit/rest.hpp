@@ -65,6 +65,11 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
+    // The venue's own record of funding it charged. Paired with
+    // `VenueCaps::funding_charge`: a venue that cannot answer must not be asked.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_charges(MarketType market, UnixNanos since, UnixNanos now);
+
     // What the account holds, coin by coin. It takes no category: one unified
     // wallet backs both markets.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);

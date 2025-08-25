@@ -53,6 +53,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .book_checksum = false,
         .position_pull = true,
         .balance_pull = true,
+        .funding_charge = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36,

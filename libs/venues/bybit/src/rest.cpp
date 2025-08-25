@@ -307,6 +307,32 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
     return signed_get("/v5/position/list", query.view(), now);
 }
 
+// The account's own record of what it was charged, filtered to settlements.
+//
+// `startTime` is required to be within seven days of `endTime`, so a caller
+// asking for more gets an error rather than a truncated answer — the window is
+// clamped here instead, because a silently short answer would read as "no
+// funding was charged".
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos now) {
+    constexpr std::uint64_t k_max_window_ms = 7ULL * 24 * 60 * 60 * 1000;
+    const std::uint64_t end_ms = now.ns / 1'000'000;
+    std::uint64_t start_ms = since.ns / 1'000'000;
+    if (start_ms == 0 || end_ms < start_ms || end_ms - start_ms > k_max_window_ms) {
+        start_ms = end_ms > k_max_window_ms ? end_ms - k_max_window_ms : 0;
+    }
+    char start_buf[24];
+    char end_buf[24];
+    Appender query{body_};
+    query << "accountType=" << k_account_type << "&category=" << category_of(market)
+          << "&type=SETTLEMENT&limit=50&startTime=" << render_u64(start_ms, start_buf)
+          << "&endTime=" << render_u64(end_ms, end_buf);
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get("/v5/account/transaction-log", query.view(), now);
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixNanos now) {
     Appender query{body_};
     query << "accountType=" << k_account_type;

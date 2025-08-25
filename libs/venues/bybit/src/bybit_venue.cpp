@@ -509,6 +509,50 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<FundingCharge>, exec::VenueError>
+    funding_charges(MarketType market, UnixNanos since) override {
+        const auto request = builder_.funding_charges(market, since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        std::string body;
+        const auto envelope = fetch(*request, body);
+        if (!envelope.has_value()) {
+            return std::unexpected{envelope.error()};
+        }
+        static thread_local FundingChargeBuffer storage;
+        const auto rows = parse_funding_charges(envelope->result, storage);
+        if (!rows.has_value()) {
+            // A body we cannot read is NOT an empty ledger. Saying "no charges"
+            // here would book zero funding against a position that paid some.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "unreadable transaction log")};
+        }
+        std::vector<FundingCharge> charges;
+        charges.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            const auto instrument = state_->instruments.find(wire.symbol);
+            if (instrument == nullptr) {
+                continue; // a symbol this gateway does not carry
+            }
+            const auto amount = parse_decimal_e9(wire.funding);
+            if (!amount.has_value()) {
+                continue; // an unparseable figure is not a zero one
+            }
+            FundingCharge charge{};
+            charge.instrument = base_of(*instrument).id;
+            charge.amount = *amount;
+            charge.settled_at = UnixNanos{wire.transaction_ms * 1'000'000};
+            if (auto id = ExecId::from(wire.id); id.has_value()) {
+                charge.reference = *id;
+            }
+            charge.ts_init = state_->clock->wall();
+            charges.push_back(charge);
+        }
+        return charges;
+    }
+
     std::expected<std::vector<BalanceReport>, exec::VenueError>
     balance_reports(MarketType market) override {
         // ONE WALLET behind both markets: a unified account funds a spot fill

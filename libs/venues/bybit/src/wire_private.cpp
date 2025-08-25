@@ -193,4 +193,31 @@ parse_open_orders(std::string_view result, OrderUpdateBuffer& storage) {
     });
 }
 
+std::expected<std::span<const WireFundingCharge>, WireError>
+parse_funding_charges(std::string_view result, FundingChargeBuffer& storage) {
+    return guarded([&] {
+        return read_array<WireFundingCharge>(
+            result,
+            "list",
+            storage.charges,
+            k_max_updates,
+            [](ondemand::object& obj, WireFundingCharge& out) -> std::expected<void, WireError> {
+                auto id = detail::req_str(obj, "id");
+                if (!id.has_value()) {
+                    return std::unexpected{id.error()};
+                }
+                out.id = *id;
+                const auto field = [&](std::string_view key) {
+                    obj.reset();
+                    return detail::opt_str(obj, key).value_or(std::string_view{});
+                };
+                out.symbol = field("symbol");
+                out.funding = field("funding");
+                out.currency = field("currency");
+                out.transaction_ms = detail::digits_to_u64(field("transactionTime"));
+                return {};
+            });
+    });
+}
+
 } // namespace raikiri::venues::bybit
