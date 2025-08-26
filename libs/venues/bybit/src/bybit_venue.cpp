@@ -495,9 +495,13 @@ public:
             return std::unexpected{envelope.error()};
         }
         static thread_local PositionBuffer storage;
-        const auto positions = parse_positions(envelope->result, storage);
+        const auto positions = parse_position_list(envelope->result, storage);
         if (!positions.has_value()) {
-            return std::vector<exec::PositionReport>{};
+            // NOT an empty account. A body we cannot read says nothing about
+            // what is held, and answering with an empty vector here is what
+            // turns "could not tell" into "is flat".
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "unreadable position list")};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());

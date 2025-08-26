@@ -215,6 +215,14 @@ struct FundingChargeBuffer {
 [[nodiscard]] std::expected<std::span<const WireFundingCharge>, WireError>
 parse_funding_charges(std::string_view result, FundingChargeBuffer& storage);
 
+// The REST shape of the same rows. TWO SHAPES, TWO PARSERS: the private socket
+// wraps positions in `data` and /v5/position/list wraps them in `list`, and a
+// parser pointed at the wrong key finds no array and reports an account with
+// no positions — which is the one wrong answer this whole path exists to
+// avoid.
+[[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
+parse_position_list(std::string_view result, PositionBuffer& storage);
+
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
 parse_positions(std::string_view frame, PositionBuffer& storage);
 
