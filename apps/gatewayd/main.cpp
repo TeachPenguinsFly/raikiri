@@ -52,6 +52,7 @@
 #include <atomic>
 #include <thread>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -422,6 +423,11 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 }
 
 int main(int argc, char** argv) {
+    // LINE BUFFERED, ALWAYS. Redirected to a file, stdout is block buffered by
+    // default, so a gateway that is running normally shows an empty log and one
+    // that has just crashed shows everything at once. Neither is watchable, and
+    // this process is meant to be watched.
+    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     using namespace raikiri;
 
     std::string venue_name = "sim";
