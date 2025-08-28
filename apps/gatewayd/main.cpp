@@ -778,6 +778,21 @@ int main(int argc, char** argv) {
                            up.error().message.view());
                 poller_adapter.reset();
             }
+            // ITS OWN CATALOGUE, because it has its own instrument table.
+            // `fetch_all` interns into the adapter it is called on, and this is
+            // a second adapter: without this call the table stays empty, every
+            // position the venue reports maps to nothing, and the poller says
+            // the account is flat while it holds a position. Balances hid it —
+            // they key on an asset name and need no instrument at all.
+            if (poller_adapter != nullptr) {
+                if (const auto loaded = poller_adapter->instruments->fetch_all(market);
+                    !loaded.has_value()) {
+                    fmt::print(stderr,
+                               "gatewayd: account poller has no catalogue — {}\n",
+                               loaded.error().message.view());
+                    poller_adapter.reset();
+                }
+            }
         }
         if (poller_adapter != nullptr) {
             poller = std::thread([&] {
