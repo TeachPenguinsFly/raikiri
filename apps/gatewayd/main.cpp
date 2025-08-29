@@ -294,6 +294,57 @@ struct NullSink final : raikiri::exec::GatewaySink {
     void on_connectivity(const raikiri::exec::ConnEvent&) noexcept override {}
 };
 
+// What the venue charged, onto the ring the book reads.
+//
+// A CURSOR, NOT A WINDOW. The pull asks for everything since the last charge
+// already seen, so a settlement that lands between two passes is picked up on
+// the next one rather than missed. The cursor only ever moves forward, and a
+// failed pull does not move it — a charge is money, and skipping one because a
+// request timed out would be a silent loss.
+void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
+                             raikiri::MarketType market,
+                             raikiri::shm::FundingChargeRing& ring,
+                             raikiri::UnixNanos& cursor) {
+    char buf[16];
+    const auto who =
+        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    static bool announced = false;
+    if (!adapter.caps.funding_charge) {
+        if (!announced) {
+            announced = true;
+            fmt::print("gatewayd[{}]: this venue reports no funding charges\n", who);
+        }
+        return;
+    }
+    const auto charges = adapter.execution->funding_charges(market, cursor);
+    if (!charges.has_value()) {
+        fmt::print(stderr,
+                   "gatewayd[{}]: funding pull failed — {}\n",
+                   who,
+                   charges.error().message.view());
+        return;
+    }
+    for (const auto& charge : *charges) {
+        if (charge.settled_at.ns <= cursor.ns) {
+            continue; // already published on an earlier pass
+        }
+        ring.publish({charge});
+        // Money moving is worth a line. Funding settles a few times a day per
+        // instrument, so this is a record an operator can read, not a stream.
+        fmt::print(stderr,
+                   "gatewayd[{}]: funding {}{}.{:09} settled at {} ref {}\n",
+                   who,
+                   charge.amount.raw < 0 ? "-" : "+",
+                   std::abs(charge.amount.raw) / 1'000'000'000,
+                   std::abs(charge.amount.raw) % 1'000'000'000,
+                   charge.settled_at.ns,
+                   charge.reference.view());
+    }
+    for (const auto& charge : *charges) {
+        cursor = raikiri::UnixNanos{std::max(cursor.ns, charge.settled_at.ns)};
+    }
+}
+
 void publish_positions(const raikiri::exec::VenueAdapter& adapter,
                        raikiri::MarketType market,
                        const raikiri::shm::CatalogueTable& catalogue,
@@ -761,6 +812,14 @@ int main(int argc, char** argv) {
     std::unique_ptr<exec::VenueAdapter> poller_adapter;
     NullSink poller_sink;
     std::thread poller;
+    // Beside the thread that reads it, not inside the block that starts it: the
+    // poller outlives that block, and a cursor scoped to it is a reference the
+    // thread keeps using after the stack frame is gone.
+    //
+    // Seeded at zero so the first pass asks for the whole window the venue
+    // allows — a gateway that restarted mid-interval must not skip the
+    // settlement it was down for.
+    raikiri::UnixNanos funding_cursor{};
     if (can_trade) {
         auto made = exec::make_venue({.venue = venue,
                                       .market = market,
@@ -809,6 +868,10 @@ int main(int argc, char** argv) {
                     // seconds apart.
                     publish_balances(
                         *poller_adapter, market, *channels_ptr->balances, clock.wall());
+                    publish_funding_charges(*poller_adapter,
+                                            market,
+                                            *channels_ptr->funding_charges,
+                                            funding_cursor);
                     // Woken in slices so a shutdown does not wait out the
                     // whole interval.
                     for (int i = 0;
