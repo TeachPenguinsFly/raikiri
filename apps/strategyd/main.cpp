@@ -40,6 +40,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <ranges>
 #include <set>
 #include <span>
@@ -79,6 +80,7 @@ struct Gateway {
     shm::SegmentClient client;
     shm::GatewayChannels ch{};
     shm::ExecReader exec;
+    shm::FundingChargeReader charges;
     shm::MdReader md;
     shm::CmdProducer creates;
     shm::CmdProducer cancels;
@@ -92,7 +94,8 @@ struct Gateway {
             shm::SegmentClient attached,
             shm::GatewayChannels channels)
         : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
-          exec{channels.exec_events}, md{channels.md_events}, creates{channels.cmd_create},
+          exec{channels.exec_events}, charges{channels.funding_charges},
+          md{channels.md_events}, creates{channels.cmd_create},
           cancels{channels.cmd_cancel}, intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
@@ -626,6 +629,89 @@ struct Restoration {
     std::vector<std::string> unattached;
 };
 
+// One row of the ledger for a funding charge, on one strategy's book.
+void write_funding_row(journal::JournalWriter& writer,
+                       const FundingCharge& charge,
+                       const InstrumentBase& base,
+                       std::uint16_t strategy_id,
+                       FixedE9 amount) noexcept {
+    if (amount.raw == 0) {
+        return;
+    }
+    (void)schema::append_msg<msgs::PnlIncrementMsg>(writer, charge.settled_at.ns, [&](auto m) {
+        namespace jt = raikiri_journal::types;
+        m.kind(jt::pnlKindEnum::Funding);
+        m.settleSide(portfolio::settle_side(base.kind) == portfolio::SettleSide::Base
+                         ? jt::settleSideEnum::Base
+                         : jt::settleSideEnum::Quote);
+        m.strategyId(strategy_id);
+        m.instrument(jt::instrumentId{base.id.packed});
+        m.symbol().assign_range(base.exchange_symbol.view());
+        // No order produced this, so there is no client order id to name — zero
+        // here means "not from an order", not "order zero".
+        m.clientOrderIdField(jt::clientOrderId{0});
+        // The venue's own charge id, suffixed with the book it landed on. The
+        // suffix is what stops a split charge collapsing into one row: the
+        // ledger keys on this string and silently drops a repeat.
+        char buf[48];
+        const auto id = charge.reference.view();
+        auto* out = std::copy(id.begin(), id.end(), buf);
+        *out++ = ':';
+        const auto [end, ec] = std::to_chars(out, buf + sizeof buf, strategy_id);
+        const auto len = ec == std::errc{} ? static_cast<std::size_t>(end - buf)
+                                           : static_cast<std::size_t>(out - buf);
+        m.execIdField().assign_range(std::string_view{buf, len});
+        m.amount(jt::fixedE9{amount.raw});
+        m.tsEvent(jt::timestampNs{charge.settled_at.ns});
+    });
+}
+
+// A funding charge, split across whoever was carrying the instrument.
+//
+// THE VENUE CHARGES THE NETTED INSTRUMENT; the book is keyed by (strategy,
+// instrument). Where two strategies share one instrument the charge is
+// pro-rated by the size each carries — an approximation, and named as one: the
+// split uses the size held NOW, not at the settlement stamp, because a
+// per-strategy history at the venue's settlement resolution does not exist.
+//
+// A charge nobody is holding is still money that moved, so it lands on the
+// manual book rather than being dropped. Dropping it would put the ledger
+// permanently at odds with the venue's balance.
+void journal_funding(journal::JournalWriter& writer,
+                     const portfolio::PositionBook& book,
+                     const FundingCharge& charge,
+                     const InstrumentBase& base) noexcept {
+    if (charge.amount.raw == 0 || charge.amount.is_undef()) {
+        return;
+    }
+    std::int64_t total_lots = 0;
+    const portfolio::Position* last = nullptr;
+    for (const auto& position : book.all()) {
+        if (position.key().instrument != charge.instrument || position.qty().raw == 0) {
+            continue;
+        }
+        total_lots += std::abs(position.qty().raw);
+        last = &position;
+    }
+    if (total_lots == 0) {
+        write_funding_row(writer, charge, base, k_manual_strategy_id, charge.amount);
+        return;
+    }
+    // The remainder goes to the last holder so the parts sum to the charge
+    // exactly; rounding each share on its own loses cents into nobody's book.
+    std::int64_t paid = 0;
+    for (const auto& position : book.all()) {
+        if (position.key().instrument != charge.instrument || position.qty().raw == 0) {
+            continue;
+        }
+        const auto share = &position == last
+                               ? charge.amount.raw - paid
+                               : charge.amount.raw * std::abs(position.qty().raw) / total_lots;
+        paid += share;
+        write_funding_row(writer, charge, base, position.key().strategy_id, FixedE9{share});
+    }
+}
+
 Restoration restore_book(portfolio::PositionBook& book,
                          std::span<const shm::CatalogueTable* const> catalogues,
                          const std::string& dir) {
@@ -845,6 +931,8 @@ int main(int argc, char** argv) {
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
+    std::uint64_t funding_overruns = 0;
+    std::uint64_t funding_charges = 0;
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
     std::uint64_t position_refusals = 0; // position book full: must stay 0
@@ -930,6 +1018,29 @@ int main(int argc, char** argv) {
                     desk_refusals += 1;
                     break;
                 }
+            }
+        }
+
+        // Funding first: a charge settled before the fills that follow it in
+        // this pass, and the ledger reads better in the order money moved.
+        shm::FundingChargeRec charge_rec{};
+        for (auto& gw : gateways) {
+            for (;;) {
+                const auto poll = gw.charges.poll(charge_rec);
+                if (poll == shm::PollResult::Empty) {
+                    break;
+                }
+                if (poll == shm::PollResult::Overrun) {
+                    ++funding_overruns; // a lost charge is lost money: worth counting
+                    continue;
+                }
+                const auto& charge = charge_rec.charge;
+                const auto* instrument = gw.ch.catalogue->find(charge.instrument);
+                if (instrument == nullptr) {
+                    continue; // an id from a catalogue this process never read
+                }
+                journal_funding(*journal_writer, ctx.positions, charge, base_of(*instrument));
+                ++funding_charges;
             }
         }
 
@@ -1123,6 +1234,11 @@ int main(int argc, char** argv) {
     // Refusals are reported beside the count, not hidden: a desk whose orders
     // are all being turned away looks exactly like a quiet desk otherwise.
     fmt::print("manual desk: intents={}  refused={}\n", desk_intents, desk_refusals);
+    // Charges booked, and charges LOST. The second is money the ledger will
+    // never carry, so it is printed even when it is zero.
+    fmt::print("funding: charges-booked={}  ring-overruns={}\n",
+               funding_charges,
+               funding_overruns);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,
