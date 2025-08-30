@@ -17,6 +17,9 @@
 # Postgres is optional too. Set RAIKIRI_PG_DSN for the history and PnL screens;
 # without it those endpoints answer 503 and the terminal says which half is
 # missing rather than blanking the page.
+#
+#   make db-up && make db-migrate
+#   export RAIKIRI_PG_DSN=postgresql://raikiri:raikiri@localhost:5432/raikiri
 
 set -uo pipefail
 cd "$(dirname "$0")/.."

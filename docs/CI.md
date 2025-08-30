@@ -24,11 +24,13 @@ make fuzz FUZZ_SECONDS=60                                # fuzz.yml smoke run (b
 make fmt                                                 # fixes what lint.yml's format job reports
 ```
 
-For the integration job, point at any Postgres and the skipped test wakes up:
+For the integration job, point at any Postgres and the skipped tests wake up.
+`compose.yaml` holds one pinned to the major CI runs, and it needs no local
+client — the migrations are applied through the container's own psql:
 
 ```sh
-export RAIKIRI_PG_DSN=postgresql://postgres:postgres@localhost:5432/raikiri_ci
-psql "$RAIKIRI_PG_DSN" -v ON_ERROR_STOP=1 -f sql/migrations/0001_init.sql
+make db-up && make db-migrate
+export RAIKIRI_PG_DSN=postgresql://raikiri:raikiri@localhost:5432/raikiri
 make test PRESET=dev-asan
 ```
 
