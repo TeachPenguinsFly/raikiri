@@ -5,6 +5,8 @@
 #   make up                     # gateways + admind + the terminal, locally
 #   make demo                   # end-to-end sim run with latency table
 #   make bench                  # Release benchmarks
+#   make db-up                  # the cold plane: postgres in docker
+#   make db-migrate             # apply sql/migrations to it
 PRESET ?= dev-asan
 FUZZ_SECONDS ?= 60
 
@@ -24,7 +26,7 @@ else
 endif
 DEPS_DIR := build/deps/$(shell echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
 
-.PHONY: deps configure build test bench demo up down fuzz fmt clean
+.PHONY: deps configure build test bench demo up down fuzz fmt clean db-up db-down db-migrate db-shell
 
 deps:
 	conan install . --output-folder=$(DEPS_DIR) --build=missing \
@@ -77,3 +79,33 @@ fmt:
 
 clean:
 	rm -rf build
+
+# --- the cold plane -----------------------------------------------------------
+# Postgres only. It is not on the order path: nothing here is required to trade,
+# and a gateway runs with the database down. What it holds is history — fills,
+# the ledger, reconciliation breaks — which is why admind answers 503 rather
+# than an empty page when it is missing.
+PG_DSN ?= postgresql://raikiri:raikiri@localhost:5432/raikiri
+
+db-up:
+	docker compose up -d db
+	@printf 'waiting for postgres'
+	@until docker compose exec -T db pg_isready -U raikiri -d raikiri >/dev/null 2>&1; do \
+		printf '.'; sleep 1; done; echo ' ready'
+	@echo 'export RAIKIRI_PG_DSN=$(PG_DSN)'
+
+db-down:
+	docker compose down
+
+# Applied through the container's own psql, so a working copy needs no local
+# client. ON_ERROR_STOP because a migration that half-applies leaves a schema
+# nobody can reason about; the files are written to be re-runnable.
+db-migrate:
+	@for f in sql/migrations/*.sql; do \
+		echo "applying $$f"; \
+		docker compose exec -T db psql -v ON_ERROR_STOP=1 -U raikiri -d raikiri < "$$f" >/dev/null || exit 1; \
+	done
+	@echo 'schema applied'
+
+db-shell:
+	docker compose exec db psql -U raikiri -d raikiri
