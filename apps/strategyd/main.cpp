@@ -650,12 +650,23 @@ void write_funding_row(journal::JournalWriter& writer,
         // No order produced this, so there is no client order id to name — zero
         // here means "not from an order", not "order zero".
         m.clientOrderIdField(jt::clientOrderId{0});
-        // The venue's own charge id, suffixed with the book it landed on. The
-        // suffix is what stops a split charge collapsing into one row: the
-        // ledger keys on this string and silently drops a repeat.
+        // NOT the venue's own id for the charge. One settlement reaches this
+        // process twice — live off the private socket and again from the REST
+        // ledger the poller reconciles against — and the venue mints a
+        // DIFFERENT id on each. Keying on either would book the money twice.
+        //
+        // The identity that both legs agree on is the settlement itself:
+        // symbol and the second it landed on, plus the book it was split onto.
+        // Seconds rather than nanoseconds because the two sources state the
+        // stamp at different resolutions, and no instrument settles twice in
+        // one second.
         char buf[48];
-        const auto id = charge.reference.view();
-        auto* out = std::copy(id.begin(), id.end(), buf);
+        const auto symbol = base.exchange_symbol.view();
+        auto* out = std::copy(symbol.begin(), symbol.end(), buf);
+        *out++ = ':';
+        auto [tick, tick_ec] =
+            std::to_chars(out, buf + sizeof buf, charge.settled_at.ns / 1'000'000'000);
+        out = tick_ec == std::errc{} ? tick : out;
         *out++ = ':';
         const auto [end, ec] = std::to_chars(out, buf + sizeof buf, strategy_id);
         const auto len = ec == std::errc{} ? static_cast<std::size_t>(end - buf)
