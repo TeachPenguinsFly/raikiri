@@ -24,6 +24,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -40,6 +41,10 @@ void on_signal(int) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Line buffered, for the reason gatewayd is: redirected to a file a
+    // daemon's stdout is block buffered, so a healthy process shows an
+    // empty log and a crashed one shows everything at once.
+    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::string dir;
     std::string prefix = "journal";
     std::string name;

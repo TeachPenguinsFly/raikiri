@@ -35,6 +35,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -49,6 +50,10 @@ void on_signal(int) { g_stop.store(true, std::memory_order_relaxed); }
 } // namespace
 
 int main(int argc, char** argv) {
+    // Line buffered, for the reason gatewayd is: redirected to a file a
+    // daemon's stdout is block buffered, so a healthy process shows an
+    // empty log and a crashed one shows everything at once.
+    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     using namespace raikiri;
 
     std::string address = "127.0.0.1";

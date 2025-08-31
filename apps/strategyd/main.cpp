@@ -46,6 +46,7 @@
 #include <span>
 #include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
@@ -800,6 +801,10 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Line buffered, for the reason gatewayd is: redirected to a file a
+    // daemon's stdout is block buffered, so a healthy process shows an
+    // empty log and a crashed one shows everything at once.
+    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::uint64_t duration_s = 10;
     // Account names, which are also the segment names: "bybit" is bybit perp,
     // "bybit-spot" is the spot gateway beside it. Repeatable, because one
