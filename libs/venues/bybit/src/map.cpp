@@ -210,8 +210,46 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
     return out;
 }
 
+// A funding settlement, off the same topic fills arrive on.
+//
+// The sign is FLIPPED on the way through, deliberately. bybit states this as a
+// fee — `execFee` negative means the account was credited — while the domain
+// states a charge the way the account moved, positive for received. The REST
+// ledger already uses the domain's convention, so without this flip the socket
+// and the reconciliation would disagree about direction on every settlement.
+std::optional<FundingCharge>
+map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table,
+                   UnixNanos ts_init) {
+    if (!is_funding_execution(wire)) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto fee = parse_decimal_e9(wire.exec_fee);
+    if (!fee.has_value()) {
+        return std::nullopt; // an unreadable figure is not a zero one
+    }
+    FundingCharge out{};
+    out.instrument = base_of(*instrument).id;
+    out.amount = FixedE9{-fee->raw};
+    out.settled_at = ms_to_unix(wire.exec_ms, ts_init);
+    if (auto id = ExecId::from(wire.exec_id); id.has_value()) {
+        out.reference = *id;
+    }
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<OrderEvent>
 map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ONLY A TRADE IS A FILL. Funding, settlement and ADL rows ride this topic
+    // carrying a real execQty and execPrice, and booking one as a fill invents
+    // a position the account never traded into.
+    if (!wire.exec_type.empty() && wire.exec_type != "Trade") {
+        return std::nullopt;
+    }
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;

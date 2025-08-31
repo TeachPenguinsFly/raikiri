@@ -164,6 +164,12 @@ parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage);
 
 struct WireExecution {
     std::string_view symbol;
+    // "Trade" | "Funding" | "Settle" | "BustTrade" | "AdlTrade" | ...
+    //
+    // NOT OPTIONAL TO READ. A funding settlement arrives on the same private
+    // topic as a fill, with a real execQty and execPrice, and a mapper that
+    // does not look here turns it into a trade the account never made.
+    std::string_view exec_type;
     std::string_view exec_id;
     std::string_view order_id;
     std::string_view order_link_id;
@@ -214,6 +220,15 @@ struct FundingChargeBuffer {
 
 [[nodiscard]] std::expected<std::span<const WireFundingCharge>, WireError>
 parse_funding_charges(std::string_view result, FundingChargeBuffer& storage);
+
+// A funding settlement as the private execution topic states it.
+//
+// SIGNS DIFFER BETWEEN THE TWO SOURCES and normalising is the caller's job:
+// here the amount is a FEE (`execFee` negative means the account received),
+// while /v5/account/transaction-log states the same charge as `funding`
+// positive-for-received. Booking both raw would make the socket and the
+// reconciliation disagree about direction on every settlement.
+[[nodiscard]] bool is_funding_execution(const WireExecution& wire) noexcept;
 
 // The REST shape of the same rows. TWO SHAPES, TWO PARSERS: the private socket
 // wraps positions in `data` and /v5/position/list wraps them in `list`, and a

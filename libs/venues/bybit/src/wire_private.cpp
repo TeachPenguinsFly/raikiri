@@ -137,6 +137,7 @@ parse_executions(std::string_view frame, ExecutionBuffer& storage) {
                     obj.reset();
                     return detail::opt_str(obj, key).value_or(std::string_view{});
                 };
+                out.exec_type = field("execType");
                 out.exec_id = field("execId");
                 out.order_id = field("orderId");
                 out.order_link_id = field("orderLinkId");
@@ -221,6 +222,10 @@ parse_open_orders(std::string_view result, OrderUpdateBuffer& storage) {
             k_max_updates,
             [](ondemand::object& obj, WireOpenOrder& out) { return read_order(obj, out); });
     });
+}
+
+bool is_funding_execution(const WireExecution& wire) noexcept {
+    return wire.exec_type == "Funding";
 }
 
 std::expected<std::span<const WireFundingCharge>, WireError>

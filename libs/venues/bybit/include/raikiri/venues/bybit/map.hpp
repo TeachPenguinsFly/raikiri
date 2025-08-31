@@ -43,6 +43,11 @@ map_order_event(const WireOrderUpdate& wire, const exec::InstrumentTable& table,
 [[nodiscard]] std::optional<OrderEvent>
 map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The same topic's funding rows, which map_execution above refuses.
+[[nodiscard]] std::optional<FundingCharge>
+map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table,
+                   UnixNanos ts_init);
+
 // Reconciliation ----------------------------------------------------------
 
 [[nodiscard]] std::optional<exec::OrderStatusReport>

@@ -167,6 +167,14 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
             return;
         }
         for (const auto& wire : *executions) {
+            // THE LIVE LEG. A settlement reaches the book here, seconds after
+            // the venue takes it; the REST ledger pull is the periodic check
+            // that this leg missed nothing, not the way the money arrives.
+            if (const auto charge = map_funding_charge(wire, state.instruments, received);
+                charge.has_value()) {
+                state.sink->on_funding_charge(*charge);
+                continue;
+            }
             if (const auto event = map_execution(wire, state.instruments, received);
                 event.has_value()) {
                 state.sink->on_order_event(*event);
