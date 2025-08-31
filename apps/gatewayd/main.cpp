@@ -200,6 +200,16 @@ public:
                    error.venue_code);
     }
 
+    // THE LIVE LEG, straight off the private socket. The poller's REST pull
+    // publishes onto this same ring, and the two legs mint DIFFERENT venue ids
+    // for one settlement — so nothing downstream may key on that id. The
+    // ledger keys on (venue, symbol, settlement time), which both legs agree
+    // on, and the second arrival is dropped there rather than here.
+    void on_funding_charge(const raikiri::FundingCharge& charge) noexcept override {
+        ++counts_.funding_charges;
+        ch_.funding_charges->publish({charge});
+    }
+
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
         ++counts_.order_events;
         ch_.exec_events->publish({event});
@@ -235,6 +245,7 @@ public:
         std::uint64_t greeks{0};
         std::uint64_t order_events{0};
         std::uint64_t order_errors{0};
+        std::uint64_t funding_charges{0};
     };
 
     [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
