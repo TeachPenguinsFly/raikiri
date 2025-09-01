@@ -697,6 +697,35 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
 }
 
+// The account book, narrowed to settlements.
+//
+// `change` is SIGNED the way the account moved, which is already the domain's
+// convention. `from` is in SECONDS — gate states every timestamp in this ledger
+// in seconds, unlike the millisecond stamps its order endpoints use, and
+// passing milliseconds here silently asks for a window fifty thousand years
+// wide, which the venue answers by returning nothing.
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos now) {
+    if (market != MarketType::Perp) {
+        return std::unexpected{BuildError::UnknownInstrument};
+    }
+    Appender path{path_};
+    Appender query{query_};
+    path << k_prefix << "/futures/" << k_settle_usdt << "/account_book";
+    query << "type=fund&limit=" << k_page_limit;
+    if (since.ns != 0) {
+        char buf[24];
+        const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, since.ns / 1'000'000'000);
+        if (ec == std::errc{}) {
+            query << "&from=" << std::string_view{buf, static_cast<std::size_t>(end - buf)};
+        }
+    }
+    if (!path.ok() || !query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
+}
+
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_account(UnixNanos now) {
     Appender path{path_};
     path << k_prefix << "/futures/" << k_settle_usdt << "/accounts";

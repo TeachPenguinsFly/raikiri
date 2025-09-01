@@ -903,6 +903,60 @@ public:
         return std::vector<BalanceReport>{*balance};
     }
 
+    [[nodiscard]] std::expected<std::vector<FundingCharge>, exec::VenueError>
+    funding_charges(MarketType market, UnixNanos since) override {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto request = builder_.funding_book(market, since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local AccountBookBuffer storage;
+        const auto rows = parse_account_book(*body, storage);
+        if (!rows.has_value()) {
+            // A body we cannot read is NOT an empty ledger.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+        }
+        std::vector<FundingCharge> charges;
+        charges.reserve(rows->size());
+        for (const auto& row : *rows) {
+            if (row.type != "fund") {
+                continue; // the book also states fees, pnl and transfers
+            }
+            const auto* instrument = state_->instruments.find(row.contract);
+            if (instrument == nullptr) {
+                continue;
+            }
+            const auto amount = parse_decimal_e9(row.change);
+            if (!amount.has_value()) {
+                continue; // an unreadable figure is not a zero one
+            }
+            FundingCharge charge{};
+            charge.instrument = base_of(*instrument).id;
+            charge.amount = *amount;
+            // SECONDS on this endpoint, not milliseconds.
+            charge.settled_at = UnixNanos{row.time_s * 1'000'000'000ULL};
+            char buf[32];
+            const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, row.id);
+            if (ec == std::errc{}) {
+                if (auto id =
+                        ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});
+                    id.has_value()) {
+                    charge.reference = *id;
+                }
+            }
+            charge.ts_init = state_->clock->wall();
+            charges.push_back(charge);
+        }
+        return charges;
+    }
+
     [[nodiscard]] std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {

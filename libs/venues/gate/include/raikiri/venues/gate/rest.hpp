@@ -130,6 +130,11 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
+    // Funding settlements from the account book. Paired with
+    // `VenueCaps::funding_charge`.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_book(MarketType market, UnixNanos since, UnixNanos now);
+
     // GET /futures/{settle}/accounts, whose `user` is the id the futures
     // private socket demands as the first element of every subscribe payload.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> futures_account(UnixNanos now);

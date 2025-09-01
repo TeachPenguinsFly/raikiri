@@ -399,6 +399,29 @@ parse_rest_user_trades(std::string_view body, UserTradeBuffer& storage, MarketTy
     });
 }
 
+std::expected<std::span<const WireAccountBookRow>, WireError>
+parse_account_book(std::string_view body, AccountBookBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireAccountBookRow>, WireError> {
+        auto root = session().open_array(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return read_array<WireAccountBookRow>(
+            *root, storage.rows, [](ondemand::object& obj, WireAccountBookRow& out)
+                                     -> std::expected<void, WireError> {
+                out.contract = field(obj, "contract");
+                out.type = field(obj, "type");
+                out.change = field(obj, "change");
+                out.text = field(obj, "text");
+                obj.reset();
+                out.id = detail::opt_u64(obj, "id").value_or(0);
+                obj.reset();
+                out.time_s = detail::opt_u64(obj, "time").value_or(0);
+                return {};
+            });
+    });
+}
+
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                         PositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
