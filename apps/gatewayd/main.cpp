@@ -330,9 +330,11 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
     const auto charges = adapter.execution->funding_charges(market, cursor);
     if (!charges.has_value()) {
         fmt::print(stderr,
-                   "gatewayd[{}]: funding pull failed — {}\n",
+                   "gatewayd[{}]: funding pull failed — {} (class={}, code={})\n",
                    who,
-                   charges.error().message.view());
+                   charges.error().message.view(),
+                   error_class_name(charges.error().cls),
+                   charges.error().venue_code);
         return;
     }
     for (const auto& charge : *charges) {
