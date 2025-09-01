@@ -23,19 +23,25 @@ void RateLimiter::refill(MonoNanos now) noexcept {
     last_refill_ns_ += (earned * window_ns_) / capacity_;
 }
 
-std::expected<void, RateDenied> RateLimiter::take(std::uint32_t cost, MonoNanos now) noexcept {
+std::expected<void, RateDenied>
+RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
     refill(now);
     if (now.ns < blocked_until_ns_) {
         ++denials_;
         return std::unexpected{RateDenied{.retry_after_ns = blocked_until_ns_ - now.ns}};
     }
-    if (cost > capacity_) {
+    // The floor this class may not spend below. An order may take the bucket
+    // to nothing; a poll must leave the reserve standing for one.
+    const std::uint32_t floor = cls == RateClass::Order ? 0U : reserve_;
+    if (cost > capacity_ - floor) {
+        // Larger than this class can ever afford: waiting cannot help, so the
+        // caller is told so rather than handed a retry that will fail again.
         ++denials_;
         return std::unexpected{RateDenied{.retry_after_ns = 0}};
     }
-    if (tokens_ < cost) {
+    if (tokens_ < floor + cost) {
         ++denials_;
-        const auto missing = cost - tokens_;
+        const auto missing = floor + cost - tokens_;
         return std::unexpected{RateDenied{
             .retry_after_ns = (static_cast<std::uint64_t>(missing) * window_ns_) / capacity_}};
     }
@@ -43,9 +49,13 @@ std::expected<void, RateDenied> RateLimiter::take(std::uint32_t cost, MonoNanos 
     return {};
 }
 
-std::uint32_t RateLimiter::available(MonoNanos now) noexcept {
+std::uint32_t RateLimiter::available(MonoNanos now, RateClass cls) noexcept {
     refill(now);
-    return now.ns < blocked_until_ns_ ? 0 : tokens_;
+    if (now.ns < blocked_until_ns_) {
+        return 0;
+    }
+    const std::uint32_t floor = cls == RateClass::Order ? 0U : reserve_;
+    return tokens_ > floor ? tokens_ - floor : 0;
 }
 
 void RateLimiter::penalize(MonoNanos now, std::uint64_t backoff_ns) noexcept {

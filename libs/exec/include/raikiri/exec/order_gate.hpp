@@ -11,6 +11,13 @@
 // and an order delayed behind a rate limit is worse than an order refused
 // while the escape hatch still works.
 //
+// THE RESERVE IS WHY THE CLASS OF A REQUEST MATTERS. Reconciliation pulls are
+// numerous, individually cheap to delay and expensive to skip; order traffic is
+// rare and cannot wait. Sharing one flat bucket lets a poll cycle spend the
+// budget a cancel is about to need — and a cancel that cannot be sent is an
+// open position the strategy believes is closed. Polls therefore may not draw
+// the bucket below `reserve`, which only order traffic may spend.
+//
 // InFlightTable. An order handed to a venue and never answered is the failure
 // this exists for. REST can time out after the exchange accepted the order,
 // so the verdict is unknown rather than negative — but leaving it unknown
@@ -33,16 +40,28 @@ struct RateDenied {
     std::uint64_t retry_after_ns{0};
 };
 
+// What a request is spending on. The distinction exists for the reserve.
+enum class RateClass : std::uint8_t {
+    Order, // create, cancel, amend — may spend the reserve
+    Poll,  // catalogue, positions, balances, ledgers — may not
+};
+
 // Token bucket over a fixed window. Costs are venue units: 1 request, or
 // binance's endpoint weight, or an order count against a separate budget.
 class RateLimiter {
 public:
-    RateLimiter(std::uint32_t capacity, std::uint64_t refill_window_ns) noexcept
-        : capacity_{capacity}, window_ns_{refill_window_ns}, tokens_{capacity} {}
+    // `reserve` is the floor a Poll may not spend below. Zero is right only
+    // where nothing but order traffic shares the budget.
+    RateLimiter(std::uint32_t capacity,
+                std::uint64_t refill_window_ns,
+                std::uint32_t reserve = 0) noexcept
+        : capacity_{capacity}, window_ns_{refill_window_ns}, reserve_{reserve}, tokens_{capacity} {}
 
-    [[nodiscard]] std::expected<void, RateDenied> take(std::uint32_t cost, MonoNanos now) noexcept;
+    [[nodiscard]] std::expected<void, RateDenied>
+    take(std::uint32_t cost, MonoNanos now, RateClass cls = RateClass::Order) noexcept;
 
-    [[nodiscard]] std::uint32_t available(MonoNanos now) noexcept;
+    [[nodiscard]] std::uint32_t available(MonoNanos now,
+                                          RateClass cls = RateClass::Order) noexcept;
 
     void penalize(MonoNanos now, std::uint64_t backoff_ns) noexcept;
 
@@ -53,6 +72,7 @@ private:
 
     std::uint32_t capacity_;
     std::uint64_t window_ns_;
+    std::uint32_t reserve_{0};
     std::uint32_t tokens_;
     std::uint64_t last_refill_ns_{0};
     bool started_{false};
