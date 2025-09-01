@@ -413,8 +413,10 @@ parse_account_book(std::string_view body, AccountBookBuffer& storage) {
                 out.type = field(obj, "type");
                 out.change = field(obj, "change");
                 out.text = field(obj, "text");
-                obj.reset();
-                out.id = detail::opt_u64(obj, "id").value_or(0);
+                // A STRING on this endpoint, though `time` beside it is a
+                // number. Verified against a live row: gate quotes the ledger's
+                // own id as "991", and reading it as a number yields nothing.
+                out.id = field(obj, "id");
                 obj.reset();
                 out.time_s = detail::opt_u64(obj, "time").value_or(0);
                 return {};

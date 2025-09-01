@@ -942,14 +942,8 @@ public:
             charge.amount = *amount;
             // SECONDS on this endpoint, not milliseconds.
             charge.settled_at = UnixNanos{row.time_s * 1'000'000'000ULL};
-            char buf[32];
-            const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, row.id);
-            if (ec == std::errc{}) {
-                if (auto id =
-                        ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});
-                    id.has_value()) {
-                    charge.reference = *id;
-                }
+            if (auto id = ExecId::from(row.id); id.has_value()) {
+                charge.reference = *id;
             }
             charge.ts_init = state_->clock->wall();
             charges.push_back(charge);

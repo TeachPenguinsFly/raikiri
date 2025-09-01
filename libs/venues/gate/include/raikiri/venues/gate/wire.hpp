@@ -352,7 +352,9 @@ struct WireAccountBookRow {
     std::string_view type; // fund | fee | dnw | pnl | ...
     std::string_view change;
     std::string_view text;
-    std::uint64_t id{0};
+    // A STRING, not a number — gate quotes it as "991" while `time` on the
+    // same row is a bare number. Verified against a live settlement row.
+    std::string_view id;
     std::uint64_t time_s{0};
 };
 

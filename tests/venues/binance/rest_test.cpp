@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <raikiri/venues/binance/rest.hpp>
 
 #include <gtest/gtest.h>
@@ -280,4 +281,19 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
 }
 
 } // namespace
+TEST(BinanceRest, TheIncomeTargetIsWhatTheVenueExpects) {
+    net::Signer signer;
+    give_credentials(signer);
+    RequestBuilder builder{signer};
+    const auto request = builder.funding_income(UnixNanos{0}, UnixNanos{1'700'000'000'000'000'000ULL});
+    ASSERT_TRUE(request.has_value());
+    std::printf("TARGET=[%.*s]\n", static_cast<int>(request->target.size()), request->target.data());
+    std::printf("HEADERS=%zu\n", request->headers.size());
+    for (const auto& h : request->headers) {
+        std::printf("  %.*s: %.*s\n", static_cast<int>(h.name.size()), h.name.data(),
+                    static_cast<int>(h.value.size()), h.value.data());
+    }
+    EXPECT_TRUE(request->target.starts_with("/fapi/v1/income?"));
+}
+
 } // namespace raikiri::venues::binance
