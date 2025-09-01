@@ -6,6 +6,7 @@
 #include <raikiri/venues/binance/binance_venue.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
@@ -675,6 +676,58 @@ public:
             }
         }
         return out;
+    }
+
+    std::expected<std::vector<FundingCharge>, exec::VenueError>
+    funding_charges(MarketType, UnixNanos since) override {
+        const auto request = state_->builder.funding_income(since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failed(request.error())};
+        }
+        const auto response = await_response(*state_, rest_, *request, 10'000);
+        const auto body = usable_body(response);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local IncomeBuffer storage;
+        const auto rows = parse_income(*body, storage);
+        if (!rows.has_value()) {
+            // A body we cannot read is NOT an empty ledger: answering "no
+            // funding" would book zero against a position that paid some.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
+        }
+        std::vector<FundingCharge> charges;
+        charges.reserve(rows->size());
+        for (const auto& row : *rows) {
+            if (row.income_type != "FUNDING_FEE") {
+                continue; // the endpoint also states commission and realised pnl
+            }
+            const auto* instrument = state_->instruments.find(row.symbol);
+            if (instrument == nullptr) {
+                continue;
+            }
+            const auto amount = parse_decimal_e9(row.income);
+            if (!amount.has_value()) {
+                continue; // an unreadable figure is not a zero one
+            }
+            FundingCharge charge{};
+            charge.instrument = base_of(*instrument).id;
+            charge.amount = *amount;
+            charge.settled_at = UnixNanos{row.time_ms * 1'000'000};
+            char buf[32];
+            const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, row.tran_id);
+            if (ec == std::errc{}) {
+                if (auto id = ExecId::from(std::string_view{
+                        buf, static_cast<std::size_t>(end - buf)});
+                    id.has_value()) {
+                    charge.reference = *id;
+                }
+            }
+            charge.ts_init = state_->clock->wall();
+            charges.push_back(charge);
+        }
+        return charges;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>

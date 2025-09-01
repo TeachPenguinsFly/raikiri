@@ -290,6 +290,29 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
     return finish(net::HttpMethod::Get, "/fapi/v1/order", q.size());
 }
 
+// The account's own record of what it was charged.
+//
+// `incomeType=FUNDING_FEE` narrows it to settlements — the same endpoint also
+// states COMMISSION and REALIZED_PNL, which is what makes it the right place to
+// reconcile fees against later. `income` is SIGNED the way the account moved,
+// so it needs no flipping to reach the domain's convention.
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::funding_income(UnixNanos since, UnixNanos now) {
+    if (!signer_->has_credentials()) {
+        return std::unexpected{BuildError::NoCredentials};
+    }
+    Appender q{query_};
+    q << "incomeType=FUNDING_FEE&limit=100";
+    if (since.ns != 0) {
+        q << "&startTime=" << to_ms(since);
+    }
+    q << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (!q.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return finish(net::HttpMethod::Get, "/fapi/v1/income", q.size());
+}
+
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos now) {
     if (!signer_->has_credentials()) {

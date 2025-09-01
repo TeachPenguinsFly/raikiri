@@ -291,6 +291,30 @@ struct TradeBuffer {
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
 parse_user_trades(std::string_view body, TradeBuffer& storage);
 
+// One row of /fapi/v1/income, narrowed to settlements.
+//
+// `income` is SIGNED THE WAY THE ACCOUNT MOVED — negative was paid away — which
+// is already the domain's convention, so nothing here flips it. `tranId` is
+// binance's own id for the movement and is unique; it is kept for tracing, not
+// for identity, because the socket states the same settlement without one.
+struct WireIncome {
+    std::string_view symbol;
+    std::string_view income_type; // FUNDING_FEE | COMMISSION | REALIZED_PNL | ...
+    std::string_view income;
+    std::string_view asset;
+    std::uint64_t tran_id{0};
+    std::uint64_t time_ms{0};
+};
+
+inline constexpr std::size_t k_max_income_rows = 256;
+
+struct IncomeBuffer {
+    std::array<WireIncome, k_max_income_rows> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireIncome>, WireError>
+parse_income(std::string_view body, IncomeBuffer& storage);
+
 struct WirePositionRisk {
     std::string_view symbol;
     std::string_view position_amt;

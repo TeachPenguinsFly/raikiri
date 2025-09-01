@@ -200,6 +200,43 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
     });
 }
 
+std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_view body,
+                                                                   IncomeBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireIncome>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_income_rows) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireIncome out{};
+            const std::array<Wanted, 4> wanted{{{"symbol", &out.symbol},
+                                                {"incomeType", &out.income_type},
+                                                {"income", &out.income},
+                                                {"asset", &out.asset}}};
+            if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
+                return std::unexpected(ok.error());
+            }
+            out.tran_id = detail::opt_u64(obj, "tranId").value_or(0);
+            const auto time_ms = detail::opt_u64(obj, "time");
+            if (!time_ms.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.time_ms = *time_ms;
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireIncome>{storage.rows.data(), count};
+    });
+}
+
 std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::string_view body,
                                                                        TradeBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireTrade>, WireError> {
