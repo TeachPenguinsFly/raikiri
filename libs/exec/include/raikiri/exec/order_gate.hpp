@@ -60,8 +60,7 @@ public:
     [[nodiscard]] std::expected<void, RateDenied>
     take(std::uint32_t cost, MonoNanos now, RateClass cls = RateClass::Order) noexcept;
 
-    [[nodiscard]] std::uint32_t available(MonoNanos now,
-                                          RateClass cls = RateClass::Order) noexcept;
+    [[nodiscard]] std::uint32_t available(MonoNanos now, RateClass cls = RateClass::Order) noexcept;
 
     void penalize(MonoNanos now, std::uint64_t backoff_ns) noexcept;
 

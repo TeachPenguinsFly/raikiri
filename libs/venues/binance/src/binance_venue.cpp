@@ -4,15 +4,14 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
-
-#include <algorithm>
-#include <charconv>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
 #include <raikiri/venues/binance/rest.hpp>
 #include <raikiri/venues/binance/ws.hpp>
 
+#include <algorithm>
+#include <charconv>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -41,6 +40,7 @@ struct VenueState {
     // Shared with the account poller: binance counts one pool of weight per IP,
     // so two private buckets would together spend twice the allowance.
     exec::RateBudget* budget{nullptr};
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     net::Signer signer;
@@ -374,9 +374,8 @@ private:
                 continue;
             }
             const auto id = base_of(*instrument).id;
-            const bool wanted =
-                std::ranges::any_of(state_->funding_instruments,
-                                    [id](InstrumentId sub) { return sub == id; });
+            const bool wanted = std::ranges::any_of(state_->funding_instruments,
+                                                    [id](InstrumentId sub) { return sub == id; });
             if (!wanted) {
                 continue;
             }
@@ -454,6 +453,10 @@ std::optional<net::RestResponse> await_response(VenueState& state,
                                                 const net::RestRequest& request,
                                                 std::uint64_t timeout_ms = 10'000);
 
+// A desk with more than this many orders awaiting an answer at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_max_unanswered = 512;
+
 class BinanceExec final : public exec::ExecutionClient {
 public:
     explicit BinanceExec(std::shared_ptr<VenueState> state)
@@ -501,19 +504,49 @@ public:
     // stream — after the venue had filled it.
     void poll(UnixNanos now) noexcept override {
         rest_.keepalive(now);
+        sweep_unanswered();
+    }
+
+    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
+    // audit only, moving no status — because whether the venue acted is the one
+    // thing this process cannot know. Reconciliation closes these.
+    void sweep_unanswered() noexcept {
+        if (state_->order_answer_timeout_ns == 0) {
+            return;
+        }
+        for (const auto& stale :
+             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+            state_->sink->on_order_error(
+                stale.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
+                                       "no answer from the venue; outcome unknown"));
+            OrderEvent event{};
+            event.type = OrderEventType::ReconGap;
+            event.instrument = stale.instrument;
+            event.client_order_id = stale.client_order_id;
+            event.exchange_client_order_id = stale.exchange_client_order_id;
+            event.side = stale.side;
+            event.qty = stale.qty;
+            // UNDEF, not zero: zero leaves would read as "nothing is working",
+            // and whether anything is working is exactly what is unknown.
+            event.leaves_qty = QtyLots::undef();
+            event.ts_event = state_->clock->wall();
+            event.ts_init = event.ts_event;
+            state_->sink->on_order_event(event);
+        }
     }
 
     [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
-        return state_->budget != nullptr ? state_->budget->costs()
-                                         : exec::RateBudget::Costs{};
+        return state_->budget != nullptr ? state_->budget->costs() : exec::RateBudget::Costs{};
     }
 
     // ONE POOL. binance meters weight across every endpoint together, so every
     // call here spends `Shared` and only the cost differs — thirty for the
     // income ledger against five for a balance, measured from its own
     // used-weight header rather than read off a page.
-    [[nodiscard]] std::expected<void, exec::VenueError>
-    spend(std::uint32_t cost, exec::RateClass cls) noexcept {
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::uint32_t cost,
+                                                              exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
@@ -532,8 +565,8 @@ public:
         if (state_->budget != nullptr) {
             // The venue's answer outranks our accounting, which has just been
             // proven wrong.
-            state_->budget->penalize(exec::RateBucket::Shared, state_->clock->mono(),
-                                     1'000'000'000ULL);
+            state_->budget->penalize(
+                exec::RateBucket::Shared, state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 
@@ -761,8 +794,8 @@ public:
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger: answering "no
             // funding" would book zero against a position that paid some.
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
         }
         std::vector<FundingCharge> charges;
         charges.reserve(rows->size());
@@ -785,8 +818,8 @@ public:
             char buf[32];
             const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, row.tran_id);
             if (ec == std::errc{}) {
-                if (auto id = ExecId::from(std::string_view{
-                        buf, static_cast<std::size_t>(end - buf)});
+                if (auto id =
+                        ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});
                     id.has_value()) {
                     charge.reference = *id;
                 }
@@ -917,11 +950,23 @@ private:
                     OrderEventType on_failure) noexcept {
         const auto captured = cmd;
         const auto sent = rest_.send(request, [this, captured, on_failure](net::RestResponse&& r) {
+            // Any answer settles it, including a refusal: the table tracks
+            // silence, not failure.
+            if (!r.transport_failed()) {
+                (void)unanswered_.resolve(captured.client_order_id);
+            }
             if (r.transport_failed()) {
-                emit(captured,
-                     on_failure,
-                     exec::VenueError::make(
-                         exec::ErrorClass::Connectivity, 0, "no response from venue"));
+                // NOT A REJECTION. The request may have reached the matcher
+                // before the read failed, and calling that a refusal is how a
+                // process records a rejection opposite a live position. The
+                // order stays in the table for the sweep above.
+                state_->sink->on_order_error(
+                    captured.client_order_id,
+                    exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                           0,
+                                           r.error.empty()
+                                               ? std::string_view{"no response from venue"}
+                                               : std::string_view{r.error}));
                 return;
             }
             const auto err = parse_rest_error(r.body);
@@ -948,18 +993,28 @@ private:
                  exec::VenueError::make(classify(err->code), err->code, err->msg));
         });
         if (!sent) {
+            // Never left this process, so nothing is in doubt: a refusal here is
+            // the truth, not a guess about what the venue did.
             emit(cmd,
                  on_failure,
                  exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            return;
         }
+        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
+        // because the callback is exactly what may never run.
+        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
+                               .exchange_client_order_id = cmd.exchange_client_order_id,
+                               .instrument = cmd.instrument,
+                               .side = cmd.side,
+                               .qty = cmd.qty,
+                               .kind = cmd.kind,
+                               .sent = state_->clock->mono()});
     }
 
     // The reason is not optional. `OrderEvent` has no room for text, so every
     // refusal hands the sink the verdict that caused it — otherwise an order
     // that dies here is indistinguishable from one that was never sent.
-    void emit(const OrderCmd& cmd,
-              OrderEventType type,
-              const exec::VenueError& error) noexcept {
+    void emit(const OrderCmd& cmd, OrderEventType type, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;
@@ -982,6 +1037,10 @@ private:
     PrivateHandler handler_;
     std::unique_ptr<net::WsClient> client_;
     bool started_{false};
+    // Orders handed to the transport and not yet answered. NOT `in_flight_`:
+    // BinanceData already owns a bool by that name for its listen-key refresh,
+    // and two members a reader has to disambiguate by class is one too many.
+    exec::InFlightTable unanswered_{k_max_unanswered};
 };
 
 std::optional<net::RestResponse> await_response(VenueState& state,
@@ -1077,6 +1136,7 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     config::DefaultSecretProvider provider;
     if (!config.api_key_env.empty()) {
