@@ -2,6 +2,7 @@ add_library(raikiri_exec STATIC
   src/caps.cpp
   src/instrument_table.cpp
   src/order_gate.cpp
+  src/rate_budget.cpp
   src/venue.cpp
 )
 add_library(raikiri::exec ALIAS raikiri_exec)

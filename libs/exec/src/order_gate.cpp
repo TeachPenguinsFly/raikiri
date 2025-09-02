@@ -32,7 +32,11 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
     }
     // The floor this class may not spend below. An order may take the bucket
     // to nothing; a poll must leave the reserve standing for one.
-    const std::uint32_t floor = cls == RateClass::Order ? 0U : reserve_;
+    // A reserve wider than the bucket leaves a poll nothing, which is a
+    // configuration error rather than an unlimited allowance: clamped here so
+    // the subtraction below cannot wrap and hand out everything.
+    const std::uint32_t floor =
+        cls == RateClass::Order ? 0U : std::min(reserve_, capacity_);
     if (cost > capacity_ - floor) {
         // Larger than this class can ever afford: waiting cannot help, so the
         // caller is told so rather than handed a retry that will fail again.
@@ -54,7 +58,7 @@ std::uint32_t RateLimiter::available(MonoNanos now, RateClass cls) noexcept {
     if (now.ns < blocked_until_ns_) {
         return 0;
     }
-    const std::uint32_t floor = cls == RateClass::Order ? 0U : reserve_;
+    const std::uint32_t floor = cls == RateClass::Order ? 0U : std::min(reserve_, capacity_);
     return tokens_ > floor ? tokens_ - floor : 0;
 }
 

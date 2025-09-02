@@ -54,6 +54,7 @@ raikiri_add_test(htx_venue_test SRCS venues/htx/venue_test.cpp LIBS raikiri::ven
 raikiri_add_test(bitfinex_venue_test SRCS venues/bitfinex/venue_test.cpp LIBS raikiri::venue_bitfinex raikiri::exec)
 raikiri_add_test(ladder_test SRCS book/ladder_test.cpp LIBS raikiri::book)
 raikiri_add_test(order_gate_test SRCS exec/order_gate_test.cpp LIBS raikiri::exec)
+raikiri_add_test(rate_budget_test SRCS exec/rate_budget_test.cpp LIBS raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 raikiri_add_test(binance_wire_test SRCS venues/binance/wire_test.cpp LIBS raikiri::venue_binance)
