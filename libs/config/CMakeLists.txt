@@ -1,6 +1,7 @@
 add_library(raikiri_config STATIC
   src/one_password.cpp
   src/secret.cpp
+  src/settings.cpp
 )
 add_library(raikiri::config ALIAS raikiri_config)
 
@@ -11,4 +12,4 @@ target_include_directories(raikiri_config PUBLIC
 # appear in any public header.
 target_link_libraries(raikiri_config
   PUBLIC raikiri::domain
-  PRIVATE OpenSSL::Crypto raikiri::warnings)
+  PRIVATE OpenSSL::Crypto glaze::glaze raikiri::warnings)

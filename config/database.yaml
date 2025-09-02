@@ -1,0 +1,19 @@
+# Where the cold plane lives, and where its password lives — which are not the
+# same statement.
+#
+# `dsn` NAMES A LOCATION, never a value. The schemes are the ones libs/config
+# already resolves for exchange keys:
+#
+#   env:RAIKIRI_PG_DSN                     development default
+#   file:/run/credentials/raikiri-pg       systemd LoadCredential, k8s secrets
+#   exec:op read op://k8s-prod/pg/dsn      1Password, vault, any CLI
+#
+# A DSN carries a password, so writing one here in full would put a credential
+# in git. Keeping it a reference is why this file is safe to commit.
+#
+# Absent or unresolvable is NOT an error: the cold plane holds history, not the
+# order path. Gateways trade with the database down, and admind answers 503 on
+# the endpoints that need it rather than an empty page that would read as
+# "nothing happened".
+database:
+  dsn: env:RAIKIRI_PG_DSN

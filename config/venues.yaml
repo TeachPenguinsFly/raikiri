@@ -1,0 +1,54 @@
+# What each venue lets us ask of it, and what each request costs there.
+#
+# THESE NUMBERS WERE MEASURED, not read off a documentation page, and the venue
+# states them in its own response headers — binance in `X-MBX-USED-WEIGHT-1M`,
+# bybit in `X-Bapi-Limit`. Re-measure rather than edit from memory when a venue
+# changes: a budget that is wrong in the generous direction is a ban, and one
+# that is wrong the other way silently throttles the desk.
+#
+# TWO SHAPES. binance meters ONE POOL of weight across every endpoint, so it
+# fills `shared` and leaves the rest at zero. bybit meters EACH ENDPOINT
+# separately, so it fills the per-purpose buckets and leaves `shared` at zero.
+# A bucket with capacity 0 is disabled — a venue whose budget nobody has
+# established must not have one invented for it, because refusing traffic the
+# venue would have accepted is the worse of the two errors.
+#
+# `reserve` is the part of a bucket only ORDER traffic may spend. It exists so
+# a reconciliation sweep can never consume the allowance a cancel is about to
+# need: a cancel that cannot be sent is an open position the strategy believes
+# is closed.
+
+venues:
+  binance:
+    rate:
+      # Measured 2026-09-01: 2400 weight per minute per IP. A tenth is held
+      # back for order entry, which is far more than order traffic can spend.
+      shared: { capacity: 2400, window_ms: 60000, reserve: 240 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      # Weight per call, measured by reading the used-weight header before and
+      # after each: the income ledger costs six times what a balance does.
+      costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
+
+  bybit:
+    rate:
+      shared: { capacity: 0, window_ms: 0, reserve: 0 }
+      # Measured 2026-09-01 from X-Bapi-Limit: fifty a second on positions,
+      # balances and open orders; twenty-five on the transaction log.
+      order_entry: { capacity: 50, window_ms: 1000, reserve: 10 }
+      account: { capacity: 50, window_ms: 1000, reserve: 10 }
+      ledger: { capacity: 25, window_ms: 1000, reserve: 0 }
+      # bybit counts requests, not weight, so every call costs one.
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  gate:
+    # NOT MEASURED YET. Every bucket is zero, so nothing is limited here and
+    # nothing is pretended: fill this in from gate's own headers, not from a
+    # neighbouring venue's numbers.
+    rate:
+      shared: { capacity: 0, window_ms: 0, reserve: 0 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }

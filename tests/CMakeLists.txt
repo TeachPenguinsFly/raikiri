@@ -32,6 +32,11 @@ raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::ne
 raikiri_add_test(protobuf_test SRCS wire/protobuf_test.cpp LIBS raikiri::wire)
 raikiri_add_test(admin_test SRCS admin/admin_test.cpp LIBS raikiri::admin)
 target_link_libraries(admin_test PRIVATE glaze::glaze)
+raikiri_add_test(settings_test SRCS config/settings_test.cpp LIBS raikiri::config)
+# The committed config files ARE the fixture: this test exists to catch a file
+# the shipped loader cannot read, so it must point at the real ones rather than
+# at a copy that can drift away from them.
+target_compile_definitions(settings_test PRIVATE RAIKIRI_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)
 
 raikiri_add_test(gate_venue_test SRCS venues/gate/venue_test.cpp LIBS raikiri::venue_gate raikiri::exec)
