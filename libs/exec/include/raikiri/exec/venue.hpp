@@ -44,6 +44,10 @@ struct VenueConfig {
     // Null means unlimited, which is the honest reading of a venue nobody has
     // measured; the numbers live in config/venues.yaml, never in the binary.
     RateBudget* budget{nullptr};
+
+    // How long an order may go unanswered before the adapter reports it as a
+    // gap. Zero disables the sweep, which is the wrong setting for money.
+    std::uint64_t order_answer_timeout_ns{0};
 };
 
 struct VenueAdapter {

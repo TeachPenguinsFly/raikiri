@@ -707,6 +707,9 @@ int main(int argc, char** argv) {
     // UNLIMITED here — that is the honest reading of a budget nobody has
     // measured, and inventing one would refuse traffic the venue accepts.
     std::optional<exec::RateBudget> budget;
+    // Zero until the file says otherwise: an adapter that sweeps on a timeout
+    // nobody configured would invent the very policy this file exists to hold.
+    std::uint64_t answer_timeout_ns = 0;
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name});
@@ -717,6 +720,7 @@ int main(int argc, char** argv) {
                                                    .positions = rate.costs.positions,
                                                    .balances = rate.costs.balances,
                                                    .ledger = rate.costs.ledger});
+            answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
         } else {
             fmt::print("gatewayd[{}]: no rate budget configured — running unlimited\n",
                        account_name);
@@ -735,7 +739,8 @@ int main(int argc, char** argv) {
                                      .api_key_env = api_key_ref,
                                      .api_secret_env = api_secret_ref,
                                      .passphrase_env = passphrase_ref,
-                                     .budget = budget.has_value() ? &*budget : nullptr},
+                                     .budget = budget.has_value() ? &*budget : nullptr,
+                                     .order_answer_timeout_ns = answer_timeout_ns},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
@@ -893,7 +898,10 @@ int main(int argc, char** argv) {
                                       .api_secret_env = api_secret_ref,
                                       .passphrase_env = passphrase_ref,
                                       // THE SAME budget object, not a copy.
-                                      .budget = budget.has_value() ? &*budget : nullptr},
+                                      .budget = budget.has_value() ? &*budget : nullptr,
+                                      // The poller sends no orders, so nothing
+                                      // of its own ever waits for an answer.
+                                      .order_answer_timeout_ns = 0},
                                      poller_sink,
                                      clock);
         if (made.has_value()) {

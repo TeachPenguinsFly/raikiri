@@ -83,7 +83,14 @@ private:
 // One request awaiting a venue verdict.
 struct InFlight {
     ClientOrderId client_order_id{};
+    // The id the VENUE knows it by, which is what a follow-up question has to
+    // quote. Our own id never left this process.
+    ExchangeClientOrderId exchange_client_order_id{};
     InstrumentId instrument{};
+    // Enough to describe the order in an event without going back to the store:
+    // the whole point of this table is that the store is still waiting.
+    Side side{Side::Buy};
+    QtyLots qty{};
     CmdKind kind{CmdKind::Create};
     MonoNanos sent{};
 };

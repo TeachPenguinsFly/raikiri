@@ -42,6 +42,7 @@ struct VenueState {
     // Shared with the account poller, because bybit counts both against one IP.
     // Null means unmeasured, which reads as unlimited rather than as closed.
     exec::RateBudget* budget{nullptr};
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     net::Signer signer;
@@ -371,6 +372,10 @@ private:
     bool started_{false};
 };
 
+// A desk with more than this many orders awaiting an answer at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_max_unanswered = 512;
+
 class BybitExec final : public exec::ExecutionClient {
 public:
     explicit BybitExec(std::shared_ptr<VenueState> state)
@@ -402,7 +407,44 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return ws_.connected(); }
 
-    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
+    void poll(UnixNanos now) noexcept override {
+        rest_.keepalive(now);
+        sweep_unanswered();
+    }
+
+    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
+    // audit only, moving no status — because the one thing this process cannot
+    // know is whether the venue acted. Reconciliation asks the venue what it
+    // holds and is what finally closes these.
+    void sweep_unanswered() noexcept {
+        if (state_->order_answer_timeout_ns == 0) {
+            return;
+        }
+        for (const auto& stale :
+             in_flight_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+            state_->sink->on_order_error(
+                stale.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                       "no answer from the venue; outcome unknown"));
+            emit_gap(stale);
+        }
+    }
+
+    void emit_gap(const exec::InFlight& stale) noexcept {
+        OrderEvent event{};
+        event.type = OrderEventType::ReconGap;
+        event.instrument = stale.instrument;
+        event.client_order_id = stale.client_order_id;
+        event.exchange_client_order_id = stale.exchange_client_order_id;
+        event.side = stale.side;
+        event.qty = stale.qty;
+        // UNDEF, not zero: leaves of zero would read as "nothing is working",
+        // and whether anything is working is exactly what is unknown here.
+        event.leaves_qty = QtyLots::undef();
+        event.ts_init = state_->clock->wall();
+        event.ts_event = event.ts_init;
+        state_->sink->on_order_event(event);
+    }
 
     // Local refusal, before the request exists. RateLimited rather than
     // Terminal: the caller should come back, and `retry_after_ns` says when.
@@ -707,7 +749,17 @@ private:
                     on_response(std::move(response), client_order_id, instrument, side, qty, kind);
                 })) {
             reject(cmd, "rest queue full");
+            return;
         }
+        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
+        // because the callback is exactly what may never run.
+        (void)in_flight_.add({.client_order_id = cmd.client_order_id,
+                              .exchange_client_order_id = cmd.exchange_client_order_id,
+                              .instrument = cmd.instrument,
+                              .side = cmd.side,
+                              .qty = cmd.qty,
+                              .kind = cmd.kind,
+                              .sent = state_->clock->mono()});
     }
 
     void on_response(net::RestResponse&& response,
@@ -716,21 +768,24 @@ private:
                      Side side,
                      QtyLots qty,
                      Kind kind) {
+        // Any answer at all settles it, including a refusal: what the table
+        // tracks is silence, not failure.
+        if (!response.transport_failed()) {
+            (void)in_flight_.resolve(client_order_id);
+        }
         if (response.transport_failed()) {
-            // No verdict from the venue at all. The transport's own words, not a
-            // stand-in for them: "no response" is true of a refused connection,
-            // a timeout and a TLS failure alike, and those are three different
-            // things to go and fix.
-            emit_reject(client_order_id,
-                        instrument,
-                        side,
-                        qty,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Connectivity,
-                                               0,
-                                               response.error.empty()
-                                                   ? std::string_view{"no response from venue"}
-                                                   : std::string_view{response.error}));
+            // NOT A REJECTION. The request may have reached the matcher before
+            // the read failed — that is how this process once recorded a refusal
+            // opposite a position bybit really held. The order stays in the
+            // table, the desk is told the transport's own words, and the sweep
+            // above reports it as a gap if no answer ever arrives.
+            state_->sink->on_order_error(
+                client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
+                                       response.error.empty()
+                                           ? std::string_view{"no response from venue"}
+                                           : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_envelope(response.body);
@@ -802,6 +857,10 @@ private:
     net::WsClient ws_;
     net::RestClient rest_;
     RequestBuilder builder_;
+    // Orders handed to the transport and not yet answered. Sized generously:
+    // dropping an entry because the table is full would lose the very fact it
+    // exists to keep.
+    exec::InFlightTable in_flight_{k_max_unanswered};
 };
 
 class BybitInstruments final : public exec::InstrumentSource {
@@ -894,6 +953,7 @@ exec::VenueAdapter
 make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     config::DefaultSecretProvider provider;
     if (!config.api_key_env.empty()) {

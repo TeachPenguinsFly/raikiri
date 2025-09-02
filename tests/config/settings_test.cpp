@@ -48,6 +48,13 @@ TEST(Settings, TheCommittedVenueFileLoads) {
     EXPECT_EQ(by.shared.capacity, 0U);
     EXPECT_EQ(by.account.capacity, 50U);
     EXPECT_EQ(by.ledger.capacity, 25U) << "the transaction log is metered lower";
+
+    // An unanswered order must become visible, so the window is required to be
+    // set and to be longer than the transport's own five-second deadline.
+    for (const auto& name : {"binance", "bybit", "gate"}) {
+        const auto ms = file->venues.at(name).order_answer_timeout_ms;
+        EXPECT_GT(ms, 5'000U) << name << ": shorter than the REST deadline is a second timeout";
+    }
 }
 
 // A venue nobody has measured must read as unlimited rather than as a guess.

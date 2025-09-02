@@ -20,6 +20,11 @@
 
 venues:
   binance:
+    # How long an order may go unanswered before the gateway says so out loud.
+    # Longer than the REST client's own 5s deadline on purpose: this is not a
+    # second timeout, it is the point at which an unanswered order stops being
+    # "in flight" and becomes a fact somebody has to look at.
+    order_answer_timeout_ms: 15000
     rate:
       # Measured 2026-09-01: 2400 weight per minute per IP. A tenth is held
       # back for order entry, which is far more than order traffic can spend.
@@ -32,6 +37,7 @@ venues:
       costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
 
   bybit:
+    order_answer_timeout_ms: 15000
     rate:
       shared: { capacity: 0, window_ms: 0, reserve: 0 }
       # Measured 2026-09-01 from X-Bapi-Limit: fifty a second on positions,
@@ -43,6 +49,7 @@ venues:
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
 
   gate:
+    order_answer_timeout_ms: 15000
     # NOT MEASURED YET. Every bucket is zero, so nothing is limited here and
     # nothing is pretended: fill this in from gate's own headers, not from a
     # neighbouring venue's numbers.

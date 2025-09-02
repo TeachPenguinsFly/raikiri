@@ -48,6 +48,9 @@ struct VenueRateSettings {
 };
 
 struct VenueSettings {
+    // Zero means "never expire", which is the wrong default for money: a
+    // gateway that never notices an unanswered order holds it silently.
+    std::uint64_t order_answer_timeout_ms{15'000};
     VenueRateSettings rate{};
 };
 

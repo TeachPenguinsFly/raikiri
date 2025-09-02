@@ -6,6 +6,7 @@ namespace raikiri::exec {
 namespace {
 
 constexpr std::uint64_t k_minute = 60ULL * 1'000'000'000ULL;
+constexpr std::uint64_t k_second = 1'000'000'000ULL;
 
 TEST(RateLimiter, SpendsAndRefusesWithoutBlocking) {
     // Binance's order budget: 1200 per minute. The limiter refuses rather
@@ -161,4 +162,77 @@ TEST(InFlightTable, AFullTableRefusesRatherThanUntrack) {
 }
 
 } // namespace
+
+// The failure this table exists for: a REST call that fails AFTER the exchange
+// took the order. The entry must survive the transport's silence, because the
+// silence is the only evidence there is.
+TEST(InFlightTable, AnUnansweredOrderSurvivesUntilItIsSweptOrResolved) {
+    InFlightTable table{8};
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{7},
+                           .instrument = InstrumentId{},
+                           .kind = CmdKind::Create,
+                           .sent = MonoNanos{0}}));
+    EXPECT_EQ(table.size(), 1U);
+    // Not yet stale: nothing is handed back and nothing is lost.
+    EXPECT_TRUE(table.expire(MonoNanos{k_second}, 15 * k_second).empty());
+    EXPECT_EQ(table.size(), 1U);
+
+    const auto swept = table.expire(MonoNanos{20 * k_second}, 15 * k_second);
+    ASSERT_EQ(swept.size(), 1U);
+    EXPECT_EQ(swept.front().client_order_id.raw, 7U);
+    EXPECT_EQ(table.size(), 0U) << "handed back exactly once";
+    EXPECT_EQ(table.expired_total(), 1U);
+}
+
+// Any answer settles the question, including a refusal: what is tracked is
+// silence, not failure.
+TEST(InFlightTable, AnAnsweredOrderIsNeverSweptLater) {
+    InFlightTable table{8};
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{1}, .sent = MonoNanos{0}}));
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{2}, .sent = MonoNanos{0}}));
+    EXPECT_TRUE(table.resolve(ClientOrderId{1}));
+    const auto swept = table.expire(MonoNanos{20 * k_second}, 15 * k_second);
+    ASSERT_EQ(swept.size(), 1U);
+    EXPECT_EQ(swept.front().client_order_id.raw, 2U);
+    EXPECT_EQ(table.expired_total(), 1U) << "the answered one was never a gap";
+}
+
+// Resolving something that was never in flight must not remove a neighbour:
+// the swap-and-pop below is easy to get wrong.
+TEST(InFlightTable, ResolvingAnUnknownIdChangesNothing) {
+    InFlightTable table{8};
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{1}, .sent = MonoNanos{0}}));
+    EXPECT_FALSE(table.resolve(ClientOrderId{99}));
+    EXPECT_EQ(table.size(), 1U);
+}
+
+// The venue's id travels with the entry, because a follow-up question has to
+// quote the id the VENUE knows — ours never left this process.
+TEST(InFlightTable, TheEntryCarriesTheIdTheVenueKnowsItBy) {
+    InFlightTable table{4};
+    const auto link = *ExchangeClientOrderId::from("01M1EENQW5DXEXVXKC3726V503");
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{3},
+                           .exchange_client_order_id = link,
+                           .side = Side::Sell,
+                           .qty = QtyLots::from_raw(52),
+                           .kind = CmdKind::Cancel,
+                           .sent = MonoNanos{0}}));
+    const auto swept = table.expire(MonoNanos{20 * k_second}, k_second);
+    ASSERT_EQ(swept.size(), 1U);
+    EXPECT_EQ(swept.front().exchange_client_order_id.view(), link.view());
+    EXPECT_EQ(swept.front().side, Side::Sell);
+    EXPECT_EQ(swept.front().qty.raw, 52);
+    EXPECT_EQ(swept.front().kind, CmdKind::Cancel);
+}
+
+// A full table must refuse rather than drop, because the entry it would drop
+// is the record that an order is unaccounted for.
+TEST(InFlightTable, AFullTableRefusesRatherThanForgetting) {
+    InFlightTable table{2};
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{1}, .sent = MonoNanos{0}}));
+    ASSERT_TRUE(table.add({.client_order_id = ClientOrderId{2}, .sent = MonoNanos{0}}));
+    EXPECT_FALSE(table.add({.client_order_id = ClientOrderId{3}, .sent = MonoNanos{0}}));
+    EXPECT_EQ(table.size(), 2U);
+}
+
 } // namespace raikiri::exec
