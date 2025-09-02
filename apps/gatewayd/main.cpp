@@ -23,6 +23,7 @@
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
+#include <raikiri/config/settings.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -78,6 +79,28 @@ namespace {
         return "connectivity";
     }
     return "unknown";
+}
+
+// The operator's numbers, turned into the shape exec understands.
+//
+// exec depends on domain and nothing else, so the translation happens here
+// rather than in the library: config/venues.yaml is an operations file, and a
+// trading library that parsed one would drag a parser into the order path.
+[[nodiscard]] raikiri::exec::RateBudget::Table
+budget_table(const raikiri::config::VenueRateSettings& rate) {
+    using raikiri::exec::RateBucket;
+    const auto to_bucket = [](const raikiri::config::RateBucketSettings& b) {
+        return raikiri::exec::RateBudget::BucketConfig{
+            .capacity = b.capacity,
+            .window_ns = b.window_ms * 1'000'000ULL,
+            .reserve = b.reserve};
+    };
+    raikiri::exec::RateBudget::Table table{};
+    table[static_cast<std::size_t>(RateBucket::Shared)] = to_bucket(rate.shared);
+    table[static_cast<std::size_t>(RateBucket::OrderEntry)] = to_bucket(rate.order_entry);
+    table[static_cast<std::size_t>(RateBucket::Account)] = to_bucket(rate.account);
+    table[static_cast<std::size_t>(RateBucket::Ledger)] = to_bucket(rate.ledger);
+    return table;
 }
 
 std::atomic<bool> g_stop{false};
@@ -678,12 +701,41 @@ int main(int argc, char** argv) {
     venues::xt::register_adapter();
     venues::mexc::register_adapter();
     venues::okx::register_adapter();
+    // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
+    // poller below, because the venue counts them together against one IP.
+    // A venue absent from the file, or one whose buckets are all zero, is
+    // UNLIMITED here — that is the honest reading of a budget nobody has
+    // measured, and inventing one would refuse traffic the venue accepts.
+    std::optional<exec::RateBudget> budget;
+    const auto venues_path = config::config_dir() + "/venues.yaml";
+    if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
+        if (const auto it = settings->venues.find(std::string{venue_name});
+            it != settings->venues.end()) {
+            const auto& rate = it->second.rate;
+            budget.emplace(budget_table(rate),
+                           exec::RateBudget::Costs{.order = rate.costs.order,
+                                                   .positions = rate.costs.positions,
+                                                   .balances = rate.costs.balances,
+                                                   .ledger = rate.costs.ledger});
+        } else {
+            fmt::print("gatewayd[{}]: no rate budget configured — running unlimited\n",
+                       account_name);
+        }
+    } else {
+        // Said out loud rather than swallowed: running unlimited because a file
+        // failed to parse is a different fact from running unlimited on purpose.
+        fmt::print(stderr,
+                   "gatewayd: {} — running unlimited\n",
+                   settings.error());
+    }
+
     auto adapter = exec::make_venue({.venue = venue,
                                      .market = market,
                                      .testnet = testnet,
                                      .api_key_env = api_key_ref,
                                      .api_secret_env = api_secret_ref,
-                                     .passphrase_env = passphrase_ref},
+                                     .passphrase_env = passphrase_ref,
+                                     .budget = budget.has_value() ? &*budget : nullptr},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
@@ -839,7 +891,9 @@ int main(int argc, char** argv) {
                                       .testnet = testnet,
                                       .api_key_env = api_key_ref,
                                       .api_secret_env = api_secret_ref,
-                                      .passphrase_env = passphrase_ref},
+                                      .passphrase_env = passphrase_ref,
+                                      // THE SAME budget object, not a copy.
+                                      .budget = budget.has_value() ? &*budget : nullptr},
                                      poller_sink,
                                      clock);
         if (made.has_value()) {

@@ -38,6 +38,9 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    // Shared with the account poller: binance counts one pool of weight per IP,
+    // so two private buckets would together spend twice the allowance.
+    exec::RateBudget* budget{nullptr};
 
     net::IoContext io;
     net::Signer signer;
@@ -500,12 +503,51 @@ public:
         rest_.keepalive(now);
     }
 
+    [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
+        return state_->budget != nullptr ? state_->budget->costs()
+                                         : exec::RateBudget::Costs{};
+    }
+
+    // ONE POOL. binance meters weight across every endpoint together, so every
+    // call here spends `Shared` and only the cost differs — thirty for the
+    // income ledger against five for a balance, measured from its own
+    // used-weight header rather than read off a page.
+    [[nodiscard]] std::expected<void, exec::VenueError>
+    spend(std::uint32_t cost, exec::RateClass cls) noexcept {
+        if (state_->budget == nullptr) {
+            return {}; // unmeasured venue: unlimited, not closed
+        }
+        const auto taken =
+            state_->budget->take(exec::RateBucket::Shared, cost, state_->clock->mono(), cls);
+        if (taken.has_value()) {
+            return {};
+        }
+        return std::unexpected{exec::VenueError::make(
+            exec::ErrorClass::RateLimited,
+            static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+            "local rate budget spent; retry after the stated milliseconds")};
+    }
+
+    void penalize() const noexcept {
+        if (state_->budget != nullptr) {
+            // The venue's answer outranks our accounting, which has just been
+            // proven wrong.
+            state_->budget->penalize(exec::RateBucket::Shared, state_->clock->mono(),
+                                     1'000'000'000ULL);
+        }
+    }
+
     void submit(const OrderCmd& cmd) noexcept override {
         const auto* instrument = state_->instruments.find(cmd.instrument);
         if (instrument == nullptr) {
             emit(cmd,
                  OrderEventType::Rejected,
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
+            return;
+        }
+        if (const auto allowed = spend(costs().order, exec::RateClass::Order);
+            !allowed.has_value()) {
+            emit(cmd, OrderEventType::Rejected, allowed.error());
             return;
         }
         const auto request =
@@ -523,6 +565,11 @@ public:
             emit(cmd,
                  OrderEventType::CancelRejected,
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
+            return;
+        }
+        if (const auto allowed = spend(costs().order, exec::RateClass::Order);
+            !allowed.has_value()) {
+            emit(cmd, OrderEventType::CancelRejected, allowed.error());
             return;
         }
         const auto request =
@@ -554,6 +601,10 @@ public:
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType) override {
         const auto request = state_->builder.open_orders(state_->venue_now());
+        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
         }
@@ -581,6 +632,10 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType) override {
+        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         const auto* instrument = first_known_instrument();
         if (instrument == nullptr) {
             return std::unexpected{exec::VenueError::make(
@@ -611,6 +666,10 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType, UnixNanos since) override {
+        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         const auto* instrument = first_known_instrument();
         if (instrument == nullptr) {
             return std::vector<exec::FillReport>{};
@@ -644,6 +703,10 @@ public:
 
     std::expected<std::vector<BalanceReport>, exec::VenueError>
     balance_reports(MarketType market) override {
+        if (const auto allowed = spend(costs().balances, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         if (market != MarketType::Perp) {
             // Every path in this adapter targets fapi.binance.com, which is
             // USD-M futures and nothing else. Binance spot balances live on
@@ -680,6 +743,10 @@ public:
 
     std::expected<std::vector<FundingCharge>, exec::VenueError>
     funding_charges(MarketType, UnixNanos since) override {
+        if (const auto allowed = spend(costs().ledger, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         const auto request = state_->builder.funding_income(since, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
@@ -732,6 +799,10 @@ public:
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType) override {
+        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         const auto request = state_->builder.position_risk(state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
@@ -801,8 +872,11 @@ private:
         }
         if (const auto err = parse_rest_error(response->body);
             err.has_value() && err->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(err->code), err->code, err->msg)};
+            const auto cls = classify(err->code);
+            if (cls == exec::ErrorClass::RateLimited) {
+                penalize();
+            }
+            return std::unexpected{exec::VenueError::make(cls, err->code, err->msg)};
         }
         return response->body;
     }
@@ -865,6 +939,9 @@ private:
                 is_benign_cancel_failure(err->code)) {
                 // The order already filled or was already gone.
                 return;
+            }
+            if (classify(err->code) == exec::ErrorClass::RateLimited) {
+                penalize();
             }
             emit(captured,
                  on_failure,
@@ -999,6 +1076,7 @@ private:
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->budget = config.budget;
 
     config::DefaultSecretProvider provider;
     if (!config.api_key_env.empty()) {

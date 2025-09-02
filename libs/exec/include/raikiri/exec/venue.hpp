@@ -12,6 +12,7 @@
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_source.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 
 #include <expected>
 #include <memory>
@@ -36,6 +37,13 @@ struct VenueConfig {
     std::string api_secret_env; // e.g. "BYBIT_API_SECRET"
     std::string passphrase_env; // venues that need it (okx); empty otherwise
     std::string url_override;   // testing/proxying; empty = venue default
+
+    // The venue's published budget, owned by the process and SHARED by every
+    // adapter pointed at this venue — the order path and the account poller
+    // both spend it, because the venue counts them together against one IP.
+    // Null means unlimited, which is the honest reading of a venue nobody has
+    // measured; the numbers live in config/venues.yaml, never in the binary.
+    RateBudget* budget{nullptr};
 };
 
 struct VenueAdapter {

@@ -39,6 +39,9 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    // Shared with the account poller, because bybit counts both against one IP.
+    // Null means unmeasured, which reads as unlimited rather than as closed.
+    exec::RateBudget* budget{nullptr};
 
     net::IoContext io;
     net::Signer signer;
@@ -401,6 +404,37 @@ public:
 
     void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
+    // Local refusal, before the request exists. RateLimited rather than
+    // Terminal: the caller should come back, and `retry_after_ns` says when.
+    // A second's hold: long enough that a burst cannot immediately repeat,
+    // short enough that one refusal does not stall reconciliation for a minute.
+    void penalize(exec::RateBucket bucket) noexcept {
+        if (state_->budget != nullptr) {
+            state_->budget->penalize(bucket, state_->clock->mono(), 1'000'000'000ULL);
+        }
+    }
+
+    [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
+        return state_->budget != nullptr ? state_->budget->costs()
+                                         : exec::RateBudget::Costs{};
+    }
+
+    [[nodiscard]] std::expected<void, exec::VenueError>
+    spend(exec::RateBucket bucket, std::uint32_t cost, exec::RateClass cls) noexcept {
+        if (state_->budget == nullptr) {
+            return {}; // unmeasured venue: unlimited, not closed
+        }
+        const auto taken =
+            state_->budget->take(bucket, cost, state_->clock->mono(), cls);
+        if (taken.has_value()) {
+            return {};
+        }
+        return std::unexpected{exec::VenueError::make(
+            exec::ErrorClass::RateLimited,
+            static_cast<std::int64_t>(taken.error().retry_after_ns / 1'000'000),
+            "local rate budget spent; retry after the stated milliseconds")};
+    }
+
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
     void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
@@ -415,7 +449,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
-        const auto envelope = fetch(*request, body);
+        const auto envelope = fetch(*request, body, exec::RateBucket::Account, costs().positions);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -458,7 +492,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
-        const auto envelope = fetch(*request, body);
+        const auto envelope = fetch(*request, body, exec::RateBucket::Account, costs().positions);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -498,7 +532,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
-        const auto envelope = fetch(*request, body);
+        const auto envelope = fetch(*request, body, exec::RateBucket::Account, costs().positions);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -529,7 +563,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
-        const auto envelope = fetch(*request, body);
+        const auto envelope = fetch(*request, body, exec::RateBucket::Ledger, costs().ledger);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -577,7 +611,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
         }
         std::string body;
-        const auto envelope = fetch(*request, body);
+        const auto envelope = fetch(*request, body, exec::RateBucket::Account, costs().balances);
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
@@ -610,7 +644,18 @@ private:
     // a response destroyed on the way out. ASan caught it on the first
     // credentialed position pull; nothing without a key ever reaches here.
     [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError>
-    fetch(const net::RestRequest& request, std::string& body) {
+    fetch(const net::RestRequest& request,
+          std::string& body,
+          exec::RateBucket bucket,
+          std::uint32_t cost) {
+        // Poll class: these are reconciliation pulls, and they may not spend
+        // the slice held back for order entry. Refused BEFORE the socket, so
+        // the venue never has to say no — its refusals cost more than ours,
+        // because a 429 on the order path can arrive after the matcher saw it.
+        if (const auto allowed = spend(bucket, cost, exec::RateClass::Poll);
+            !allowed.has_value()) {
+            return std::unexpected{allowed.error()};
+        }
         auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {
             return std::unexpected{
@@ -623,8 +668,15 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope")};
         }
         if (envelope->ret_code != k_ret_ok) {
-            return std::unexpected{exec::VenueError::make(
-                classify(envelope->ret_code), envelope->ret_code, envelope->ret_msg)};
+            const auto cls = classify(envelope->ret_code);
+            if (cls == exec::ErrorClass::RateLimited) {
+                // THE VENUE'S ANSWER OUTRANKS OUR ACCOUNTING, which has just
+                // been proven wrong. Draining the meter it refused on is what
+                // stops the next pass walking into the same wall.
+                penalize(bucket);
+            }
+            return std::unexpected{
+                exec::VenueError::make(cls, envelope->ret_code, envelope->ret_msg)};
         }
         return *envelope;
     }
@@ -637,6 +689,12 @@ private:
                                    : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             reject(cmd, to_string(request.error()));
+            return;
+        }
+        if (const auto allowed =
+                spend(exec::RateBucket::OrderEntry, costs().order, exec::RateClass::Order);
+            !allowed.has_value()) {
+            reject(cmd, allowed.error().message.view());
             return;
         }
         const auto client_order_id = cmd.client_order_id;
@@ -691,6 +749,9 @@ private:
         }
         if (kind == Kind::Cancel && is_benign_cancel_failure(envelope->ret_code)) {
             return;
+        }
+        if (classify(envelope->ret_code) == exec::ErrorClass::RateLimited) {
+            penalize(exec::RateBucket::OrderEntry);
         }
         emit_reject(client_order_id,
                     instrument,
@@ -832,6 +893,7 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
 exec::VenueAdapter
 make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->budget = config.budget;
 
     config::DefaultSecretProvider provider;
     if (!config.api_key_env.empty()) {
