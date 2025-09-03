@@ -42,6 +42,7 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     exec::InstrumentTable instruments;
@@ -501,6 +502,10 @@ private:
 // synthesizes is a rejection, because an order the venue refused produces no
 // push at all — there is nothing for the socket to say about an order that
 // never existed.
+// A desk with more than this many orders awaiting an answer at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_max_unanswered = 512;
+
 class DeribitExec final : public exec::ExecutionClient {
 public:
     explicit DeribitExec(std::shared_ptr<VenueState> state)
@@ -544,7 +549,39 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
+    void poll(UnixNanos now) noexcept override {
+        rest_.keepalive(now);
+        sweep_unanswered();
+    }
+
+    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
+    // audit only, moving no status — because whether the venue acted is the one
+    // thing this process cannot know. Reconciliation closes these.
+    void sweep_unanswered() noexcept {
+        if (state_->order_answer_timeout_ns == 0) {
+            return;
+        }
+        for (const auto& stale :
+             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+            state_->sink->on_order_error(
+                stale.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                       "no answer from the venue; outcome unknown"));
+            OrderEvent event{};
+            event.type = OrderEventType::ReconGap;
+            event.instrument = stale.instrument;
+            event.client_order_id = stale.client_order_id;
+            event.exchange_client_order_id = stale.exchange_client_order_id;
+            event.side = stale.side;
+            event.qty = stale.qty;
+            // UNDEF, not zero: zero leaves would read as "nothing is working".
+            event.leaves_qty = QtyLots::undef();
+            event.ts_event = state_->clock->wall();
+            event.ts_init = event.ts_event;
+            state_->sink->on_order_event(event);
+        }
+    }
+
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -727,15 +764,35 @@ private:
             emit_reject(cmd,
                         kind,
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            return;
         }
+        // ON THE WIRE AND UNANSWERED, recorded before the callback that may
+        // never run.
+        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
+                               .exchange_client_order_id = cmd.exchange_client_order_id,
+                               .instrument = cmd.instrument,
+                               .side = cmd.side,
+                               .qty = cmd.qty,
+                               .kind = cmd.kind,
+                               .sent = state_->clock->mono()});
+
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
+        // Any answer settles it, including a refusal: the table tracks silence.
+        if (!response.transport_failed()) {
+            (void)unanswered_.resolve(cmd.client_order_id);
+        }
         if (response.transport_failed()) {
-            emit_reject(cmd,
-                        kind, // no verdict from the venue at all
-                        exec::VenueError::make(
-                            exec::ErrorClass::Connectivity, 0, "no response from venue"));
+            // NOT A REJECTION. The request may have reached the matcher before
+            // the read failed, and calling that a refusal is how a process
+            // records a rejection opposite a live position.
+            state_->sink->on_order_error(
+                cmd.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                       response.error.empty()
+                                           ? std::string_view{"no response from venue"}
+                                           : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_response(response.body);
@@ -802,6 +859,8 @@ private:
     net::WsClient client_;
     SignedRequestBuilder builder_;
     bool started_{false};
+    // Orders handed to the transport and not yet answered.
+    exec::InFlightTable unanswered_{k_max_unanswered};
 };
 
 class DeribitInstruments final : public exec::InstrumentSource {
@@ -882,6 +941,7 @@ private:
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     // Deribit's client_id is the api key and its client_secret the secret; the
     // signer holds both under the names every other adapter uses.
