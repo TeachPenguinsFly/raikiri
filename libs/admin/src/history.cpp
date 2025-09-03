@@ -1,14 +1,12 @@
-#include <raikiri/admin/history.hpp>
-
 #include <raikiri/admin/format.hpp>
+#include <raikiri/admin/history.hpp>
 #include <raikiri/domain/order.hpp>
-
-#include <pqxx/pqxx>
 
 #include <algorithm>
 #include <charconv>
 #include <exception>
 #include <limits>
+#include <pqxx/pqxx>
 #include <string_view>
 #include <utility>
 
@@ -139,6 +137,7 @@ public:
     }
 
     [[nodiscard]] const std::string& text() const noexcept { return sql_; }
+
     [[nodiscard]] const pqxx::params& params() const noexcept { return params_; }
 
 private:
@@ -339,8 +338,7 @@ private:
     // market, so two listings of one symbol leave the instrument unresolvable.
     // Naming one of them would be a coin toss written down as a fact.
     const bool resolved = int_of(row.at("matches")) == 1;
-    const Scales scales{.lot_size = resolved ? scale_of(row.at("lot_size_e9"))
-                                             : FixedE9::undef()};
+    const Scales scales{.lot_size = resolved ? scale_of(row.at("lot_size_e9")) : FixedE9::undef()};
     const auto detail = text_of(row.at("detail"));
     return {
         .venue = text_of(row.at("venue")),

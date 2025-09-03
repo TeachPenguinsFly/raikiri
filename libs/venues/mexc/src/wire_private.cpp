@@ -388,7 +388,8 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             out.base_size_step = field(obj, "baseSizePrecision");
             out.quote_precision = int_field(obj, "quotePrecision");
             obj.reset();
-            out.spot_trading_allowed = detail::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
+            out.spot_trading_allowed =
+                detail::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
             storage.symbols[count] = out;
             ++count;
         }

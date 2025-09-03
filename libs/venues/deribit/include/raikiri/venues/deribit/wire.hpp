@@ -17,13 +17,13 @@ using WireError = wire::Error;
 
 // Resolved from the channel prefix once, so dispatch is an integer compare.
 enum class EventKind : std::uint8_t {
-    Bbo,       // book.{instrument}.none.1.100ms — depth-1 grouped snapshot
-    Trade,     // trades.{instrument}.100ms
-    Ticker,    // ticker.{instrument}.100ms — mark, index and funding in one
-    Book,      // book.{instrument}.100ms — incremental, change_id chained
+    Bbo,        // book.{instrument}.none.1.100ms — depth-1 grouped snapshot
+    Trade,      // trades.{instrument}.100ms
+    Ticker,     // ticker.{instrument}.100ms — mark, index and funding in one
+    Book,       // book.{instrument}.100ms — incremental, change_id chained
     UserChange, // user.changes.{kind}.{currency}.raw — private, authenticated
-    Heartbeat, // server liveness probe; a test_request needs an answer
-    Response,  // reply to something we sent: result or error
+    Heartbeat,  // server liveness probe; a test_request needs an answer
+    Response,   // reply to something we sent: result or error
     Unknown,
 };
 
@@ -254,12 +254,12 @@ struct WireUserTrade {
     std::string_view instrument;
     std::string_view price;
     std::string_view amount;
-    std::string_view fee;          // in fee_currency, which is the base coin
+    std::string_view fee; // in fee_currency, which is the base coin
     std::string_view fee_currency;
-    std::string_view state;        // the ORDER's state after this trade
+    std::string_view state; // the ORDER's state after this trade
     bool sell{false};
-    bool maker{false};             // liquidity: "M" maker, "T" taker
-    bool liquidity_stated{false};  // absent on some historical rows
+    bool maker{false};            // liquidity: "M" maker, "T" taker
+    bool liquidity_stated{false}; // absent on some historical rows
     std::uint64_t ts_ms{0};
 };
 

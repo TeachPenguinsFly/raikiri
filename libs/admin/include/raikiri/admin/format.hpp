@@ -22,8 +22,13 @@ namespace raikiri::admin {
 // are past 2^53, so both would arrive at a browser rounded.
 [[nodiscard]] std::string digits(std::uint64_t value);
 
-[[nodiscard]] inline std::string digits(InstrumentId id) { return digits(id.packed); }
-[[nodiscard]] inline std::string digits(UnixNanos ts) { return digits(ts.ns); }
+[[nodiscard]] inline std::string digits(InstrumentId id) {
+    return digits(id.packed);
+}
+
+[[nodiscard]] inline std::string digits(UnixNanos ts) {
+    return digits(ts.ns);
+}
 
 // An exact decimal. Empty for an undefined value — the caller decides whether
 // that is a field to omit or a bug, because those are different questions.

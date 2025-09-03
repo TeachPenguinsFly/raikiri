@@ -219,10 +219,8 @@ std::expected<std::span<const WireOrder>, WireError> parse_spot_orders(std::stri
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        const auto count =
-            read_rows<WireOrder>(*array, storage.orders, [](auto& obj, WireOrder& row) {
-                return read_order(obj, row);
-            });
+        const auto count = read_rows<WireOrder>(
+            *array, storage.orders, [](auto& obj, WireOrder& row) { return read_order(obj, row); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -294,34 +292,33 @@ parse_active_symbols(std::string_view body, SymbolBuffer& storage) {
 }
 
 std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                 FillBuffer& storage) {
+                                                                FillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFill>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return detail::with_data(
-            *root,
-            [&](detail::ondemand::object& obj)
-                -> std::expected<std::span<const WireFill>, WireError> {
-                auto array = detail::req_array(obj, "items");
-                if (!array.has_value()) {
-                    return std::unexpected(array.error());
-                }
-                const auto count =
-                    read_rows<WireFill>(*array, storage.fills, [](auto& row_obj, WireFill& row) {
-                        return read_fill(row_obj, row);
-                    });
-                if (!count.has_value()) {
-                    return std::unexpected(count.error());
-                }
-                return std::span<const WireFill>{storage.fills.data(), *count};
-            });
+        return detail::with_data(*root,
+                                 [&](detail::ondemand::object& obj)
+                                     -> std::expected<std::span<const WireFill>, WireError> {
+                                     auto array = detail::req_array(obj, "items");
+                                     if (!array.has_value()) {
+                                         return std::unexpected(array.error());
+                                     }
+                                     const auto count = read_rows<WireFill>(
+                                         *array, storage.fills, [](auto& row_obj, WireFill& row) {
+                                             return read_fill(row_obj, row);
+                                         });
+                                     if (!count.has_value()) {
+                                         return std::unexpected(count.error());
+                                     }
+                                     return std::span<const WireFill>{storage.fills.data(), *count};
+                                 });
     });
 }
 
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                         PositionBuffer& storage) {
+                                                                        PositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -406,10 +403,9 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                     return std::unexpected(symbol.error());
                 }
                 row.symbol = *symbol;
-                for (const auto& [key, field] :
-                     {std::pair{"baseIncrement", &row.base_increment},
-                      std::pair{"priceIncrement", &row.price_increment},
-                      std::pair{"minFunds", &row.min_funds}}) {
+                for (const auto& [key, field] : {std::pair{"baseIncrement", &row.base_increment},
+                                                 std::pair{"priceIncrement", &row.price_increment},
+                                                 std::pair{"minFunds", &row.min_funds}}) {
                     const auto value = detail::opt_decimal(obj, key);
                     if (!value.has_value()) {
                         return std::unexpected(value.error());

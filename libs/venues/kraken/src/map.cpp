@@ -530,8 +530,8 @@ std::optional<OrderEvent> map_ws_order(const WireWsOrder& wire,
     // `qty` on this feed is what REMAINS; the original is that plus `filled`.
     out.qty = QtyLots::from_raw(remaining->raw + filled->raw);
     out.leaves_qty = *remaining;
-    out.ts_event = ms_to_unix(wire.last_update_ms != 0 ? wire.last_update_ms : wire.time_ms,
-                              ts_init);
+    out.ts_event =
+        ms_to_unix(wire.last_update_ms != 0 ? wire.last_update_ms : wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;
 }

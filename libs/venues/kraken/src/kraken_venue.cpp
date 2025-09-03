@@ -511,10 +511,9 @@ private:
         }
         std::memcpy(challenge_.data(), wire->message.data(), wire->message.size());
         challenge_len_ = wire->message.size();
-        const auto signature =
-            authent(state_->signer.secret().view(),
-                    std::string_view{challenge_.data(), challenge_len_},
-                    signed_challenge_);
+        const auto signature = authent(state_->signer.secret().view(),
+                                       std::string_view{challenge_.data(), challenge_len_},
+                                       signed_challenge_);
         if (signature.empty()) {
             state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
                                            .stream_id = k_private_stream_id,
@@ -553,10 +552,8 @@ private:
             return;
         }
         for (const auto& wire : *orders) {
-            if (const auto event = map_ws_order(wire,
-                                                OrderEventType::Accepted,
-                                                state_->instruments,
-                                                received);
+            if (const auto event =
+                    map_ws_order(wire, OrderEventType::Accepted, state_->instruments, received);
                 event.has_value()) {
                 state_->remember(wire.order_id, memo_of(*event));
             }
@@ -570,10 +567,8 @@ private:
         }
         const auto effect = effect_of(delta->reason, delta->is_cancel);
         if (delta->has_order) {
-            const auto event = map_ws_order(delta->order,
-                                            event_type_of(effect),
-                                            state_->instruments,
-                                            received);
+            const auto event =
+                map_ws_order(delta->order, event_type_of(effect), state_->instruments, received);
             if (!event.has_value()) {
                 return;
             }
@@ -654,8 +649,7 @@ public:
                                 .target = std::string{stream_path()},
                                 .max_message_bytes = k_max_message_bytes},
                   handler_},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           builder_{state_->signer} {
         handler_.attach(client_);
     }
@@ -691,9 +685,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -780,8 +772,7 @@ public:
                     reached_since = true;
                     continue;
                 }
-                if (auto report = map_rest_fill(wire, state_->instruments);
-                    report.has_value()) {
+                if (auto report = map_rest_fill(wire, state_->instruments); report.has_value()) {
                     reports.push_back(*report);
                 }
             }
@@ -857,10 +848,9 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
-        auto request = kind == Kind::Create ? builder_.create_order(cmd, state_->instruments, now)
-                       : kind == Kind::Cancel
-                           ? builder_.cancel_order(cmd, state_->instruments, now)
-                           : builder_.amend_order(cmd, state_->instruments, now);
+        auto request = kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
+                       : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
+                                              : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -868,13 +858,20 @@ private:
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -900,7 +897,9 @@ private:
         switch (kind) {
         case Kind::Create:
             if (!is_send_accepted(verdict->status)) {
-                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd,
+                            kind,
+                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
             // Accepted is published by the open_orders delta, which carries the
@@ -910,12 +909,16 @@ private:
             return;
         case Kind::Cancel:
             if (!is_cancel_accepted(verdict->status)) {
-                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd,
+                            kind,
+                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
             }
             return;
         case Kind::Amend:
             if (!is_edit_accepted(verdict->status)) {
-                emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
+                emit_reject(cmd,
+                            kind,
+                            exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
             // The open_orders feed has no documented `reason` for an edit, so

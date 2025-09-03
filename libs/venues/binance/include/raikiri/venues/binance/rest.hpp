@@ -69,8 +69,8 @@ public:
 
     // Funding settlements from the account's income ledger. Paired with
     // `VenueCaps::funding_charge`.
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    funding_income(UnixNanos since, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since,
+                                                                             UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_risk(UnixNanos now);
 

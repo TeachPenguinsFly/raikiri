@@ -81,7 +81,8 @@ TEST(MexcVenue, AnUnbuildableCommandIsRefusedLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -102,7 +103,8 @@ TEST(MexcVenue, SubscribingAnUnknownInstrumentIsRefused) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Mexc, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto unknown = InstrumentId::make(VenueId::Mexc, MarketType::Perp, SymbolId{7});
     const auto result = adapter->data->subscribe(exec::SubKind::Bbo, unknown);

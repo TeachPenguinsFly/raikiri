@@ -62,7 +62,8 @@ void permute(std::array<std::uint64_t, 25>& a) noexcept {
     }
 }
 
-void absorb_block(std::array<std::uint64_t, 25>& state, std::span<const std::uint8_t> block) noexcept {
+void absorb_block(std::array<std::uint64_t, 25>& state,
+                  std::span<const std::uint8_t> block) noexcept {
     for (std::size_t i = 0; i < k_rate; ++i) {
         // Lanes are LITTLE-endian, on every architecture: this is a property of
         // the specification, not of the host.

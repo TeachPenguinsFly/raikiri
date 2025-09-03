@@ -51,6 +51,7 @@ public:
     };
 
     Position() noexcept = default;
+
     Position(PositionKey key, UnixNanos opened) noexcept : key_{key}, ts_opened_{opened} {}
 
     // FOR JOURNAL REPLAY ONLY. A position otherwise moves for exactly one
@@ -83,14 +84,23 @@ public:
                        UnixNanos ts) noexcept;
 
     [[nodiscard]] PositionKey key() const noexcept { return key_; }
+
     [[nodiscard]] QtyLots qty() const noexcept { return qty_; } // signed: + long, - short
+
     [[nodiscard]] bool flat() const noexcept { return qty_.raw == 0; }
+
     [[nodiscard]] FixedE9 cost() const noexcept { return cost_; } // signed with qty_
+
     [[nodiscard]] FixedE9 realized() const noexcept { return realized_; } // gross of fees
+
     [[nodiscard]] FixedE9 fees() const noexcept { return fees_; }
+
     [[nodiscard]] FixedE9 net_realized() const noexcept;
+
     [[nodiscard]] std::uint32_t fill_count() const noexcept { return fill_count_; }
+
     [[nodiscard]] UnixNanos ts_opened() const noexcept { return ts_opened_; }
+
     [[nodiscard]] UnixNanos ts_updated() const noexcept { return ts_updated_; }
 
     // Derived for display and for reconciliation break records. Never stored,
@@ -111,8 +121,7 @@ private:
 // What closing the whole position at `mark` would realize. A pure function of
 // the price argument: there is no stored unrealized field, because such a
 // field can only answer "as of when?" and answer it wrongly.
-[[nodiscard]] FixedE9 unrealized_pnl(const InstrumentBase& base,
-                                     const Position& position,
-                                     PriceTicks mark) noexcept;
+[[nodiscard]] FixedE9
+unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept;
 
 } // namespace raikiri::portfolio

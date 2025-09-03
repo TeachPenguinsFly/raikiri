@@ -78,13 +78,17 @@ public:
     // gateway's locked secret storage and is never copied out of it.
     void set_credentials(const net::Signer& signer, std::string_view passphrase) noexcept;
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> create_order(
-        const OrderCmd& cmd, const exec::InstrumentTable& table, std::string_view product,
-        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    create_order(const OrderCmd& cmd,
+                 const exec::InstrumentTable& table,
+                 std::string_view product,
+                 UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_order(
-        const OrderCmd& cmd, const exec::InstrumentTable& table, std::string_view product,
-        UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    cancel_order(const OrderCmd& cmd,
+                 const exec::InstrumentTable& table,
+                 std::string_view product,
+                 UnixNanos now);
 
     // One symbol per call: mix batch entries carry no symbol of their own, so
     // the caller groups by instrument before calling. Consumes at most
@@ -94,9 +98,10 @@ public:
         std::size_t consumed{0};
     };
 
-    [[nodiscard]] std::expected<Batch, BuildError> cancel_batch(
-        std::span<const OrderCmd> cmds, const exec::InstrumentTable& table,
-        std::string_view product, UnixNanos now);
+    [[nodiscard]] std::expected<Batch, BuildError> cancel_batch(std::span<const OrderCmd> cmds,
+                                                                const exec::InstrumentTable& table,
+                                                                std::string_view product,
+                                                                UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     open_orders(MarketType market, std::string_view product, UnixNanos now);
@@ -106,8 +111,10 @@ public:
     // symbol. Mix `order/detail` demands a symbol and is therefore unusable
     // here; the pending list accepts clientOid on its own.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    order_by_client_id(const ExchangeClientOrderId& id, MarketType market,
-                       std::string_view product, UnixNanos now);
+    order_by_client_id(const ExchangeClientOrderId& id,
+                       MarketType market,
+                       std::string_view product,
+                       UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     fills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now);
@@ -125,9 +132,11 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     signed_get(std::string_view path, std::string_view query, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    sign(net::HttpMethod method, std::string_view path, std::string_view query,
-         std::string_view body, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign(net::HttpMethod method,
+                                                                   std::string_view path,
+                                                                   std::string_view query,
+                                                                   std::string_view body,
+                                                                   UnixNanos now);
 
     std::array<char, 256> target_{};        // public reads
     std::array<char, 4096> body_{};         // signed POST bodies, and GET queries

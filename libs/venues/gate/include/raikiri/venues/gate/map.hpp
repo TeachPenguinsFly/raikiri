@@ -8,11 +8,11 @@
 // whole contract: public market data quotes integer sizes on every contract,
 // verified live including the `enable_decimal` ones.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/domain/balance.hpp>
 #include <raikiri/venues/gate/wire.hpp>
 
 #include <cstdint>
@@ -87,8 +87,8 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 // The futures account, as one balance row. Nullopt when Gate named no currency:
 // a balance without an asset is a number with no unit, and the one thing worse

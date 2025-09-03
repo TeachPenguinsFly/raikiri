@@ -92,8 +92,8 @@ TEST(RiskSizing, OnePercentOfEquityOverTheStopDistance) {
     const auto base = binance_btcusdt();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
 
-    const auto size = size_for_risk(base, *parse_decimal_e9("10000"),
-                                    *parse_decimal_e9("0.01"), at("50000"), at("49000"));
+    const auto size = size_for_risk(
+        base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"), at("50000"), at("49000"));
     ASSERT_TRUE(size.has_value());
     EXPECT_EQ(size->raw, 100);
 }
@@ -101,10 +101,10 @@ TEST(RiskSizing, OnePercentOfEquityOverTheStopDistance) {
 TEST(RiskSizing, ATighterStopBuysMoreSize) {
     const auto base = binance_btcusdt();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
-    const auto wide = size_for_risk(base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"),
-                                    at("50000"), at("49000"));
-    const auto tight = size_for_risk(base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"),
-                                     at("50000"), at("49500"));
+    const auto wide = size_for_risk(
+        base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"), at("50000"), at("49000"));
+    const auto tight = size_for_risk(
+        base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"), at("50000"), at("49500"));
     ASSERT_TRUE(wide.has_value() && tight.has_value());
     EXPECT_EQ(tight->raw, wide->raw * 2);
 }
@@ -114,10 +114,10 @@ TEST(RiskSizing, DirectionOfTheStopDoesNotChangeTheSize) {
     // risks the same money as a long with a stop the same distance below.
     const auto base = binance_btcusdt();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
-    const auto below = size_for_risk(base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"),
-                                     at("50000"), at("49000"));
-    const auto above = size_for_risk(base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"),
-                                     at("50000"), at("51000"));
+    const auto below = size_for_risk(
+        base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"), at("50000"), at("49000"));
+    const auto above = size_for_risk(
+        base, *parse_decimal_e9("10000"), *parse_decimal_e9("0.01"), at("50000"), at("51000"));
     ASSERT_TRUE(below.has_value() && above.has_value());
     EXPECT_EQ(below->raw, above->raw);
 }
@@ -128,8 +128,8 @@ TEST(RiskSizing, InverseIsSizedInItsOwnCurrency) {
     // a quote-shaped calculation is wrong here by roughly the price.
     const auto base = bitmex_xbtusd();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
-    const auto size = size_for_risk(base, *parse_decimal_e9("1"), *parse_decimal_e9("0.01"),
-                                    at("50000"), at("60000"));
+    const auto size = size_for_risk(
+        base, *parse_decimal_e9("1"), *parse_decimal_e9("0.01"), at("50000"), at("60000"));
     ASSERT_TRUE(size.has_value());
     // One contract is 1 USD: 1/50000 - 1/60000 = 3.3333e-6 BTC of loss, and
     // 0.01 BTC of budget covers 3000.03 of them.
@@ -150,10 +150,10 @@ TEST(RiskSizing, RefusesInputsThatMakeTheAnswerMeaningless) {
 
     // A stop at the entry: no distance, so no size follows from it.
     EXPECT_FALSE(size_for_risk(base, ok, pct, at("50000"), at("50000")).has_value());
-    EXPECT_FALSE(size_for_risk(base, FixedE9::from_raw(0), pct, at("50000"), at("49000"))
-                     .has_value());
-    EXPECT_FALSE(size_for_risk(base, ok, FixedE9::from_raw(0), at("50000"), at("49000"))
-                     .has_value());
+    EXPECT_FALSE(
+        size_for_risk(base, FixedE9::from_raw(0), pct, at("50000"), at("49000")).has_value());
+    EXPECT_FALSE(
+        size_for_risk(base, ok, FixedE9::from_raw(0), at("50000"), at("49000")).has_value());
     EXPECT_FALSE(size_for_risk(base, ok, pct, at("50000"), PriceTicks::undef()).has_value());
 }
 
@@ -162,8 +162,8 @@ TEST(RiskSizing, TruncatesRatherThanRoundingUp) {
     // on every position. Truncation is the only safe direction.
     const auto base = binance_btcusdt();
     const auto at = [&](std::string_view p) { return *base.price_to_ticks(*parse_decimal_e9(p)); };
-    const auto size = size_for_risk(base, *parse_decimal_e9("10009"), *parse_decimal_e9("0.01"),
-                                    at("50000"), at("49000"));
+    const auto size = size_for_risk(
+        base, *parse_decimal_e9("10009"), *parse_decimal_e9("0.01"), at("50000"), at("49000"));
     ASSERT_TRUE(size.has_value());
     EXPECT_EQ(size->raw, 100); // 100.09 lots of budget, not 101
 }

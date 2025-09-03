@@ -150,7 +150,7 @@ map_execution(const WireExecution& wire, const exec::InstrumentTable& table, Uni
 // an average of fills that no tick size need divide: the SIZE must convert
 // exactly, and an average that does not is reported as no average rather than
 // dropping a row and telling a reconciler we are flat.
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bitmex

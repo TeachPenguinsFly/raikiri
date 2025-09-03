@@ -132,10 +132,9 @@ TEST_F(OrderStoreTest, FastFillBeforeAckRoutesByEcoid) {
     Order* order = mk(5);
     ASSERT_NE(order, nullptr);
     const auto ecoid = order->exchange_client_order_id();
-    ASSERT_TRUE(store_
-                    .apply_event(client_event(OrderEventType::Submitted,
-                                              order->client_order_id()))
-                    .has_value());
+    ASSERT_TRUE(
+        store_.apply_event(client_event(OrderEventType::Submitted, order->client_order_id()))
+            .has_value());
 
     // User-stream fill beats the REST ack: no ClientOrderId on the wire event,
     // only our ULID (and the venue id it introduces).
@@ -164,8 +163,7 @@ TEST_F(OrderStoreTest, CancelRejectedResumesPartiallyFilled) {
     EXPECT_EQ(order->status(), OrderStatus::PendingCancel);
 
     // "Too late to cancel": resume the remembered working status, not Accepted.
-    ASSERT_TRUE(
-        store_.apply_event(client_event(OrderEventType::CancelRejected, cid)).has_value());
+    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::CancelRejected, cid)).has_value());
     EXPECT_EQ(order->status(), OrderStatus::PartiallyFilled);
     EXPECT_EQ(store_.open_count(), std::size_t{1});
 }
@@ -185,8 +183,7 @@ TEST_F(OrderStoreTest, FillDuringPendingCancelUpdatesResumeTarget) {
     EXPECT_EQ(order->status(), OrderStatus::PendingCancel);
     EXPECT_EQ(order->prior_working(), OrderStatus::PartiallyFilled);
 
-    ASSERT_TRUE(
-        store_.apply_event(client_event(OrderEventType::CancelRejected, cid)).has_value());
+    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::CancelRejected, cid)).has_value());
     EXPECT_EQ(order->status(), OrderStatus::PartiallyFilled);
     EXPECT_EQ(order->filled(), QtyLots::from_raw(4));
 }
@@ -314,9 +311,8 @@ TEST_F(OrderStoreTest, ForEachOpenVisitsExactlyTheLiveSet) {
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
     ASSERT_NE(c, nullptr);
-    ASSERT_TRUE(
-        store_.apply_event(client_event(OrderEventType::Canceled, b->client_order_id()))
-            .has_value());
+    ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::Canceled, b->client_order_id()))
+                    .has_value());
 
     std::vector<ClientOrderId> seen;
     store_.for_each_open([&seen](const Order& order) { seen.push_back(order.client_order_id()); });
@@ -448,7 +444,6 @@ TEST(IdGen, EntropySeededCtorProducesValidIds) {
     EXPECT_NE(a, b);
     EXPECT_EQ(gen.next_client_id().strategy_id(), 5);
 }
-
 
 TEST(WorkingLots, SplitsBySideAndSkipsOtherInstruments) {
     constexpr auto other = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});

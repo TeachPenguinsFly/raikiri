@@ -87,9 +87,8 @@ TEST(Pnl, InverseSettlesInBaseNotQuote) {
 
     // Cross-checked against the closed form qty * cv * (1/Pa - 1/Pe), evaluated
     // independently here so the test does not merely restate the implementation.
-    const int128_t closed_form =
-        (static_cast<int128_t>(1000) * k_e9 * k_e9) / 50'000 / k_e9 -
-        (static_cast<int128_t>(1000) * k_e9 * k_e9) / 60'000 / k_e9;
+    const int128_t closed_form = (static_cast<int128_t>(1000) * k_e9 * k_e9) / 50'000 / k_e9 -
+                                 (static_cast<int128_t>(1000) * k_e9 * k_e9) / 60'000 / k_e9;
     const auto realized_long = entry.raw - exit_.raw;
     EXPECT_LE(std::abs(realized_long - static_cast<std::int64_t>(closed_form)), 1)
         << "realized " << realized_long << " vs closed form "

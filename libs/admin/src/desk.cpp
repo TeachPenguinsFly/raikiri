@@ -1,5 +1,4 @@
 #include <raikiri/admin/desk.hpp>
-
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -19,14 +18,22 @@ constexpr std::size_t k_keys_remembered = 1024;
 
 std::string_view describe(DeskError error) noexcept {
     switch (error) {
-    case DeskError::NoSuchInstrument: return "no attached gateway lists this instrument";
-    case DeskError::NoSuchOrder:      return "no such order on this desk";
-    case DeskError::GatewayGone:      return "the gateway that lists it is not attached";
-    case DeskError::BadPrice:         return "price is not a multiple of the instrument's tick";
-    case DeskError::BadQty:           return "quantity is not a multiple of the instrument's lot";
-    case DeskError::PriceOnMarket:    return "a market order must not carry a price";
-    case DeskError::MissingPrice:     return "a limit order needs a price";
-    case DeskError::RingFull:         return "the intent ring is full: strategyd is not draining";
+    case DeskError::NoSuchInstrument:
+        return "no attached gateway lists this instrument";
+    case DeskError::NoSuchOrder:
+        return "no such order on this desk";
+    case DeskError::GatewayGone:
+        return "the gateway that lists it is not attached";
+    case DeskError::BadPrice:
+        return "price is not a multiple of the instrument's tick";
+    case DeskError::BadQty:
+        return "quantity is not a multiple of the instrument's lot";
+    case DeskError::PriceOnMarket:
+        return "a market order must not carry a price";
+    case DeskError::MissingPrice:
+        return "a limit order needs a price";
+    case DeskError::RingFull:
+        return "the intent ring is full: strategyd is not draining";
     }
     return "refused";
 }
@@ -41,7 +48,7 @@ ManualDesk::ManualDesk(const Registry& registry) noexcept
       // journal and the ledger all join on. Milliseconds since the epoch fit
       // in 48 bits until the year 10889 and rise across restarts.
       seq_{static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
+                                          std::chrono::system_clock::now().time_since_epoch())
                                           .count()) &
            0xFFFF'FFFF'FFFFULL} {}
 

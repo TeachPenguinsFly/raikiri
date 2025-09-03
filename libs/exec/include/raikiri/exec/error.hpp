@@ -23,11 +23,11 @@ enum class ErrorClass : std::uint8_t {
 
 struct VenueError {
     ErrorClass cls{ErrorClass::Terminal};
-    std::int64_t venue_code{0};    // venue-native numeric code when present
-    FixedString<96> message{};     // truncated venue text, for logs only
+    std::int64_t venue_code{0}; // venue-native numeric code when present
+    FixedString<96> message{};  // truncated venue text, for logs only
 
-    [[nodiscard]] static VenueError make(ErrorClass cls, std::int64_t code,
-                                         std::string_view text) noexcept {
+    [[nodiscard]] static VenueError
+    make(ErrorClass cls, std::int64_t code, std::string_view text) noexcept {
         VenueError err{.cls = cls, .venue_code = code, .message = {}};
         if (auto m = FixedString<96>::from(text.substr(0, 96))) {
             err.message = *m;

@@ -633,8 +633,7 @@ TEST(OkxRest, TimestampIsIso8601MillisecondsInUtc) {
     EXPECT_EQ(iso8601_ms(k_now, buf), "2023-11-14T22:13:20.123Z");
     EXPECT_EQ(iso8601_ms(UnixNanos{0}, buf), "1970-01-01T00:00:00.000Z");
     // A leap day, because the civil-date inversion is where that goes wrong.
-    EXPECT_EQ(iso8601_ms(UnixNanos{1'709'164'800'000'000'000ULL}, buf),
-              "2024-02-29T00:00:00.000Z");
+    EXPECT_EQ(iso8601_ms(UnixNanos{1'709'164'800'000'000'000ULL}, buf), "2024-02-29T00:00:00.000Z");
 }
 
 TEST(OkxRest, GetSignsTheTargetIncludingItsQuestionMark) {
@@ -671,9 +670,8 @@ TEST(OkxRest, PostSignsTimestampMethodPathAndBody) {
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v5/trade/order");
 
-    const std::string expected =
-        std::string{"2023-11-14T22:13:20.123Z"} + "POST" + "/api/v5/trade/order" +
-        std::string{request->body};
+    const std::string expected = std::string{"2023-11-14T22:13:20.123Z"} + "POST" +
+                                 "/api/v5/trade/order" + std::string{request->body};
     EXPECT_EQ(builder.last_sign_message(), expected);
 
     std::array<char, net::k_base64_bytes> reference{};
@@ -863,8 +861,8 @@ TEST(OkxRest, PullsNameTheInstrumentTypeAndCarryASince) {
     RequestBuilder builder{signer};
     builder.set_passphrase(k_passphrase);
 
-    const auto fills = builder.fills(MarketType::Spot, UnixNanos{1'700'000'000'000'000'000ULL},
-                                     k_now);
+    const auto fills =
+        builder.fills(MarketType::Spot, UnixNanos{1'700'000'000'000'000'000ULL}, k_now);
     ASSERT_TRUE(fills.has_value());
     EXPECT_EQ(fills->target, "/api/v5/trade/fills?instType=SPOT&begin=1700000000000");
 

@@ -2,10 +2,11 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdio>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cstdio>
 
 namespace raikiri {
 namespace {

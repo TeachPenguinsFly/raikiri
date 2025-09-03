@@ -167,8 +167,8 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         batch.pnl_increments.push_back({
             .source_id = std::string{kind} + ":" + venue + ":" + exec_id,
             .kind = std::string{kind},
-            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base"
-                                                                                         : "quote",
+            .settle_side =
+                m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
             .strategy_id = m.strategyId().value(),
             .venue = venue,
             .exchange_symbol = trim_fixed(m.symbol()),
@@ -188,9 +188,8 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .cost_e9 = m.cost().value(),
             .realized_e9 = m.realized().value(),
             .fees_e9 = m.fees().value(),
-            .settle_side = m.settleSide() == raikiri_journal::types::settleSideEnum::Base
-                               ? "base"
-                               : "quote",
+            .settle_side =
+                m.settleSide() == raikiri_journal::types::settleSideEnum::Base ? "base" : "quote",
             .fill_count = m.fillCount().value(),
             .ts_opened = m.tsOpened().value(),
             .ts_updated = m.tsUpdated().value(),

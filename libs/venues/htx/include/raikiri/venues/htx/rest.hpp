@@ -67,10 +67,10 @@ enum class BuildError : std::uint8_t {
     UnknownInstrument, // not in the table: we never loaded it
     BadQuantity,       // not a whole number of contracts, or not a legal size
     BadPrice,
-    BufferTooSmall, // payload exceeded the scratch buffer (a config bug)
-    NotSigned,      // credentials were never loaded
-    NoOrderTarget,  // cancel with neither a venue id nor a client id
-    NoSpotAccount,  // spot order entry needs the account id from /v1/account/accounts
+    BufferTooSmall,          // payload exceeded the scratch buffer (a config bug)
+    NotSigned,               // credentials were never loaded
+    NoOrderTarget,           // cancel with neither a venue id nor a client id
+    NoSpotAccount,           // spot order entry needs the account id from /v1/account/accounts
     ClientOrderIdNotNumeric, // see swap_client_id below
     // HTX prices a spot market BUY in QUOTE currency ("amount" is USDT for
     // btcusdt), and an OrderCmd carries base lots. There is no conversion that

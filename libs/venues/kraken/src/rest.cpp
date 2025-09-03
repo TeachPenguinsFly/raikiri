@@ -231,11 +231,10 @@ std::string_view SignedRequestBuilder::next_nonce(UnixNanos now) noexcept {
     return render_u64(value, nonce_);
 }
 
-std::expected<net::RestRequest, BuildError>
-SignedRequestBuilder::finish(net::HttpMethod method,
-                             std::string_view endpoint,
-                             std::string_view post_data,
-                             UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::finish(net::HttpMethod method,
+                                                                         std::string_view endpoint,
+                                                                         std::string_view post_data,
+                                                                         UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -272,9 +271,8 @@ SignedRequestBuilder::finish(net::HttpMethod method,
     request.method = method;
     request.target = target.view();
     request.body = method == net::HttpMethod::Post ? post_data : std::string_view{};
-    request.headers = {{k_hdr_key, signer_->api_key()},
-                       {k_hdr_nonce, nonce},
-                       {k_hdr_authent, signature}};
+    request.headers = {
+        {k_hdr_key, signer_->api_key()}, {k_hdr_nonce, nonce}, {k_hdr_authent, signature}};
     request.content_type = k_form_content_type;
     return request;
 }
@@ -284,8 +282,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::signed_post(
     return finish(net::HttpMethod::Post, endpoint, post_data, now);
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::signed_get(
-    std::string_view endpoint, std::string_view query, UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::signed_get(std::string_view endpoint, std::string_view query, UnixNanos now) {
     return finish(net::HttpMethod::Get, endpoint, query, now);
 }
 

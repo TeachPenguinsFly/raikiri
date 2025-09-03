@@ -105,9 +105,10 @@ public:
     [[nodiscard]] Frame test_frame();
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError> channel_frame(
-        std::string_view scope, std::string_view method,
-        std::span<const Subscription> subscriptions);
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    channel_frame(std::string_view scope,
+                  std::string_view method,
+                  std::span<const Subscription> subscriptions);
 
     std::array<char, 2048> frame_{};
     std::array<char, 24> nonce_{};

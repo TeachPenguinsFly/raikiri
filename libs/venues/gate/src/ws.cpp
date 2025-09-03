@@ -259,8 +259,7 @@ Protocol::private_subscribe_frame(std::string_view channel,
     }
     auth_msg_len_ = message.text().size();
 
-    const auto signature =
-        signer.sign(message.text(), net::Signer::Encoding::Hex512, signature_);
+    const auto signature = signer.sign(message.text(), net::Signer::Encoding::Hex512, signature_);
     if (signature.empty()) {
         return std::unexpected{WsBuildError::NotSigned};
     }

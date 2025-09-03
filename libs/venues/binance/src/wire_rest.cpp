@@ -156,7 +156,6 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
-
 std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
     return guarded([&]() -> std::expected<std::uint64_t, WireError> {
         auto root = session().open_object(body);

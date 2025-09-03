@@ -2,8 +2,8 @@
 #include <raikiri/admin/registry.hpp>
 
 #include <algorithm>
-#include <unordered_map>
 #include <filesystem>
+#include <unordered_map>
 #include <variant>
 
 namespace raikiri::admin {
@@ -169,12 +169,12 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
             if (market.symbol.empty()) {
                 market.symbol = symbol;
             }
-            market.listings.push_back({.instrument_id = digits(base.id.packed),
-                                       .account = gw.name,
-                                       .venue = std::string{to_string(gw.account.venue)},
-                                       .market = std::string{to_string(gw.account.market)},
-                                       .exchange_symbol =
-                                           std::string{base.exchange_symbol.view()}});
+            market.listings.push_back(
+                {.instrument_id = digits(base.id.packed),
+                 .account = gw.name,
+                 .venue = std::string{to_string(gw.account.venue)},
+                 .market = std::string{to_string(gw.account.market)},
+                 .exchange_symbol = std::string{base.exchange_symbol.view()}});
         }
     }
 

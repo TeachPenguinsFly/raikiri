@@ -93,8 +93,8 @@ TEST(DeribitVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    const auto adapter =
+        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Deribit);
     EXPECT_NE(adapter->data, nullptr);
@@ -108,8 +108,7 @@ TEST(DeribitVenue, EveryMarketItServesCanActuallyBeBuilt) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    for (const auto market :
-         {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+    for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
         const auto adapter =
             exec::make_venue({.venue = VenueId::Deribit, .market = market}, sink, clock);
         ASSERT_TRUE(adapter.has_value()) << to_string(market);
@@ -135,8 +134,8 @@ TEST(DeribitVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // AuthFailure, not Terminal: the first sends an operator to the config,
@@ -172,8 +171,8 @@ TEST(DeribitVenue, SpotIsRefusedByNameOnEveryEntryPoint) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Deribit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // Never an empty vector: a reconciler cannot tell "we serve no spot here"
@@ -913,7 +912,6 @@ TEST(DeribitRest, TargetsNameTheMethodInThePath) {
     EXPECT_EQ(rest_host(true), "test.deribit.com");
 }
 
-
 // ------------------------------------------------------ order entry ----
 
 // The perpetual, the dated future and one option side by side — the whole
@@ -974,7 +972,7 @@ TEST(DeribitSignedRest, CreateOrderCarriesTheDeriHmacHeaderOverTheWholeTarget) {
     cmd.order_type = OrderType::Limit;
     cmd.tif = TimeInForce::Gtc;
     cmd.flags = OrderFlags::PostOnly;
-    cmd.qty = QtyLots::from_raw(20);       // 20 x 10 USD = 200 USD
+    cmd.qty = QtyLots::from_raw(20);           // 20 x 10 USD = 200 USD
     cmd.price = PriceTicks::from_raw(127'000); // 127000 x 0.5 = 63500 USD
 
     const auto request = builder.create_order(cmd, table, UnixNanos{1'787'751'010'667'000'000ULL});
@@ -1043,8 +1041,8 @@ TEST(DeribitSignedRest, AnOptionOrderIsTheSameCallWithAnotherInstrumentName) {
     ASSERT_EQ(call.instrument.market(), MarketType::Option);
     call.side = Side::Sell;
     call.tif = TimeInForce::Ioc;
-    call.qty = QtyLots::from_raw(15);        // 15 x 0.1 = 1.5 coin
-    call.price = PriceTicks::from_raw(410);  // 410 x 0.0001 = 0.041 BTC premium
+    call.qty = QtyLots::from_raw(15);       // 15 x 0.1 = 1.5 coin
+    call.price = PriceTicks::from_raw(410); // 410 x 0.0001 = 0.041 BTC premium
     const auto option = builder.create_order(call, table, now);
     ASSERT_TRUE(option.has_value());
     EXPECT_EQ(option->target,
@@ -1177,11 +1175,11 @@ TEST(DeribitSignedRest, PullsAreScopedByCurrencyAndByDeribitsOwnKind) {
               "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000");
     // Ascending from the watermark, so a full page leaves the OLDEST unseen
     // fills behind rather than the newest.
-    EXPECT_EQ(builder.user_trades(MarketType::Perp, "BTC",
-                                  UnixNanos{1'787'751'000'000'000'000ULL}, now)
-                  ->target,
-              "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000"
-              "&start_timestamp=1787751000000&sorting=asc");
+    EXPECT_EQ(
+        builder.user_trades(MarketType::Perp, "BTC", UnixNanos{1'787'751'000'000'000'000ULL}, now)
+            ->target,
+        "/api/v2/private/get_user_trades_by_currency?currency=BTC&kind=future&count=1000"
+        "&start_timestamp=1787751000000&sorting=asc");
 
     EXPECT_EQ(builder.open_orders(MarketType::Spot, "BTC", now).error(),
               BuildError::SpotNotModelled);
@@ -1306,11 +1304,11 @@ TEST(DeribitMap, APartialFillReportsWhatTheOrderRowBesideItSaysIsLeft) {
     ASSERT_TRUE(fill.has_value());
     EXPECT_EQ(fill->type, OrderEventType::Filled);
     EXPECT_EQ(fill->side, Side::Buy);
-    EXPECT_EQ(fill->qty.raw, 6);           // 60 USD / 10
-    EXPECT_EQ(fill->price.raw, 127'000);   // 63500 / 0.5
-    EXPECT_EQ(fill->leaves_qty.raw, 14);   // NOT zero: the order is still working
+    EXPECT_EQ(fill->qty.raw, 6);         // 60 USD / 10
+    EXPECT_EQ(fill->price.raw, 127'000); // 63500 / 0.5
+    EXPECT_EQ(fill->leaves_qty.raw, 14); // NOT zero: the order is still working
     EXPECT_EQ(fill->liquidity, Liquidity::Maker);
-    EXPECT_EQ(fill->fee.raw, -140);        // -1.4e-7 BTC rebate, in the base coin
+    EXPECT_EQ(fill->fee.raw, -140); // -1.4e-7 BTC rebate, in the base coin
     EXPECT_EQ(fill->exec_id.view(), "BTC-901240");
     EXPECT_EQ(fill->exchange_client_order_id.view(), "01K3QW9F2H6M5N8P0R2T4V6X91");
     EXPECT_EQ(fill->ts_event.ns, 1'787'751'030'000ULL * 1'000'000ULL);
@@ -1322,8 +1320,7 @@ TEST(DeribitMap, APartialFillReportsWhatTheOrderRowBesideItSaysIsLeft) {
     // An undefined leaves is refused rather than becoming a zero. The OMS
     // subtracts this field from the order size, so a zero here would close an
     // order that is still working.
-    EXPECT_FALSE(
-        map_fill(changes->trades[0], table, QtyLots::undef(), UnixNanos{99}).has_value());
+    EXPECT_FALSE(map_fill(changes->trades[0], table, QtyLots::undef(), UnixNanos{99}).has_value());
 }
 
 TEST(DeribitMap, AnUntouchedOpenOrderIsTheOneRowThatMeansAccepted) {
@@ -1342,9 +1339,9 @@ TEST(DeribitMap, AnUntouchedOpenOrderIsTheOneRowThatMeansAccepted) {
     EXPECT_EQ(event->type, OrderEventType::Accepted);
     EXPECT_EQ(event->side, Side::Sell);
     EXPECT_EQ(event->instrument.market(), MarketType::Option);
-    EXPECT_EQ(event->qty.raw, 15);        // 1.5 coin / 0.1
+    EXPECT_EQ(event->qty.raw, 15); // 1.5 coin / 0.1
     EXPECT_EQ(event->leaves_qty.raw, 15);
-    EXPECT_EQ(event->price.raw, 410);     // 0.041 / 0.0001
+    EXPECT_EQ(event->price.raw, 410); // 0.041 / 0.0001
     EXPECT_EQ(event->exchange_order_id.view(), "BTC-4356792");
 }
 
@@ -1416,8 +1413,8 @@ TEST(DeribitMap, FillReportsAndPositionsCarryTheirOwnUnits) {
     ASSERT_TRUE(taker.has_value());
     EXPECT_EQ(taker->liquidity, Liquidity::Taker);
     EXPECT_EQ(taker->instrument.market(), MarketType::Option);
-    EXPECT_EQ(taker->qty.raw, 3);       // 0.3 coin / 0.1
-    EXPECT_EQ(taker->fee.raw, 90'000);  // 9.0e-5 BTC
+    EXPECT_EQ(taker->qty.raw, 3);      // 0.3 coin / 0.1
+    EXPECT_EQ(taker->fee.raw, 90'000); // 9.0e-5 BTC
 
     const auto positions_body = fixture("rest_positions.json");
     auto position_storage = std::make_unique<PositionBuffer>();

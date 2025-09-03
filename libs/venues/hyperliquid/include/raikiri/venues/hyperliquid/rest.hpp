@@ -76,8 +76,7 @@ public:
     // By venue order id. There is a by-cloid form too, but a cloid the venue
     // never saw and one it has forgotten answer identically, so the id we were
     // given back is the one worth asking about.
-    [[nodiscard]] net::RestRequest order_status(std::string_view user,
-                                                std::uint64_t oid) noexcept;
+    [[nodiscard]] net::RestRequest order_status(std::string_view user, std::uint64_t oid) noexcept;
     [[nodiscard]] net::RestRequest order_status(std::string_view user,
                                                 std::string_view cloid) noexcept;
 

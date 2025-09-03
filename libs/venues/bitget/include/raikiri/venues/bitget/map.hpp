@@ -64,8 +64,8 @@ map_open_order(const WireOrderUpdate& wire, const exec::InstrumentTable& table);
 [[nodiscard]] std::optional<exec::FillReport> map_fill_report(const WireFill& wire,
                                                               const exec::InstrumentTable& table);
 
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 // Catalogue ---------------------------------------------------------------
 

@@ -413,12 +413,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;
-    return sign(net::HttpMethod::Post,
-                cmd.instrument.market(),
-                path.view(),
-                query,
-                json.view(),
-                now);
+    return sign(
+        net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
@@ -473,12 +469,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;
-    return sign(net::HttpMethod::Post,
-                cmd.instrument.market(),
-                path.view(),
-                query,
-                json.view(),
-                now);
+    return sign(
+        net::HttpMethod::Post, cmd.instrument.market(), path.view(), query, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
@@ -563,12 +555,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;
-    return sign(net::HttpMethod::Post,
-                instrument.market(),
-                path.view(),
-                query,
-                body.view(),
-                now);
+    return sign(net::HttpMethod::Post, instrument.market(), path.view(), query, body.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError>

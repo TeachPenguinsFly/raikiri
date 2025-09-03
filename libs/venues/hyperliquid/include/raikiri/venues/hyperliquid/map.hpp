@@ -102,8 +102,8 @@ inline constexpr std::size_t k_cloid_chars = 34;
 [[nodiscard]] std::optional<exec::PositionReport>
 map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixNanos ts_venue);
 
-[[nodiscard]] std::optional<exec::FillReport>
-map_fill(const WireFill& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::FillReport> map_fill(const WireFill& wire,
+                                                       const exec::InstrumentTable& table);
 
 // `sz` is the REMAINING size and `origSz` the original, so the two together
 // are the only evidence of a partial fill this read carries.

@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -243,8 +242,9 @@ TEST(BinanceWire, PremiumIndexCarriesTheFundingTheStreamNeverSends) {
     ASSERT_TRUE(rows.has_value());
     ASSERT_FALSE(rows->empty());
 
-    const auto* btc = std::ranges::find_if(
-        *rows, [](const WireMarkPrice& row) { return row.symbol == "BTCUSDT"; }).base();
+    const auto* btc = std::ranges::find_if(*rows, [](const WireMarkPrice& row) {
+                          return row.symbol == "BTCUSDT";
+                      }).base();
     ASSERT_NE(btc, rows->data() + rows->size());
     EXPECT_FALSE(btc->mark_price.empty());
     EXPECT_FALSE(btc->funding_rate.empty());

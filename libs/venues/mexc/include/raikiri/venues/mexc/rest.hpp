@@ -116,9 +116,8 @@ enum class BuildError : std::uint8_t {
 
 // 1 limit, 2 post-only maker, 3 IOC, 4 FOK, 5 market, 6 market-on-close.
 // Post-only displaces the time in force here the way it does on bybit.
-[[nodiscard]] std::int64_t futures_order_type(OrderType type,
-                                              TimeInForce tif,
-                                              OrderFlags flags) noexcept;
+[[nodiscard]] std::int64_t
+futures_order_type(OrderType type, TimeInForce tif, OrderFlags flags) noexcept;
 
 // LIMIT / MARKET / LIMIT_MAKER — the three MEXC spot advertises.
 [[nodiscard]] std::string_view spot_order_type(OrderType type, OrderFlags flags) noexcept;
@@ -185,10 +184,10 @@ private:
     // Futures: signs apiKey + Request-Time + (query | body) and sends the
     // digest in a header. The query MUST already be sorted by parameter name.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_futures(net::HttpMethod method,
-                                                                          std::string_view path,
-                                                                          std::string_view query,
-                                                                          std::string_view body,
-                                                                          UnixNanos now);
+                                                                           std::string_view path,
+                                                                           std::string_view query,
+                                                                           std::string_view body,
+                                                                           UnixNanos now);
 
     const net::Signer* signer_;
 

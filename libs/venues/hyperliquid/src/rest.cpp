@@ -80,8 +80,7 @@ net::RestRequest RequestBuilder::spot_meta() noexcept {
     return info(R"({"type":"spotMeta"})");
 }
 
-net::RestRequest UserRequestBuilder::simple(std::string_view type,
-                                            std::string_view user) noexcept {
+net::RestRequest UserRequestBuilder::simple(std::string_view type, std::string_view user) noexcept {
     Appender body{body_};
     body << R"({"type":")" << type << R"(","user":")" << user << R"("})";
     return info(body.view());

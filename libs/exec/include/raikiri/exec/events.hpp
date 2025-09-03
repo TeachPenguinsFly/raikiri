@@ -53,6 +53,7 @@ public:
     // Declining by default: one venue publishes greeks today, and an adapter
     // for a venue that lists no options has nothing to say here.
     virtual void on_option_greeks(const OptionGreeks& greeks) noexcept { (void)greeks; }
+
     virtual void on_order_event(const OrderEvent& event) noexcept = 0;
 
     // A REFUSAL WITHOUT ITS REASON IS UNDIAGNOSABLE. `OrderEvent` carries no
@@ -60,11 +61,11 @@ public:
     // through here, paired to the terminal event by client order id. Declining
     // by default, because a sink that only books state has nowhere to put it;
     // an adapter that was handed a reason must never drop it.
-    virtual void on_order_error(ClientOrderId client_order_id,
-                                const VenueError& error) noexcept {
+    virtual void on_order_error(ClientOrderId client_order_id, const VenueError& error) noexcept {
         (void)client_order_id;
         (void)error;
     }
+
     virtual void on_connectivity(const ConnEvent& event) noexcept = 0;
 
 protected:

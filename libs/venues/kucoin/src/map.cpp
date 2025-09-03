@@ -360,7 +360,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
 }
 
-
 std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
                                            const exec::InstrumentTable& table,
                                            UnixNanos ts_init) {
@@ -458,8 +457,8 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
         !copy_id(wire.order_id, out.exchange_order_id)) {
         return std::nullopt;
     }
-    out.status = dealt.has_value() && dealt->raw > 0 ? OrderStatus::PartiallyFilled
-                                                      : OrderStatus::Accepted;
+    out.status =
+        dealt.has_value() && dealt->raw > 0 ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
     if (const auto price = to_ticks(wire.price, base); price.has_value()) {
         out.price = *price;
     }
@@ -477,8 +476,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return out;
 }
 
-std::optional<exec::FillReport> map_fill(const WireFill& wire,
-                                         const exec::InstrumentTable& table) {
+std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;

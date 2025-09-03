@@ -121,10 +121,8 @@ Liquidity liquidity_of(std::string_view indicator) noexcept {
 // needs no such table — and settlement_value is the one function here that
 // already knows XBTUSD settles in BTC while XBTUSDT settles in USDT. Never
 // price * quantity: on an inverse row that product is in the wrong currency.
-std::optional<FixedE9> fee_of(const InstrumentBase& base,
-                              PriceTicks price,
-                              QtyLots qty,
-                              std::string_view rate_text) {
+std::optional<FixedE9>
+fee_of(const InstrumentBase& base, PriceTicks price, QtyLots qty, std::string_view rate_text) {
     if (rate_text.empty()) {
         return std::nullopt;
     }
@@ -626,9 +624,8 @@ map_order_columns(const WireOrder& wire, const InstrumentBase& base, UnixNanos t
     }
     // `transactTime` is when the venue acted; `timestamp` is when the row was
     // written. They differ on an amend, and the first is the one an event means.
-    out.ts_event = iso8601_to_unix(!wire.transact_time.empty() ? wire.transact_time
-                                                               : wire.timestamp,
-                                   ts_init);
+    out.ts_event =
+        iso8601_to_unix(!wire.transact_time.empty() ? wire.transact_time : wire.timestamp, ts_init);
     return out;
 }
 
@@ -665,9 +662,8 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return out;
 }
 
-std::optional<OrderEvent> map_execution(const WireExecution& wire,
-                                        const exec::InstrumentTable& table,
-                                        UnixNanos ts_init) {
+std::optional<OrderEvent>
+map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.exec_type != "Trade") {
         return std::nullopt;
     }

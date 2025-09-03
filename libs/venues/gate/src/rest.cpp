@@ -271,7 +271,10 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     }
 
     Appender msg{sign_msg_};
-    msg << method_text(method) << "\n" << path << "\n" << query << "\n" << body_hash << "\n"
+    msg << method_text(method) << "\n"
+        << path << "\n"
+        << query << "\n"
+        << body_hash << "\n"
         << ts.view();
     if (!msg.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -296,9 +299,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     request.method = method;
     request.target = target.view();
     request.body = body;
-    request.headers = {{k_hdr_key, signer_->api_key()},
-                       {k_hdr_timestamp, ts.view()},
-                       {k_hdr_sign, signature}};
+    request.headers = {
+        {k_hdr_key, signer_->api_key()}, {k_hdr_timestamp, ts.view()}, {k_hdr_sign, signature}};
     return request;
 }
 
@@ -507,8 +509,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
         }
         json.obj_end();
         path << k_prefix << "/spot/orders/" << target;
-        query << "currency_pair=" << base.exchange_symbol.view()
-              << "&account=" << k_spot_account;
+        query << "currency_pair=" << base.exchange_symbol.view() << "&account=" << k_spot_account;
         break;
     }
     case MarketType::Future:

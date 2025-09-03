@@ -150,7 +150,8 @@ TEST(KucoinVenue, AnOrderThatCannotBeSignedIsRefusedRatherThanLeftOpen) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -178,7 +179,8 @@ TEST(KucoinVenue, StartingWithoutTheFullCredentialSetIsRefused) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto started = adapter->execution->start();
     ASSERT_FALSE(started.has_value());
@@ -189,7 +191,8 @@ TEST(KucoinVenue, MarketsTheAdapterDoesNotServeAreNamedRefusals) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Kucoin, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     // No network is touched: each market is refused before a request is built.
     // An empty list would read as "flat" or "nothing open", which are answers,
@@ -972,9 +975,8 @@ TEST(KucoinSign, TheSignedStringIsTheRequestLineThatGoesOut) {
     OrderRequestBuilder builder{credentials};
     const auto table = loaded_spot_table();
 
-    const auto request =
-        builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table,
-                             k_signed_at);
+    const auto request = builder.create_order(
+        limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v1/hf/orders");
     EXPECT_EQ(request->body,
@@ -1026,10 +1028,10 @@ TEST(KucoinSign, WithoutCredentialsNothingIsBuiltAtAll) {
     Credentials credentials;
     OrderRequestBuilder builder{credentials};
     const auto table = loaded_spot_table();
-    EXPECT_EQ(builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table,
-                                   k_signed_at)
-                  .error(),
-              BuildError::NotSigned);
+    EXPECT_EQ(
+        builder.create_order(limit_order(table, "BTC-USDT", "50000", "0.00001"), table, k_signed_at)
+            .error(),
+        BuildError::NotSigned);
     EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at).error(), BuildError::NotSigned);
 
     // A secret alone is not enough: the passphrase is a third credential.
@@ -1051,9 +1053,8 @@ TEST(KucoinRest, SpotAndFuturesAreDifferentHostsAndDifferentPayloads) {
     OrderRequestBuilder builder{credentials};
     const auto futures = loaded_table();
 
-    const auto request =
-        builder.create_order(limit_order(futures, "XBTUSDTM", "64125.6", "3"), futures,
-                             k_signed_at);
+    const auto request = builder.create_order(
+        limit_order(futures, "XBTUSDTM", "64125.6", "3"), futures, k_signed_at);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->target, "/api/v1/orders");
     // `size` is a JSON NUMBER of contracts here and a quoted decimal of base
@@ -1104,15 +1105,13 @@ TEST(KucoinRest, FlagsKucoinCannotExpressAreRefusedRatherThanDropped) {
     // opening order where a closing one was asked for.
     auto cmd = limit_order(spot, "BTC-USDT", "50000", "0.00001");
     cmd.flags = OrderFlags::ReduceOnly;
-    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(), BuildError::UnsupportedRequest);
 
     // Post-only is a boolean alongside a resting time in force; with IOC the
     // order is neither, so the pair is refused instead of quietly reshaped.
     cmd.flags = OrderFlags::PostOnly;
     cmd.tif = TimeInForce::Ioc;
-    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(),
-              BuildError::UnsupportedRequest);
+    EXPECT_EQ(builder.create_order(cmd, spot, k_signed_at).error(), BuildError::UnsupportedRequest);
 
     auto perp = limit_order(futures, "XBTUSDTM", "64125.6", "3");
     perp.flags = OrderFlags::ReduceOnly | OrderFlags::PostOnly;
@@ -1200,8 +1199,7 @@ TEST(KucoinRest, TheSweepIsAccountWideOnFuturesAndPerSymbolOnSpot) {
 
     EXPECT_EQ(builder.fills(MarketType::Spot, UnixNanos{0}, k_signed_at)->target,
               "/api/v1/hf/fills");
-    EXPECT_EQ(builder.fills(MarketType::Perp, UnixNanos{1'727'692'804'808'000'000ULL},
-                            k_signed_at)
+    EXPECT_EQ(builder.fills(MarketType::Perp, UnixNanos{1'727'692'804'808'000'000ULL}, k_signed_at)
                   ->target,
               "/api/v1/fills?startAt=1727692804808");
     EXPECT_EQ(builder.positions(MarketType::Perp, k_signed_at)->target, "/api/v1/positions");
@@ -1334,8 +1332,8 @@ TEST(KucoinMapPrivate, AnAckBecomesAcceptedAndCarriesWhatIsStillWorking) {
     EXPECT_EQ(event->order_type, OrderType::Limit);
     EXPECT_EQ(event->exchange_client_order_id.view(), "01J8ZQK9V7M3XPB2R6TDNAWC5E");
     EXPECT_EQ(event->exchange_order_id.view(), "6720ecd9ec71f4000747731a");
-    EXPECT_EQ(event->price.raw, 500'000);   // 50000 over the 0.1 tick
-    EXPECT_EQ(event->qty.raw, 1'000);       // 0.00001 over the 0.00000001 lot
+    EXPECT_EQ(event->price.raw, 500'000); // 50000 over the 0.1 tick
+    EXPECT_EQ(event->qty.raw, 1'000);     // 0.00001 over the 0.00000001 lot
     EXPECT_EQ(event->leaves_qty.raw, 1'000);
     EXPECT_EQ(event->ts_event.ns, 1730211033335000000ULL);
     EXPECT_EQ(event->ts_init.ns, 5U);
@@ -1674,7 +1672,8 @@ TEST(KucoinErrors, ACancelThatLostItsRaceIsNotACancelReject) {
 
     // 400100 is the catch-all parameter error, so the code alone must not
     // swallow a malformed cancel as harmless.
-    EXPECT_FALSE(is_benign_cancel_failure(k_parameter_error, "pageSize should not greater than 500"));
+    EXPECT_FALSE(
+        is_benign_cancel_failure(k_parameter_error, "pageSize should not greater than 500"));
     EXPECT_FALSE(is_benign_cancel_failure(k_spot_balance_insufficient, "Balance insufficient"));
     // A success body is not a failure of any kind.
     EXPECT_TRUE(parse_rest_envelope(fixture("rest_order_ack.json"))->code == k_ok);

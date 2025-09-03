@@ -390,7 +390,6 @@ void sync_clock(VenueState& state, net::RestClient& rest) {
         static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
 
-
 // A refusal to build a request is terminal by construction: the same command
 // built again produces the same refusal.
 exec::VenueError build_failure(BuildError err) noexcept {
@@ -411,8 +410,7 @@ public:
     void on_open() override {
         (void)client_->send(
             state_->private_protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
-        const auto frame = state_->private_protocol.auth_frame(state_->signer,
-                                                               state_->venue_now());
+        const auto frame = state_->private_protocol.auth_frame(state_->signer, state_->venue_now());
         if (!frame.has_value() || !client_->send(frame->text)) {
             fail();
             return;
@@ -546,9 +544,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -629,8 +625,7 @@ public:
         }
         std::vector<exec::FillReport> reports;
         for (const auto currency : k_currencies) {
-            const auto request =
-                builder_.user_trades(market, currency, since, state_->venue_now());
+            const auto request = builder_.user_trades(market, currency, since, state_->venue_now());
             if (!request.has_value()) {
                 return std::unexpected{build_failure(request.error())};
             }
@@ -706,8 +701,8 @@ private:
         // status line.
         const auto envelope = parse_response(response->body);
         if (!envelope.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(envelope.error()))};
         }
         if (envelope->failed()) {
             return std::unexpected{exec::VenueError::make(
@@ -729,8 +724,9 @@ private:
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(
-                cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 

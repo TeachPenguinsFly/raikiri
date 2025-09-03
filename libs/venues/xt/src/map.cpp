@@ -516,8 +516,8 @@ std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
     return out;
 }
 
-std::optional<exec::OrderStatusReport>
-map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable& table) {
+std::optional<exec::OrderStatusReport> map_futures_open_order(const WireFuturesOrder& wire,
+                                                              const exec::InstrumentTable& table) {
     const auto* base = base_for_private(wire.symbol, table, MarketType::Perp);
     if (base == nullptr) {
         return std::nullopt;

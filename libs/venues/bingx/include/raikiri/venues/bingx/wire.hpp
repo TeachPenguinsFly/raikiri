@@ -341,26 +341,25 @@ enum class PrivateKind : std::uint8_t {
 // is dropped rather than reported at the average price. This adapter serves
 // linear contracts, where BingX documents both.
 struct WireOrderUpdate {
-    std::string_view symbol;          // s
-    std::string_view client_order_id; // c — absent on the spot push
-    std::string_view order_id;        // i
-    std::string_view side;            // S
-    std::string_view type;            // o
-    std::string_view exec_type;       // x: NEW/TRADE/CANCELED/EXPIRED/CALCULATED
-    std::string_view price;           // p
-    std::string_view orig_qty;        // q
-    std::string_view last_qty;        // l
-    std::string_view cum_qty;         // z
-    std::string_view last_price;      // L
-    std::string_view fee;             // n — negative when charged
-    std::string_view trade_id;        // t — spot only; the perpetual push has none
+    std::string_view symbol;                          // s
+    std::string_view client_order_id;                 // c — absent on the spot push
+    std::string_view order_id;                        // i
+    std::string_view side;                            // S
+    std::string_view type;                            // o
+    std::string_view exec_type;                       // x: NEW/TRADE/CANCELED/EXPIRED/CALCULATED
+    std::string_view price;                           // p
+    std::string_view orig_qty;                        // q
+    std::string_view last_qty;                        // l
+    std::string_view cum_qty;                         // z
+    std::string_view last_price;                      // L
+    std::string_view fee;                             // n — negative when charged
+    std::string_view trade_id;                        // t — spot only; the perpetual push has none
     WireOrderStatus status{WireOrderStatus::Unknown}; // X
     bool is_maker{false};                             // m — spot only
     bool maker_known{false};
     std::uint64_t ts_ms{0}; // T
 };
 
-[[nodiscard]] std::expected<WireOrderUpdate, WireError>
-parse_order_update(std::string_view frame);
+[[nodiscard]] std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view frame);
 
 } // namespace raikiri::venues::bingx

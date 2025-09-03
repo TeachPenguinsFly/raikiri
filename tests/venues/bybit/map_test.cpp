@@ -65,8 +65,8 @@ TEST(BybitMapInstrument, TradingEntryBecomesAPerp) {
     EXPECT_TRUE(std::holds_alternative<PerpInstrument>(*instrument));
     const auto& base = base_of(*instrument);
     EXPECT_EQ(base.exchange_symbol.view(), "BTCUSDT");
-    EXPECT_EQ(base.tick_size.raw, 100'000'000);  // 0.10 * 1e9
-    EXPECT_EQ(base.lot_size.raw, 1'000'000);     // 0.001 * 1e9
+    EXPECT_EQ(base.tick_size.raw, 100'000'000); // 0.10 * 1e9
+    EXPECT_EQ(base.lot_size.raw, 1'000'000);    // 0.001 * 1e9
 }
 
 TEST(BybitMapInstrument, UntradableAndUnusableEntriesAreRefused) {

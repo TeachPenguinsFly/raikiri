@@ -59,8 +59,7 @@ enum class WsBuildError : std::uint8_t {
 // names — including Funding, which has no channel at all (VERIFIED:
 // @fundingRate, @premiumIndex and @markPriceAndFundingRate are each refused
 // with 80015), and which the adapter serves by polling REST instead.
-[[nodiscard]] std::string_view data_type_suffix(exec::SubKind kind,
-                                               MarketType market) noexcept;
+[[nodiscard]] std::string_view data_type_suffix(exec::SubKind kind, MarketType market) noexcept;
 
 class Protocol {
 public:

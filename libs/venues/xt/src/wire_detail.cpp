@@ -65,8 +65,7 @@ std::expected<std::string_view, WireError> scalar_of(ondemand::value value) {
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(ondemand::object& obj,
-                                                      std::string_view key) {
+std::expected<std::string_view, WireError> opt_scalar(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
     const auto ec = obj.find_field_unordered(key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {

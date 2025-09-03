@@ -158,8 +158,8 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
                 // JSON number "i". Reading only the futures spelling refused
                 // every spot snapshot, and the refusal was silent: the socket
                 // stayed up and the book simply never appeared.
-                const auto update_id = spot ? detail::opt_u64(data, "i")
-                                            : detail::req_digits(data, "id");
+                const auto update_id =
+                    spot ? detail::opt_u64(data, "i") : detail::req_digits(data, "id");
                 if (!update_id.has_value()) {
                     return std::unexpected(update_id.error());
                 }

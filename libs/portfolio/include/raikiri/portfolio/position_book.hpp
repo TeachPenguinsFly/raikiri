@@ -66,7 +66,9 @@ public:
 
     // Insertion order, and stable: the ledger and the tests both lean on it.
     [[nodiscard]] std::span<const Position> all() const noexcept { return positions_; }
+
     [[nodiscard]] std::size_t size() const noexcept { return positions_.size(); }
+
     [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
 
 private:

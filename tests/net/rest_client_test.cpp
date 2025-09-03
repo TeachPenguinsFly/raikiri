@@ -1,8 +1,9 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 
-#include "tls_test_server.hpp"
+#include <gtest/gtest.h>
 
+#include <atomic>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/http/field.hpp>
@@ -12,10 +13,6 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
-
-#include <gtest/gtest.h>
-
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +22,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "tls_test_server.hpp"
 
 namespace raikiri::net {
 namespace {
@@ -39,8 +38,8 @@ using raikiri::net::test::TlsListener;
 using namespace std::chrono_literals;
 
 template <class Predicate>
-[[nodiscard]] bool poll_until(IoContext& io, Predicate predicate,
-                              std::chrono::milliseconds budget = 5s) {
+[[nodiscard]] bool
+poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) {
@@ -106,18 +105,22 @@ public:
 private:
     void do_read() {
         req_ = {};
-        http::async_read(stream_, buffer_, req_,
-                         [self = shared_from_this()](const boost::system::error_code& ec,
-                                                     std::size_t) {
-                             if (!ec) {
-                                 self->respond();
-                             }
-                         });
+        http::async_read(
+            stream_,
+            buffer_,
+            req_,
+            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                if (!ec) {
+                    self->respond();
+                }
+            });
     }
 
     void respond() {
-        state_.record(ObservedRequest{to_std(req_.method_string()), to_std(req_.target()),
-                                      req_.body(), to_std(req_["X-Custom"]),
+        state_.record(ObservedRequest{to_std(req_.method_string()),
+                                      to_std(req_.target()),
+                                      req_.body(),
+                                      to_std(req_["X-Custom"]),
                                       to_std(req_[http::field::user_agent]),
                                       to_std(req_[http::field::content_type])});
 
@@ -128,17 +131,18 @@ private:
         res->keep_alive(true);
         // The echo proves the body and the caller's header both crossed the
         // wire; a status-only assertion would pass even if either was dropped.
-        res->body() = state_.status == 200 ? req_.body() + "|" + to_std(req_["X-Custom"])
-                                           : state_.error_body;
+        res->body() =
+            state_.status == 200 ? req_.body() + "|" + to_std(req_["X-Custom"]) : state_.error_body;
         res->prepare_payload();
 
-        http::async_write(stream_, *res,
-                          [self = shared_from_this(), res](const boost::system::error_code& ec,
-                                                           std::size_t) {
-                              if (!ec) {
-                                  self->do_read();
-                              }
-                          });
+        http::async_write(
+            stream_,
+            *res,
+            [self = shared_from_this(), res](const boost::system::error_code& ec, std::size_t) {
+                if (!ec) {
+                    self->do_read();
+                }
+            });
     }
 
     TlsStream stream_;

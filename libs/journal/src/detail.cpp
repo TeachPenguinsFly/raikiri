@@ -1,13 +1,13 @@
 #include <raikiri/journal/detail.hpp>
 
 #include <crc32c/crc32c.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
 #include <cstring>
-#include <dirent.h>
-#include <sys/stat.h>
 
 namespace raikiri::journal::detail {
 
@@ -27,8 +27,8 @@ bool mkdir_p(const std::string& dir) noexcept {
     return true;
 }
 
-std::string segment_path(const std::string& dir, const std::string& prefix,
-                         std::uint64_t segment_seq) {
+std::string
+segment_path(const std::string& dir, const std::string& prefix, std::uint64_t segment_seq) {
     char num[8];
     std::snprintf(num, sizeof num, "%06llu", static_cast<unsigned long long>(segment_seq));
     return dir + "/" + prefix + "." + num + ".rj";
@@ -46,8 +46,7 @@ std::vector<std::uint64_t> list_segments(const std::string& dir, const std::stri
         if (!name.starts_with(want_prefix) || !name.ends_with(".rj")) {
             continue;
         }
-        const auto digits = name.substr(want_prefix.size(),
-                                        name.size() - want_prefix.size() - 3);
+        const auto digits = name.substr(want_prefix.size(), name.size() - want_prefix.size() - 3);
         std::uint64_t seq{};
         const auto [ptr, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), seq);
         if (ec == std::errc{} && ptr == digits.data() + digits.size()) {
@@ -59,7 +58,9 @@ std::vector<std::uint64_t> list_segments(const std::string& dir, const std::stri
     return out;
 }
 
-bool decode_frame(const std::byte* base, std::size_t size, std::uint64_t off,
+bool decode_frame(const std::byte* base,
+                  std::size_t size,
+                  std::uint64_t off,
                   FrameView& out) noexcept {
     if (off + k_frame_header_bytes + k_frame_trailer_bytes > size) {
         return false;
@@ -85,8 +86,8 @@ bool decode_frame(const std::byte* base, std::size_t size, std::uint64_t off,
     return true;
 }
 
-WalkResult walk_frames(const std::byte* base, std::size_t size,
-                       std::uint64_t base_record_seq) noexcept {
+WalkResult
+walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_seq) noexcept {
     WalkResult result{};
     result.end_offset = k_header_bytes;
     result.next_seq = base_record_seq;

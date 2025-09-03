@@ -71,8 +71,8 @@ map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table);
 // SIZE must still convert exactly — a position off by a lot is a position — so
 // a rounded average is reported as no average at all rather than dropping the
 // row and telling a reconciler we are flat.
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 // Private stream ----------------------------------------------------------
 

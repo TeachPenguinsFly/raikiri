@@ -298,8 +298,8 @@ std::expected<std::string, exec::VenueError> fetch_checked(VenueState& state,
                                                            std::uint64_t timeout_ms) {
     const auto response = await_response(state, rest, request, timeout_ms);
     if (!response.has_value()) {
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response before deadline")};
+        return std::unexpected{exec::VenueError::make(
+            exec::ErrorClass::Connectivity, 0, "no response before deadline")};
     }
     if (response->transport_failed()) {
         return std::unexpected{
@@ -359,9 +359,8 @@ public:
         switch (event->kind) {
         case EventKind::LoginAck:
             subscribe_orders();
-            state_->sink->on_connectivity({.state = exec::ConnState::Connected,
-                                           .stream_id = 1,
-                                           .ts = state_->clock->wall()});
+            state_->sink->on_connectivity(
+                {.state = exec::ConnState::Connected, .stream_id = 1, .ts = state_->clock->wall()});
             break;
         case EventKind::Orders: {
             static thread_local OrderUpdateBuffer storage;
@@ -460,9 +459,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -478,8 +475,7 @@ public:
     void amend(const OrderCmd& cmd) noexcept override {
         emit(cmd,
              OrderEventType::ModifyRejected,
-             exec::VenueError::make(
-                 exec::ErrorClass::Terminal, 0, "bitget has no in-place amend"));
+             exec::VenueError::make(exec::ErrorClass::Terminal, 0, "bitget has no in-place amend"));
     }
 
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
@@ -498,15 +494,13 @@ public:
             std::vector<OrderCmd> members{remaining.begin(),
                                           remaining.begin() +
                                               static_cast<std::ptrdiff_t>(batch->consumed)};
-            if (!rest_.send(batch->request,
-                            [this, members](net::RestResponse&& response) {
-                                on_batch_response(std::move(response), members);
-                            })) {
+            if (!rest_.send(batch->request, [this, members](net::RestResponse&& response) {
+                    on_batch_response(std::move(response), members);
+                })) {
                 for (const auto& member : members) {
                     emit(member,
                          OrderEventType::CancelRejected,
-                         exec::VenueError::make(
-                             exec::ErrorClass::Retryable, 0, "rest queue full"));
+                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
                 }
             }
             sent += batch->consumed;
@@ -517,11 +511,11 @@ public:
     open_order_reports(MarketType market) override {
         auto storage = std::make_unique<OrderUpdateBuffer>();
         std::string body;
-        const auto rows = pull_orders(
-            builder_.open_orders(market, state_->product(), state_->venue_now()),
-            market,
-            *storage,
-            body);
+        const auto rows =
+            pull_orders(builder_.open_orders(market, state_->product(), state_->venue_now()),
+                        market,
+                        *storage,
+                        body);
         if (!rows.has_value()) {
             return std::unexpected{rows.error()};
         }
@@ -577,8 +571,7 @@ public:
             return std::unexpected{exec::not_implemented("bitget options order entry")};
         }
 
-        const auto request =
-            builder_.fills(market, state_->product(), since, state_->venue_now());
+        const auto request = builder_.fills(market, state_->product(), since, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
@@ -705,8 +698,7 @@ private:
         if (!request.has_value()) {
             emit(cmd,
                  refusal_of(kind),
-                 exec::VenueError::make(
-                     exec::ErrorClass::Terminal, 0, to_string(request.error())));
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const OrderCmd snapshot = cmd; // 128 trivially-copyable bytes
@@ -736,8 +728,7 @@ private:
         if (!envelope.has_value()) {
             emit(cmd,
                  refusal_of(kind),
-                 exec::VenueError::make(
-                     exec::ErrorClass::Terminal, 0, "unparseable envelope"));
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope"));
             return;
         }
         if (envelope->code == k_ok) {
@@ -805,9 +796,7 @@ private:
     // The reason is not optional. `OrderEvent` has no room for text, so every
     // refusal hands the sink the verdict that caused it — otherwise an order
     // that dies here is indistinguishable from one that was never sent.
-    void emit(const OrderCmd& cmd,
-              OrderEventType type,
-              const exec::VenueError& error) noexcept {
+    void emit(const OrderCmd& cmd, OrderEventType type, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;
@@ -883,10 +872,8 @@ private:
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_mix(MarketType market) {
-        const auto body = fetch_checked(*state_,
-                                        rest_,
-                                        state_->builder.contracts(state_->product()),
-                                        k_catalogue_timeout_ms);
+        const auto body = fetch_checked(
+            *state_, rest_, state_->builder.contracts(state_->product()), k_catalogue_timeout_ms);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -901,8 +888,8 @@ private:
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {
-        const auto body = fetch_checked(
-            *state_, rest_, state_->builder.spot_symbols(), k_catalogue_timeout_ms);
+        const auto body =
+            fetch_checked(*state_, rest_, state_->builder.spot_symbols(), k_catalogue_timeout_ms);
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }

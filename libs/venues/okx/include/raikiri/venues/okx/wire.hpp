@@ -222,8 +222,8 @@ struct FillBuffer {
     std::array<WireFill, k_max_fills> fills{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
+                                                                              FillBuffer& storage);
 
 // One element of GET /api/v5/account/positions. `pos` is signed in net mode
 // and unsigned-per-side in long/short mode, so pos_side has to be read: a

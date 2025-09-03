@@ -13,7 +13,8 @@ namespace raikiri::config {
 namespace {
 
 std::string write_temp(std::string_view body) {
-    std::string path = (std::filesystem::temp_directory_path() / "raikiri-settings-XXXXXX").string();
+    std::string path =
+        (std::filesystem::temp_directory_path() / "raikiri-settings-XXXXXX").string();
     const int fd = ::mkstemp(path.data());
     if (fd >= 0) {
         ::close(fd);

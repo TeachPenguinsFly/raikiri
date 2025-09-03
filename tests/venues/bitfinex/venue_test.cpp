@@ -94,7 +94,8 @@ TEST(BitfinexVenue, AnUnbuildableOrderComesBackAsARejectedEvent) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -122,7 +123,8 @@ TEST(BitfinexVenue, UnservedMarketsRefuseWithTheirOwnName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto options = adapter->execution->open_order_reports(MarketType::Option);
@@ -159,7 +161,8 @@ TEST(BitfinexVenue, PullsWithoutCredentialsAnswerAuthFailure) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitfinex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& pull : {adapter->execution->open_order_reports(MarketType::Perp)}) {
@@ -1237,7 +1240,8 @@ TEST(BitfinexRest, ASellIsANegativeAmountAndNothingElse) {
     ASSERT_TRUE(secret.assign(k_api_secret).has_value());
     SignedRequestBuilder builder{k_api_key, secret};
 
-    const auto buy = builder.create_order(order_for(table, "tBTCUSD", Side::Buy), table, k_sign_now);
+    const auto buy =
+        builder.create_order(order_for(table, "tBTCUSD", Side::Buy), table, k_sign_now);
     ASSERT_TRUE(buy.has_value()) << to_string(buy.error());
     EXPECT_EQ(buy->target, "/v2/auth/w/order/submit");
     EXPECT_NE(std::string{buy->body}.find(R"("amount":"0.1")"), std::string::npos) << buy->body;
@@ -1336,8 +1340,7 @@ TEST(BitfinexWire, TheAuthAckSeparatesOkFromRefused) {
 TEST(BitfinexWire, OrderStatusIsMatchedByPrefix) {
     EXPECT_EQ(order_status("ACTIVE"), WireOrderStatus::Active);
     EXPECT_EQ(order_status("EXECUTED @ 63951.0(-0.1)"), WireOrderStatus::Executed);
-    EXPECT_EQ(order_status("PARTIALLY FILLED @ 63951.0(-0.05)"),
-              WireOrderStatus::PartiallyFilled);
+    EXPECT_EQ(order_status("PARTIALLY FILLED @ 63951.0(-0.05)"), WireOrderStatus::PartiallyFilled);
     EXPECT_EQ(order_status("CANCELED"), WireOrderStatus::Canceled);
     // "POSTONLY CANCELED" does not START with CANCELED, and reading it as
     // anything else leaves a post-only rejection sitting open forever.
@@ -1449,8 +1452,7 @@ TEST(BitfinexMap, TheSideComesFromTheOriginalAmountNotTheRemainder) {
     EXPECT_EQ(report->leaves.raw, 0);
 
     // And the fill itself is the execution's to report, never the order's.
-    EXPECT_FALSE(
-        map_order_event(*executed, table, ExchangeClientOrderId{}, k_ingest).has_value());
+    EXPECT_FALSE(map_order_event(*executed, table, ExchangeClientOrderId{}, k_ingest).has_value());
 }
 
 TEST(BitfinexMap, AnActiveOrderBecomesAcceptedAndACancelClosesIt) {
@@ -1495,9 +1497,9 @@ TEST(BitfinexMap, AFillTakesItsSideAndItsCostFromTheExecution) {
     const auto tu = parse_execution(fixture("ws_exec_tu.json"));
     ASSERT_TRUE(tu.has_value());
 
-    const OrderContext context{
-        .client_order_id = *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
-        .leaves = QtyLots::from_raw(5'000'000)};
+    const OrderContext context{.client_order_id =
+                                   *ExchangeClientOrderId::from("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+                               .leaves = QtyLots::from_raw(5'000'000)};
     const auto fill = map_execution(*tu, table, context, k_ingest);
     ASSERT_TRUE(fill.has_value());
     EXPECT_EQ(fill->type, OrderEventType::Filled);

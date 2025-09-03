@@ -1,9 +1,9 @@
 #include <raikiri/admin/history.hpp>
 
-#include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <glaze/glaze.hpp>
 #include <string>
 #include <string_view>
 

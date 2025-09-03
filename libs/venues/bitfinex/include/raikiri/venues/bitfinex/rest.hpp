@@ -90,7 +90,8 @@ enum class BuildError : std::uint8_t {
 //
 // The time in force is a TYPE here, not a field: IOC and FOK replace LIMIT
 // rather than qualifying it. Post-only is the one that stays a flag.
-[[nodiscard]] std::string_view order_type(MarketType market, OrderType type, TimeInForce tif) noexcept;
+[[nodiscard]] std::string_view
+order_type(MarketType market, OrderType type, TimeInForce tif) noexcept;
 
 [[nodiscard]] std::int64_t order_flags(OrderFlags flags) noexcept;
 

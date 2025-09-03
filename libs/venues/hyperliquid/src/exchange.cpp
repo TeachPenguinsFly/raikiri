@@ -316,9 +316,11 @@ bool price_digits_ok(std::string_view text) noexcept {
     return significant <= 5;
 }
 
-std::expected<net::RestRequest, BuildError> ExchangeBuilder::create_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset,
-    std::uint64_t nonce) {
+std::expected<net::RestRequest, BuildError>
+ExchangeBuilder::create_order(const OrderCmd& cmd,
+                              const exec::InstrumentTable& table,
+                              std::int64_t asset,
+                              std::uint64_t nonce) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
@@ -422,9 +424,11 @@ ExchangeBuilder::cancel_order(const OrderCmd& cmd, std::int64_t asset, std::uint
     return sign_and_wrap(action.packed(), action.json(), nonce);
 }
 
-std::expected<net::RestRequest, BuildError> ExchangeBuilder::modify_order(
-    const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset,
-    std::uint64_t nonce) {
+std::expected<net::RestRequest, BuildError>
+ExchangeBuilder::modify_order(const OrderCmd& cmd,
+                              const exec::InstrumentTable& table,
+                              std::int64_t asset,
+                              std::uint64_t nonce) {
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }

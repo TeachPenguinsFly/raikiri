@@ -13,8 +13,8 @@ namespace raikiri::journal::detail {
 
 [[nodiscard]] bool mkdir_p(const std::string& dir) noexcept;
 
-[[nodiscard]] std::string segment_path(const std::string& dir, const std::string& prefix,
-                                       std::uint64_t segment_seq);
+[[nodiscard]] std::string
+segment_path(const std::string& dir, const std::string& prefix, std::uint64_t segment_seq);
 
 // Ascending segment seqs found under dir for prefix; empty when none.
 [[nodiscard]] std::vector<std::uint64_t> list_segments(const std::string& dir,
@@ -28,13 +28,13 @@ struct WalkResult {
 // Walks frames from the header page, validating structure, CRC, and seq
 // contiguity starting at base_record_seq. Stops (without failing) at the
 // first invalid frame — that is the torn tail.
-[[nodiscard]] WalkResult walk_frames(const std::byte* base, std::size_t size,
-                                     std::uint64_t base_record_seq) noexcept;
+[[nodiscard]] WalkResult
+walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_seq) noexcept;
 
 // Validates and decodes the frame at `off`. Returns false if the frame is
 // structurally invalid or fails CRC (caller decides whether that means
 // "caught up" or "corrupt" based on the committed watermark).
-[[nodiscard]] bool decode_frame(const std::byte* base, std::size_t size, std::uint64_t off,
-                                FrameView& out) noexcept;
+[[nodiscard]] bool
+decode_frame(const std::byte* base, std::size_t size, std::uint64_t off, FrameView& out) noexcept;
 
 } // namespace raikiri::journal::detail

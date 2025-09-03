@@ -239,10 +239,10 @@ std::string_view RequestBuilder::last_sign_message() const noexcept {
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod method,
-                                                                  std::string_view path,
-                                                                  std::string_view query,
-                                                                  std::string_view body,
-                                                                  UnixNanos now) {
+                                                                 std::string_view path,
+                                                                 std::string_view query,
+                                                                 std::string_view body,
+                                                                 UnixNanos now) {
     // The passphrase is as load-bearing as the secret: without it Bitget
     // answers 40011, which is not the code a missing key produces.
     if (signer_ == nullptr || !signer_->has_credentials() || passphrase_.empty()) {
@@ -313,8 +313,7 @@ RequestBuilder::create_order(const OrderCmd& cmd,
         return std::unexpected{BuildError::UnknownInstrument};
     }
     const auto& base = base_of(*instrument);
-    if (cmd.qty.is_undef() ||
-        (cmd.order_type == OrderType::Limit && cmd.price.is_undef())) {
+    if (cmd.qty.is_undef() || (cmd.order_type == OrderType::Limit && cmd.price.is_undef())) {
         return std::unexpected{BuildError::BadValue};
     }
     // A market order that must not cross is a contradiction, and `force`
@@ -515,11 +514,8 @@ RequestBuilder::open_orders(MarketType market, std::string_view product, UnixNan
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::order_by_client_id(const ExchangeClientOrderId& id,
-                                   MarketType market,
-                                   std::string_view product,
-                                   UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::order_by_client_id(
+    const ExchangeClientOrderId& id, MarketType market, std::string_view product, UnixNanos now) {
     if (id.empty()) {
         return std::unexpected{BuildError::BadValue};
     }
@@ -545,10 +541,8 @@ RequestBuilder::order_by_client_id(const ExchangeClientOrderId& id,
     return std::unexpected{BuildError::UnsupportedMarket};
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::fills(MarketType market,
-                                                                   std::string_view product,
-                                                                   UnixNanos since,
-                                                                   UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now) {
     // Keys ascend: Bitget's own signing sample sorts the query, and the only
     // way to satisfy both that and "sign what you send" is to send it sorted.
     Appender query{body_};

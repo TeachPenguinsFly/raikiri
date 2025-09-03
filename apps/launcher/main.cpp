@@ -4,13 +4,14 @@
 
 #include <fmt/format.h>
 
+#include <libgen.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
-#include <libgen.h>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -60,8 +61,7 @@ int main(int argc, char** argv) {
     const int gateway_rc = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 
     if (strategy_rc != 0 || gateway_rc != 0) {
-        fmt::print(stderr, "launcher: strategyd rc={} gatewayd rc={}\n", strategy_rc,
-                   gateway_rc);
+        fmt::print(stderr, "launcher: strategyd rc={} gatewayd rc={}\n", strategy_rc, gateway_rc);
         return 1;
     }
     return 0;

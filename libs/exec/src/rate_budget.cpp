@@ -19,8 +19,8 @@ namespace {
 
 RateBudget::RateBudget(const Table& table, Costs costs) noexcept
     : buckets_{make(table[0]), make(table[1]), make(table[2]), make(table[3])},
-      limited_{configured(table[0]), configured(table[1]), configured(table[2]),
-               configured(table[3])},
+      limited_{
+          configured(table[0]), configured(table[1]), configured(table[2]), configured(table[3])},
       costs_{costs} {}
 
 std::expected<void, RateDenied>

@@ -129,8 +129,7 @@ channel_for(exec::SubKind kind, std::string_view instrument, std::span<char> int
 }
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::channel_frame(
-    std::string_view scope, std::string_view method,
-    std::span<const Subscription> subscriptions) {
+    std::string_view scope, std::string_view method, std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -203,7 +202,8 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::auth_frame(const net::Sig
     TextWriter writer{frame_};
     writer.put(R"({"jsonrpc":"2.0","id":)");
     writer.put(id);
-    writer.put(R"(,"method":"public/auth","params":{"grant_type":"client_signature","client_id":")");
+    writer.put(
+        R"(,"method":"public/auth","params":{"grant_type":"client_signature","client_id":")");
     writer.put(signer.api_key());
     writer.put(R"(","timestamp":)");
     writer.put(static_cast<std::int64_t>(timestamp));

@@ -11,16 +11,37 @@ using S = OrderStatus;
 using E = OrderEventType;
 
 constexpr std::array<S, 12> k_all_statuses{
-    S::Initialized, S::Denied,        S::Submitted,       S::Accepted,
-    S::Rejected,    S::Triggered,     S::PendingUpdate,   S::PendingCancel,
-    S::PartiallyFilled, S::Canceled,  S::Expired,         S::Filled,
+    S::Initialized,
+    S::Denied,
+    S::Submitted,
+    S::Accepted,
+    S::Rejected,
+    S::Triggered,
+    S::PendingUpdate,
+    S::PendingCancel,
+    S::PartiallyFilled,
+    S::Canceled,
+    S::Expired,
+    S::Filled,
 };
 
 constexpr std::array<E, 16> k_all_events{
-    E::Initialized, E::Denied,         E::Submitted,     E::Accepted,
-    E::Rejected,    E::Triggered,      E::PendingUpdate, E::Updated,
-    E::ModifyRejected, E::PendingCancel, E::Canceled,    E::CancelRejected,
-    E::Expired,     E::Filled,         E::ReconGap,      E::ReconClosed,
+    E::Initialized,
+    E::Denied,
+    E::Submitted,
+    E::Accepted,
+    E::Rejected,
+    E::Triggered,
+    E::PendingUpdate,
+    E::Updated,
+    E::ModifyRejected,
+    E::PendingCancel,
+    E::Canceled,
+    E::CancelRejected,
+    E::Expired,
+    E::Filled,
+    E::ReconGap,
+    E::ReconClosed,
 };
 
 TEST(OrderFsm, HappyPathLimitOrder) {

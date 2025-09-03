@@ -18,17 +18,13 @@ public:
 
     void on_trade(const TradeTick& trade) noexcept override { trades.push_back(trade); }
 
-    void on_funding(const FundingUpdate& funding) noexcept override {
-        fundings.push_back(funding);
-    }
+    void on_funding(const FundingUpdate& funding) noexcept override { fundings.push_back(funding); }
 
     void on_order_event(const OrderEvent& event) noexcept override {
         order_events.push_back(event);
     }
 
-    void on_connectivity(const ConnEvent& event) noexcept override {
-        conn_events.push_back(event);
-    }
+    void on_connectivity(const ConnEvent& event) noexcept override { conn_events.push_back(event); }
 
     std::vector<Bbo> bbos;
     std::vector<TradeTick> trades;
@@ -144,7 +140,8 @@ protected:
 };
 
 TEST_F(VenueContract, RegistryBuildsRegisteredVenue) {
-    const auto adapter = make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
+    const auto adapter =
+        make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Sim);
     EXPECT_NE(adapter->data, nullptr);
@@ -174,14 +171,13 @@ TEST_F(VenueContract, TheCapsRowDecidesEveryMarket) {
     // sayable and the two refusals that existed to catch them are gone. What
     // is left is the only question worth asking: does this row serve what was
     // asked for. Sim serves perp alone, so the other three must refuse.
-    for (const auto market :
-         {MarketType::Spot, MarketType::Future, MarketType::Option}) {
+    for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
         const auto refused = make_venue({.venue = VenueId::Sim, .market = market}, sink, clock);
         ASSERT_FALSE(refused.has_value()) << to_string(market);
         EXPECT_EQ(refused.error(), MakeError::UnsupportedMarket) << to_string(market);
     }
-    EXPECT_TRUE(make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock)
-                    .has_value());
+    EXPECT_TRUE(
+        make_venue({.venue = VenueId::Sim, .market = MarketType::Perp}, sink, clock).has_value());
 }
 
 TEST_F(VenueContract, AVenueThatSignsWithThreeCredentialsRefusesOnTwo) {
@@ -291,10 +287,22 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     // to sit in the VenueId enum.
     std::ranges::sort(claiming);
     EXPECT_EQ(claiming,
-              (std::vector<std::string_view>{"binance", "bingx", "bitfinex", "bitget", "bitmex",
+              (std::vector<std::string_view>{"binance",
+                                             "bingx",
+                                             "bitfinex",
+                                             "bitget",
+                                             "bitmex",
                                              "bybit",
-                                             "deribit", "gate", "htx", "hyperliquid",
-                                             "kraken", "kucoin", "mexc", "okx", "sim", "xt"}));
+                                             "deribit",
+                                             "gate",
+                                             "htx",
+                                             "hyperliquid",
+                                             "kraken",
+                                             "kucoin",
+                                             "mexc",
+                                             "okx",
+                                             "sim",
+                                             "xt"}));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {
@@ -352,7 +360,6 @@ TEST_F(VenueContract, DefaultBatchCancelLoops) {
     EXPECT_EQ(exec->stop_calls, 2);
 }
 
-
 TEST_F(VenueContract, AWrongMarketIdResolvesToNothingRatherThanTheWrongInstrument) {
     // Spot and perpetual share one index space in the table, so an id built by
     // hand with the wrong market half used to resolve to a real instrument that
@@ -382,7 +389,6 @@ TEST_F(VenueContract, AWrongMarketIdResolvesToNothingRatherThanTheWrongInstrumen
     EXPECT_EQ(table.find(InstrumentId::make(VenueId::Okx, MarketType::Perp, id->symbol())),
               nullptr);
 }
-
 
 TEST_F(VenueContract, OneTableHoldsBothMarketsOfASharedSymbol) {
     // Most venues spell a spot pair and its perpetual identically. Keying the

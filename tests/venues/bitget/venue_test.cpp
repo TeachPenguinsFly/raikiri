@@ -814,7 +814,8 @@ TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -844,7 +845,8 @@ TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitget, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     auto& execution = *adapter->execution;
 
@@ -890,10 +892,10 @@ TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
 
     const auto* btc = base_for(table, "BTCUSDT");
     ASSERT_NE(btc, nullptr);
-    EXPECT_EQ(btc->tick_size.raw, 10'000'000);  // 0.01
-    EXPECT_EQ(btc->lot_size.raw, 1'000);        // 0.000001
+    EXPECT_EQ(btc->tick_size.raw, 10'000'000); // 0.01
+    EXPECT_EQ(btc->lot_size.raw, 1'000);       // 0.000001
     EXPECT_EQ(btc->id.market(), MarketType::Spot);
-    EXPECT_EQ(btc->min_notional.raw, k_e9);     // minTradeUSDT "1"
+    EXPECT_EQ(btc->min_notional.raw, k_e9); // minTradeUSDT "1"
 
     // The finest tick the domain can hold, and a live row sits on it.
     const auto* shib = base_for(table, "SHIBUSDT");

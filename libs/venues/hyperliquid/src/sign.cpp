@@ -89,8 +89,8 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     std::size_t at = 2;
     bool leading = true;
     for (const auto byte : bytes) {
-        for (const auto nibble : {static_cast<std::size_t>(byte >> 4),
-                                  static_cast<std::size_t>(byte & 0x0FU)}) {
+        for (const auto nibble :
+             {static_cast<std::size_t>(byte >> 4), static_cast<std::size_t>(byte & 0x0FU)}) {
             if (leading && nibble == 0) {
                 continue;
             }
@@ -121,8 +121,7 @@ void push_u64_word(std::vector<std::uint8_t>& out, std::uint64_t value) noexcept
 }
 
 [[nodiscard]] Hash hash_text(std::string_view text) noexcept {
-    return keccak256(
-        {reinterpret_cast<const std::uint8_t*>(text.data()), text.size()}); // NOLINT
+    return keccak256({reinterpret_cast<const std::uint8_t*>(text.data()), text.size()}); // NOLINT
 }
 
 // Constant for every L1 action: chainId 1337 and a zero verifying contract,
@@ -215,7 +214,8 @@ private:
 };
 
 [[nodiscard]] bool to_fixed_bytes(const BIGNUM* value, std::span<std::uint8_t, 32> out) noexcept {
-    return BN_bn2binpad(value, out.data(), static_cast<int>(out.size())) == static_cast<int>(out.size());
+    return BN_bn2binpad(value, out.data(), static_cast<int>(out.size())) ==
+           static_cast<int>(out.size());
 }
 
 } // namespace
@@ -358,8 +358,8 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
     if (key.size() != k_key_bytes) {
         return false;
     }
-    const std::span<const std::uint8_t> key_bytes{
-        reinterpret_cast<const std::uint8_t*>(key.data()), key.size()}; // NOLINT
+    const std::span<const std::uint8_t> key_bytes{reinterpret_cast<const std::uint8_t*>(key.data()),
+                                                  key.size()}; // NOLINT
     const BnPtr secret{BN_bin2bn(key_bytes.data(), static_cast<int>(key_bytes.size()), nullptr)};
 
     // z is the digest reduced mod n. RFC 6979 hashes the REDUCED form, so the
@@ -383,9 +383,8 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
     const BnPtr x{BN_new()};
     const BnPtr y{BN_new()};
     const PointPtr point{EC_POINT_new(group.get())};
-    if (half == nullptr || r == nullptr || s == nullptr || scratch == nullptr ||
-        k_inv == nullptr || x == nullptr || y == nullptr || point == nullptr ||
-        BN_rshift1(half.get(), order) != 1) {
+    if (half == nullptr || r == nullptr || s == nullptr || scratch == nullptr || k_inv == nullptr ||
+        x == nullptr || y == nullptr || point == nullptr || BN_rshift1(half.get(), order) != 1) {
         return false;
     }
 
@@ -399,8 +398,8 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
             continue;
         }
         if (EC_POINT_mul(group.get(), point.get(), k.get(), nullptr, nullptr, ctx.get()) != 1 ||
-            EC_POINT_get_affine_coordinates(group.get(), point.get(), x.get(), y.get(),
-                                            ctx.get()) != 1 ||
+            EC_POINT_get_affine_coordinates(
+                group.get(), point.get(), x.get(), y.get(), ctx.get()) != 1 ||
             BN_nnmod(r.get(), x.get(), order, ctx.get()) != 1) {
             return false;
         }

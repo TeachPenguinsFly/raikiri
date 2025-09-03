@@ -19,9 +19,7 @@ public:
     static constexpr std::uint64_t k_requote_ns = 250'000'000; // 250 ms
     static constexpr std::size_t k_instruments = 2;
 
-    void on_start(strategy::Context& ctx) override {
-        ctx.set_timer(k_requote_timer, k_requote_ns);
-    }
+    void on_start(strategy::Context& ctx) override { ctx.set_timer(k_requote_timer, k_requote_ns); }
 
     void on_timer(strategy::Context& ctx, std::uint32_t timer_id) override {
         if (timer_id != k_requote_timer) {
@@ -50,9 +48,8 @@ public:
 
 private:
     void requote(strategy::Context& ctx, std::size_t idx) {
-        const auto instrument =
-            InstrumentId::make(VenueId::Sim, MarketType::Perp,
-                               SymbolId{static_cast<std::uint32_t>(idx)});
+        const auto instrument = InstrumentId::make(
+            VenueId::Sim, MarketType::Perp, SymbolId{static_cast<std::uint32_t>(idx)});
         // Pull the previous pair first; the venue confirms asynchronously.
         auto& pair = quotes_[idx];
         if (pair.bid.valid()) {

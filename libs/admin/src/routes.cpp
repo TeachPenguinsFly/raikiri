@@ -184,7 +184,6 @@ Response problem(int status, std::string_view title, std::string_view detail) {
     return {.status = status, .content_type = "application/problem+json", .body = std::move(body)};
 }
 
-
 namespace {
 
 // The status a refusal deserves. A ring that is full is the one worth
@@ -272,9 +271,8 @@ Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNanos now)
     const auto done = desk->cancel(ClientOrderId{*raw}, now);
     if (!done.has_value()) {
         const auto error = done.error();
-        return problem(error == DeskError::NoSuchOrder ? 404 : status_for(error),
-                       "refused",
-                       describe(error));
+        return problem(
+            error == DeskError::NoSuchOrder ? 404 : status_for(error), "refused", describe(error));
     }
     const OrderAcceptedBody accepted{.client_order_id = std::to_string(*raw)};
     auto answer = json(accepted);
@@ -295,8 +293,8 @@ Handler make_router(const Registry& registry,
             return place_order(desk, req, wall());
         }
         if (req.method == "DELETE" && req.path.starts_with("/v1/orders/")) {
-            return cancel_order(desk, req.path.substr(std::string_view{"/v1/orders/"}.size()),
-                                wall());
+            return cancel_order(
+                desk, req.path.substr(std::string_view{"/v1/orders/"}.size()), wall());
         }
         if (req.method != "GET") {
             return problem(405, "method not allowed", "this path serves reads");

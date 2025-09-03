@@ -180,7 +180,7 @@ struct WireOrderUpdate {
     std::string_view commission;        // n — absent unless this frame is a fill
     std::string_view commission_asset;  // N
     std::uint64_t order_id{0};          // i
-    std::uint64_t trade_id{0}; // aggregate id or trade id, whichever arrived          // t
+    std::uint64_t trade_id{0};          // aggregate id or trade id, whichever arrived          // t
     std::uint64_t trade_ms{0};          // T inside o
     std::uint64_t event_ms{0};          // E at the top level
     bool is_maker{false};               // m

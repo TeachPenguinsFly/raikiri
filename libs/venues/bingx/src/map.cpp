@@ -130,9 +130,10 @@ std::optional<FixedE9> step_from_precision(std::int64_t precision) noexcept {
     return FixedE9::from_raw(k_e9 / divisor);
 }
 
-std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketType market,
-         UnixNanos ts_init) {
+std::optional<Bbo> map_bbo(const WireBookTicker& wire,
+                           const exec::InstrumentTable& table,
+                           MarketType market,
+                           UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
@@ -157,9 +158,10 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketTy
     return out;
 }
 
-std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType market,
-         UnixNanos ts_init) {
+std::optional<TradeTick> map_trade(const WireTrade& wire,
+                                   const exec::InstrumentTable& table,
+                                   MarketType market,
+                                   UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;
@@ -182,9 +184,10 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType 
     return out;
 }
 
-std::optional<BookSnapshot>
-map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType market,
-         UnixNanos ts_init) {
+std::optional<BookSnapshot> map_book(const WireDepth& wire,
+                                     const exec::InstrumentTable& table,
+                                     MarketType market,
+                                     UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, market);
     if (base_ptr == nullptr) {
         return std::nullopt;

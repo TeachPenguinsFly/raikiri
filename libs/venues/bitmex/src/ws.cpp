@@ -158,8 +158,7 @@ std::string_view auth_message(std::uint64_t expires, std::span<char> out) noexce
 }
 
 std::expected<Protocol::Frame, WsBuildError>
-Protocol::auth_frame(std::string_view api_key, std::uint64_t expires,
-                     std::string_view signature) {
+Protocol::auth_frame(std::string_view api_key, std::uint64_t expires, std::string_view signature) {
     if (api_key.empty() || signature.empty() || expires == 0) {
         return std::unexpected{WsBuildError::NothingToSend};
     }

@@ -26,10 +26,10 @@ enum class EventKind : std::uint8_t {
 
     // Private feeds. The socket is the same one the public feeds ride; what
     // separates them is the signed challenge on the subscribe.
-    Challenge,           // {"event":"challenge","message":"<uuid>"}
-    OpenOrdersSnapshot,  // open_orders_snapshot — the whole working set
-    OpenOrders,          // open_orders — one delta, a different SHAPE
-    Fills,               // fills and fills_snapshot; one shape, both spellings
+    Challenge,          // {"event":"challenge","message":"<uuid>"}
+    OpenOrdersSnapshot, // open_orders_snapshot — the whole working set
+    OpenOrders,         // open_orders — one delta, a different SHAPE
+    Fills,              // fills and fills_snapshot; one shape, both spellings
 
     Unknown,
 };
@@ -261,8 +261,8 @@ struct FillBuffer {
     std::array<WireFill, k_max_fills> fills{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
+                                                                              FillBuffer& storage);
 
 // GET /openpositions. `price` is a full-precision average entry that no tick
 // size divides — see map.cpp for what that costs.

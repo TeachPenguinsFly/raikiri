@@ -366,8 +366,7 @@ exec::VenueError http_failure(const net::RestResponse& response) noexcept {
     const auto message = parse_rest_error(response.body);
     return exec::VenueError::make(classify_http(response.status),
                                   response.status,
-                                  message.has_value() ? *message
-                                                      : std::string_view{"http error"});
+                                  message.has_value() ? *message : std::string_view{"http error"});
 }
 
 exec::VenueError build_failure(BuildError err) noexcept {
@@ -418,9 +417,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -450,8 +447,8 @@ public:
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
         for (const auto& wire : *orders) {
-            if (auto report = map_open_order(wire, state_->instruments,
-                                             state_->recall(wire.client_oid));
+            if (auto report =
+                    map_open_order(wire, state_->instruments, state_->recall(wire.client_oid));
                 report.has_value()) {
                 reports.push_back(*report);
             }
@@ -527,7 +524,8 @@ private:
         if (response->status < 200 || response->status >= 300) {
             const auto message = parse_rest_error(response->body);
             return std::unexpected{exec::VenueError::make(
-                classify_http(response->status), response->status,
+                classify_http(response->status),
+                response->status,
                 message.has_value() ? *message : std::string_view{"http error"})};
         }
         return response->body;
@@ -551,8 +549,9 @@ private:
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(
-                cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -588,7 +587,8 @@ private:
                     exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable order row"));
                 return;
             }
-            if (const auto event = map_order_event(*order, state_->instruments,
+            if (const auto event = map_order_event(*order,
+                                                   state_->instruments,
                                                    cmd.exchange_client_order_id,
                                                    state_->clock->wall());
                 event.has_value()) {

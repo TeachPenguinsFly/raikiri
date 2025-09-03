@@ -208,8 +208,8 @@ struct WireBookSnapshot {
     std::span<const WireLevel> asks;
 };
 
-[[nodiscard]] std::expected<WireBookSnapshot, WireError>
-parse_book_snapshot(std::string_view frame, LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
+                                                                             LevelBuffer& storage);
 
 // `ts` here is NANOSECONDS, where every other KuCoin timestamp is milliseconds.
 struct WireOrderBook {
@@ -230,7 +230,6 @@ parse_funding_current(std::string_view body);
 
 // GET /api/v1/timestamp. `data` is a bare number here, not an object.
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
-
 
 // ---------------------------------------------------------- private ----
 
@@ -258,8 +257,8 @@ struct WireOrderChange {
     std::string_view symbol;
     std::string_view order_id;
     std::string_view client_oid;
-    std::string_view trade_id;  // `match` only; the fill's dedupe key
-    std::string_view side;      // "buy" / "sell"
+    std::string_view trade_id;   // `match` only; the fill's dedupe key
+    std::string_view side;       // "buy" / "sell"
     std::string_view order_type; // "limit" / "market"
     std::string_view price;      // the order's price; "0" on a market order
     std::string_view size;
@@ -268,8 +267,8 @@ struct WireOrderChange {
     std::string_view match_size;  // `match` only
     std::string_view remain_size;
     std::string_view canceled_size;
-    std::string_view old_size;    // `update` only
-    std::string_view liquidity;   // "maker" / "taker"; futures states it, spot does not
+    std::string_view old_size;  // `update` only
+    std::string_view liquidity; // "maker" / "taker"; futures states it, spot does not
     // `order_time` is MILLISECONDS on spot and NANOSECONDS on futures — the
     // same field name, two scales, six orders of magnitude apart. `ts` is
     // nanoseconds on both, so it is the one the mapper times events by.
@@ -277,8 +276,7 @@ struct WireOrderChange {
     std::uint64_t ts_ns{0};
 };
 
-[[nodiscard]] std::expected<WireOrderChange, WireError>
-parse_order_change(std::string_view frame);
+[[nodiscard]] std::expected<WireOrderChange, WireError> parse_order_change(std::string_view frame);
 
 // ------------------------------------------------------ private rest ----
 
@@ -348,8 +346,8 @@ struct FillBuffer {
 };
 
 // GET /api/v1/fills and GET /api/v1/hf/fills — one shape, both hosts.
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
+                                                                              FillBuffer& storage);
 
 // `current_qty` is SIGNED and counted in contracts: negative is short, and
 // there is no side field to disagree with it.

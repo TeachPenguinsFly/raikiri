@@ -20,13 +20,13 @@
 namespace raikiri::venues::mexc {
 
 // Futures codes. Non-negative; zero means success.
-inline constexpr std::int64_t k_not_logged_in = 401;   // VERIFIED: no credentials
-inline constexpr std::int64_t k_key_expired = 402;     // VERIFIED 2026-08-26: bogus ApiKey
+inline constexpr std::int64_t k_not_logged_in = 401; // VERIFIED: no credentials
+inline constexpr std::int64_t k_key_expired = 402;   // VERIFIED 2026-08-26: bogus ApiKey
 inline constexpr std::int64_t k_ip_not_whitelisted = 406;
-inline constexpr std::int64_t k_internal_error = 500;  // VERIFIED
+inline constexpr std::int64_t k_internal_error = 500; // VERIFIED
 inline constexpr std::int64_t k_system_busy = 501;
 inline constexpr std::int64_t k_unknown_source = 506;
-inline constexpr std::int64_t k_rate_limited = 510;    // VERIFIED: 60-request burst
+inline constexpr std::int64_t k_rate_limited = 510; // VERIFIED: 60-request burst
 inline constexpr std::int64_t k_endpoint_unreachable = 511;
 // 513, not 603: the clock-skew refusal is "invalid request (open api serves
 // time more or less than 10 s)". 603 is a DUPLICATE request and retrying one

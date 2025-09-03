@@ -310,9 +310,8 @@ SignedRequestBuilder::sign(std::string_view path, std::string_view body, UnixNan
     request.method = net::HttpMethod::Post;
     request.target = path;
     request.body = body;
-    request.headers = {{k_hdr_nonce, nonce.view()},
-                       {k_hdr_apikey, api_key_},
-                       {k_hdr_signature, signature}};
+    request.headers = {
+        {k_hdr_nonce, nonce.view()}, {k_hdr_apikey, api_key_}, {k_hdr_signature, signature}};
     return request;
 }
 

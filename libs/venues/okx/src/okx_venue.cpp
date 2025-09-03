@@ -192,8 +192,7 @@ void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos rec
         // cancel that ended the order, and publishing the terminal event
         // ahead of the money moves an order to Canceled with a fill still
         // unaccounted for.
-        if (const auto fill = map_order_fill(wire, state.instruments, received);
-            fill.has_value()) {
+        if (const auto fill = map_order_fill(wire, state.instruments, received); fill.has_value()) {
             state.sink->on_order_event(*fill);
         }
         if (const auto event = map_order_event(wire, state.instruments, received);
@@ -462,9 +461,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override {
         fire(builder_.create_order(cmd, state_->instruments, state_->venue_now()),
@@ -527,8 +524,7 @@ public:
         std::vector<exec::OrderStatusReport> reports;
         reports.reserve(orders->size());
         for (const auto& wire : *orders) {
-            if (const auto report = map_open_order(wire, state_->instruments);
-                report.has_value()) {
+            if (const auto report = map_open_order(wire, state_->instruments); report.has_value()) {
                 reports.push_back(*report);
             }
         }
@@ -635,12 +631,11 @@ private:
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     pull(const std::expected<net::RestRequest, BuildError>& request) {
         if (!request.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(request.error() == BuildError::NotSigned
-                                           ? exec::ErrorClass::AuthFailure
-                                           : exec::ErrorClass::Terminal,
-                                       0,
-                                       to_string(request.error()))};
+            return std::unexpected{exec::VenueError::make(request.error() == BuildError::NotSigned
+                                                              ? exec::ErrorClass::AuthFailure
+                                                              : exec::ErrorClass::Terminal,
+                                                          0,
+                                                          to_string(request.error()))};
         }
         const auto response = await_response(*state_, rest_, *request, 10'000);
         if (!response.has_value()) {
@@ -669,8 +664,7 @@ private:
         if (!request.has_value()) {
             emit(cmd,
                  on_failure,
-                 exec::VenueError::make(
-                     exec::ErrorClass::Terminal, 0, to_string(request.error())));
+                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto captured = cmd;
@@ -691,8 +685,8 @@ private:
         std::vector<OrderCmd> captured{chunk.begin(), chunk.end()};
         return rest_.send(request, [this, captured](net::RestResponse&& r) {
             for (const auto& cmd : captured) {
-                if (const auto refusal = verdict(
-                        r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
+                if (const auto refusal =
+                        verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
                     refusal.has_value()) {
                     emit(cmd, OrderEventType::CancelRejected, *refusal);
                 }
@@ -749,9 +743,7 @@ private:
     // The reason is not optional. `OrderEvent` has no room for text, so every
     // refusal hands the sink the verdict that caused it — otherwise an order
     // that dies here is indistinguishable from one that was never sent.
-    void emit(const OrderCmd& cmd,
-              OrderEventType type,
-              const exec::VenueError& error) noexcept {
+    void emit(const OrderCmd& cmd, OrderEventType type, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
         event.type = type;

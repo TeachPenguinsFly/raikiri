@@ -3,11 +3,11 @@
 // Execution side of a venue adapter.
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
-#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/error.hpp>

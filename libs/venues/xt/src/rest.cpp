@@ -281,12 +281,11 @@ std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(
-    net::HttpMethod method,
-    std::string_view path,
-    std::string_view query,
-    std::string_view body,
-    UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(net::HttpMethod method,
+                                                                            std::string_view path,
+                                                                            std::string_view query,
+                                                                            std::string_view body,
+                                                                            UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -342,12 +341,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_futures(
-    net::HttpMethod method,
-    std::string_view path,
-    std::string_view query,
-    std::string_view body,
-    UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::sign_futures(net::HttpMethod method,
+                                   std::string_view path,
+                                   std::string_view query,
+                                   std::string_view body,
+                                   UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -613,11 +612,8 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
         if (!json.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_futures(net::HttpMethod::Post,
-                            "/future/trade/v1/order/list-open-order",
-                            {},
-                            json.view(),
-                            now);
+        return sign_futures(
+            net::HttpMethod::Post, "/future/trade/v1/order/list-open-order", {}, json.view(), now);
     }
     case MarketType::Spot: {
         // Query parameters go into the digest SORTED BY NAME, which is what

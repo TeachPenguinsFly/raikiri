@@ -96,9 +96,9 @@ AccountId account_from_string(std::string_view name) noexcept {
         std::string_view text;
         MarketType market;
     };
-    static constexpr std::array<Suffix, 3> k_suffixes{{{"-spot", MarketType::Spot},
-                                                       {"-fut", MarketType::Future},
-                                                       {"-opt", MarketType::Option}}};
+
+    static constexpr std::array<Suffix, 3> k_suffixes{
+        {{"-spot", MarketType::Spot}, {"-fut", MarketType::Future}, {"-opt", MarketType::Option}}};
     for (const auto& suffix : k_suffixes) {
         if (name.ends_with(suffix.text)) {
             const auto venue = venue_from_string(name.substr(0, name.size() - suffix.text.size()));

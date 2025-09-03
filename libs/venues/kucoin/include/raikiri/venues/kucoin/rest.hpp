@@ -25,8 +25,8 @@
 namespace raikiri::venues::kucoin {
 
 enum class BuildError : std::uint8_t {
-    UnknownInstrument,  // not in the table: we never loaded it
-    BadQuantity,        // does not render as a whole number of contracts / lots
+    UnknownInstrument, // not in the table: we never loaded it
+    BadQuantity,       // does not render as a whole number of contracts / lots
     BadPrice,
     BadClientOrderId,   // absent, or longer than KuCoin's clientOid field
     UnsupportedMarket,  // options; KuCoin lists none on these APIs
@@ -88,6 +88,7 @@ public:
     Credentials& operator=(const Credentials&) = delete;
 
     [[nodiscard]] net::Signer& signer() noexcept { return signer_; }
+
     [[nodiscard]] const net::Signer& signer() const noexcept { return signer_; }
 
     // Must run AFTER the secret is loaded: the digest is keyed by it.

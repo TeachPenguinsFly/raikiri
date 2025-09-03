@@ -258,7 +258,7 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
 }
 
 std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
-                                                                 FillBuffer& storage) {
+                                                                FillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFill>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -312,8 +312,8 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
     });
 }
 
-std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view body, PositionBuffer& storage) {
+std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
+                                                                        PositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -436,8 +436,8 @@ parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage) {
     });
 }
 
-std::expected<std::span<const WireWsFill>, WireError>
-parse_ws_fills(std::string_view frame, WsFillBuffer& storage) {
+std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string_view frame,
+                                                                     WsFillBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireWsFill>, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {

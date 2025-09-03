@@ -135,8 +135,8 @@ public:
         if (cmd.order_type == OrderType::Limit && config_.max_price_band_bp > 0 &&
             !exposure.reference_price.is_undef() && exposure.reference_price.raw > 0) {
             const auto reference = exposure.reference_price.raw;
-            const auto away = cmd.price.raw > reference ? cmd.price.raw - reference
-                                                        : reference - cmd.price.raw;
+            const auto away =
+                cmd.price.raw > reference ? cmd.price.raw - reference : reference - cmd.price.raw;
             // CROSS-MULTIPLIED, never `reference / 10'000 * bp`.
             //
             // These are TICK COUNTS, and dividing first truncates. An

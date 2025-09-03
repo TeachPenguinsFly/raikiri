@@ -180,8 +180,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             return std::unexpected(root.error());
         }
         std::size_t count = 0;
-        const auto read_one = [&](detail::ondemand::object& obj)
-            -> std::expected<void, WireError> {
+        const auto read_one = [&](detail::ondemand::object& obj) -> std::expected<void, WireError> {
             WireTrade out{};
             const auto symbol = detail::req_str(obj, "s");
             const auto price = detail::req_str(obj, "p");

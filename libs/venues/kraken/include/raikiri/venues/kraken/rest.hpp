@@ -92,8 +92,8 @@ public:
     // `last_fill_time` is a CURSOR, not a floor: the endpoint answers the 100
     // fills BEFORE it, newest first. Empty asks for the newest page; paging
     // further back means echoing the oldest `fillTime` this page carried.
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    fills(std::string_view last_fill_time, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(std::string_view last_fill_time,
+                                                                    UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(UnixNanos now);
 
@@ -109,9 +109,10 @@ private:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     signed_get(std::string_view endpoint, std::string_view query, UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    finish(net::HttpMethod method, std::string_view endpoint, std::string_view post_data,
-           UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> finish(net::HttpMethod method,
+                                                                     std::string_view endpoint,
+                                                                     std::string_view post_data,
+                                                                     UnixNanos now);
 
     // Kraken rejects a nonce at or below the last one this key used, and two
     // orders fired inside one millisecond would otherwise collide.

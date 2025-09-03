@@ -5,10 +5,11 @@
 // performance-only features (core pinning, RT scheduling) degrade to explicit
 // "unsupported" results that callers log and continue past.
 
+#include <sys/types.h>
+
 #include <cstdint>
 #include <expected>
 #include <string>
-#include <sys/types.h>
 #include <system_error>
 
 namespace raikiri::platform {
@@ -19,7 +20,8 @@ namespace raikiri::platform {
 
 // Preallocate a file's blocks: fallocate on Linux, F_PREALLOCATE + ftruncate
 // on macOS. Journals preallocate segments so hot appends never extend a file.
-[[nodiscard]] std::expected<void, std::error_code> preallocate(int fd, std::uint64_t bytes) noexcept;
+[[nodiscard]] std::expected<void, std::error_code> preallocate(int fd,
+                                                               std::uint64_t bytes) noexcept;
 
 // Pin the calling thread to a core. Linux: pthread_setaffinity_np.
 // macOS: returns ENOTSUP (affinity there is a hint the kernel may ignore;

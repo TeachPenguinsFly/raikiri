@@ -127,7 +127,7 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 // Returns nullopt for a closed or flat row rather than a zero position:
 // absent means flat, and a row Bitfinex keeps at amount 0 states nothing.
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bitfinex

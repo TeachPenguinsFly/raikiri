@@ -177,8 +177,8 @@ parse_asset_ctxs(std::string_view body, AssetCtxBuffer& storage);
 // it — l2Book, openOrders, userFills. Using "HYPE/USDC" as a key finds nothing.
 struct WireSpotAsset {
     std::string_view name;
-    std::string_view base;  // base token name, for the local symbol
-    std::int64_t index{0};  // pair index; the ASSET id for orders is 10000 + this
+    std::string_view base; // base token name, for the local symbol
+    std::int64_t index{0}; // pair index; the ASSET id for orders is 10000 + this
     std::int64_t sz_decimals{0};
 };
 
@@ -228,17 +228,17 @@ parse_positions(std::string_view body, PositionBuffer& storage);
 // frontend form: `tif` is the only place "Alo" appears.
 struct WireOpenOrder {
     std::string_view coin;
-    std::string_view price;    // limitPx
-    std::string_view qty;      // sz — REMAINING, not original
-    std::string_view orig_qty; // origSz
-    std::string_view cloid;    // absent entirely on an order placed without one
+    std::string_view price;      // limitPx
+    std::string_view qty;        // sz — REMAINING, not original
+    std::string_view orig_qty;   // origSz
+    std::string_view cloid;      // absent entirely on an order placed without one
     std::string_view order_type; // frontend only: "Limit", "Stop Market", ...
     std::string_view tif;        // frontend only: "Gtc" | "Alo" | "Ioc" | "FrontendMarket"
     std::uint64_t oid{0};
     std::uint64_t ts_ms{0};
-    bool buy{false};           // `side`: "B" bids, "A" asks
-    bool reduce_only{false};   // frontend only
-    bool is_trigger{false};    // frontend only
+    bool buy{false};         // `side`: "B" bids, "A" asks
+    bool reduce_only{false}; // frontend only
+    bool is_trigger{false};  // frontend only
 };
 
 inline constexpr std::size_t k_max_open_orders = 1024;
@@ -278,8 +278,8 @@ struct FillBuffer {
     std::array<WireFill, k_max_fills> fills{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireFill>, WireError>
-parse_fills(std::string_view body, FillBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
+                                                                              FillBuffer& storage);
 
 // {"status":"order","order":{"order":{...},"status":"filled","statusTimestamp":..}}
 // or the bare {"status":"unknownOid"} — VERIFIED live, and the reason `found`

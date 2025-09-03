@@ -84,8 +84,8 @@ TEST(BitmexVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
+    const auto adapter =
+        exec::make_venue({.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bitmex);
     EXPECT_NE(adapter->data, nullptr);
@@ -100,8 +100,8 @@ TEST(BitmexVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Future, MarketType::Option}) {
@@ -128,8 +128,8 @@ TEST(BitmexVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bitmex, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto started = adapter->execution->start();
@@ -980,7 +980,6 @@ TEST(BitmexRest, BuildsTheReadTargets) {
     EXPECT_EQ(stream_path(), "/realtime");
 }
 
-
 // ------------------------------------------------------------- exec ----
 
 // BitMEX's OWN published authentication example secret. The three digests
@@ -1178,8 +1177,8 @@ TEST(BitmexRest, GetsSignThePercentEncodedQueryTheyActuallySend) {
     EXPECT_EQ(builder.last_sign_message(),
               std::string{"GET"} + std::string{open->target} + "1518064236");
 
-    const auto query = builder.query_order(
-        *ExchangeClientOrderId::from("01J9ZQ8V3T4W5X6Y7Z8A9B0C1D"), k_now);
+    const auto query =
+        builder.query_order(*ExchangeClientOrderId::from("01J9ZQ8V3T4W5X6Y7Z8A9B0C1D"), k_now);
     ASSERT_TRUE(query.has_value());
     EXPECT_EQ(query->target,
               "/api/v1/order?filter=%7B%22clOrdID%22%3A%2201J9ZQ8V3T4W5X6Y7Z8A9B0C1D%22%7D"
@@ -1198,8 +1197,7 @@ TEST(BitmexRest, GetsSignThePercentEncodedQueryTheyActuallySend) {
     // A zero floor asks for the newest page and names no window at all.
     const auto newest = builder.fills(UnixNanos{0}, 0, k_now);
     ASSERT_TRUE(newest.has_value());
-    EXPECT_EQ(newest->target,
-              "/api/v1/execution/tradeHistory?count=500&reverse=true&start=0");
+    EXPECT_EQ(newest->target, "/api/v1/execution/tradeHistory?count=500&reverse=true&start=0");
 }
 
 TEST(BitmexRest, ABatchCancelIsOneRequestNamingManyVenueIds) {
@@ -1426,20 +1424,18 @@ TEST(BitmexWs, ThePrivateHandshakeSignsTheSocketsOwnVerbAndPath) {
     Protocol protocol;
     const auto frame = protocol.auth_frame("k-public", 1'518'064'236, "deadbeef");
     ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(frame->text,
-              R"({"op":"authKeyExpires","args":["k-public",1518064236,"deadbeef"]})");
+    EXPECT_EQ(frame->text, R"({"op":"authKeyExpires","args":["k-public",1518064236,"deadbeef"]})");
     EXPECT_FALSE(protocol.auth_frame("", 1'518'064'236, "deadbeef").has_value());
     EXPECT_FALSE(protocol.auth_frame("k", 0, "deadbeef").has_value());
     EXPECT_FALSE(protocol.auth_frame("k", 1'518'064'236, "").has_value());
 
     // The private tables are ACCOUNT-scoped: "order", not "order:XBTUSD".
     // Naming a symbol there loses every other contract's orders.
-    const std::array<std::string_view, 3> tables{k_table_order, k_table_execution,
-                                                 k_table_position};
+    const std::array<std::string_view, 3> tables{
+        k_table_order, k_table_execution, k_table_position};
     const auto subscribe = protocol.private_subscribe_frame(tables);
     ASSERT_TRUE(subscribe.has_value());
-    EXPECT_EQ(subscribe->text,
-              R"({"op":"subscribe","args":["order","execution","position"]})");
+    EXPECT_EQ(subscribe->text, R"({"op":"subscribe","args":["order","execution","position"]})");
     EXPECT_FALSE(protocol.private_subscribe_frame({}).has_value());
 
     // A refused handshake is an error frame, not a silent socket — reading it

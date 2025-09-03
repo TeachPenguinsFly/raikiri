@@ -51,9 +51,9 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             // The login answer must not be read as a subscribe ack: it is the
             // one control frame whose absence means the private socket is
             // connected and deaf.
-            info.kind = *event == "error"     ? EventKind::Error
-                        : *event == "login"   ? EventKind::LoginAck
-                                              : EventKind::SubscribeAck;
+            info.kind = *event == "error"   ? EventKind::Error
+                        : *event == "login" ? EventKind::LoginAck
+                                            : EventKind::SubscribeAck;
             return info;
         }
         auto arg = detail::req_object(*root, "arg");

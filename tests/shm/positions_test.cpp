@@ -11,7 +11,9 @@ constexpr auto k_btc = InstrumentId::make(VenueId::Bybit, MarketType::Perp, Symb
 constexpr std::uint64_t k_pull_ns = 1'000'000'000;
 
 // The channel is 256 KiB of seqlock cells; the tests only need the type.
-std::unique_ptr<PositionTable> fresh_table() { return std::make_unique<PositionTable>(); }
+std::unique_ptr<PositionTable> fresh_table() {
+    return std::make_unique<PositionTable>();
+}
 
 TEST(PositionTable, AnUnwrittenCellSaysNothingRatherThanFlat) {
     const auto table = fresh_table();

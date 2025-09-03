@@ -13,8 +13,10 @@
 namespace raikiri::demo {
 
 inline std::vector<Instrument> sim_instruments() {
-    const auto make_base = [](std::uint32_t symbol, std::string_view local,
-                              std::string_view wire, std::string_view tick,
+    const auto make_base = [](std::uint32_t symbol,
+                              std::string_view local,
+                              std::string_view wire,
+                              std::string_view tick,
                               std::string_view lot) {
         InstrumentBase base{};
         base.id = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{symbol});

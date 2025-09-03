@@ -45,7 +45,6 @@ exec::ErrorClass classify(int status, std::string_view body) noexcept {
     return exec::ErrorClass::Terminal;
 }
 
-
 exec::ErrorClass classify_reason(std::string_view reason) noexcept {
     const auto text = trim(reason);
     if (text.empty()) {

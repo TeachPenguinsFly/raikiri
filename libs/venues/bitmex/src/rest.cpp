@@ -530,13 +530,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
     return sign(net::HttpMethod::Delete, k_path_order, json.view(), now);
 }
 
-std::expected<net::RestRequest, BuildError>
-SignedRequestBuilder::open_orders(std::uint32_t start, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(std::uint32_t start,
+                                                                              UnixNanos now) {
     Appender path{target_};
     path << k_path_order << "?filter=";
     path.encoded(R"({"open":true})");
-    path << "&count=" << static_cast<std::uint64_t>(k_page_size) << "&reverse=true&start="
-         << static_cast<std::uint64_t>(start);
+    path << "&count=" << static_cast<std::uint64_t>(k_page_size)
+         << "&reverse=true&start=" << static_cast<std::uint64_t>(start);
     if (!path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

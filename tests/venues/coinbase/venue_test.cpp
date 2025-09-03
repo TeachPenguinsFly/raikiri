@@ -115,8 +115,8 @@ TEST(CoinbaseVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    const auto adapter =
+        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Coinbase);
     EXPECT_NE(adapter->data, nullptr);
@@ -136,8 +136,8 @@ TEST(CoinbaseVenue, OrderEntryWithoutCredentialsFailsAtTheConfigNotTheVenue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // Three credentials, not two. AuthFailure sends an operator to the config;
@@ -169,8 +169,8 @@ TEST(CoinbaseVenue, PullsThisApiCannotPerformAreRefusedByName) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // A coin balance is not a position, and there is no InstrumentId to report
@@ -193,8 +193,8 @@ TEST(CoinbaseVenue, PerpCatalogueIsRefusedNotEmptied) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     const auto perps = adapter->instruments->fetch_all(MarketType::Perp);
     ASSERT_FALSE(perps.has_value());
@@ -207,16 +207,15 @@ TEST(CoinbaseVenue, MarketsTheCapsRowDeniesAreRefusedAtBuild) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    for (const auto market :
-         {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+    for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
         const auto adapter =
             exec::make_venue({.venue = VenueId::Coinbase, .market = market}, sink, clock);
         ASSERT_FALSE(adapter.has_value()) << to_string(market);
         EXPECT_EQ(adapter.error(), exec::MakeError::UnsupportedMarket) << to_string(market);
     }
-    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot},
-                                 sink, clock)
-                    .has_value());
+    EXPECT_TRUE(
+        exec::make_venue({.venue = VenueId::Coinbase, .market = MarketType::Spot}, sink, clock)
+            .has_value());
 }
 
 // -------------------------------------------------------------- wire ----
@@ -879,7 +878,6 @@ TEST(CoinbaseErrors, StatusIsTheOnlyMachineReadablePartOfAFailure) {
     EXPECT_EQ(classify_http(418), exec::ErrorClass::Terminal);
 }
 
-
 // ------------------------------------------------------ order entry ----
 
 TEST(CoinbaseClientOid, TheUlidBecomesAUuidBecauseAnythingElseIsIgnored) {
@@ -910,9 +908,11 @@ TEST(CoinbaseClientOid, TheUlidBecomesAUuidBecauseAnythingElseIsIgnored) {
     EXPECT_FALSE(client_oid_of(ExchangeClientOrderId{}).has_value());
     EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("too-short")).has_value());
     // 'I', 'L', 'O' and 'U' are not in Crockford's alphabet.
-    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6XIL")).has_value());
+    EXPECT_FALSE(
+        client_oid_of(*ExchangeClientOrderId::from("01K3QW9F2H6M5N8P0R2T4V6XIL")).has_value());
     // A first character above 7 would carry more than 128 bits.
-    EXPECT_FALSE(client_oid_of(*ExchangeClientOrderId::from("Z1K3QW9F2H6M5N8P0R2T4V6X8Z")).has_value());
+    EXPECT_FALSE(
+        client_oid_of(*ExchangeClientOrderId::from("Z1K3QW9F2H6M5N8P0R2T4V6X8Z")).has_value());
 }
 
 TEST(CoinbaseSign, TheSecretIsBase64AndTheHmacKeyIsItsBytes) {
@@ -948,7 +948,7 @@ TEST(CoinbaseSignedRest, CreateOrderSignsTheBodyItActuallySends) {
     cmd.order_type = OrderType::Limit;
     cmd.tif = TimeInForce::Gtc;
     cmd.flags = OrderFlags::PostOnly;
-    cmd.qty = QtyLots::from_raw(50'000'000);   // 0.5 BTC in 1e-8 steps
+    cmd.qty = QtyLots::from_raw(50'000'000);     // 0.5 BTC in 1e-8 steps
     cmd.price = PriceTicks::from_raw(6'350'000); // 63500.00 in 0.01 ticks
 
     const auto request = builder.create_order(cmd, table, UnixNanos{1'787'751'010'667'000'000ULL});
@@ -1026,8 +1026,7 @@ TEST(CoinbaseSignedRest, CancelPrefersTheVenueIdAndNamespacesTheClientOne) {
     cmd.target_exchange_order_id = *ExchangeOrderId::from("a9625b04-fc66-4999-a876-543c3684d702");
     const auto by_id = builder.cancel_order(cmd, table, now);
     ASSERT_TRUE(by_id.has_value());
-    EXPECT_EQ(by_id->target,
-              "/orders/a9625b04-fc66-4999-a876-543c3684d702?product_id=BTC-USD");
+    EXPECT_EQ(by_id->target, "/orders/a9625b04-fc66-4999-a876-543c3684d702?product_id=BTC-USD");
 
     cmd.target_exchange_order_id = {};
     cmd.exchange_client_order_id = {};
@@ -1045,9 +1044,9 @@ TEST(CoinbaseSignedRest, PullsAndRefusalsAreNamedRatherThanImplied) {
     // out reports a live order as absent for as long as the engine holds it.
     EXPECT_EQ(builder.open_orders(MarketType::Spot, now)->target,
               "/orders?status=open&status=pending&limit=1000");
-    EXPECT_EQ(builder.query_order(*ExchangeClientOrderId::from(k_ulid), MarketType::Spot, now)
-                  ->target,
-              "/orders/client:0198efc4-bc51-450b-9458-181689b3751f");
+    EXPECT_EQ(
+        builder.query_order(*ExchangeClientOrderId::from(k_ulid), MarketType::Spot, now)->target,
+        "/orders/client:0198efc4-bc51-450b-9458-181689b3751f");
 
     auto cmd = order_for(table, "BTC-USD");
     cmd.qty = QtyLots::from_raw(50'000'000);
@@ -1065,8 +1064,7 @@ TEST(CoinbaseSignedRest, PullsAndRefusalsAreNamedRatherThanImplied) {
     raw_id.qty = QtyLots::from_raw(50'000'000);
     raw_id.price = PriceTicks::from_raw(6'350'000);
     raw_id.exchange_client_order_id = *ExchangeClientOrderId::from("not-a-ulid");
-    EXPECT_EQ(builder.create_order(raw_id, table, now).error(),
-              BuildError::ClientOrderIdNotAUlid);
+    EXPECT_EQ(builder.create_order(raw_id, table, now).error(), BuildError::ClientOrderIdNotAUlid);
 }
 
 TEST(CoinbaseSignedRest, RefusesToSignWithoutEveryCredential) {
@@ -1075,8 +1073,7 @@ TEST(CoinbaseSignedRest, RefusesToSignWithoutEveryCredential) {
     // The passphrase is a third credential and the one most often left unset;
     // without it every request is 401, which reads like a wrong secret.
     SignedRequestBuilder no_phrase{signer, {}};
-    EXPECT_EQ(no_phrase.open_orders(MarketType::Spot, UnixNanos{1}).error(),
-              BuildError::NotSigned);
+    EXPECT_EQ(no_phrase.open_orders(MarketType::Spot, UnixNanos{1}).error(), BuildError::NotSigned);
 
     const net::Signer bare;
     SignedRequestBuilder no_key{bare, k_passphrase};

@@ -7,8 +7,13 @@
 namespace raikiri::simcore {
 namespace {
 
-[[nodiscard]] constexpr PriceTicks px(std::int64_t v) noexcept { return PriceTicks::from_raw(v); }
-[[nodiscard]] constexpr QtyLots lots(std::int64_t v) noexcept { return QtyLots::from_raw(v); }
+[[nodiscard]] constexpr PriceTicks px(std::int64_t v) noexcept {
+    return PriceTicks::from_raw(v);
+}
+
+[[nodiscard]] constexpr QtyLots lots(std::int64_t v) noexcept {
+    return QtyLots::from_raw(v);
+}
 
 // The sim invariant: after any operation best_bid < best_ask. Asserted here,
 // in tests, not in production code.
@@ -20,8 +25,8 @@ void expect_uncrossed(const Book& book) {
 }
 
 // Rests a GTC limit order and asserts it actually rested.
-void rest(Book& book, std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price,
-          QtyLots qty) {
+void rest(
+    Book& book, std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price, QtyLots qty) {
     const auto r = book.submit_limit(id, owner, side, price, qty, /*post_only=*/false);
     ASSERT_EQ(r.disposition, Disposition::Rested);
     ASSERT_TRUE(r.fills.empty());
@@ -151,13 +156,12 @@ TEST(Book, PostOnlyNonCrossingRests) {
 TEST(Book, IocRemainderExpiresNeverRests) {
     Book book;
     rest(book, 1, 1, Side::Sell, px(101), lots(4));
-    const auto r =
-        book.submit_limit(2, 2, Side::Buy, px(101), lots(10), false, TimeInForce::Ioc);
+    const auto r = book.submit_limit(2, 2, Side::Buy, px(101), lots(10), false, TimeInForce::Ioc);
     ASSERT_EQ(r.fills.size(), 1U);
     EXPECT_EQ(r.fills[0].qty, lots(4));
     EXPECT_EQ(r.disposition, Disposition::Expired);
     EXPECT_EQ(r.remainder, lots(6));
-    EXPECT_FALSE(book.contains(2));        // the remainder did not rest
+    EXPECT_FALSE(book.contains(2));       // the remainder did not rest
     EXPECT_FALSE(book.bbo().has_value()); // both sides now empty
 }
 
@@ -165,8 +169,7 @@ TEST(Book, FokFillsAllOrNothing) {
     Book book;
     rest(book, 1, 1, Side::Sell, px(101), lots(4));
     // Insufficient liquidity: nothing trades at all.
-    const auto fail =
-        book.submit_limit(2, 2, Side::Buy, px(101), lots(5), false, TimeInForce::Fok);
+    const auto fail = book.submit_limit(2, 2, Side::Buy, px(101), lots(5), false, TimeInForce::Fok);
     EXPECT_EQ(fail.disposition, Disposition::Expired);
     EXPECT_TRUE(fail.fills.empty());
     EXPECT_EQ(fail.remainder, lots(5));

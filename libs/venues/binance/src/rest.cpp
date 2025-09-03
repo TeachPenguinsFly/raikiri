@@ -296,8 +296,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
 // states COMMISSION and REALIZED_PNL, which is what makes it the right place to
 // reconcile fees against later. `income` is SIGNED the way the account moved,
 // so it needs no flipping to reach the domain's convention.
-std::expected<net::RestRequest, BuildError>
-RequestBuilder::funding_income(UnixNanos since, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixNanos since,
+                                                                           UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }

@@ -23,7 +23,9 @@ using raikiri::journal::FrameView;
 
 std::string instrument_str(std::uint64_t packed) {
     const raikiri::InstrumentId id{packed};
-    return fmt::format("{}:{}:{}", raikiri::to_string(id.venue()), raikiri::to_string(id.market()),
+    return fmt::format("{}:{}:{}",
+                       raikiri::to_string(id.venue()),
+                       raikiri::to_string(id.market()),
                        id.symbol().raw);
 }
 
@@ -31,56 +33,81 @@ void print_frame(const FrameView& frame) {
     const auto head = fmt::format("#{:<8} t={} ", frame.seq, frame.ts_ns);
     if (frame.schema_id == raikiri::schema::message_id<msgs::BboMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::BboMsg>(frame.payload);
-        fmt::print("{}BBO   {} bid={}x{} ask={}x{}\n", head,
-                   instrument_str(m.instrument().value()), m.bid().value(), m.bidQty().value(),
-                   m.ask().value(), m.askQty().value());
+        fmt::print("{}BBO   {} bid={}x{} ask={}x{}\n",
+                   head,
+                   instrument_str(m.instrument().value()),
+                   m.bid().value(),
+                   m.bidQty().value(),
+                   m.ask().value(),
+                   m.askQty().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::TradeMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::TradeMsg>(frame.payload);
-        fmt::print("{}TRADE {} px={} qty={} aggr={}\n", head,
-                   instrument_str(m.instrument().value()), m.price().value(), m.qty().value(),
+        fmt::print("{}TRADE {} px={} qty={} aggr={}\n",
+                   head,
+                   instrument_str(m.instrument().value()),
+                   m.price().value(),
+                   m.qty().value(),
                    m.aggressor() == raikiri_journal::types::sideEnum::Buy ? "buy" : "sell");
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::OrderEventMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::OrderEventMsg>(frame.payload);
-        fmt::print("{}OEVT  {} type={} coid={:x} px={} qty={} leaves={}\n", head,
+        fmt::print("{}OEVT  {} type={} coid={:x} px={} qty={} leaves={}\n",
+                   head,
                    instrument_str(m.instrument().value()),
                    static_cast<int>(sbepp::to_underlying(m.eventType())),
-                   m.clientOrderIdField().value(), m.price().value(), m.qty().value(),
+                   m.clientOrderIdField().value(),
+                   m.price().value(),
+                   m.qty().value(),
                    m.leavesQty().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::OrderCmdMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::OrderCmdMsg>(frame.payload);
-        fmt::print("{}OCMD  {} kind={} coid={:x} px={} qty={}\n", head,
+        fmt::print("{}OCMD  {} kind={} coid={:x} px={} qty={}\n",
+                   head,
                    instrument_str(m.instrument().value()),
                    static_cast<int>(sbepp::to_underlying(m.kind())),
-                   m.clientOrderIdField().value(), m.price().value(), m.qty().value());
+                   m.clientOrderIdField().value(),
+                   m.price().value(),
+                   m.qty().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::PnlIncrementMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
         // Fixed SBE char fields are NUL- or space-padded; trimming only one of
         // the two leaves the other in the stream and the output stops being text.
         const std::string_view raw{m.symbol().data(), m.symbol().size()};
         const auto end = raw.find_last_not_of(std::string_view{"\0 ", 2});
-        fmt::print("{}PNL   {} kind={} strat={} amount={} settle={}\n", head,
+        fmt::print("{}PNL   {} kind={} strat={} amount={} settle={}\n",
+                   head,
                    end == std::string_view::npos ? std::string_view{} : raw.substr(0, end + 1),
-                   static_cast<int>(sbepp::to_underlying(m.kind())), m.strategyId().value(),
+                   static_cast<int>(sbepp::to_underlying(m.kind())),
+                   m.strategyId().value(),
                    m.amount().value(),
                    static_cast<int>(sbepp::to_underlying(m.settleSide())));
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::FundingMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::FundingMsg>(frame.payload);
-        fmt::print("{}FUND  {} rate={} pred={} next={}\n", head,
-                   instrument_str(m.instrument().value()), m.rate().value(),
-                   m.predictedRate().value(), m.nextFundingTime().value());
+        fmt::print("{}FUND  {} rate={} pred={} next={}\n",
+                   head,
+                   instrument_str(m.instrument().value()),
+                   m.rate().value(),
+                   m.predictedRate().value(),
+                   m.nextFundingTime().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::ConnectivityMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::ConnectivityMsg>(frame.payload);
-        fmt::print("{}CONN  venue={} event={} stream={}\n", head,
+        fmt::print("{}CONN  venue={} event={} stream={}\n",
+                   head,
                    static_cast<int>(sbepp::to_underlying(m.venue())),
-                   static_cast<int>(sbepp::to_underlying(m.event())), m.streamId().value());
+                   static_cast<int>(sbepp::to_underlying(m.event())),
+                   m.streamId().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::LatencySampleMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::LatencySampleMsg>(frame.payload);
-        fmt::print("{}LAT   venue={} metric={} p50={} p99={} p999={} n={}\n", head,
-                   static_cast<int>(sbepp::to_underlying(m.venue())), m.metric().value(),
-                   m.p50Ns().value(), m.p99Ns().value(), m.p999Ns().value(), m.count().value());
+        fmt::print("{}LAT   venue={} metric={} p50={} p99={} p999={} n={}\n",
+                   head,
+                   static_cast<int>(sbepp::to_underlying(m.venue())),
+                   m.metric().value(),
+                   m.p50Ns().value(),
+                   m.p99Ns().value(),
+                   m.p999Ns().value(),
+                   m.count().value());
     } else {
-        fmt::print("{}?     schema_id={} ({} bytes)\n", head, frame.schema_id,
-                   frame.payload.size());
+        fmt::print(
+            "{}?     schema_id={} ({} bytes)\n", head, frame.schema_id, frame.payload.size());
     }
 }
 

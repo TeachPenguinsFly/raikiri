@@ -33,20 +33,23 @@ namespace raikiri::venues::bingx {
 
 // Public market data ------------------------------------------------------
 
-[[nodiscard]] std::optional<Bbo>
-map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, MarketType market,
-        UnixNanos ts_init);
+[[nodiscard]] std::optional<Bbo> map_bbo(const WireBookTicker& wire,
+                                         const exec::InstrumentTable& table,
+                                         MarketType market,
+                                         UnixNanos ts_init);
 
-[[nodiscard]] std::optional<TradeTick>
-map_trade(const WireTrade& wire, const exec::InstrumentTable& table, MarketType market,
-          UnixNanos ts_init);
+[[nodiscard]] std::optional<TradeTick> map_trade(const WireTrade& wire,
+                                                 const exec::InstrumentTable& table,
+                                                 MarketType market,
+                                                 UnixNanos ts_init);
 
 // depth5 is a complete snapshot, so the mapper needs no book state: the newest
 // frame replaces what shm holds. venue_seq stays zero because the channel
 // carries no sequence number to record.
-[[nodiscard]] std::optional<BookSnapshot>
-map_book(const WireDepth& wire, const exec::InstrumentTable& table, MarketType market,
-         UnixNanos ts_init);
+[[nodiscard]] std::optional<BookSnapshot> map_book(const WireDepth& wire,
+                                                   const exec::InstrumentTable& table,
+                                                   MarketType market,
+                                                   UnixNanos ts_init);
 
 // From the premiumIndex poll, not from a stream: BingX publishes no funding
 // channel. Returns nullopt when the response quotes no rate at all — a
@@ -84,7 +87,7 @@ map_order_update(const WireOrderUpdate& wire,
                  const ExchangeClientOrderId& fallback_client_id,
                  UnixNanos ts_init);
 
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::bingx

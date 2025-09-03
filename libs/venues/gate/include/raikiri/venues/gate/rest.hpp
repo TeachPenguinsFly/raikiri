@@ -69,8 +69,8 @@ enum class BuildError : std::uint8_t {
     // BTC_USDT), and an OrderCmd carries base lots. There is no conversion
     // that is not a guess about the fill price, so the order is refused.
     SpotMarketBuyNotExpressible,
-    OptionsUnsupported,       // Gate lists options; this adapter does not trade them
-    DatedFuturesUnsupported,  // Gate's /delivery API is a separate surface
+    OptionsUnsupported,      // Gate lists options; this adapter does not trade them
+    DatedFuturesUnsupported, // Gate's /delivery API is a separate surface
 };
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;

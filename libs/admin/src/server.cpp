@@ -4,7 +4,6 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
-
 #include <memory>
 #include <utility>
 
@@ -51,14 +50,13 @@ private:
         request_ = std::make_unique<http::request_parser<http::string_body>>();
         request_->body_limit(k_max_body_bytes);
         auto self = shared_from_this();
-        http::async_read(stream_, buffer_, *request_,
-                         [self](beast::error_code ec, std::size_t) {
-                             if (ec) {
-                                 self->close();
-                                 return;
-                             }
-                             self->dispatch();
-                         });
+        http::async_read(stream_, buffer_, *request_, [self](beast::error_code ec, std::size_t) {
+            if (ec) {
+                self->close();
+                return;
+            }
+            self->dispatch();
+        });
     }
 
     void dispatch() {
@@ -69,7 +67,8 @@ private:
         const Request req{
             .method = std::string_view{parsed.method_string()},
             .path = target.substr(0, split),
-            .query = split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
+            .query =
+                split == std::string_view::npos ? std::string_view{} : target.substr(split + 1),
             .body = std::string_view{parsed.body()},
             .idempotency_key = idempotency == parsed.end() ? std::string_view{}
                                                            : std::string_view{idempotency->value()},
@@ -103,14 +102,13 @@ private:
 
         auto self = shared_from_this();
         auto held = response_;
-        http::async_write(stream_, *response_,
-                          [self, held](beast::error_code ec, std::size_t) {
-                              if (ec || !held->keep_alive()) {
-                                  self->close();
-                                  return;
-                              }
-                              self->read();
-                          });
+        http::async_write(stream_, *response_, [self, held](beast::error_code ec, std::size_t) {
+            if (ec || !held->keep_alive()) {
+                self->close();
+                return;
+            }
+            self->read();
+        });
     }
 
     void close() {
@@ -201,7 +199,9 @@ void Server::stop() noexcept {
     impl_->ioc.stop();
 }
 
-std::uint16_t Server::port() const noexcept { return impl_->port; }
+std::uint16_t Server::port() const noexcept {
+    return impl_->port;
+}
 
 std::string_view query_param(std::string_view query, std::string_view key) noexcept {
     while (!query.empty()) {

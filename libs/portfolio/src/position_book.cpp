@@ -5,14 +5,14 @@
 namespace raikiri::portfolio {
 
 Position* PositionBook::find(PositionKey key) noexcept {
-    const auto it = std::ranges::find_if(
-        positions_, [key](const Position& p) { return p.key() == key; });
+    const auto it =
+        std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
     return it == positions_.end() ? nullptr : &*it;
 }
 
 const Position* PositionBook::find(PositionKey key) const noexcept {
-    const auto it = std::ranges::find_if(
-        positions_, [key](const Position& p) { return p.key() == key; });
+    const auto it =
+        std::ranges::find_if(positions_, [key](const Position& p) { return p.key() == key; });
     return it == positions_.end() ? nullptr : &*it;
 }
 
@@ -34,8 +34,7 @@ PositionBook::on_fill(const InstrumentBase& base, const OrderEvent& event, QtyLo
     if (!position.has_value()) {
         return std::unexpected{position.error()};
     }
-    return (*position)->apply_fill(base, event.side, delta, event.price, event.fee,
-                                   event.ts_event);
+    return (*position)->apply_fill(base, event.side, delta, event.price, event.fee, event.ts_event);
 }
 
 bool PositionBook::restore(PositionKey key, const Position::Restored& state) {

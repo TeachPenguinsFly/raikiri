@@ -149,8 +149,6 @@ Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
 }
 
-
-
 std::string_view Protocol::last_login_message() const noexcept {
     return {login_msg_.data(), login_msg_len_};
 }

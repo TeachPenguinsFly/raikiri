@@ -33,19 +33,22 @@
 
 #include <fmt/format.h>
 
+#include <unistd.h>
+
 #include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
-#include <unistd.h>
 
 namespace {
 
 std::atomic<bool> g_stop{false};
 
-void on_signal(int) { g_stop.store(true, std::memory_order_relaxed); }
+void on_signal(int) {
+    g_stop.store(true, std::memory_order_relaxed);
+}
 
 } // namespace
 
@@ -114,9 +117,13 @@ int main(int argc, char** argv) {
     // doing either — two would mint colliding ids.
     admin::ManualDesk desk{registry};
 
-    admin::Server server{address, port,
+    admin::Server server{address,
+                         port,
                          admin::make_router(
-                             registry, history.get(), &desk, [&clock] { return clock.mono(); },
+                             registry,
+                             history.get(),
+                             &desk,
+                             [&clock] { return clock.mono(); },
                              [&clock] { return clock.wall(); })};
     if (!server.start()) {
         fmt::print(stderr, "admind: cannot bind {}:{}\n", address, port);

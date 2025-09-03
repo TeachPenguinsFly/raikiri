@@ -132,9 +132,7 @@ public:
     // Resolves the OMS's own id without any local bookkeeping: the ULID went
     // out as the label and comes back as one.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    order_state_by_label(const ExchangeClientOrderId& id,
-                         std::string_view currency,
-                         UnixNanos now);
+    order_state_by_label(const ExchangeClientOrderId& id, std::string_view currency, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     user_trades(MarketType market, std::string_view currency, UnixNanos since, UnixNanos now);

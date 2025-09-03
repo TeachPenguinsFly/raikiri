@@ -820,8 +820,8 @@ private:
         // Clamped, not refused: a client asking for two hundred levels wants
         // the deepest book there is, and the deepest book there is is what the
         // snapshot holds.
-        feed.levels = std::min<std::size_t>(message.levels.value_or(k_default_levels),
-                                            k_book_levels);
+        feed.levels =
+            std::min<std::size_t>(message.levels.value_or(k_default_levels), k_book_levels);
         std::vector<std::string> unknown;
         for (const auto id : ids) {
             const auto target = resolve(gateways, id);

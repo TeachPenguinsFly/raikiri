@@ -115,7 +115,7 @@ struct WireTrade {
 };
 
 [[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
-                                                             MarketType market);
+                                                              MarketType market);
 
 struct WireMarkPrice {
     std::string_view symbol;
@@ -311,8 +311,7 @@ struct FuturesBalanceBuffer {
 parse_futures_orders(std::string_view body, FuturesOrderBuffer& storage);
 
 // `data` on the socket push, `result` on the single-order REST read.
-[[nodiscard]] std::expected<WireFuturesOrder, WireError>
-parse_futures_order(std::string_view body);
+[[nodiscard]] std::expected<WireFuturesOrder, WireError> parse_futures_order(std::string_view body);
 
 [[nodiscard]] std::expected<std::span<const WireFuturesDeal>, WireError>
 parse_futures_deals(std::string_view body, FuturesDealBuffer& storage);
@@ -332,8 +331,7 @@ parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage);
 // The create/cancel/amend answers, whose `result` is the venue order id — a
 // BARE STRING on futures create and cancel, an object with `orderId` on the
 // futures amend and on every spot write. Empty when the venue named none.
-[[nodiscard]] std::expected<std::string_view, WireError>
-parse_order_ack(std::string_view body);
+[[nodiscard]] std::expected<std::string_view, WireError> parse_order_ack(std::string_view body);
 
 // Spot ------------------------------------------------------------------
 
@@ -405,8 +403,7 @@ struct SpotEnvelope {
 
 // The spot user-stream token, `result.accessToken`, and the futures one,
 // whose `result` is the listen key STRING itself.
-[[nodiscard]] std::expected<std::string_view, WireError>
-parse_spot_ws_token(std::string_view body);
+[[nodiscard]] std::expected<std::string_view, WireError> parse_spot_ws_token(std::string_view body);
 
 [[nodiscard]] std::expected<std::string_view, WireError> parse_listen_key(std::string_view body);
 
@@ -429,8 +426,8 @@ enum class PrivateTopic : std::uint8_t {
 
 struct PrivateFrame {
     PrivateTopic topic{PrivateTopic::Unknown};
-    std::int64_t code{0};  // Ack and Refusal only
-    std::string_view msg;  // Ack and Refusal only
+    std::int64_t code{0}; // Ack and Refusal only
+    std::string_view msg; // Ack and Refusal only
 };
 
 [[nodiscard]] std::expected<PrivateFrame, WireError> parse_private_frame(std::string_view frame);
@@ -443,7 +440,7 @@ struct PrivateFrame {
 // necessarily open to the API.
 struct WireSpotSymbol {
     std::string_view symbol;
-    std::string_view state; // ONLINE | OFFLINE | ...
+    std::string_view state;         // ONLINE | OFFLINE | ...
     std::string_view min_quote_qty; // filters[QUOTE_QTY].min; empty when absent
     std::int64_t price_precision{-1};
     std::int64_t qty_precision{-1};

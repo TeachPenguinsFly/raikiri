@@ -64,8 +64,8 @@ TEST(KrakenVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    const auto adapter =
+        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Kraken);
     EXPECT_NE(adapter->data, nullptr);
@@ -80,8 +80,8 @@ TEST(KrakenVenue, OrderEntryRefusesEveryMarketThisAdapterDoesNotServe) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
@@ -108,8 +108,8 @@ TEST(KrakenVenue, PullsWithoutCredentialsAnswerAuthFailureNotTerminal) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Kraken, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto started = adapter->execution->start();
@@ -808,7 +808,6 @@ TEST(KrakenRest, TargetsMatchTheEndpointsTheFixturesCameFrom) {
     EXPECT_EQ(builder.instruments().method, net::HttpMethod::Get);
 }
 
-
 // ------------------------------------------------------------- sign ----
 
 // 64 bytes 0x00..0x3F, base64-encoded: a Kraken secret is 64 raw bytes, and
@@ -971,8 +970,7 @@ TEST(KrakenRest, CancelSpellsTheTargetOrderIdOneWayAndEditSpellsItTheOther) {
     const auto edit = builder.amend_order(cmd, table, k_now);
     ASSERT_TRUE(edit.has_value());
     EXPECT_EQ(edit->target, "/derivatives/api/v3/editorder");
-    EXPECT_EQ(edit->body,
-              "orderId=cb4e34f6-4eb3-4d4b-9724-4c3035b99d47&size=1&limitPrice=9400");
+    EXPECT_EQ(edit->body, "orderId=cb4e34f6-4eb3-4d4b-9724-4c3035b99d47&size=1&limitPrice=9400");
 
     // Neither id: nothing to name, so nothing is sent.
     cmd.target_exchange_order_id = {};
@@ -1014,8 +1012,7 @@ TEST(KrakenRest, GetsCarryTheirParametersInTheQueryAndSignTheSameText) {
     // its fractional width varies frame to frame.
     const auto paged = builder.fills("2020-07-21T12:41:52.790Z", k_now);
     ASSERT_TRUE(paged.has_value());
-    EXPECT_EQ(paged->target,
-              "/derivatives/api/v3/fills?lastFillTime=2020-07-21T12:41:52.790Z");
+    EXPECT_EQ(paged->target, "/derivatives/api/v3/fills?lastFillTime=2020-07-21T12:41:52.790Z");
     EXPECT_TRUE(paged->body.empty());
     EXPECT_EQ(builder.last_sign_message(),
               "lastFillTime=2020-07-21T12:41:52.790Z1690000000003/api/v3/fills");
@@ -1295,8 +1292,8 @@ TEST(KrakenWs, ThePrivateSubscribeCarriesTheSignedChallengeAndNeverAnEmptyOne) {
     ASSERT_TRUE(ask.has_value());
     EXPECT_EQ(ask->text, R"({"event":"challenge","api_key":"k-public"})");
 
-    const auto subscribe = protocol.private_subscribe_frame(
-        k_feed_open_orders, "k-public", challenge->message, "sig");
+    const auto subscribe =
+        protocol.private_subscribe_frame(k_feed_open_orders, "k-public", challenge->message, "sig");
     ASSERT_TRUE(subscribe.has_value());
     EXPECT_EQ(subscribe->text,
               R"({"event":"subscribe","feed":"open_orders","api_key":"k-public",)"

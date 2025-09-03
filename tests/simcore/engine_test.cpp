@@ -1,6 +1,5 @@
-#include <raikiri/simcore/engine.hpp>
-
 #include <raikiri/common/ulid.hpp>
+#include <raikiri/simcore/engine.hpp>
 #include <raikiri/simcore/mdgen.hpp>
 
 #include <gtest/gtest.h>
@@ -15,8 +14,13 @@ namespace {
 constexpr InstrumentId k_inst = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{7});
 constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
 
-[[nodiscard]] constexpr PriceTicks px(std::int64_t v) noexcept { return PriceTicks::from_raw(v); }
-[[nodiscard]] constexpr QtyLots lots(std::int64_t v) noexcept { return QtyLots::from_raw(v); }
+[[nodiscard]] constexpr PriceTicks px(std::int64_t v) noexcept {
+    return PriceTicks::from_raw(v);
+}
+
+[[nodiscard]] constexpr QtyLots lots(std::int64_t v) noexcept {
+    return QtyLots::from_raw(v);
+}
 
 // Deterministic per-seq ULID so the same test input is byte-identical across
 // engines and runs.
@@ -25,7 +29,10 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return gen.next(k_t0);
 }
 
-[[nodiscard]] OrderCmd make_limit(std::uint64_t seq, Side side, PriceTicks price, QtyLots qty,
+[[nodiscard]] OrderCmd make_limit(std::uint64_t seq,
+                                  Side side,
+                                  PriceTicks price,
+                                  QtyLots qty,
                                   TimeInForce tif = TimeInForce::Gtc,
                                   OrderFlags flags = OrderFlags::None) {
     OrderCmd cmd{};
@@ -56,8 +63,8 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return cmd;
 }
 
-[[nodiscard]] OrderCmd make_cancel(std::uint64_t seq, ExchangeOrderId target,
-                                   ExchangeClientOrderId exch_client = {}) {
+[[nodiscard]] OrderCmd
+make_cancel(std::uint64_t seq, ExchangeOrderId target, ExchangeClientOrderId exch_client = {}) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Cancel;
     cmd.instrument = k_inst;
@@ -68,8 +75,8 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return cmd;
 }
 
-[[nodiscard]] OrderCmd make_amend(std::uint64_t seq, ExchangeOrderId target, PriceTicks price,
-                                  QtyLots qty) {
+[[nodiscard]] OrderCmd
+make_amend(std::uint64_t seq, ExchangeOrderId target, PriceTicks price, QtyLots qty) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Amend;
     cmd.instrument = k_inst;
@@ -81,8 +88,7 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return cmd;
 }
 
-template <typename T>
-void append_pod(std::string& buf, const T& value) {
+template <typename T> void append_pod(std::string& buf, const T& value) {
     static_assert(std::is_trivially_copyable_v<T>);
     buf.append(reinterpret_cast<const char*>(&value), sizeof(T));
 }
@@ -332,8 +338,7 @@ TEST(Engine, AmendToCrossingPriceFills) {
 
 TEST(Engine, AmendUnknownOrderRejected) {
     Engine eng;
-    const auto r = eng.handle(make_amend(1, *ExchangeOrderId::from("999"), px(100), lots(5)),
-                              k_t0);
+    const auto r = eng.handle(make_amend(1, *ExchangeOrderId::from("999"), px(100), lots(5)), k_t0);
     ASSERT_EQ(r.events.size(), 1U);
     EXPECT_EQ(r.events[0].type, OrderEventType::ModifyRejected);
 }
@@ -387,8 +392,8 @@ TEST(Engine, DeterminismSameSeedSameScript) {
                 const auto snap = eng.bbo(k_inst);
                 if (snap.has_value() && !snap->bid.is_undef()) {
                     const auto cr = eng.handle(
-                        make_limit(1000 + static_cast<std::uint64_t>(i), Side::Buy, snap->bid,
-                                   lots(2)),
+                        make_limit(
+                            1000 + static_cast<std::uint64_t>(i), Side::Buy, snap->bid, lots(2)),
                         now);
                     serialize(cr, blob);
                 }

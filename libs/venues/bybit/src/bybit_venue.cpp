@@ -424,7 +424,8 @@ public:
              in_flight_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        "no answer from the venue; outcome unknown"));
             emit_gap(stale);
         }
@@ -457,8 +458,7 @@ public:
     }
 
     [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
-        return state_->budget != nullptr ? state_->budget->costs()
-                                         : exec::RateBudget::Costs{};
+        return state_->budget != nullptr ? state_->budget->costs() : exec::RateBudget::Costs{};
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError>
@@ -466,8 +466,7 @@ public:
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
-        const auto taken =
-            state_->budget->take(bucket, cost, state_->clock->mono(), cls);
+        const auto taken = state_->budget->take(bucket, cost, state_->clock->mono(), cls);
         if (taken.has_value()) {
             return {};
         }
@@ -584,8 +583,8 @@ public:
             // NOT an empty account. A body we cannot read says nothing about
             // what is held, and answering with an empty vector here is what
             // turns "could not tell" into "is flat".
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "unreadable position list")};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position list")};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
@@ -694,8 +693,7 @@ private:
         // the slice held back for order entry. Refused BEFORE the socket, so
         // the venue never has to say no — its refusals cost more than ours,
         // because a 429 on the order path can arrive after the matcher saw it.
-        if (const auto allowed = spend(bucket, cost, exec::RateClass::Poll);
-            !allowed.has_value()) {
+        if (const auto allowed = spend(bucket, cost, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
         auto response = await_response(*state_, rest_, request);

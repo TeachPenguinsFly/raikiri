@@ -69,8 +69,8 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 // The venue's avg_entry is kept when it happens to land on a tick and left
 // undefined otherwise: an average of fills has no reason to be a multiple of
 // the price step, and the quantity is the part reconciliation acts on.
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 // The futures wallet, as one balance row. Nullopt when KuCoin named no
 // currency: a balance without an asset is a number with no unit.

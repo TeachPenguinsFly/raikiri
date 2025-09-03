@@ -123,8 +123,8 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
         return false;
     }
     for (const char c : id) {
-        const bool alnum = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
-                           (c >= 'a' && c <= 'z');
+        const bool alnum =
+            (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
         if (!alnum && c != '_' && c != '-') {
             return false;
         }
@@ -310,8 +310,8 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
             .str("type", type_text(cmd.order_type))
             .decimal("size", base.lots_to_qty(cmd.qty));
         if (cmd.order_type == OrderType::Limit) {
-            json.decimal("price", base.ticks_to_price(cmd.price)).str("timeInForce",
-                                                                      tif_text(cmd.tif));
+            json.decimal("price", base.ticks_to_price(cmd.price))
+                .str("timeInForce", tif_text(cmd.tif));
         }
         if (post_only) {
             json.boolean("postOnly", true);
@@ -336,8 +336,8 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
             .str("type", type_text(cmd.order_type))
             .num("size", contracts.raw / k_e9);
         if (cmd.order_type == OrderType::Limit) {
-            json.decimal("price", base.ticks_to_price(cmd.price)).str("timeInForce",
-                                                                      tif_text(cmd.tif));
+            json.decimal("price", base.ticks_to_price(cmd.price))
+                .str("timeInForce", tif_text(cmd.tif));
         }
         if (post_only) {
             json.boolean("postOnly", true);
@@ -491,7 +491,7 @@ OrderRequestBuilder::open_orders(MarketType market, std::string_view symbol, Uni
 }
 
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::active_symbols(MarketType market,
-                                                                                 UnixNanos now) {
+                                                                                UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
         return sign(net::HttpMethod::Get, "/api/v1/hf/orders/active/symbols", {}, now);

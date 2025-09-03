@@ -1,12 +1,12 @@
 #include <raikiri/shm/segment.hpp>
-
 #include <raikiri/shm/spsc_ring.hpp>
 
 #include <gtest/gtest.h>
 
-#include <string>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <string>
 
 namespace raikiri::shm {
 namespace {

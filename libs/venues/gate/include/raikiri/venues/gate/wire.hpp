@@ -30,8 +30,8 @@ enum class EventKind : std::uint8_t {
     Ticker,       // futures.tickers — carries funding rate AND mark price
     BookUpdate,   // futures.order_book_update — depth deltas, needs a seed
     BookSnapshot, // spot.order_book — a complete book, no chain to keep
-    OrderUpdate, // futures.orders / spot.orders — private
-    UserTrade,   // futures.usertrades / spot.usertrades — private
+    OrderUpdate,  // futures.orders / spot.orders — private
+    UserTrade,    // futures.usertrades / spot.usertrades — private
     SubscribeAck,
     Error,
     Pong,
@@ -153,8 +153,8 @@ struct WireBookUpdate {
 // spot.order_book: a whole book, not a delta. Reported through the same type
 // with both ids set to `lastUpdateId`, because nothing downstream chains it —
 // the point of the snapshot channel is that there is no chain to break.
-[[nodiscard]] std::expected<WireBookUpdate, WireError>
-parse_book_snapshot(std::string_view frame, LevelBuffer& storage);
+[[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
+                                                                           LevelBuffer& storage);
 
 // From GET /futures/{settle}/order_book, and only usable as a seed when that
 // request carried `with_id=true`: without it the body has no `id`, and levels
@@ -256,10 +256,10 @@ enum class WireOrderState : std::uint8_t {
 // into a negative quantity halfway down the mapper.
 struct WireOrder {
     std::string_view contract;
-    std::string_view order_id;   // `id`, venue-minted
-    std::string_view text;       // our "t-<ulid>" comes back here
+    std::string_view order_id; // `id`, venue-minted
+    std::string_view text;     // our "t-<ulid>" comes back here
     std::string_view price;
-    std::string_view amount;     // futures `size`, spot `amount`
+    std::string_view amount; // futures `size`, spot `amount`
     std::string_view left;
     std::string_view fill_price; // AVERAGE over the order, not this fill
     std::string_view tif;        // gtc, ioc, poc, fok
@@ -331,7 +331,7 @@ parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketTyp
 parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market);
 
 [[nodiscard]] std::expected<WireOrder, WireError> parse_rest_order(std::string_view body,
-                                                                    MarketType market);
+                                                                   MarketType market);
 
 // GET /spot/open_orders answers with one row PER CURRENCY PAIR, each holding
 // its own `orders` array. Reading it as a flat order list yields nothing at

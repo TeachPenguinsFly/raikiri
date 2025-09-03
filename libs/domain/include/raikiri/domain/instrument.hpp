@@ -48,11 +48,11 @@ enum class ContractKind : std::uint8_t {
 
 struct InstrumentBase {
     InstrumentId id{};
-    SymbolText local_symbol{};    // canonical, venue-neutral: "BTC/USDT"
-    SymbolText exchange_symbol{}; // venue wire form: "BTCUSDT"
+    SymbolText local_symbol{};                // canonical, venue-neutral: "BTC/USDT"
+    SymbolText exchange_symbol{};             // venue wire form: "BTCUSDT"
     ContractKind kind{ContractKind::Unknown}; // rides padding; see the asserts below
     FixedE9 tick_size{};                      // price step, decimal e9
-    FixedE9 lot_size{};           // qty step, decimal e9
+    FixedE9 lot_size{};                       // qty step, decimal e9
     FixedE9 min_notional{};
     FixedE9 contract_value{}; // units per contract; `kind` says WHICH units
     FixedE9 maker_fee{};

@@ -23,7 +23,7 @@
 namespace raikiri::exec {
 
 enum class TableError : std::uint8_t {
-    DuplicateSymbol, // same symbol AND market already loaded
+    DuplicateSymbol,   // same symbol AND market already loaded
     InvalidInstrument, // failed domain validation (zero tick/lot, empty symbol)
     Full,              // more instruments than SymbolId space allows in practice
 };

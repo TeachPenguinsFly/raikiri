@@ -22,8 +22,8 @@
 #include <raikiri/common/platform.hpp>
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/secret.hpp>
-#include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/config/settings.hpp>
+#include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -51,12 +51,12 @@
 
 #include <algorithm>
 #include <atomic>
-#include <thread>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -91,9 +91,7 @@ budget_table(const raikiri::config::VenueRateSettings& rate) {
     using raikiri::exec::RateBucket;
     const auto to_bucket = [](const raikiri::config::RateBucketSettings& b) {
         return raikiri::exec::RateBudget::BucketConfig{
-            .capacity = b.capacity,
-            .window_ns = b.window_ms * 1'000'000ULL,
-            .reserve = b.reserve};
+            .capacity = b.capacity, .window_ns = b.window_ms * 1'000'000ULL, .reserve = b.reserve};
     };
     raikiri::exec::RateBudget::Table table{};
     table[static_cast<std::size_t>(RateBucket::Shared)] = to_bucket(rate.shared);
@@ -202,9 +200,9 @@ public:
         event.leaves_qty = raikiri::QtyLots::from_raw(0);
         event.ts_event = cmd.ts_created;
         event.ts_init = cmd.ts_created;
-        on_order_error(cmd.client_order_id,
-                       raikiri::exec::VenueError::make(
-                           raikiri::exec::ErrorClass::Terminal, 0, why));
+        on_order_error(
+            cmd.client_order_id,
+            raikiri::exec::VenueError::make(raikiri::exec::ErrorClass::Terminal, 0, why));
         on_order_event(event);
     }
 
@@ -322,9 +320,13 @@ constexpr int k_recon_interval_slices = 300; // 300 x 100 ms
 // event stream from a second thread.
 struct NullSink final : raikiri::exec::GatewaySink {
     void on_bbo(const raikiri::Bbo&) noexcept override {}
+
     void on_trade(const raikiri::TradeTick&) noexcept override {}
+
     void on_funding(const raikiri::FundingUpdate&) noexcept override {}
+
     void on_order_event(const raikiri::OrderEvent&) noexcept override {}
+
     void on_connectivity(const raikiri::exec::ConnEvent&) noexcept override {}
 };
 
@@ -728,9 +730,7 @@ int main(int argc, char** argv) {
     } else {
         // Said out loud rather than swallowed: running unlimited because a file
         // failed to parse is a different fact from running unlimited on purpose.
-        fmt::print(stderr,
-                   "gatewayd: {} — running unlimited\n",
-                   settings.error());
+        fmt::print(stderr, "gatewayd: {} — running unlimited\n", settings.error());
     }
 
     auto adapter = exec::make_venue({.venue = venue,
@@ -943,10 +943,8 @@ int main(int argc, char** argv) {
                     // seconds apart.
                     publish_balances(
                         *poller_adapter, market, *channels_ptr->balances, clock.wall());
-                    publish_funding_charges(*poller_adapter,
-                                            market,
-                                            *channels_ptr->funding_charges,
-                                            funding_cursor);
+                    publish_funding_charges(
+                        *poller_adapter, market, *channels_ptr->funding_charges, funding_cursor);
                     // Woken in slices so a shutdown does not wait out the
                     // whole interval.
                     for (int i = 0;

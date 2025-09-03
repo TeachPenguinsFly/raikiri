@@ -7,9 +7,10 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+
 #include <cstdlib>
 #include <string>
-#include <unistd.h>
 
 namespace raikiri::persist {
 namespace {
@@ -215,8 +216,8 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     }
 
     const auto run_once = [&] {
-        auto reader = journal::JournalReader::open_after(dir, "journal",
-                                                         sink.load_cursor("test-journal"));
+        auto reader =
+            journal::JournalReader::open_after(dir, "journal", sink.load_cursor("test-journal"));
         EXPECT_TRUE(reader.has_value());
         RowBatch batch;
         journal::FrameView frame{};
@@ -242,6 +243,7 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
 }
 
 } // namespace
+
 TEST(Mapper, PositionRowsCarryCostRatherThanAnAverage) {
     // An average is cost over size and can be recomputed whenever it is asked
     // for. Storing it instead would fix it to the size it was computed at, and

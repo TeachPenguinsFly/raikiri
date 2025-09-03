@@ -26,12 +26,12 @@ namespace raikiri::admin {
 enum class DeskError : std::uint8_t {
     NoSuchInstrument,
     NoSuchOrder,
-    GatewayGone,  // the instrument is listed but its gateway is not attached
-    BadPrice,     // unparseable, or not a multiple of the tick
-    BadQty,       // unparseable, or not a multiple of the lot
-    PriceOnMarket,// a market order carrying a price means two things
-    MissingPrice, // a limit order without one means none
-    RingFull,     // strategyd is not draining
+    GatewayGone,   // the instrument is listed but its gateway is not attached
+    BadPrice,      // unparseable, or not a multiple of the tick
+    BadQty,        // unparseable, or not a multiple of the lot
+    PriceOnMarket, // a market order carrying a price means two things
+    MissingPrice,  // a limit order without one means none
+    RingFull,      // strategyd is not draining
 };
 
 [[nodiscard]] std::string_view describe(DeskError error) noexcept;
@@ -53,9 +53,8 @@ public:
     // Mints an id, writes the intent, and answers with the id the caller will
     // see the order under. `key` makes a retry idempotent: the same key
     // returns the same id and writes nothing a second time.
-    [[nodiscard]] std::expected<ClientOrderId, DeskError> place(const DeskOrder& order,
-                                                                std::string_view key,
-                                                                UnixNanos now);
+    [[nodiscard]] std::expected<ClientOrderId, DeskError>
+    place(const DeskOrder& order, std::string_view key, UnixNanos now);
 
     // Queues a cancel. The desk only cancels ITS OWN orders — an id belonging
     // to a strategy is refused here, because a person reaching into a

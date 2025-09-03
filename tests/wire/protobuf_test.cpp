@@ -36,7 +36,10 @@ std::string number(std::uint32_t field, std::uint64_t value) {
 
 TEST(Protobuf, ReadsTheThreeWireTypesTheStreamsUse) {
     const auto message = bytes(1, "BTCUSDT") + number(6, 1'787'837'770'652ULL) +
-                         bytes(315, std::string{"\x0a\x02" "hi", 4});
+                         bytes(315,
+                               std::string{"\x0a\x02"
+                                           "hi",
+                                           4});
 
     Reader reader{message};
     auto first = reader.next();

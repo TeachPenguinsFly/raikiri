@@ -2,10 +2,10 @@
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/server.hpp>
 
-#include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <glaze/glaze.hpp>
 
 namespace raikiri::admin {
 namespace {

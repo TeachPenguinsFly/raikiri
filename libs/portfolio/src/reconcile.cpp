@@ -41,8 +41,8 @@ ReconResult reconcile_position(bool venue_answered,
         return out;
     }
     out.verdict = ReconVerdict::Break;
-    out.detail = local.raw == 0 ? "venue holds a position we do not know about"
-                                : "quantities differ";
+    out.detail =
+        local.raw == 0 ? "venue holds a position we do not know about" : "quantities differ";
     return out;
 }
 

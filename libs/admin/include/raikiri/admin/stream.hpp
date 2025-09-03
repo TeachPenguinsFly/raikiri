@@ -136,9 +136,8 @@ private:
 // `levels` caps each side. Clamped to what the snapshot actually holds, so a
 // client asking for more than the venue sent gets what the venue sent rather
 // than a ladder padded with the previous snapshot's tail.
-[[nodiscard]] Book book_of(const BookSnapshot& snapshot,
-                           const InstrumentBase& base,
-                           std::size_t levels);
+[[nodiscard]] Book
+book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels);
 
 // What a book subscription sends when the client did not say. Twenty-five is
 // what a depth visualiser draws; asking for the hundred the snapshot can hold

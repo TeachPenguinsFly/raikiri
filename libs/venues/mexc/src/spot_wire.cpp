@@ -1,5 +1,4 @@
 #include <raikiri/venues/mexc/spot_wire.hpp>
-
 #include <raikiri/wire/protobuf.hpp>
 
 namespace raikiri::venues::mexc {
@@ -41,9 +40,8 @@ std::expected<WireLevel, WireError> read_level(std::string_view encoded) {
     return WireLevel{.price = *price, .qty = *qty};
 }
 
-std::expected<std::size_t, WireError> read_side(std::string_view payload,
-                                                std::uint32_t number,
-                                                std::span<WireLevel> into) {
+std::expected<std::size_t, WireError>
+read_side(std::string_view payload, std::uint32_t number, std::span<WireLevel> into) {
     std::size_t count = 0;
     pb::Reader reader{payload};
     while (const auto field = reader.next()) {
@@ -139,10 +137,10 @@ parse_stream_trades(std::string_view payload, StreamTradeBuffer& storage) {
             return std::unexpected(WireError::MissingField);
         }
         storage.trades[count] = StreamTrade{.trade_id = id.value_or(std::string_view{}),
-                                          .price = *price,
-                                          .qty = *qty,
-                                          .aggressor_bought = *trade_type == 1,
-                                          .ts_ms = *ts};
+                                            .price = *price,
+                                            .qty = *qty,
+                                            .aggressor_bought = *trade_type == 1,
+                                            .ts_ms = *ts};
         ++count;
     }
     if (count == 0) {
@@ -152,7 +150,7 @@ parse_stream_trades(std::string_view payload, StreamTradeBuffer& storage) {
 }
 
 std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload,
-                                                   LevelBuffer& storage) {
+                                                       LevelBuffer& storage) {
     const auto asks = read_side(payload, 1, storage.asks);
     if (!asks.has_value()) {
         return std::unexpected(asks.error());

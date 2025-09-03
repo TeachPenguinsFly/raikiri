@@ -35,8 +35,8 @@ enum class WireType : std::uint8_t {
 struct Field {
     std::uint32_t number{0};
     WireType type{WireType::Varint};
-    std::uint64_t varint{0};      // Varint, Fixed64 and Fixed32 land here
-    std::string_view bytes;       // Bytes only; a view INTO the caller's buffer
+    std::uint64_t varint{0}; // Varint, Fixed64 and Fixed32 land here
+    std::string_view bytes;  // Bytes only; a view INTO the caller's buffer
 };
 
 // Forward-only cursor over one message. `next` returns nullopt at the end and

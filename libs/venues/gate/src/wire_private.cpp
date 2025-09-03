@@ -6,9 +6,9 @@
 // happens here so the mapper sees one shape, and the two readers stay apart so
 // neither one's quirks leak into the other.
 
-#include "wire_detail.hpp"
-
 #include <cstdlib>
+
+#include "wire_detail.hpp"
 
 namespace raikiri::venues::gate {
 
@@ -62,7 +62,8 @@ struct Signed {
     return 0;
 }
 
-[[nodiscard]] WireOrderState terminal_state(std::string_view finish_as, bool left_is_zero) noexcept {
+[[nodiscard]] WireOrderState terminal_state(std::string_view finish_as,
+                                            bool left_is_zero) noexcept {
     if (finish_as == "filled") {
         return WireOrderState::Filled;
     }
@@ -168,8 +169,10 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireOrd
     out.sell = size.negative;
 
     out.ts_ms = timestamp_ms(obj);
-    out.state = futures_state(
-        text_field(obj, "status"), text_field(obj, "finish_as"), is_zero_qty(out.left), out.accepted);
+    out.state = futures_state(text_field(obj, "status"),
+                              text_field(obj, "finish_as"),
+                              is_zero_qty(out.left),
+                              out.accepted);
     return {};
 }
 
@@ -204,7 +207,8 @@ std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireOrder&
     return {};
 }
 
-std::expected<void, WireError> read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
+std::expected<void, WireError>
+read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
     switch (market) {
     case MarketType::Perp:
         return read_futures_order(obj, out);
@@ -260,9 +264,8 @@ read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
 // Walks an array of objects into caller storage. `open` decides whether the
 // array is the document root (REST) or hangs off `result` (websocket).
 template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError> read_array(ondemand::array items,
-                                                            std::span<Entry> storage,
-                                                            Read&& read) {
+std::expected<std::span<const Entry>, WireError>
+read_array(ondemand::array items, std::span<Entry> storage, Read&& read) {
     std::size_t count = 0;
     for (auto item : items) {
         if (count == storage.size()) {
@@ -348,8 +351,8 @@ std::expected<WireOrder, WireError> parse_rest_order(std::string_view body, Mark
     });
 }
 
-std::expected<std::span<const WireOrder>, WireError>
-parse_spot_open_orders(std::string_view body, OrderBuffer& storage) {
+std::expected<std::span<const WireOrder>, WireError> parse_spot_open_orders(std::string_view body,
+                                                                            OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         auto root = session().open_array(body);
         if (!root.has_value()) {
@@ -407,8 +410,9 @@ parse_account_book(std::string_view body, AccountBookBuffer& storage) {
             return std::unexpected(root.error());
         }
         return read_array<WireAccountBookRow>(
-            *root, storage.rows, [](ondemand::object& obj, WireAccountBookRow& out)
-                                     -> std::expected<void, WireError> {
+            *root,
+            storage.rows,
+            [](ondemand::object& obj, WireAccountBookRow& out) -> std::expected<void, WireError> {
                 out.contract = field(obj, "contract");
                 out.type = field(obj, "type");
                 out.change = field(obj, "change");
@@ -432,8 +436,9 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             return std::unexpected(root.error());
         }
         return read_array<WirePosition>(
-            *root, storage.positions, [](ondemand::object& obj, WirePosition& out)
-                                          -> std::expected<void, WireError> {
+            *root,
+            storage.positions,
+            [](ondemand::object& obj, WirePosition& out) -> std::expected<void, WireError> {
                 const auto contract = detail::req_str(obj, "contract");
                 if (!contract.has_value()) {
                     return std::unexpected{contract.error()};
@@ -492,8 +497,9 @@ parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage) {
             return std::unexpected(root.error());
         }
         return read_array<WireCurrencyPair>(
-            *root, storage.pairs, [](ondemand::object& obj, WireCurrencyPair& out)
-                                      -> std::expected<void, WireError> {
+            *root,
+            storage.pairs,
+            [](ondemand::object& obj, WireCurrencyPair& out) -> std::expected<void, WireError> {
                 const auto id = detail::req_str(obj, "id");
                 if (!id.has_value()) {
                     return std::unexpected{id.error()};
@@ -502,7 +508,8 @@ parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage) {
                 out.trade_status = text_field(obj, "trade_status");
                 out.min_base_amount = field(obj, "min_base_amount");
                 out.min_quote_amount = field(obj, "min_quote_amount");
-                out.precision = static_cast<std::uint32_t>(detail::whole_u64(field(obj, "precision")));
+                out.precision =
+                    static_cast<std::uint32_t>(detail::whole_u64(field(obj, "precision")));
                 out.amount_precision =
                     static_cast<std::uint32_t>(detail::whole_u64(field(obj, "amount_precision")));
                 return {};

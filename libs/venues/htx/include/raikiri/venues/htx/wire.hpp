@@ -21,14 +21,14 @@ using WireError = wire::Error;
 
 // Resolved once per frame, so downstream dispatch is an integer compare.
 enum class EventKind : std::uint8_t {
-    Bbo,        // market.{code}.bbo
-    Trade,      // market.{code}.trade.detail
-    Depth,      // market.{code}.depth.step0
-    Funding,    // op:notify carrying public.{code}.funding_rate
-    MarketPing, // {"ping":<ms>}
-    NotifyPing, // {"op":"ping","ts":"<ms>"}
-    SpotPing,   // {"action":"ping","data":{"ts":<ms>}} — the spot v2 dialect
-    AuthReply,  // the answer to a signed handshake on either private socket
+    Bbo,             // market.{code}.bbo
+    Trade,           // market.{code}.trade.detail
+    Depth,           // market.{code}.depth.step0
+    Funding,         // op:notify carrying public.{code}.funding_rate
+    MarketPing,      // {"ping":<ms>}
+    NotifyPing,      // {"op":"ping","ts":"<ms>"}
+    SpotPing,        // {"action":"ping","data":{"ts":<ms>}} — the spot v2 dialect
+    AuthReply,       // the answer to a signed handshake on either private socket
     PrivateOrder,    // orders_cross.{code} / orders#{symbol}
     PrivateMatch,    // trade.clearing#{symbol}#0; the swap folds fills into orders
     PrivatePosition, // positions_cross.{code}
@@ -347,8 +347,7 @@ parse_cancel_outcome(std::string_view body, MarketType market);
 
 // {"ch":"trade.clearing#btcusdt#0","data":{...}} — the only spot frame that
 // carries transactFee.
-[[nodiscard]] std::expected<WireUserTrade, WireError>
-parse_spot_trade_push(std::string_view frame);
+[[nodiscard]] std::expected<WireUserTrade, WireError> parse_spot_trade_push(std::string_view frame);
 
 // The swap socket answers {"op":"auth","err-code":0,...}; the spot v2 socket
 // answers {"action":"req","ch":"auth","code":200,...}. Both reduce to this.

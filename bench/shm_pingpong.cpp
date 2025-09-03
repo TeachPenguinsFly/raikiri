@@ -14,13 +14,14 @@
 #include <raikiri/shm/segment.hpp>
 #include <raikiri/shm/spsc_ring.hpp>
 
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -81,7 +82,9 @@ void report(std::vector<std::uint64_t>& rtt_ns) {
                 static_cast<unsigned long long>(rtt_ns.size()));
     std::printf("  %-8s %10s %10s\n", "", "RTT", "one-way");
     const auto row = [&](const char* name, std::uint64_t v) {
-        std::printf("  %-8s %8llu ns %7llu ns\n", name, static_cast<unsigned long long>(v),
+        std::printf("  %-8s %8llu ns %7llu ns\n",
+                    name,
+                    static_cast<unsigned long long>(v),
                     static_cast<unsigned long long>(v / 2));
     };
     row("p50", at(0.50));

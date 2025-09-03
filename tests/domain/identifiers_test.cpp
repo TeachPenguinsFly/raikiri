@@ -42,8 +42,8 @@ TEST(AccountId, PerpKeepsThePlainVenueName) {
 TEST(AccountId, ParsesBackToWhatItFormatted) {
     char buf[16];
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
-        for (const auto market : {MarketType::Perp, MarketType::Spot, MarketType::Future,
-                                  MarketType::Option}) {
+        for (const auto market :
+             {MarketType::Perp, MarketType::Spot, MarketType::Future, MarketType::Option}) {
             const AccountId account{static_cast<VenueId>(v), market};
             const auto text = format_account(account, buf, sizeof buf);
             EXPECT_EQ(account_from_string(text), account) << text;

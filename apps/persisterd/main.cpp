@@ -142,7 +142,8 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (result == raikiri::journal::ReadResult::Corrupt) {
-                fmt::print(stderr, "persisterd: CORRUPT frame after seq {} — stopping\n",
+                fmt::print(stderr,
+                           "persisterd: CORRUPT frame after seq {} — stopping\n",
                            reader->last_seq());
                 flush();
                 return 3;
@@ -159,7 +160,8 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         flush();
-        fmt::print("persisterd: done, {} rows committed, cursor at {}\n", committed_rows,
+        fmt::print("persisterd: done, {} rows committed, cursor at {}\n",
+                   committed_rows,
                    once && reader.has_value() ? reader->last_seq() : 0);
     } catch (const std::exception& e) {
         fmt::print(stderr, "persisterd: fatal: {}\n", e.what());

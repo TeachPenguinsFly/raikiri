@@ -71,8 +71,8 @@ TEST(HyperliquidVenue, RegistersAndBuilds) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    const auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    const auto adapter =
+        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Hyperliquid);
     EXPECT_NE(adapter->data, nullptr);
@@ -86,8 +86,8 @@ TEST(HyperliquidVenue, OrderEntryWithoutAKeyRefusesThroughTheSink) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -123,8 +123,8 @@ TEST(HyperliquidVenue, ReconciliationPullsRefuseRatherThanReportFlat) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto market : {MarketType::Spot, MarketType::Perp}) {
@@ -161,8 +161,8 @@ TEST(HyperliquidVenue, UnservedMarketsRefuseBeforeAnythingElseIsConsulted) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Hyperliquid, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     for (const auto& [market, message] :
@@ -694,7 +694,6 @@ TEST(HyperliquidMap, AnUnknownCoinYieldsNoBook) {
     EXPECT_FALSE(map_book(*wire, table, UnixNanos{1}).has_value());
 }
 
-
 // ------------------------------------------------------------ signing ----
 //
 // Hyperliquid signs orders with a secp256k1 key over EIP-712 typed data, not
@@ -806,6 +805,7 @@ TEST(HyperliquidSign, PublishedSignatureVectorsReproduceExactly) {
         std::string_view s;
         std::uint8_t v;
     };
+
     constexpr std::string_view k_dummy = "82a474797065a564756d6d79a36e756dcf000000174876e800";
     constexpr std::string_view k_order =
         "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a3313030a173a3313030a172c2a174"
@@ -820,30 +820,62 @@ TEST(HyperliquidSign, PublishedSignatureVectorsReproduceExactly) {
         "726f7570696e67a26e61";
 
     const std::array<Vector, 8> vectors{
-        Vector{k_dummy, 0, {}, true,
+        Vector{k_dummy,
+               0,
+               {},
+               true,
                "0x53749d5b30552aeb2fca34b530185976545bb22d0b3ce6f62e31be961a59298",
-               "0x755c40ba9bf05223521753995abb2f73ab3229be8ec921f350cb447e384d8ed8", 27},
-        Vector{k_dummy, 0, {}, false,
+               "0x755c40ba9bf05223521753995abb2f73ab3229be8ec921f350cb447e384d8ed8",
+               27},
+        Vector{k_dummy,
+               0,
+               {},
+               false,
                "0x542af61ef1f429707e3c76c5293c80d01f74ef853e34b76efffcb57e574f9510",
-               "0x17b8b32f086e8cdede991f1e2c529f5dd5297cbe8128500e00cbaf766204a613", 28},
-        Vector{k_order, 0, {}, true,
+               "0x17b8b32f086e8cdede991f1e2c529f5dd5297cbe8128500e00cbaf766204a613",
+               28},
+        Vector{k_order,
+               0,
+               {},
+               true,
                "0xd65369825a9df5d80099e513cce430311d7d26ddf477f5b3a33d2806b100d78e",
-               "0x2b54116ff64054968aa237c20ca9ff68000f977c93289157748a3162b6ea940e", 28},
-        Vector{k_order, 0, {}, false,
+               "0x2b54116ff64054968aa237c20ca9ff68000f977c93289157748a3162b6ea940e",
+               28},
+        Vector{k_order,
+               0,
+               {},
+               false,
                "0x82b2ba28e76b3d761093aaded1b1cdad4960b3af30212b343fb2e6cdfa4e3d54",
-               "0x6b53878fc99d26047f4d7e8c90eb98955a109f44209163f52d8dc4278cbbd9f5", 27},
-        Vector{k_order_cloid, 0, {}, true,
+               "0x6b53878fc99d26047f4d7e8c90eb98955a109f44209163f52d8dc4278cbbd9f5",
+               27},
+        Vector{k_order_cloid,
+               0,
+               {},
+               true,
                "0x41ae18e8239a56cacbc5dad94d45d0b747e5da11ad564077fcac71277a946e3",
-               "0x3c61f667e747404fe7eea8f90ab0e76cc12ce60270438b2058324681a00116da", 27},
-        Vector{k_dummy, 0, "0x1719884eb866cb12b2287399b15f7db5e7d775ea", true,
+               "0x3c61f667e747404fe7eea8f90ab0e76cc12ce60270438b2058324681a00116da",
+               27},
+        Vector{k_dummy,
+               0,
+               "0x1719884eb866cb12b2287399b15f7db5e7d775ea",
+               true,
                "0x3c548db75e479f8012acf3000ca3a6b05606bc2ec0c29c50c515066a326239",
-               "0x4d402be7396ce74fbba3795769cda45aec00dc3125a984f2a9f23177b190da2c", 28},
-        Vector{k_trigger, 0, {}, true,
+               "0x4d402be7396ce74fbba3795769cda45aec00dc3125a984f2a9f23177b190da2c",
+               28},
+        Vector{k_trigger,
+               0,
+               {},
+               true,
                "0x98343f2b5ae8e26bb2587daad3863bc70d8792b09af1841b6fdd530a2065a3f9",
-               "0x6b5bb6bb0633b710aa22b721dd9dee6d083646a5f8e581a20b545be6c1feb405", 27},
-        Vector{k_trigger, 0, {}, false,
+               "0x6b5bb6bb0633b710aa22b721dd9dee6d083646a5f8e581a20b545be6c1feb405",
+               27},
+        Vector{k_trigger,
+               0,
+               {},
+               false,
                "0x971c554d917c44e0e1b6cc45d8f9404f32172a9d3b3566262347d0302896a2e4",
-               "0x206257b104788f80450f8e786c329daa589aa0b32ba96948201ae556d5637eac", 28},
+               "0x206257b104788f80450f8e786c329daa589aa0b32ba96948201ae556d5637eac",
+               28},
     };
 
     Wallet wallet;
@@ -889,8 +921,7 @@ TEST(HyperliquidSign, KeyMaterialIsValidatedRatherThanTrusted) {
     // Zero and the group order are not keys: both would sign to something
     // well-formed rather than failing.
     EXPECT_FALSE(wallet.load(std::string(64, '0')));
-    EXPECT_FALSE(
-        wallet.load("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"));
+    EXPECT_FALSE(wallet.load("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"));
     EXPECT_FALSE(wallet.loaded());
 
     ASSERT_TRUE(wallet.load(k_test_key));
@@ -901,7 +932,6 @@ TEST(HyperliquidSign, KeyMaterialIsValidatedRatherThanTrusted) {
     EXPECT_EQ(wallet.address().size(), 42U);
     EXPECT_TRUE(wallet.address().starts_with("0x"));
 }
-
 
 // ------------------------------------------------------- account reads ----
 
@@ -1016,9 +1046,9 @@ TEST(HyperliquidMap, PositionsKeepTheirSignAndDropWhatIsNotLoaded) {
     // to nothing rather than to a neighbour's steps.
     ASSERT_EQ(reports.size(), 3U);
     EXPECT_LT(reports[0].net_qty.raw, 0) << "a short must not arrive as a long";
-    EXPECT_EQ(reports[0].net_qty.raw, -26'852'681);   // -268.52681 / 1e-5
-    EXPECT_EQ(reports[0].avg_entry.raw, 740'449);      // 74044.9 / 0.1
-    EXPECT_EQ(reports[2].net_qty.raw, -3'082'681);     // XRP trades whole coins
+    EXPECT_EQ(reports[0].net_qty.raw, -26'852'681); // -268.52681 / 1e-5
+    EXPECT_EQ(reports[0].avg_entry.raw, 740'449);   // 74044.9 / 0.1
+    EXPECT_EQ(reports[2].net_qty.raw, -3'082'681);  // XRP trades whole coins
     EXPECT_EQ(reports[0].ts_venue.ns, 1787746850812ULL * 1'000'000ULL);
 }
 
@@ -1032,16 +1062,14 @@ TEST(HyperliquidMap, PositionSizesSurviveTheVenuesFloatSerialiser) {
     ASSERT_NE(eth, nullptr);
     const auto ts = UnixNanos{7};
 
-    const auto noisy = map_position({.coin = "ETH", .size = "-24856.6978000000004",
-                                     .entry_px = "1981.64"},
-                                    table, ts);
+    const auto noisy = map_position(
+        {.coin = "ETH", .size = "-24856.6978000000004", .entry_px = "1981.64"}, table, ts);
     ASSERT_TRUE(noisy.has_value());
     EXPECT_EQ(noisy->net_qty.raw, -248'566'978);
 
     // Half a lot is not dust: ETH steps by 1e-4.
-    EXPECT_FALSE(
-        map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64"}, table, ts)
-            .has_value());
+    EXPECT_FALSE(map_position({.coin = "ETH", .size = "1.00005", .entry_px = "1981.64"}, table, ts)
+                     .has_value());
 }
 
 TEST(HyperliquidWire, OpenOrdersCarryBothMarketsInOneAnswer) {
@@ -1050,8 +1078,8 @@ TEST(HyperliquidWire, OpenOrdersCarryBothMarketsInOneAnswer) {
     const auto orders = parse_open_orders(body, *storage);
     ASSERT_TRUE(orders.has_value());
     ASSERT_EQ(orders->size(), 4U);
-    EXPECT_EQ((*orders)[0].coin, "ETH");   // a perpetual
-    EXPECT_EQ((*orders)[1].coin, "@334");  // a spot pair, by index
+    EXPECT_EQ((*orders)[0].coin, "ETH");  // a perpetual
+    EXPECT_EQ((*orders)[1].coin, "@334"); // a spot pair, by index
     EXPECT_TRUE((*orders)[0].buy);
     EXPECT_FALSE((*orders)[1].buy);
     // An order placed without one carries no `cloid` key at all.
@@ -1096,8 +1124,8 @@ TEST(HyperliquidMap, OpenOrdersResolveIntoTheirOwnMarket) {
 
     EXPECT_EQ(perp[0].side, Side::Buy);
     EXPECT_EQ(perp[0].status, OrderStatus::Accepted) << "sz equals origSz: untouched";
-    EXPECT_EQ(perp[0].price.raw, 246'150);   // 2461.5 / 0.01
-    EXPECT_EQ(perp[0].qty.raw, 89'900);      // 8.99 / 1e-4
+    EXPECT_EQ(perp[0].price.raw, 246'150); // 2461.5 / 0.01
+    EXPECT_EQ(perp[0].qty.raw, 89'900);    // 8.99 / 1e-4
     EXPECT_EQ(perp[0].leaves.raw, 89'900);
     EXPECT_EQ(perp[0].exchange_order_id.view(), "527278286739");
     // The cloid is our own ULID in another base, so it comes back whole.
@@ -1110,13 +1138,9 @@ TEST(HyperliquidMap, OpenOrdersResolveIntoTheirOwnMarket) {
 
 TEST(HyperliquidMap, PartialFillShowsAsLeavesBelowTheOriginal) {
     const auto table = loaded_table();
-    const auto report = map_open_order({.coin = "ETH",
-                                        .price = "2461.5",
-                                        .qty = "4.0",
-                                        .orig_qty = "8.99",
-                                        .oid = 1,
-                                        .buy = true},
-                                       table);
+    const auto report = map_open_order(
+        {.coin = "ETH", .price = "2461.5", .qty = "4.0", .orig_qty = "8.99", .oid = 1, .buy = true},
+        table);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->status, OrderStatus::PartiallyFilled);
     EXPECT_EQ(report->qty.raw, 89'900);
@@ -1275,9 +1299,9 @@ TEST(HyperliquidMap, AUlidAndItsCloidAreTheSameNumber) {
     EXPECT_FALSE(cloid_to_ulid("0x00", ignored));
     EXPECT_FALSE(cloid_to_ulid(std::string(34, 'z'), ignored));
     // And a ULID whose leading digit sets the two bits above 128 is not one.
-    EXPECT_TRUE(cloid_text(*ExchangeClientOrderId::from("8000000000000000000000000A"), buf).empty());
+    EXPECT_TRUE(
+        cloid_text(*ExchangeClientOrderId::from("8000000000000000000000000A"), buf).empty());
 }
-
 
 // ----------------------------------------------------------- exchange ----
 
@@ -1399,8 +1423,7 @@ TEST(HyperliquidExchange, PostOnlyReduceOnlyAndIocReachTheWire) {
     // "Post-only IOC" has no spelling, and dropping either half changes what
     // was asked for.
     cmd.flags = OrderFlags::PostOnly | OrderFlags::ReduceOnly;
-    EXPECT_EQ(builder.create_order(cmd, table, 1, 3).error(),
-              BuildError::PostOnlyConflictsWithTif);
+    EXPECT_EQ(builder.create_order(cmd, table, 1, 3).error(), BuildError::PostOnlyConflictsWithTif);
 
     cmd.flags = OrderFlags::None;
     cmd.tif = TimeInForce::Fok;
@@ -1453,8 +1476,7 @@ TEST(HyperliquidExchange, FiveSignificantFiguresIsCheckedBeforeTheVenueDoes) {
     cmd.instrument = base.id;
     cmd.qty = *base.qty_to_lots(*parse_decimal_e9("1"));
     cmd.price = *base.price_to_ticks(*parse_decimal_e9("1234.56"));
-    EXPECT_EQ(builder.create_order(cmd, table, 1, 1).error(),
-              BuildError::TooManySignificantDigits);
+    EXPECT_EQ(builder.create_order(cmd, table, 1, 1).error(), BuildError::TooManySignificantDigits);
 }
 
 TEST(HyperliquidExchange, CancelPicksTheActionThatMatchesTheIdItWasGiven) {
@@ -1483,9 +1505,8 @@ TEST(HyperliquidExchange, CancelPicksTheActionThatMatchesTheIdItWasGiven) {
     const auto by_cloid = builder.cancel_order(cmd, 1, 3);
     ASSERT_TRUE(by_cloid.has_value());
     EXPECT_NE(by_cloid->body.find(R"("type":"cancelByCloid")"), std::string_view::npos);
-    EXPECT_NE(
-        by_cloid->body.find(R"({"asset":1,"cloid":"0x00000000000000000000000000000001"})"),
-        std::string_view::npos);
+    EXPECT_NE(by_cloid->body.find(R"({"asset":1,"cloid":"0x00000000000000000000000000000001"})"),
+              std::string_view::npos);
 }
 
 TEST(HyperliquidExchange, ModifyCarriesTheWholeReplacementOrder) {
@@ -1622,12 +1643,10 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     // misses them: "Insufficient margin to place order. asset=84".
     EXPECT_EQ(classify_reason("Insufficient margin to place order. asset=84"),
               exec::ErrorClass::Terminal);
-    EXPECT_EQ(classify_reason("Price must be divisible by tick size."),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_reason("Price must be divisible by tick size."), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_reason("Post only order would have immediately matched, bbo was 100"),
               exec::ErrorClass::Terminal);
-    EXPECT_EQ(classify_reason("Order must have minimum value of $10."),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_reason("Order must have minimum value of $10."), exec::ErrorClass::Terminal);
 
     // A broken signature and a well-formed one from an unknown key: both mean
     // nothing this process signs will ever be taken.
@@ -1644,13 +1663,11 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
 
     // Unknown prose is Terminal: an unrecognised refusal retried at full speed
     // is how an address earns a ban.
-    EXPECT_EQ(classify_reason("something the venue added last week"),
-              exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify_reason("something the venue added last week"), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_reason(""), exec::ErrorClass::Terminal);
 
     // A cancel that arrived after the order was gone did not fail.
-    EXPECT_TRUE(
-        is_benign_cancel_failure("Order was never placed, already canceled, or filled."));
+    EXPECT_TRUE(is_benign_cancel_failure("Order was never placed, already canceled, or filled."));
     EXPECT_FALSE(is_benign_cancel_failure("Insufficient margin to place order."));
 }
 

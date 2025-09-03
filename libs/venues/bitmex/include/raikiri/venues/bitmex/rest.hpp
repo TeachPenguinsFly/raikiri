@@ -100,8 +100,7 @@ public:
     // One DELETE naming many ids. BitMEX keys a cancel on the order id alone,
     // so unlike most venues here a batch may straddle instruments.
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table,
-                 UnixNanos now);
+    cancel_batch(std::span<const OrderCmd> cmds, const exec::InstrumentTable& table, UnixNanos now);
 
     // GET /order?filter={"open":true} — every market at once. BitMEX offers no
     // market parameter, so the caller filters what comes back.

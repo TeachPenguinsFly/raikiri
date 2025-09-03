@@ -12,6 +12,7 @@ namespace {
 constexpr std::string_view k_host = "api.hbdm.com";
 constexpr std::string_view k_spot_host = "api.huobi.pro";
 constexpr std::string_view k_spot_private_path = "/ws/v2";
+
 // Fills the protocol's frame buffer. A part that would overflow marks the
 // whole frame bad rather than truncating it: a half-written subscribe names a
 // topic HTX refuses.
@@ -241,8 +242,8 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net
     if (rendered.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    const auto message = sign::canonical("GET", k_spot_host, k_spot_private_path, rendered,
-                                         auth_msg_);
+    const auto message =
+        sign::canonical("GET", k_spot_host, k_spot_private_path, rendered, auth_msg_);
     if (message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }

@@ -1,6 +1,6 @@
-#include "wire_detail.hpp"
-
 #include <array>
+
+#include "wire_detail.hpp"
 
 namespace raikiri::venues::hyperliquid {
 
@@ -72,8 +72,8 @@ std::expected<WireOpenOrder, WireError> read_open_order(detail::ondemand::object
 
 } // namespace
 
-std::expected<std::span<const WireSpotAsset>, WireError>
-parse_spot_meta(std::string_view body, SpotAssetBuffer& storage) {
+std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::string_view body,
+                                                                         SpotAssetBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireSpotAsset>, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
@@ -324,7 +324,6 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
     });
 }
 
-
 namespace {
 
 [[nodiscard]] ExchangeOutcome outcome_from_word(std::string_view word) noexcept {
@@ -451,9 +450,9 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
         auto data = detail::req_object(envelope, "data");
         if (!data.has_value()) {
             // Several actions answer {"type":"default"} with nothing beside it.
-            return data.error() == WireError::MissingField ? std::expected<WireExchangeReply,
-                                                                            WireError>{out}
-                                                            : std::unexpected(data.error());
+            return data.error() == WireError::MissingField
+                       ? std::expected<WireExchangeReply, WireError>{out}
+                       : std::unexpected(data.error());
         }
         auto rows = detail::req_array(*data, "statuses");
         if (!rows.has_value()) {

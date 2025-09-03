@@ -321,8 +321,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     }
     Appender target{target_};
     if (!cmd.target_exchange_order_id.empty()) {
-        target << k_prefix << "private/cancel?order_id="
-               << cmd.target_exchange_order_id.view();
+        target << k_prefix << "private/cancel?order_id=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
         const auto symbol = table.exchange_symbol(cmd.instrument);
         if (symbol.empty()) {
@@ -335,8 +334,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         // Scoped to the currency on purpose: an unscoped cancel_by_label
         // sweeps every currency, and a label collision across coins would
         // cancel an order this command never named.
-        target << k_prefix << "private/cancel_by_label?label="
-               << cmd.exchange_client_order_id.view() << "&currency=" << currency;
+        target << k_prefix
+               << "private/cancel_by_label?label=" << cmd.exchange_client_order_id.view()
+               << "&currency=" << currency;
     } else {
         return std::unexpected{BuildError::NoOrderTarget};
     }
@@ -364,8 +364,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
         // edit_by_label works only while EXACTLY ONE open order carries the
         // label. A ULID is minted per order, so that holds by construction —
         // and the instrument is required beside it.
-        target << k_prefix << "private/edit_by_label?label="
-               << cmd.exchange_client_order_id.view()
+        target << k_prefix << "private/edit_by_label?label=" << cmd.exchange_client_order_id.view()
                << "&instrument_name=" << base.exchange_symbol.view();
     } else {
         return std::unexpected{BuildError::NoOrderTarget};

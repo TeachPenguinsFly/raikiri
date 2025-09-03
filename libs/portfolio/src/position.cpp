@@ -40,7 +40,8 @@ Position::Applied Position::apply_fill(const InstrumentBase& base,
     out.open_fee = fee;
 
     const std::int64_t open_qty = qty_.raw;
-    const bool opposes = (open_qty > 0 && side == Side::Sell) || (open_qty < 0 && side == Side::Buy);
+    const bool opposes =
+        (open_qty > 0 && side == Side::Sell) || (open_qty < 0 && side == Side::Buy);
     const std::int64_t close_raw = opposes ? std::min(magnitude(open_qty), delta.raw) : 0;
     const std::int64_t add_raw = delta.raw - close_raw;
     out.flipped = close_raw > 0 && add_raw > 0;
@@ -61,15 +62,14 @@ Position::Applied Position::apply_fill(const InstrumentBase& base,
         const std::int64_t released = close_raw == magnitude(open_qty)
                                           ? cost_.raw
                                           : mul_div(cost_.raw, close_raw, magnitude(open_qty));
-        const std::int64_t proceeds =
-            signed_value(base, side, QtyLots::from_raw(close_raw), price);
+        const std::int64_t proceeds = signed_value(base, side, QtyLots::from_raw(close_raw), price);
         const std::int64_t sum = detail::checked_add(released, proceeds);
 
         // Inverse inverts, and this is the whole trap: a long inverse position
         // is denominated in the base currency, and its base value SHRINKS as
         // the price rises. Same sum, opposite meaning.
-        realized_ = FixedE9::from_raw(detail::checked_add(
-            realized_.raw, base.kind == ContractKind::Inverse ? sum : -sum));
+        realized_ = FixedE9::from_raw(
+            detail::checked_add(realized_.raw, base.kind == ContractKind::Inverse ? sum : -sum));
         out.realized = FixedE9::from_raw(base.kind == ContractKind::Inverse ? sum : -sum);
         cost_ = FixedE9::from_raw(detail::checked_sub(cost_.raw, released));
     }
@@ -108,15 +108,13 @@ FixedE9 Position::avg_entry_price(const InstrumentBase& base) const noexcept {
     return FixedE9::from_raw(mul_div(abs_cost, k_e9, quantity.raw));
 }
 
-FixedE9 unrealized_pnl(const InstrumentBase& base,
-                       const Position& position,
-                       PriceTicks mark) noexcept {
+FixedE9
+unrealized_pnl(const InstrumentBase& base, const Position& position, PriceTicks mark) noexcept {
     if (position.flat()) {
         return FixedE9::from_raw(0);
     }
     const auto qty = position.qty();
-    const auto value =
-        settlement_value(base, mark, QtyLots::from_raw(magnitude(qty.raw)));
+    const auto value = settlement_value(base, mark, QtyLots::from_raw(magnitude(qty.raw)));
     if (value.is_undef()) {
         return FixedE9::undef();
     }

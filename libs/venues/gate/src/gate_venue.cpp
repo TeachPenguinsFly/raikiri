@@ -78,6 +78,7 @@ struct VenueState {
         ExchangeClientOrderId client_order_id{};
         QtyLots leaves{QtyLots::from_raw(0)};
     };
+
     std::unordered_map<std::string, OrderMemo> live_orders;
 
     // The seed rides its own pool so a book resynchronising never queues
@@ -111,9 +112,7 @@ struct VenueState {
         desired.emplace(at, std::string{channel}, std::string{contract});
     }
 
-    [[nodiscard]] std::uint64_t now_s() const noexcept {
-        return venue_now().ns / 1'000'000'000ULL;
-    }
+    [[nodiscard]] std::uint64_t now_s() const noexcept { return venue_now().ns / 1'000'000'000ULL; }
 
     // Gate refuses a signature whose Timestamp is more than 60 s from ITS
     // clock, so a laptop drifting a minute looks exactly like a bad key.
@@ -334,11 +333,8 @@ void handle_private_frame(VenueState& state,
         }
         for (const auto& entry : *wire) {
             const auto memo = state.memo_for(entry.order_id);
-            if (const auto mapped = map_user_trade(entry,
-                                                   state.instruments,
-                                                   memo.leaves,
-                                                   memo.client_order_id,
-                                                   received);
+            if (const auto mapped = map_user_trade(
+                    entry, state.instruments, memo.leaves, memo.client_order_id, received);
                 mapped.has_value()) {
                 state.sink->on_order_event(*mapped);
             }
@@ -418,11 +414,12 @@ class GateData final : public exec::DataClient {
 public:
     explicit GateData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
-                                .port = std::string{stream_port()},
-                                .target = std::string{private_path(state_->testnet, state_->market)}},
-                  handler_} {
+          client_{
+              state_->io,
+              net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
+                            .port = std::string{stream_port()},
+                            .target = std::string{private_path(state_->testnet, state_->market)}},
+              handler_} {
         handler_.attach(client_);
     }
 
@@ -718,9 +715,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -731,8 +726,7 @@ public:
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
         // Gate caps a batch at 20 and refuses the whole call past it, so the
         // span is chunked rather than truncated.
-        for (std::size_t at = 0; at < cmds.size();
-             at += SignedRequestBuilder::k_max_batch_cancel) {
+        for (std::size_t at = 0; at < cmds.size(); at += SignedRequestBuilder::k_max_batch_cancel) {
             const auto chunk = cmds.subspan(
                 at, std::min(SignedRequestBuilder::k_max_batch_cancel, cmds.size() - at));
             const auto request =
@@ -753,13 +747,19 @@ public:
                         return;
                     }
                     const auto refusal =
-                        response.transport_failed() ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue") : rest_failure(response.body);
+                        response.transport_failed()
+                            ? exec::VenueError::make(
+                                  exec::ErrorClass::Connectivity, 0, "no response from venue")
+                            : rest_failure(response.body);
                     for (const auto& cmd : pending) {
                         emit_reject(cmd, Kind::Cancel, refusal);
                     }
                 })) {
                 for (const auto& cmd : chunk) {
-                    emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                    emit_reject(
+                        cmd,
+                        Kind::Cancel,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
                 }
             }
         }
@@ -780,9 +780,8 @@ public:
         }
 
         static thread_local OrderBuffer storage;
-        const auto orders = market == MarketType::Spot
-                                ? parse_spot_open_orders(*body, storage)
-                                : parse_rest_orders(*body, storage, market);
+        const auto orders = market == MarketType::Spot ? parse_spot_open_orders(*body, storage)
+                                                       : parse_rest_orders(*body, storage, market);
         if (!orders.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
@@ -849,8 +848,11 @@ public:
         reports.reserve(trades->size());
         for (const auto& wire : *trades) {
             const auto memo = state_->memo_for(wire.order_id);
-            const auto event = map_user_trade(
-                wire, state_->instruments, memo.leaves, memo.client_order_id, state_->clock->wall());
+            const auto event = map_user_trade(wire,
+                                              state_->instruments,
+                                              memo.leaves,
+                                              memo.client_order_id,
+                                              state_->clock->wall());
             if (!event.has_value()) {
                 continue;
             }
@@ -889,13 +891,13 @@ public:
         }
         const auto account = parse_futures_account(*body);
         if (!account.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(account.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(account.error()))};
         }
         const auto balance = map_futures_account(*account);
         if (!balance.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "gate: account names no currency")};
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "gate: account names no currency")};
         }
         // ONE ROW: the futures account is per settle currency and this gateway
         // trades one. A second settle currency is a second account and a second
@@ -920,8 +922,8 @@ public:
         const auto rows = parse_account_book(*body, storage);
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger.
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
         std::vector<FundingCharge> charges;
         charges.reserve(rows->size());
@@ -1031,14 +1033,21 @@ private:
         if (!rest_.send(*request, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
-    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
-                     MarketType market) {
+    void
+    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         if (response.status >= 200 && response.status < 300) {
@@ -1148,9 +1157,8 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire, [](const WireContract& row) {
-            return map_instrument(row, MarketType::Perp);
-        });
+        return intern(
+            *wire, [](const WireContract& row) { return map_instrument(row, MarketType::Perp); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot(std::string_view body) {
@@ -1210,8 +1218,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Gate);
     adapter.data = std::make_unique<GateData>(state);
-    adapter.execution =
-        std::make_unique<GateExec>(state, config.market);
+    adapter.execution = std::make_unique<GateExec>(state, config.market);
     adapter.instruments = std::make_unique<GateInstruments>(state);
     return adapter;
 }

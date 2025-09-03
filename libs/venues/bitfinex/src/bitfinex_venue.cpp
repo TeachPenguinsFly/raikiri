@@ -485,7 +485,7 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
 // status page.
 exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                                : exec::ErrorClass::Terminal,
+                                                               : exec::ErrorClass::Terminal,
                                   0,
                                   to_string(err));
 }
@@ -546,8 +546,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         // order may already be queued behind this frame, and it can state
         // neither whose it is nor what is left out of anything else.
         const auto client_id = remember(*wire);
-        if (const auto event =
-                map_order_event(*wire, state.instruments, client_id, received);
+        if (const auto event = map_order_event(*wire, state.instruments, client_id, received);
             event.has_value()) {
             state.sink->on_order_event(*event);
         }
@@ -596,9 +595,10 @@ public:
 
     void on_open() override {
         std::array<char, 512> buffer{};
-        const auto frame = ws_auth_frame(
-            state_->api_key, state_->api_secret.view(), nonces_.next(state_->clock->wall().ns),
-            buffer);
+        const auto frame = ws_auth_frame(state_->api_key,
+                                         state_->api_secret.view(),
+                                         nonces_.next(state_->clock->wall().ns),
+                                         buffer);
         if (frame.empty() || client_ == nullptr || !client_->send(frame)) {
             state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
                                            .stream_id = k_private_stream_id,
@@ -665,9 +665,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -708,9 +706,9 @@ public:
                 continue;
             }
             report->exchange_client_order_id = state_->client_id_for(wire);
-            state_->remember(wire.id,
-                             {.client_order_id = report->exchange_client_order_id,
-                              .leaves = report->leaves});
+            state_->remember(
+                wire.id,
+                {.client_order_id = report->exchange_client_order_id, .leaves = report->leaves});
             reports.push_back(*report);
         }
         return reports;
@@ -815,7 +813,8 @@ public:
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request);
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request);
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept;
 
@@ -912,8 +911,7 @@ bool BitfinexExec::connected() const noexcept {
     return started_ && stream_ != nullptr && stream_->client.connected() && (spot_ || perp_);
 }
 
-std::expected<std::string, exec::VenueError>
-BitfinexExec::fetch(const net::RestRequest& request) {
+std::expected<std::string, exec::VenueError> BitfinexExec::fetch(const net::RestRequest& request) {
     const auto response = await_response(*state_, rest_, request);
     if (!response.has_value() || response->transport_failed()) {
         return std::unexpected{
@@ -931,8 +929,7 @@ BitfinexExec::fetch(const net::RestRequest& request) {
 
 void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
     const auto now = state_->clock->wall();
-    const auto request = kind == Kind::Create
-                             ? builder_.create_order(cmd, state_->instruments, now)
+    const auto request = kind == Kind::Create ? builder_.create_order(cmd, state_->instruments, now)
                          : kind == Kind::Cancel
                              ? builder_.cancel_order(cmd, state_->instruments, now)
                              : builder_.amend_order(cmd, state_->instruments, now);
@@ -957,10 +954,10 @@ void BitfinexExec::fire(const OrderCmd& cmd, Kind kind) noexcept {
 
 void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
     if (response.transport_failed()) {
-        emit_reject(cmd,
-                    kind, // no verdict from the venue at all
-                    exec::VenueError::make(
-                        exec::ErrorClass::Connectivity, 0, "no response from venue"));
+        emit_reject(
+            cmd,
+            kind, // no verdict from the venue at all
+            exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue"));
         return;
     }
     // An `["error",code,text]` body is the other shape a refusal arrives in,
@@ -977,8 +974,7 @@ void BitfinexExec::on_response(net::RestResponse&& response, const OrderCmd& cmd
         emit_reject(
             cmd,
             kind,
-            exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(notification.error())));
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(notification.error())));
         return;
     }
     if (!notification_ok(*notification)) {
@@ -1120,8 +1116,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Bitfinex);
     adapter.data = std::make_unique<BitfinexData>(state);
-    adapter.execution =
-        std::make_unique<BitfinexExec>(state, config.market);
+    adapter.execution = std::make_unique<BitfinexExec>(state, config.market);
     adapter.instruments = std::make_unique<BitfinexInstruments>(state);
     return adapter;
 }

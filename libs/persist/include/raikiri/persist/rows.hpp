@@ -65,8 +65,8 @@ struct ExecutionRow {
 // load-order index and points at a different instrument once a delisting
 // shifts the list.
 struct PnlIncrementRow {
-    std::string source_id; // "<kind>:<venue>:<exec_id>"
-    std::string kind;      // realized | fee | funding
+    std::string source_id;   // "<kind>:<venue>:<exec_id>"
+    std::string kind;        // realized | fee | funding
     std::string settle_side; // base | quote
     std::uint16_t strategy_id{0};
     std::string venue;
@@ -151,8 +151,8 @@ struct RowBatch {
 
     [[nodiscard]] std::size_t size() const noexcept {
         return order_events.size() + order_upserts.size() + executions.size() +
-               pnl_increments.size() + recon_breaks.size() + positions.size() +
-               funding.size() + connectivity.size() + latency.size();
+               pnl_increments.size() + recon_breaks.size() + positions.size() + funding.size() +
+               connectivity.size() + latency.size();
     }
 
     void clear() noexcept {

@@ -37,6 +37,7 @@ template <typename Fn>
     }
     return std::forward<Fn>(fn)(*obj);
 }
+
 // The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
 // where the futures stream packs one into a comma-joined string. Same numbers,
 // nothing shared.

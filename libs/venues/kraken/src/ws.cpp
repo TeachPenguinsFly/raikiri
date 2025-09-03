@@ -147,8 +147,7 @@ Protocol::private_subscribe_frame(std::string_view feed,
     // An empty credential would subscribe to the public form of a private
     // feed, which Kraken answers with an alert rather than a stream — the one
     // failure that looks like a quiet market.
-    if (feed.empty() || api_key.empty() || original_challenge.empty() ||
-        signed_challenge.empty()) {
+    if (feed.empty() || api_key.empty() || original_challenge.empty() || signed_challenge.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
     Writer writer{frame_};

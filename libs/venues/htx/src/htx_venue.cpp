@@ -70,6 +70,7 @@ struct VenueState {
         ExchangeClientOrderId exchange_client_order_id{};
         QtyLots leaves{QtyLots::from_raw(0)};
     };
+
     std::unordered_map<std::string, OrderMemo> live_orders;
 
     // What a perp order was actually sent as. The swap's client_order_id is an
@@ -80,6 +81,7 @@ struct VenueState {
         std::int64_t client_order_id{0};
         std::string contract_code;
     };
+
     std::unordered_map<std::string, SwapTarget> swap_targets;
 
     void add_subscription(std::string_view code, std::string_view suffix) {
@@ -507,11 +509,8 @@ void publish_order(VenueState& state, const WireOrder& wire, UnixNanos received)
     for (const auto& fill : wire.fills) {
         // Leaves after THIS frame's trades is the best the swap states; a
         // per-trade running total would have to assume the array is ordered.
-        if (const auto event = map_fill(wire,
-                                        fill,
-                                        state.instruments,
-                                        leaves.value_or(QtyLots::from_raw(0)),
-                                        received);
+        if (const auto event = map_fill(
+                wire, fill, state.instruments, leaves.value_or(QtyLots::from_raw(0)), received);
             event.has_value()) {
             state.sink->on_order_event(*event);
         }
@@ -728,12 +727,11 @@ private:
 // two of these.
 template <typename Handler> struct PrivateStream {
     PrivateStream(VenueState& state, std::string_view host, std::string_view path)
-        : handler{state},
-          client{state.io,
-                 net::WsConfig{.host = std::string{host},
-                               .port = std::string{stream_port()},
-                               .target = std::string{path}},
-                 handler} {
+        : handler{state}, client{state.io,
+                                 net::WsConfig{.host = std::string{host},
+                                               .port = std::string{stream_port()},
+                                               .target = std::string{path}},
+                                 handler} {
         handler.attach(client);
     }
 
@@ -745,16 +743,13 @@ class HtxExec final : public exec::ExecutionClient {
 public:
     HtxExec(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)},
-          perp_rest_{state_->io,
-                     net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
+          perp_rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
           spot_rest_{state_->io,
                      net::RestConfig{.host = std::string{spot_rest_host()}, .port = "443"}},
-          builder_{state_->signer},
-          spot_enabled_{market == MarketType::Spot} {
+          builder_{state_->signer}, spot_enabled_{market == MarketType::Spot} {
         if (market == MarketType::Perp) {
-            perp_stream_ =
-                std::make_unique<PrivateStream<SwapPrivateHandler>>(*state_, stream_host(),
-                                                                    notify_path());
+            perp_stream_ = std::make_unique<PrivateStream<SwapPrivateHandler>>(
+                *state_, stream_host(), notify_path());
         }
         if (spot_enabled_) {
             spot_stream_ = std::make_unique<PrivateStream<SpotPrivateHandler>>(
@@ -897,8 +892,8 @@ public:
             numeric = it->second.client_order_id;
             contract = it->second.contract_code;
         }
-        const auto request = builder_.query_order(id, numeric, contract, market,
-                                                  state_->venue_now());
+        const auto request =
+            builder_.query_order(id, numeric, contract, market, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failure(request.error())};
         }
@@ -992,8 +987,8 @@ private:
             return false;
         }
         const auto id = parse_spot_account_id(*body);
-        if (!id.has_value() || *id > static_cast<std::uint64_t>(
-                                          std::numeric_limits<std::int64_t>::max())) {
+        if (!id.has_value() ||
+            *id > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
             return false;
         }
         builder_.set_spot_account_id(static_cast<std::int64_t>(*id));
@@ -1008,9 +1003,8 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         if (response->status < 200 || response->status >= 300) {
-            return std::unexpected{
-                exec::VenueError::make(classify_http(response->status), response->status,
-                                       "http error")};
+            return std::unexpected{exec::VenueError::make(
+                classify_http(response->status), response->status, "http error")};
         }
         // HTTP 200 with status "error" is HTX's ordinary refusal on both
         // surfaces, so the envelope decides rather than the status line.
@@ -1026,8 +1020,7 @@ private:
             return;
         }
         const auto market = group.front().instrument.market();
-        const auto request =
-            builder_.cancel_batch(group, state_->instruments, state_->venue_now());
+        const auto request = builder_.cancel_batch(group, state_->instruments, state_->venue_now());
         if (!request.has_value()) {
             const auto refusal = build_failure(request.error());
             for (const auto& cmd : group) {
@@ -1044,14 +1037,20 @@ private:
                     response.status < 300) {
                     return;
                 }
-                const auto refusal =
-                    response.transport_failed() ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue") : rest_failure(response.body);
+                const auto refusal = response.transport_failed()
+                                         ? exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                                  0,
+                                                                  "no response from venue")
+                                         : rest_failure(response.body);
                 for (const auto& cmd : pending) {
                     emit_reject(cmd, Kind::Cancel, refusal);
                 }
             })) {
             for (const auto& cmd : group) {
-                emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                emit_reject(
+                    cmd,
+                    Kind::Cancel,
+                    exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             }
         }
     }
@@ -1070,11 +1069,13 @@ private:
         if (kind == Kind::Create && market != MarketType::Spot) {
             remember_swap_target(cmd);
         }
-        if (!rest_for(market).send(*request, [this, cmd, kind, market](
-                                                 net::RestResponse&& response) {
-                on_response(std::move(response), cmd, kind, market);
-            })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+        if (!rest_for(market).send(*request,
+                                   [this, cmd, kind, market](net::RestResponse&& response) {
+                                       on_response(std::move(response), cmd, kind, market);
+                                   })) {
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -1093,15 +1094,20 @@ private:
             .client_order_id = *numeric, .contract_code = std::string{symbol}};
     }
 
-    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
-                     MarketType market) {
+    void
+    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
-        const bool ok = response.status >= 200 && response.status < 300 && envelope.has_value() &&
-                        envelope->ok;
+        const bool ok =
+            response.status >= 200 && response.status < 300 && envelope.has_value() && envelope->ok;
         if (ok) {
             if (kind == Kind::Create) {
                 // Binding the venue id here, off the create response, is what
@@ -1121,9 +1127,8 @@ private:
                 is_benign_cancel_failure(outcome->code)) {
                 return;
             }
-            emit_reject(cmd,
-                        kind,
-                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, outcome->code));
+            emit_reject(
+                cmd, kind, exec::VenueError::make(exec::ErrorClass::Terminal, 0, outcome->code));
             return;
         }
         if (kind == Kind::Cancel && envelope.has_value() &&
@@ -1247,9 +1252,8 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire, [market](const WireContract& row) {
-            return map_instrument(row, market);
-        });
+        return intern(*wire,
+                      [market](const WireContract& row) { return map_instrument(row, market); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot(std::string_view body) {
@@ -1308,8 +1312,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Htx);
     adapter.data = std::make_unique<HtxData>(state);
-    adapter.execution =
-        std::make_unique<HtxExec>(state, config.market);
+    adapter.execution = std::make_unique<HtxExec>(state, config.market);
     adapter.instruments = std::make_unique<HtxInstruments>(state);
     return adapter;
 }

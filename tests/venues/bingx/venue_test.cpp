@@ -98,7 +98,8 @@ TEST(BingxVenue, AnOrderWithNoCredentialsIsRefusedLoudly) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -127,7 +128,8 @@ TEST(BingxVenue, RefusesAnOptionOrderWithoutBlamingTheCatalogue) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     OrderCmd cmd{};
@@ -149,8 +151,8 @@ TEST(BingxVenue, PullsSayWhyTheyCannotAnswer) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     // No credentials is an AuthFailure, not a Terminal one: the gateway halts
@@ -180,8 +182,8 @@ TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
-    auto adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
 
     const auto spot = adapter->data->subscribe(
@@ -193,8 +195,8 @@ TEST(BingxVenue, EachSocketRefusesTheOtherMarketsInstruments) {
     // refuse a perpetual id just as hard. BingX spells the two markets with
     // the same ticker, so a wrong-market id is not rejected by the venue —
     // it comes back subscribed, to the other tree's prices.
-    auto spot_adapter = exec::make_venue(
-        {.venue = VenueId::Bingx, .market = MarketType::Spot}, sink, clock);
+    auto spot_adapter =
+        exec::make_venue({.venue = VenueId::Bingx, .market = MarketType::Spot}, sink, clock);
     ASSERT_TRUE(spot_adapter.has_value());
     const auto perp = spot_adapter->data->subscribe(
         exec::SubKind::Bbo, InstrumentId::make(VenueId::Bingx, MarketType::Perp, SymbolId{0}));
@@ -707,17 +709,19 @@ TEST(BingxMap, MapsFundingFromThePremiumIndexPoll) {
 
 TEST(BingxWs, BuildsSubscriptionFrames) {
     Protocol protocol;
-    const auto first = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
+    const auto first = protocol.subscribe_frame(
+        "BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->text, R"({"id":"1","reqType":"sub","dataType":"BTC-USDT@bookTicker"})");
 
     // The id is echoed in the answer, so it has to move.
-    const auto second =
-        protocol.subscribe_frame("ETH-USDT", data_type_suffix(exec::SubKind::Trades, MarketType::Perp));
+    const auto second = protocol.subscribe_frame(
+        "ETH-USDT", data_type_suffix(exec::SubKind::Trades, MarketType::Perp));
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->text, R"({"id":"2","reqType":"sub","dataType":"ETH-USDT@trade"})");
 
-    const auto depth = protocol.subscribe_frame("BTC-USDT", data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
+    const auto depth = protocol.subscribe_frame(
+        "BTC-USDT", data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
     ASSERT_TRUE(depth.has_value());
     EXPECT_EQ(depth->text, R"({"id":"3","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
@@ -889,8 +893,10 @@ TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {
     EXPECT_LT(bbo->bid.raw, bbo->ask.raw);
 }
 
-OrderCmd limit_buy(const exec::InstrumentTable& table, std::string_view symbol,
-                   std::int64_t ticks, std::int64_t lots) {
+OrderCmd limit_buy(const exec::InstrumentTable& table,
+                   std::string_view symbol,
+                   std::int64_t ticks,
+                   std::int64_t lots) {
     OrderCmd cmd{};
     cmd.kind = CmdKind::Create;
     cmd.side = Side::Buy;
@@ -940,7 +946,8 @@ TEST(BingxSign, PerpetualCreateSignsTheStringItSends) {
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
 
-    const auto request = builder.create_order(limit_buy(table, "BTC-USDT", 444'596, 30), table, k_now);
+    const auto request =
+        builder.create_order(limit_buy(table, "BTC-USDT", 444'596, 30), table, k_now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
 
     constexpr std::string_view k_canonical =
@@ -1050,12 +1057,12 @@ TEST(BingxSign, RoutesEachMarketToItsOwnTree) {
     EXPECT_EQ(builder.last_sign_message().find("clientOrderId=01JD"), std::string_view::npos);
 
     ASSERT_TRUE(builder.open_orders(MarketType::Spot, k_now).has_value());
-    EXPECT_TRUE(builder.open_orders(MarketType::Spot, k_now)->target.starts_with(
-        "/openApi/spot/v1/trade/openOrders?"));
-    EXPECT_TRUE(builder.open_orders(MarketType::Perp, k_now)->target.starts_with(
-        "/openApi/swap/v2/trade/openOrders?"));
-    EXPECT_TRUE(builder.positions(MarketType::Perp, k_now)->target.starts_with(
-        "/openApi/swap/v2/user/positions?"));
+    EXPECT_TRUE(builder.open_orders(MarketType::Spot, k_now)
+                    ->target.starts_with("/openApi/spot/v1/trade/openOrders?"));
+    EXPECT_TRUE(builder.open_orders(MarketType::Perp, k_now)
+                    ->target.starts_with("/openApi/swap/v2/trade/openOrders?"));
+    EXPECT_TRUE(builder.positions(MarketType::Perp, k_now)
+                    ->target.starts_with("/openApi/swap/v2/user/positions?"));
 }
 
 TEST(BingxSign, CancelsByVenueIdWhenItHasOne) {
@@ -1147,10 +1154,8 @@ TEST(BingxSign, RefusesUnservedMarketsBeforeReadingTheTable) {
     EXPECT_EQ(builder.cancel_order(cmd, table, k_now).error(), BuildError::OptionsUnsupported);
     EXPECT_EQ(builder.amend_order(cmd, table, k_now).error(), BuildError::OptionsUnsupported);
     cmd.instrument = InstrumentId::make(VenueId::Bingx, MarketType::Future, SymbolId{0});
-    EXPECT_EQ(builder.create_order(cmd, table, k_now).error(),
-              BuildError::DatedFuturesUnsupported);
-    EXPECT_EQ(builder.positions(MarketType::Option, k_now).error(),
-              BuildError::OptionsUnsupported);
+    EXPECT_EQ(builder.create_order(cmd, table, k_now).error(), BuildError::DatedFuturesUnsupported);
+    EXPECT_EQ(builder.positions(MarketType::Option, k_now).error(), BuildError::OptionsUnsupported);
     EXPECT_EQ(builder.positions(MarketType::Spot, k_now).error(),
               BuildError::SpotPositionsUnsupported);
 }
@@ -1178,8 +1183,7 @@ TEST(BingxSign, RefusesAnAmendItCannotExpress) {
     auto spot_cmd = limit_buy(spot, "BTC-USDT", 4'445'960, 3'000);
     spot_cmd.kind = CmdKind::Amend;
     spot_cmd.price = PriceTicks{};
-    EXPECT_EQ(builder.amend_order(spot_cmd, spot, k_now).error(),
-              BuildError::SpotAmendUnsupported);
+    EXPECT_EQ(builder.amend_order(spot_cmd, spot, k_now).error(), BuildError::SpotAmendUnsupported);
 }
 
 TEST(BingxSign, RefusesWhatItCannotSignHonestly) {
@@ -1381,8 +1385,8 @@ TEST(BingxMap, BuildsTheSpotCatalogueFromStatedSteps) {
     EXPECT_EQ(table.size(), 2U);
     const auto& btc = base_for(table, "BTC-USDT");
     EXPECT_EQ(btc.id.market(), MarketType::Spot);
-    EXPECT_EQ(btc.tick_size.raw, 10'000'000);   // 0.01
-    EXPECT_EQ(btc.lot_size.raw, 1'000);         // 1e-6, written "0.000001"
+    EXPECT_EQ(btc.tick_size.raw, 10'000'000); // 0.01
+    EXPECT_EQ(btc.lot_size.raw, 1'000);       // 1e-6, written "0.000001"
     EXPECT_EQ(btc.min_notional.raw, 500'000'000);
     EXPECT_EQ(btc.contract_value.raw, k_e9); // spot sizes are base units
     EXPECT_EQ(btc.kind, ContractKind::Linear);
@@ -1477,17 +1481,16 @@ TEST(BingxMap, MapsASpotFillThroughTheMemo) {
 
     // The spot push names no client order id, so without the memo the fill is
     // unattributable — which is the whole reason the memo exists.
-    const auto orphan = map_order_update(
-        *wire, table, MarketType::Spot, ExchangeClientOrderId{}, UnixNanos{7});
+    const auto orphan =
+        map_order_update(*wire, table, MarketType::Spot, ExchangeClientOrderId{}, UnixNanos{7});
     ASSERT_TRUE(orphan.has_value());
     EXPECT_TRUE(orphan->exchange_client_order_id.empty());
 
-    const auto event =
-        map_order_update(*wire, table, MarketType::Spot, ulid(), UnixNanos{7});
+    const auto event = map_order_update(*wire, table, MarketType::Spot, ulid(), UnixNanos{7});
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->type, OrderEventType::Filled);
     EXPECT_EQ(event->exchange_client_order_id.view(), k_ulid);
-    EXPECT_EQ(event->qty.raw, 5'000);      // 0.005 at a step of 1e-6
+    EXPECT_EQ(event->qty.raw, 5'000); // 0.005 at a step of 1e-6
     EXPECT_EQ(event->price.raw, 4'464'700);
     EXPECT_EQ(event->leaves_qty.raw, 0);
     EXPECT_EQ(event->liquidity, Liquidity::Taker);

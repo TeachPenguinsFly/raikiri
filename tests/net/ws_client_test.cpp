@@ -1,8 +1,9 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/ws_client.hpp>
 
-#include "tls_test_server.hpp"
+#include <gtest/gtest.h>
 
+#include <atomic>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
@@ -11,10 +12,6 @@
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
-
-#include <gtest/gtest.h>
-
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +22,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "tls_test_server.hpp"
 
 namespace raikiri::net {
 namespace {
@@ -43,8 +42,8 @@ using namespace std::chrono_literals;
 // deadline. A test that waits on a condition without one turns a client bug
 // into a hung CI job, which is the failure mode that hides bugs longest.
 template <class Predicate>
-[[nodiscard]] bool poll_until(IoContext& io, Predicate predicate,
-                              std::chrono::milliseconds budget = 5s) {
+[[nodiscard]] bool
+poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) {
@@ -123,22 +122,22 @@ private:
         // Safe to reference: greeting is fixed before the listener starts.
         const std::string& message = state_.greeting[next_++];
         ws_.text(true);
-        ws_.async_write(asio::buffer(message),
-                        [self = shared_from_this()](const boost::system::error_code& ec,
-                                                    std::size_t) {
-                            if (!ec) {
-                                self->write_greeting();
-                            }
-                        });
+        ws_.async_write(
+            asio::buffer(message),
+            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                if (!ec) {
+                    self->write_greeting();
+                }
+            });
     }
 
     void do_read() {
-        ws_.async_read(buffer_, [self = shared_from_this()](const boost::system::error_code& ec,
-                                                            std::size_t) {
-            if (!ec) {
-                self->on_message();
-            }
-        });
+        ws_.async_read(
+            buffer_, [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                if (!ec) {
+                    self->on_message();
+                }
+            });
     }
 
     void on_message() {
@@ -203,8 +202,8 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     ServerState state;
     state.greeting = {"{\"m\":1}", "{\"m\":2}", "{\"m\":3}"};
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(std::move(socket), tls, state,
-                                        state.sessions.fetch_add(1) + 1)
+        std::make_shared<ServerSession>(
+            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
             ->run();
     }};
 
@@ -252,8 +251,8 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     ServerState state;
     state.drop_first_after_message = true;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(std::move(socket), tls, state,
-                                        state.sessions.fetch_add(1) + 1)
+        std::make_shared<ServerSession>(
+            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
             ->run();
     }};
 
@@ -311,8 +310,8 @@ TEST(WsClient, SendQueueFullIsReportedRatherThanBlocking) {
 TEST(WsClient, DestroyedMidFlightNeverCallsBackIntoTheOwner) {
     ServerState state;
     TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
-        std::make_shared<ServerSession>(std::move(socket), tls, state,
-                                        state.sessions.fetch_add(1) + 1)
+        std::make_shared<ServerSession>(
+            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
             ->run();
     }};
 

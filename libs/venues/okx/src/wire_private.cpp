@@ -133,10 +133,8 @@ std::expected<void, WireError> read_position(detail::ondemand::object& obj, Wire
         return std::unexpected(inst_id.error());
     }
     out.inst_id = *inst_id;
-    if (const auto ok = read_strings(obj,
-                                     {{"pos", &out.pos},
-                                      {"posSide", &out.pos_side},
-                                      {"avgPx", &out.avg_px}});
+    if (const auto ok = read_strings(
+            obj, {{"pos", &out.pos}, {"posSide", &out.pos_side}, {"avgPx", &out.avg_px}});
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
@@ -201,8 +199,7 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
 
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
                                                                         PositionBuffer& storage) {
-    return guarded(
-        [&] { return read_data<WirePosition>(body, storage.positions, read_position); });
+    return guarded([&] { return read_data<WirePosition>(body, storage.positions, read_position); });
 }
 
 std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body,

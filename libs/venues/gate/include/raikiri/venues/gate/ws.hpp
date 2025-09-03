@@ -25,7 +25,7 @@ enum class WsBuildError : std::uint8_t {
     UnsupportedKind,
     NothingToSend,
     BufferTooSmall,
-    NotSigned,        // credentials were never loaded
+    NotSigned,         // credentials were never loaded
     MarketUnsupported, // no private channel wired for this market
 };
 

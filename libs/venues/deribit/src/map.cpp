@@ -304,7 +304,6 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
-
 namespace {
 
 // Deribit's own vocabulary for where an order stands.
@@ -430,8 +429,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         event.type = OrderEventType::Rejected;
         break;
     case OrderState::Cancelled:
-        event.type = ends_by_expiry(wire.tif) ? OrderEventType::Expired
-                                              : OrderEventType::Canceled;
+        event.type = ends_by_expiry(wire.tif) ? OrderEventType::Expired : OrderEventType::Canceled;
         break;
     case OrderState::Triggered:
         event.type = OrderEventType::Triggered;
@@ -444,8 +442,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
     stamp(event, wire, base, ts_init);
     // A rejected order never rested, so nothing is left of it. Every other
     // state here reports what the venue itself says went unfilled.
-    event.leaves_qty =
-        event.type == OrderEventType::Rejected ? QtyLots::from_raw(0) : *leaves;
+    event.leaves_qty = event.type == OrderEventType::Rejected ? QtyLots::from_raw(0) : *leaves;
     return event;
 }
 
@@ -493,9 +490,8 @@ std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         event.fee = *fee;
     }
-    event.liquidity = wire.liquidity_stated
-                          ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
-                          : Liquidity::Unknown;
+    event.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
+                                            : Liquidity::Unknown;
     event.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     event.ts_init = ts_init;
     return event;
@@ -521,8 +517,8 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     exec::OrderStatusReport report{};
     switch (*state) {
     case OrderState::Open:
-        report.status = leaves->raw == qty->raw ? OrderStatus::Accepted
-                                                : OrderStatus::PartiallyFilled;
+        report.status =
+            leaves->raw == qty->raw ? OrderStatus::Accepted : OrderStatus::PartiallyFilled;
         break;
     case OrderState::Filled:
         report.status = OrderStatus::Filled;
@@ -589,9 +585,8 @@ std::optional<exec::FillReport> map_fill_report(const WireUserTrade& wire,
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         report.fee = *fee;
     }
-    report.liquidity = wire.liquidity_stated
-                           ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
-                           : Liquidity::Unknown;
+    report.liquidity = wire.liquidity_stated ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
+                                             : Liquidity::Unknown;
     report.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{0});
     return report;
 }

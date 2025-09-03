@@ -6,7 +6,8 @@ namespace raikiri::venues::bitget {
 
 exec::ErrorClass classify(std::string_view code) noexcept {
     if (code == k_access_key_empty || code == k_secret_key_empty || code == k_signature_empty ||
-        code == k_invalid_access_key || code == k_signature_error || code == k_content_type_invalid || code == k_passphrase_empty ||
+        code == k_invalid_access_key || code == k_signature_error ||
+        code == k_content_type_invalid || code == k_passphrase_empty ||
         code == k_apikey_password_incorrect || code == k_user_status_abnormal ||
         code == k_permission_missing || code == k_invalid_ip || code == k_no_permission ||
         code == k_passphrase_error || code == k_apikey_absent || code == k_ip_not_whitelisted ||

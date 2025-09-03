@@ -1,7 +1,6 @@
+#include <raikiri/domain/symbol.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/venues/bybit/map.hpp>
-
-#include <raikiri/domain/symbol.hpp>
 
 #include <charconv>
 
@@ -217,9 +216,9 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
 // states a charge the way the account moved, positive for received. The REST
 // ledger already uses the domain's convention, so without this flip the socket
 // and the reconciliation would disagree about direction on every settlement.
-std::optional<FundingCharge>
-map_funding_charge(const WireExecution& wire, const exec::InstrumentTable& table,
-                   UnixNanos ts_init) {
+std::optional<FundingCharge> map_funding_charge(const WireExecution& wire,
+                                                const exec::InstrumentTable& table,
+                                                UnixNanos ts_init) {
     if (!is_funding_execution(wire)) {
         return std::nullopt;
     }

@@ -206,16 +206,16 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body,
         if (!order.has_value()) {
             return std::unexpected(order.error());
         }
-        const auto count = read_rows<WireUserTrade>(
-            *result, "trades", storage.trades, [](ondemand::object& obj) {
+        const auto count =
+            read_rows<WireUserTrade>(*result, "trades", storage.trades, [](ondemand::object& obj) {
                 return read_user_trade(obj);
             });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
-        return WireOrderAck{
-            .order = *order,
-            .trades = std::span<const WireUserTrade>{storage.trades.data(), *count}};
+        return WireOrderAck{.order = *order,
+                            .trades =
+                                std::span<const WireUserTrade>{storage.trades.data(), *count}};
     });
 }
 
@@ -254,9 +254,10 @@ parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer&
         // not an error — it is simply nothing this adapter acts on.
         std::size_t order_count = 0;
         if (detail::has_field(*data, "orders")) {
-            const auto count = read_rows<WireOrder>(
-                *data, "orders", orders.orders,
-                [](ondemand::object& obj) { return read_order(obj); });
+            const auto count =
+                read_rows<WireOrder>(*data, "orders", orders.orders, [](ondemand::object& obj) {
+                    return read_order(obj);
+                });
             if (!count.has_value()) {
                 return std::unexpected(count.error());
             }
@@ -264,17 +265,18 @@ parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer&
         }
         std::size_t trade_count = 0;
         if (detail::has_field(*data, "trades")) {
-            const auto count = read_rows<WireUserTrade>(
-                *data, "trades", trades.trades,
-                [](ondemand::object& obj) { return read_user_trade(obj); });
+            const auto count =
+                read_rows<WireUserTrade>(*data, "trades", trades.trades, [](ondemand::object& obj) {
+                    return read_user_trade(obj);
+                });
             if (!count.has_value()) {
                 return std::unexpected(count.error());
             }
             trade_count = *count;
         }
-        return WireChanges{
-            .orders = std::span<const WireOrder>{orders.orders.data(), order_count},
-            .trades = std::span<const WireUserTrade>{trades.trades.data(), trade_count}};
+        return WireChanges{.orders = std::span<const WireOrder>{orders.orders.data(), order_count},
+                           .trades =
+                               std::span<const WireUserTrade>{trades.trades.data(), trade_count}};
     });
 }
 
@@ -289,8 +291,8 @@ parse_user_trades(std::string_view body, UserTradeBuffer& storage) {
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
-        const auto count = read_rows<WireUserTrade>(
-            *result, "trades", storage.trades, [](ondemand::object& obj) {
+        const auto count =
+            read_rows<WireUserTrade>(*result, "trades", storage.trades, [](ondemand::object& obj) {
                 return read_user_trade(obj);
             });
         if (!count.has_value()) {
@@ -307,8 +309,8 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto count = read_rows<WirePosition>(
-            *root, "result", storage.positions, [](ondemand::object& obj) {
+        const auto count =
+            read_rows<WirePosition>(*root, "result", storage.positions, [](ondemand::object& obj) {
                 return [&]() -> std::expected<WirePosition, WireError> {
                     WirePosition out{};
                     const auto instrument = detail::opt_str(obj, "instrument_name");

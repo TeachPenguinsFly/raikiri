@@ -452,7 +452,7 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
 // page.
 exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                                : exec::ErrorClass::Terminal,
+                                                               : exec::ErrorClass::Terminal,
                                   0,
                                   to_string(err));
 }
@@ -651,13 +651,12 @@ struct PrivateStream {
     PrivateStream(VenueState& state, MarketType market)
         : handler{state, market},
           client{state.io,
-                 net::WsConfig{.host = std::string{market == MarketType::Spot
-                                                       ? spot_private_stream_host()
-                                                       : private_stream_host()},
-                               .port = "443",
-                               .target = std::string{market == MarketType::Spot
-                                                         ? spot_private_stream_path()
-                                                         : private_stream_path()}},
+                 net::WsConfig{
+                     .host = std::string{market == MarketType::Spot ? spot_private_stream_host()
+                                                                    : private_stream_host()},
+                     .port = "443",
+                     .target = std::string{market == MarketType::Spot ? spot_private_stream_path()
+                                                                      : private_stream_path()}},
                  handler} {
         handler.attach(client, key);
     }
@@ -939,14 +938,13 @@ public:
         static thread_local FuturesPositionBuffer storage;
         const auto positions = parse_futures_positions(*body, storage);
         if (!positions.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
         }
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
         for (const auto& wire : *positions) {
-            if (auto report = map_futures_position(wire, state_->instruments);
-                report.has_value()) {
+            if (auto report = map_futures_position(wire, state_->instruments); report.has_value()) {
                 reports.push_back(*report);
             }
         }
@@ -1007,7 +1005,7 @@ private:
         const auto request =
             kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
-                                    : builder_.amend_order(cmd, state_->instruments, now);
+                                   : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -1016,14 +1014,21 @@ private:
                                    [this, cmd, kind, market](net::RestResponse&& response) {
                                        on_response(std::move(response), cmd, kind, market);
                                    })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
-    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
-                     MarketType market) {
+    void
+    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         const bool http_ok = response.status >= 200 && response.status < 300;
@@ -1043,11 +1048,14 @@ private:
             return; // the socket's push carries the lifecycle
         }
         if (kind == Kind::Cancel) {
-            const auto code = market == MarketType::Spot
-                                  ? parse_spot_envelope(response.body).transform(
-                                        [](const SpotEnvelope& e) { return e.mc; })
-                                  : parse_rest_envelope(response.body).transform(
-                                        [](const RestEnvelope& e) { return e.code; });
+            const auto code =
+                market == MarketType::Spot
+                    ? parse_spot_envelope(response.body).transform([](const SpotEnvelope& e) {
+                          return e.mc;
+                      })
+                    : parse_rest_envelope(response.body).transform([](const RestEnvelope& e) {
+                          return e.code;
+                      });
             if (code.has_value() && is_benign_cancel_failure(*code)) {
                 return; // the order already finished; reconciliation settles it
             }
@@ -1087,17 +1095,17 @@ private:
     // it without ever blocking the gateway loop.
     [[nodiscard]] bool mint_listen_key() {
         const auto request = builder_.listen_key(state_->venue_now(MarketType::Perp));
-        const auto key = request.has_value()
-                             ? fetch(*request, MarketType::Perp).and_then(
-                                   [](const std::string& body) {
-                                       const auto parsed = parse_listen_key(body);
-                                       return parsed.has_value()
-                                                  ? std::expected<std::string, exec::VenueError>{
-                                                        std::string{*parsed}}
-                                                  : std::unexpected{exec::VenueError::make(
-                                                        exec::ErrorClass::Terminal, 0, "no key")};
-                                   })
-                             : std::unexpected{build_failure(request.error())};
+        const auto key =
+            request.has_value()
+                ? fetch(*request, MarketType::Perp).and_then([](const std::string& body) {
+                      const auto parsed = parse_listen_key(body);
+                      return parsed.has_value()
+                                 ? std::expected<std::string, exec::VenueError>{std::string{
+                                       *parsed}}
+                                 : std::unexpected{exec::VenueError::make(
+                                       exec::ErrorClass::Terminal, 0, "no key")};
+                  })
+                : std::unexpected{build_failure(request.error())};
         state_->perp_key_stale = !key.has_value();
         if (!key.has_value()) {
             return false;
@@ -1108,17 +1116,17 @@ private:
 
     [[nodiscard]] bool mint_ws_token() {
         const auto request = builder_.ws_token(state_->venue_now(MarketType::Spot));
-        const auto token = request.has_value()
-                               ? fetch(*request, MarketType::Spot).and_then(
-                                     [](const std::string& body) {
-                                         const auto parsed = parse_spot_ws_token(body);
-                                         return parsed.has_value()
-                                                    ? std::expected<std::string, exec::VenueError>{
-                                                          std::string{*parsed}}
-                                                    : std::unexpected{exec::VenueError::make(
-                                                          exec::ErrorClass::Terminal, 0, "no token")};
-                                     })
-                               : std::unexpected{build_failure(request.error())};
+        const auto token =
+            request.has_value()
+                ? fetch(*request, MarketType::Spot).and_then([](const std::string& body) {
+                      const auto parsed = parse_spot_ws_token(body);
+                      return parsed.has_value()
+                                 ? std::expected<std::string, exec::VenueError>{std::string{
+                                       *parsed}}
+                                 : std::unexpected{exec::VenueError::make(
+                                       exec::ErrorClass::Terminal, 0, "no token")};
+                  })
+                : std::unexpected{build_failure(request.error())};
         state_->spot_key_stale = !token.has_value();
         if (!token.has_value()) {
             return false;
@@ -1153,7 +1161,8 @@ private:
     void on_key(net::RestResponse&& response, MarketType market) {
         auto* stream = market == MarketType::Spot ? spot_stream_.get() : perp_stream_.get();
         (market == MarketType::Spot ? spot_key_in_flight_ : perp_key_in_flight_) = false;
-        if (stream == nullptr || response.transport_failed() || !envelope_ok(response.body, market)) {
+        if (stream == nullptr || response.transport_failed() ||
+            !envelope_ok(response.body, market)) {
             return; // still stale; the next poll tries again
         }
         const auto key = market == MarketType::Spot ? parse_spot_ws_token(response.body)
@@ -1267,9 +1276,8 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire, [](const WireInstrument& row) {
-            return map_instrument(row, MarketType::Perp);
-        });
+        return intern(
+            *wire, [](const WireInstrument& row) { return map_instrument(row, MarketType::Perp); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {

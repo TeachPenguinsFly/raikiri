@@ -25,9 +25,9 @@
 namespace raikiri::venues::hyperliquid {
 
 enum class BuildError : std::uint8_t {
-    UnknownInstrument,  // not in the table: this adapter never loaded it
-    UnknownAsset,       // loaded, but with no venue asset index recorded
-    BadQuantity,        // does not render as a venue-legal size
+    UnknownInstrument, // not in the table: this adapter never loaded it
+    UnknownAsset,      // loaded, but with no venue asset index recorded
+    BadQuantity,       // does not render as a venue-legal size
     BadPrice,
     // Five significant figures is a HARD venue limit on any non-integer price,
     // independent of the tick grid: 1234.56 is refused on an asset whose tick
@@ -75,9 +75,11 @@ public:
     ExchangeBuilder(const Wallet& wallet, bool mainnet) noexcept
         : wallet_{&wallet}, mainnet_{mainnet} {}
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> create_order(
-        const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset,
-        std::uint64_t nonce);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    create_order(const OrderCmd& cmd,
+                 const exec::InstrumentTable& table,
+                 std::int64_t asset,
+                 std::uint64_t nonce);
 
     // By venue order id when the command carries one, by cloid otherwise. The
     // two are DIFFERENT actions with different key names ("a"/"o" against
@@ -87,16 +89,17 @@ public:
 
     // Native modify: cancel and replace in one action, so the order never
     // leaves the book. Carries the whole replacement order, not a delta.
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> modify_order(
-        const OrderCmd& cmd, const exec::InstrumentTable& table, std::int64_t asset,
-        std::uint64_t nonce);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    modify_order(const OrderCmd& cmd,
+                 const exec::InstrumentTable& table,
+                 std::int64_t asset,
+                 std::uint64_t nonce);
 
 private:
     [[nodiscard]] static std::uint64_t digits_to_oid(std::string_view text) noexcept;
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    sign_and_wrap(std::span<const std::uint8_t> packed, std::string_view action_json,
-                  std::uint64_t nonce);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> sign_and_wrap(
+        std::span<const std::uint8_t> packed, std::string_view action_json, std::uint64_t nonce);
 
     // The longest action is a modify: a full order wire plus a 34-char cloid,
     // twice over. 1024 is slack, not a measurement.

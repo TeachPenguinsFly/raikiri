@@ -114,7 +114,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
-[[nodiscard]] std::optional<exec::PositionReport>
-map_position(const WirePosition& wire, const exec::InstrumentTable& table);
+[[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
+                                                               const exec::InstrumentTable& table);
 
 } // namespace raikiri::venues::htx

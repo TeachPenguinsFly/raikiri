@@ -336,8 +336,8 @@ enum class WireOrderStatus : std::uint8_t {
     Active,
     PartiallyFilled,
     Executed,
-    Canceled,        // includes POSTONLY CANCELED
-    Rejected,        // INSUFFICIENT MARGIN / INSUFFICIENT BALANCE / RSN_*
+    Canceled, // includes POSTONLY CANCELED
+    Rejected, // INSUFFICIENT MARGIN / INSUFFICIENT BALANCE / RSN_*
     Unknown,
 };
 
@@ -489,7 +489,6 @@ struct WireNotification {
 
 [[nodiscard]] bool notification_ok(const WireNotification& notification) noexcept;
 
-[[nodiscard]] std::expected<WireNotification, WireError>
-parse_notification(std::string_view body);
+[[nodiscard]] std::expected<WireNotification, WireError> parse_notification(std::string_view body);
 
 } // namespace raikiri::venues::bitfinex

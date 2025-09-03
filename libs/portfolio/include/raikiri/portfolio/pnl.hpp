@@ -38,9 +38,8 @@ enum class SettleSide : std::uint8_t {
 // real position, while a notional taken before the contract multiplier is
 // applied is inflated by 1/contract_value and overflows for the sub-unit
 // multipliers gate and bitmex publish.
-[[nodiscard]] FixedE9 settlement_value(const InstrumentBase& base,
-                                       PriceTicks price,
-                                       QtyLots qty) noexcept;
+[[nodiscard]] FixedE9
+settlement_value(const InstrumentBase& base, PriceTicks price, QtyLots qty) noexcept;
 
 // Position size expressed in base units, whatever the instrument counts in.
 // Meaningless for an inverse contract, whose base exposure floats with price,

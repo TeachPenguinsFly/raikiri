@@ -90,7 +90,6 @@ net::RestRequest RequestBuilder::book(std::string_view product_id, std::uint32_t
     return writer.get();
 }
 
-
 namespace {
 
 // Reports overflow instead of truncating: a signed body cut mid-number

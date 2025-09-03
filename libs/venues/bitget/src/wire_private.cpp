@@ -18,10 +18,8 @@ namespace ondemand = detail::ondemand;
 
 // Walks either `data` or `data.<nested>` and reads every element.
 template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError> read_rows(std::string_view text,
-                                                            std::string_view nested,
-                                                            std::span<Entry> storage,
-                                                            Read&& read) {
+std::expected<std::span<const Entry>, WireError>
+read_rows(std::string_view text, std::string_view nested, std::span<Entry> storage, Read&& read) {
     auto root = session().open_object(text);
     if (!root.has_value()) {
         return std::unexpected(root.error());
@@ -231,12 +229,14 @@ WireOrderStatus order_status_from(std::string_view text) noexcept {
 
 std::expected<std::span<const WireOrderUpdate>, WireError>
 parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage) {
-    return guarded([&] { return read_rows<WireOrderUpdate>(frame, {}, storage.updates, read_order); });
+    return guarded(
+        [&] { return read_rows<WireOrderUpdate>(frame, {}, storage.updates, read_order); });
 }
 
 std::expected<std::span<const WireOrderUpdate>, WireError>
 parse_spot_orders(std::string_view body, OrderUpdateBuffer& storage) {
-    return guarded([&] { return read_rows<WireOrderUpdate>(body, {}, storage.updates, read_order); });
+    return guarded(
+        [&] { return read_rows<WireOrderUpdate>(body, {}, storage.updates, read_order); });
 }
 
 std::expected<std::span<const WireOrderUpdate>, WireError>
@@ -252,12 +252,12 @@ std::expected<std::span<const WireFill>, WireError> parse_spot_fills(std::string
 }
 
 std::expected<std::span<const WireFill>, WireError> parse_mix_fills(std::string_view body,
-                                                                     FillBuffer& storage) {
+                                                                    FillBuffer& storage) {
     return guarded([&] { return read_rows<WireFill>(body, "fillList", storage.fills, read_fill); });
 }
 
 std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                         PositionBuffer& storage) {
+                                                                        PositionBuffer& storage) {
     return guarded(
         [&] { return read_rows<WirePosition>(body, {}, storage.positions, read_position); });
 }

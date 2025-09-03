@@ -152,7 +152,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // Spot cancels by path id and futures has no single by-client-id
         // cancel — only a comma-separated batch. False is the honest reading.
         .cancel_by_client_order_id = false, // VERIFIED: query+cancel by clientOrderId
-        .batch_cancel = true,              // VERIFIED: batch-cancel endpoints exist
+        .batch_cancel = true,               // VERIFIED: batch-cancel endpoints exist
         .amend_order = true,
         .native_post_only = true, // provisional
         .book_checksum = false,

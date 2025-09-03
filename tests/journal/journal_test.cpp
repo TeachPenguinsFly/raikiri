@@ -1,17 +1,18 @@
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
-#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/schema/codec.hpp>
 
 #include <gtest/gtest.h>
 
-#include <csignal>
-#include <cstdio>
 #include <fcntl.h>
-#include <string>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <csignal>
+#include <cstdio>
+#include <string>
 
 namespace raikiri::journal {
 namespace {
@@ -19,8 +20,7 @@ namespace {
 using msgs = raikiri_journal::schema::messages;
 
 std::string fresh_dir(const char* name) {
-    const auto dir =
-        "/tmp/raikiri-journal-test-" + std::to_string(::getpid()) + "-" + name;
+    const auto dir = "/tmp/raikiri-journal-test-" + std::to_string(::getpid()) + "-" + name;
     (void)std::system(("rm -rf " + dir).c_str());
     return dir;
 }
@@ -232,7 +232,9 @@ TEST(JournalWriterLock, ASecondWriterIsRefusedOnTheRecoveryPathToo) {
 
 struct VenueProbe {
     bool known{true};
+
     template <typename E, typename Tag> void on_enum_value(E, Tag) noexcept {}
+
     template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept {
         known = false;
     }

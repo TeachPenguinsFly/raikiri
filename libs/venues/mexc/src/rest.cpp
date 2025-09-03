@@ -297,8 +297,10 @@ std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(
-    net::HttpMethod method, std::string_view path, std::string_view query, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(net::HttpMethod method,
+                                                                            std::string_view path,
+                                                                            std::string_view query,
+                                                                            UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -336,12 +338,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(
     return request;
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_futures(
-    net::HttpMethod method,
-    std::string_view path,
-    std::string_view query,
-    std::string_view body,
-    UnixNanos now) {
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::sign_futures(net::HttpMethod method,
+                                   std::string_view path,
+                                   std::string_view query,
+                                   std::string_view body,
+                                   UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -692,8 +694,10 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
     return std::unexpected{BuildError::UnknownInstrument};
 }
 
-std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(
-    MarketType market, std::string_view symbol, UnixNanos since, UnixNanos now) {
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(MarketType market,
+                                                                            std::string_view symbol,
+                                                                            UnixNanos since,
+                                                                            UnixNanos now) {
     const auto since_ms = static_cast<std::int64_t>(since.ns / 1'000'000ULL);
     switch (market) {
     case MarketType::Perp: {
@@ -736,7 +740,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(MarketType market,
-                                                                           UnixNanos now) {
+                                                                            UnixNanos now) {
     switch (market) {
     case MarketType::Perp:
         return sign_futures(

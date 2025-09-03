@@ -71,7 +71,6 @@ WireOrder partly_filled_order() {
     return wire;
 }
 
-
 TEST(OkxMap, BboBecomesTopOfBook) {
     const auto table = table_with_btc();
     WireBbo wire{};

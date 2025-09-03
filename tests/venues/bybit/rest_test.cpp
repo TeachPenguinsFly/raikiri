@@ -1,6 +1,5 @@
-#include <raikiri/venues/bybit/rest.hpp>
-
 #include <raikiri/venues/bybit/map.hpp>
+#include <raikiri/venues/bybit/rest.hpp>
 
 #include <gtest/gtest.h>
 
@@ -96,8 +95,7 @@ TEST(BybitRestBuilder, PostSignsTimestampKeyWindowAndBodyConcatenated) {
 
     // And the digest is genuinely that message under that secret.
     std::array<char, net::k_hex_bytes> reference{};
-    EXPECT_EQ(header(*request, "X-BAPI-SIGN"),
-              net::hmac_sha256_hex(k_secret, expected, reference));
+    EXPECT_EQ(header(*request, "X-BAPI-SIGN"), net::hmac_sha256_hex(k_secret, expected, reference));
 }
 
 TEST(BybitRestBuilder, GetSignsTheQueryStringWithoutItsQuestionMark) {
@@ -208,8 +206,8 @@ TEST(BybitRestBuilder, ReconciliationPullsAndCancelAll) {
     ASSERT_TRUE(positions.has_value());
     EXPECT_EQ(positions->target, "/v5/position/list?category=linear&settleCoin=USDT");
 
-    const auto executions = builder.executions(MarketType::Perp, UnixNanos{1'700'000'000'000'000},
-                                               k_now);
+    const auto executions =
+        builder.executions(MarketType::Perp, UnixNanos{1'700'000'000'000'000}, k_now);
     ASSERT_TRUE(executions.has_value());
     EXPECT_NE(executions->target.find("startTime=1700000000"), std::string_view::npos);
 
@@ -255,8 +253,7 @@ TEST(BybitRestBuilder, MissingCredentialsRefuseToBuildSignedRequests) {
     net::Signer signer; // never loaded
     RequestBuilder builder{signer};
 
-    EXPECT_EQ(builder.create_order(make_order(table), table, k_now).error(),
-              BuildError::NotSigned);
+    EXPECT_EQ(builder.create_order(make_order(table), table, k_now).error(), BuildError::NotSigned);
     EXPECT_EQ(builder.open_orders(MarketType::Perp, k_now).error(), BuildError::NotSigned);
     EXPECT_EQ(builder.wallet_balance(k_now).error(), BuildError::NotSigned);
 }

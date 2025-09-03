@@ -63,8 +63,8 @@ TEST(BybitWs, LargeSubscriptionsBatchRatherThanOverflow) {
     std::size_t sent = 0;
     int frames = 0;
     while (sent < topics.size()) {
-        const auto frame = protocol.subscribe_frame(
-            std::span<const std::string_view>{topics}.subspan(sent));
+        const auto frame =
+            protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(sent));
         ASSERT_TRUE(frame.has_value());
         EXPECT_LE(frame->consumed, k_max_topics_per_frame);
         sent += frame->consumed;
@@ -98,8 +98,9 @@ TEST(BybitWs, AuthSignsTheFixedPrefixAndAFutureExpiry) {
     std::array<char, net::k_hex_bytes> reference{};
     const auto expected =
         net::hmac_sha256_hex("testsecret", "GET/realtime1700000005000", reference);
-    EXPECT_EQ(*frame, std::string{R"({"op":"auth","args":["TESTKEY",1700000005000,")"} +
-                          std::string{expected} + R"("]})");
+    EXPECT_EQ(*frame,
+              std::string{R"({"op":"auth","args":["TESTKEY",1700000005000,")"} +
+                  std::string{expected} + R"("]})");
 
     // The expiry travels as a JSON number: bybit rejects the quoted form.
     EXPECT_EQ(frame->find(R"("1700000005000")"), std::string_view::npos);

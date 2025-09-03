@@ -1,6 +1,6 @@
-#include "wire_detail.hpp"
-
 #include <raikiri/venues/htx/errors.hpp>
+
+#include "wire_detail.hpp"
 
 namespace raikiri::venues::htx {
 
@@ -85,9 +85,8 @@ bool is_maker(std::string_view role) noexcept {
         return false;
     }
     for (std::size_t i = 0; i < role.size(); ++i) {
-        const char c = role[i] >= 'A' && role[i] <= 'Z'
-                           ? static_cast<char>(role[i] - 'A' + 'a')
-                           : role[i];
+        const char c =
+            role[i] >= 'A' && role[i] <= 'Z' ? static_cast<char>(role[i] - 'A' + 'a') : role[i];
         if (c != k_maker[i]) {
             return false;
         }
@@ -524,8 +523,7 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
         // read — probing by trying get_array and falling back leaves the
         // iterator half-consumed.
         detail::ondemand::value data;
-        if (const auto ec = root->find_field_unordered("data").get(data);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = root->find_field_unordered("data").get(data); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         simdjson::ondemand::json_type type{};
@@ -560,15 +558,14 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
 }
 
 std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_view body,
-                                                                  MarketType market) {
+                                                                 MarketType market) {
     return guarded([&]() -> std::expected<WireCancelOutcome, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
         detail::ondemand::value data;
-        if (const auto ec = root->find_field_unordered("data").get(data);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = root->find_field_unordered("data").get(data); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         simdjson::ondemand::json_type type{};

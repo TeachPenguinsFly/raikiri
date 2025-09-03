@@ -40,14 +40,14 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
-#include <ranges>
-#include <set>
-#include <span>
 #include <atomic>
+#include <charconv>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <ranges>
+#include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -95,9 +95,9 @@ struct Gateway {
             shm::SegmentClient attached,
             shm::GatewayChannels channels)
         : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
-          exec{channels.exec_events}, charges{channels.funding_charges},
-          md{channels.md_events}, creates{channels.cmd_create},
-          cancels{channels.cmd_cancel}, intents{channels.order_intents},
+          exec{channels.exec_events}, charges{channels.funding_charges}, md{channels.md_events},
+          creates{channels.cmd_create}, cancels{channels.cmd_cancel},
+          intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
 };
@@ -140,8 +140,8 @@ public:
      *  transition — is the one path both callers take, because a hand-placed
      *  order that skipped any of it would be an order the system cannot
      *  reconcile, halt or replay. */
-    std::expected<ClientOrderId, strategy::RejectReason>
-    submit_as(const strategy::NewOrder& order, ClientOrderId id) noexcept {
+    std::expected<ClientOrderId, strategy::RejectReason> submit_as(const strategy::NewOrder& order,
+                                                                   ClientOrderId id) noexcept {
         const auto t0 = clock_->mono();
 
         OrderCmd cmd{};
@@ -731,6 +731,7 @@ Restoration restore_book(portfolio::PositionBook& book,
     if (!reader.has_value()) {
         return {}; // no journal yet: a first run, not a loss
     }
+
     // Copied out of the frame rather than kept as a view: a decoded message
     // points into the journal's mapping, and the map outlives the walk.
     struct Row {
@@ -738,6 +739,7 @@ Restoration restore_book(portfolio::PositionBook& book,
         InstrumentId instrument{};
         portfolio::Position::Restored state{};
     };
+
     std::unordered_map<std::uint64_t, Row> latest;
     journal::FrameView frame{};
     while (reader->next(frame) == journal::ReadResult::Item) {
@@ -1118,11 +1120,11 @@ int main(int argc, char** argv) {
                             // book keeps the opposite convention internally —
                             // net_realized() subtracts it — and this is the
                             // edge where the two meet.
-                            ctx.journal_pnl(
-                                event,
-                                base,
-                                jt::pnlKindEnum::Fee,
-                                FixedE9::from_raw(-(applied->close_fee.raw + applied->open_fee.raw)));
+                            ctx.journal_pnl(event,
+                                            base,
+                                            jt::pnlKindEnum::Fee,
+                                            FixedE9::from_raw(
+                                                -(applied->close_fee.raw + applied->open_fee.raw)));
                             // After the increments, because the row is the
                             // state those increments produced.
                             if (const auto* held = ctx.positions.find(
@@ -1252,9 +1254,7 @@ int main(int argc, char** argv) {
     fmt::print("manual desk: intents={}  refused={}\n", desk_intents, desk_refusals);
     // Charges booked, and charges LOST. The second is money the ledger will
     // never carry, so it is printed even when it is zero.
-    fmt::print("funding: charges-booked={}  ring-overruns={}\n",
-               funding_charges,
-               funding_overruns);
+    fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,

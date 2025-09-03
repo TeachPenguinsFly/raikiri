@@ -22,7 +22,8 @@ RateBudget::Table table_with(RateBucket bucket, RateBudget::BucketConfig cfg) {
 TEST(RateBudget, AnUnconfiguredBucketAllowsEverything) {
     RateBudget budget{RateBudget::Table{}, {}};
     for (int i = 0; i < 500; ++i) {
-        EXPECT_TRUE(budget.take(RateBucket::Ledger, 100, MonoNanos{0}, RateClass::Poll).has_value());
+        EXPECT_TRUE(
+            budget.take(RateBucket::Ledger, 100, MonoNanos{0}, RateClass::Poll).has_value());
     }
 }
 
@@ -67,24 +68,25 @@ TEST(RateBudget, AVenueRefusalDrainsOnlyTheBucketItAnswered) {
     t[static_cast<std::size_t>(RateBucket::Ledger)] = {.capacity = 25, .window_ns = k_second};
     RateBudget budget{t, {}};
     budget.penalize(RateBucket::Ledger, MonoNanos{0}, k_second);
-    EXPECT_FALSE(budget.take(RateBucket::Ledger, 1, MonoNanos{k_second / 2}, RateClass::Order)
-                     .has_value());
-    EXPECT_TRUE(budget.take(RateBucket::Account, 1, MonoNanos{k_second / 2}, RateClass::Order)
-                    .has_value());
+    EXPECT_FALSE(
+        budget.take(RateBucket::Ledger, 1, MonoNanos{k_second / 2}, RateClass::Order).has_value());
+    EXPECT_TRUE(
+        budget.take(RateBucket::Account, 1, MonoNanos{k_second / 2}, RateClass::Order).has_value());
 }
 
 // The gateway's order path and its account poller run on DIFFERENT THREADS and
 // share one budget, because the venue counts them together.
 TEST(RateBudget, TwoThreadsCannotBetweenThemSpendMoreThanTheBudget) {
     constexpr std::uint32_t k_capacity = 2000;
-    RateBudget budget{table_with(RateBucket::Shared, {.capacity = k_capacity, .window_ns = k_second}),
-                      {}};
+    RateBudget budget{
+        table_with(RateBucket::Shared, {.capacity = k_capacity, .window_ns = k_second}), {}};
     std::atomic<int> granted{0};
     std::vector<std::thread> threads;
     for (int t = 0; t < 4; ++t) {
         threads.emplace_back([&] {
             for (int i = 0; i < 1000; ++i) {
-                if (budget.take(RateBucket::Shared, 1, MonoNanos{0}, RateClass::Order).has_value()) {
+                if (budget.take(RateBucket::Shared, 1, MonoNanos{0}, RateClass::Order)
+                        .has_value()) {
                     granted.fetch_add(1, std::memory_order_relaxed);
                 }
             }

@@ -454,10 +454,9 @@ void publish_order(VenueState& state,
     }
     const std::string key{wire.order_id};
     auto* memo = state.recall(key);
-    const auto* instrument = wire.symbol.empty()
-                                 ? (memo != nullptr ? state.instruments.find(memo->instrument)
-                                                    : nullptr)
-                                 : state.instruments.find(wire.symbol);
+    const auto* instrument =
+        wire.symbol.empty() ? (memo != nullptr ? state.instruments.find(memo->instrument) : nullptr)
+                            : state.instruments.find(wire.symbol);
     if (instrument == nullptr) {
         // An `update` names an order id and an ordStatus and nothing else, so
         // an order this process never saw created has no instrument to
@@ -563,14 +562,14 @@ public:
     void attach(net::WsClient& client) noexcept { client_ = &client; }
 
     void on_open() override {
-        const auto expires = state_->clock->wall().ns / 1'000'000'000ULL +
-                             SignedRequestBuilder::k_expiry_window_s;
+        const auto expires =
+            state_->clock->wall().ns / 1'000'000'000ULL + SignedRequestBuilder::k_expiry_window_s;
         std::array<char, 64> message{};
         const auto text = auth_message(expires, message);
         std::array<char, net::k_hex_bytes> digest{};
-        const auto signature =
-            text.empty() ? std::string_view{}
-                         : state_->signer.sign(text, net::Signer::Encoding::Hex, digest);
+        const auto signature = text.empty()
+                                   ? std::string_view{}
+                                   : state_->signer.sign(text, net::Signer::Encoding::Hex, digest);
         const auto frame = protocol_.auth_frame(state_->signer.api_key(), expires, signature);
         if (!frame.has_value() || !client_->send(frame->text)) {
             state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
@@ -581,8 +580,8 @@ public:
         // Sent without waiting for an ack on purpose: BitMEX processes a
         // connection's messages in order, and the refusal path is an error
         // frame rather than a silent drop of the subscribe.
-        const std::array<std::string_view, 3> tables{k_table_order, k_table_execution,
-                                                     k_table_position};
+        const std::array<std::string_view, 3> tables{
+            k_table_order, k_table_execution, k_table_position};
         const auto subscribe = protocol_.private_subscribe_frame(tables);
         if (!subscribe.has_value() || !client_->send(subscribe->text)) {
             state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
@@ -700,9 +699,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -713,11 +710,9 @@ public:
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
         // BitMEX keys a cancel on the order id alone, so unlike most venues here
         // a batch may straddle instruments and only the count needs chunking.
-        for (std::size_t at = 0; at < cmds.size();
-             at += SignedRequestBuilder::k_max_batch_cancel) {
-            const auto chunk =
-                cmds.subspan(at, std::min(SignedRequestBuilder::k_max_batch_cancel,
-                                          cmds.size() - at));
+        for (std::size_t at = 0; at < cmds.size(); at += SignedRequestBuilder::k_max_batch_cancel) {
+            const auto chunk = cmds.subspan(
+                at, std::min(SignedRequestBuilder::k_max_batch_cancel, cmds.size() - at));
             send_batch(chunk);
         }
     }
@@ -737,8 +732,8 @@ public:
             static thread_local OrderBuffer storage;
             const auto rows = parse_orders(*body, storage);
             if (!rows.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
             }
             for (const auto& wire : *rows) {
                 // BitMEX offers no market parameter: one call answers for spot
@@ -788,17 +783,16 @@ public:
         }
         std::vector<exec::FillReport> reports;
         for (std::uint32_t page = 0; page < k_max_pages; ++page) {
-            const auto body = pull(builder_.fills(since,
-                                                  page * SignedRequestBuilder::k_page_size,
-                                                  state_->clock->wall()));
+            const auto body = pull(builder_.fills(
+                since, page * SignedRequestBuilder::k_page_size, state_->clock->wall()));
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
             static thread_local ExecutionBuffer storage;
             const auto rows = parse_executions(*body, storage);
             if (!rows.has_value()) {
-                return std::unexpected{exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+                return std::unexpected{
+                    exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
             }
             for (const auto& wire : *rows) {
                 auto report = map_fill(wire, state_->instruments);
@@ -865,10 +859,9 @@ private:
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->clock->wall();
-        auto request = kind == Kind::Create ? builder_.create_order(cmd, state_->instruments, now)
-                       : kind == Kind::Cancel
-                           ? builder_.cancel_order(cmd, state_->instruments, now)
-                           : builder_.amend_order(cmd, state_->instruments, now);
+        auto request = kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
+                       : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
+                                              : builder_.amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -876,7 +869,9 @@ private:
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -894,14 +889,21 @@ private:
                 on_batch_response(std::move(response), pending);
             })) {
             for (const auto& cmd : chunk) {
-                emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                emit_reject(
+                    cmd,
+                    Kind::Cancel,
+                    exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             }
         }
     }
 
     void on_batch_response(net::RestResponse&& response, const std::vector<OrderCmd>& pending) {
         if (response.transport_failed() || response.status != k_ok) {
-            const auto refusal = response.transport_failed() ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue") : rest_failure(response);
+            const auto refusal = response.transport_failed()
+                                     ? exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                                              0,
+                                                              "no response from venue")
+                                     : rest_failure(response);
             for (const auto& cmd : pending) {
                 emit_reject(cmd, Kind::Cancel, refusal);
             }
@@ -927,10 +929,9 @@ private:
             }
             for (const auto& cmd : pending) {
                 if (cmd.target_exchange_order_id.view() == wire.order_id) {
-                    emit_reject(
-                        cmd,
-                        Kind::Cancel,
-                        exec::VenueError::make(exec::ErrorClass::Terminal, 0, wire.error));
+                    emit_reject(cmd,
+                                Kind::Cancel,
+                                exec::VenueError::make(exec::ErrorClass::Terminal, 0, wire.error));
                 }
             }
         }
@@ -939,7 +940,12 @@ private:
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
         const auto received = state_->clock->wall();
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         if (response.status != k_ok) {

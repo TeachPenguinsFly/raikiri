@@ -1,5 +1,5 @@
-#include <raikiri/exec/venue.hpp>
 #include <raikiri/exec/execution_client.hpp>
+#include <raikiri/exec/venue.hpp>
 
 #include <array>
 
@@ -41,8 +41,8 @@ make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock) {
     // command locally, which reads as a venue problem for as long as nobody
     // looks. A caller that configured no credentials at all is asking for
     // market data and is not refused anything.
-    if (caps.needs_passphrase && !config.api_key_env.empty() &&
-        !config.api_secret_env.empty() && config.passphrase_env.empty()) {
+    if (caps.needs_passphrase && !config.api_key_env.empty() && !config.api_secret_env.empty() &&
+        config.passphrase_env.empty()) {
         return std::unexpected{MakeError::PassphraseRequired};
     }
     if (g_factories[idx] == nullptr) {

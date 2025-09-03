@@ -123,6 +123,7 @@ public:
     // one-way wants BOTH and accepts it — and BingX answers a mismatch with
     // 109400 rather than opening the position the caller did not ask for.
     void set_hedge_mode(bool on) noexcept { hedge_ = on; }
+
     [[nodiscard]] bool hedge_mode() const noexcept { return hedge_; }
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
@@ -153,8 +154,8 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_create(UnixNanos now);
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     listen_key_keepalive(std::string_view key, UnixNanos now);
-    [[nodiscard]] std::expected<net::RestRequest, BuildError>
-    listen_key_close(std::string_view key, UnixNanos now);
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_close(std::string_view key,
+                                                                               UnixNanos now);
 
     // Exposed for tests: the exact bytes that went into the last HMAC, which
     // are also the exact bytes of the query string that was sent.

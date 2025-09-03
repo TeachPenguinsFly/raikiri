@@ -34,6 +34,7 @@ namespace raikiri::venues::bingx {
 
 // The echo, folded back to upper case. nullopt for a web order's id, which
 // must leave the field UNSET rather than decode into something we own.
-[[nodiscard]] std::optional<ExchangeClientOrderId> client_id_from_text(std::string_view text) noexcept;
+[[nodiscard]] std::optional<ExchangeClientOrderId>
+client_id_from_text(std::string_view text) noexcept;
 
 } // namespace raikiri::venues::bingx

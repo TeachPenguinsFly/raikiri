@@ -85,6 +85,6 @@ struct StreamBook {
 };
 
 [[nodiscard]] std::expected<StreamBook, WireError> parse_stream_book(std::string_view payload,
-                                                                 LevelBuffer& storage);
+                                                                     LevelBuffer& storage);
 
 } // namespace raikiri::venues::mexc

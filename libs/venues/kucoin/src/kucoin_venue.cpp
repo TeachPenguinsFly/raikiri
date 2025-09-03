@@ -528,15 +528,12 @@ class MarketLink final : public net::WsHandler, public Pumped {
 public:
     MarketLink(VenueState& state, MarketType market, std::uint32_t stream_id)
         : state_{&state}, market_{market}, stream_id_{stream_id},
-          rest_{state.io,
-                net::RestConfig{.host = std::string{rest_host(market)}, .port = "443"}},
+          rest_{state.io, net::RestConfig{.host = std::string{rest_host(market)}, .port = "443"}},
           builder_{state.credentials} {
         state_->pumps.push_back(this);
     }
 
-    ~MarketLink() {
-        std::erase(state_->pumps, this);
-    }
+    ~MarketLink() { std::erase(state_->pumps, this); }
 
     [[nodiscard]] MarketType market() const noexcept { return market_; }
 
@@ -589,8 +586,9 @@ public:
             schedule_reopen();
             return;
         }
-        state_->sink->on_connectivity(
-            {.state = exec::ConnState::Connected, .stream_id = stream_id_, .ts = state_->clock->wall()});
+        state_->sink->on_connectivity({.state = exec::ConnState::Connected,
+                                       .stream_id = stream_id_,
+                                       .ts = state_->clock->wall()});
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -716,8 +714,7 @@ private:
 // facts, and the reconciler acts on the difference.
 class KucoinExec final : public exec::ExecutionClient {
 public:
-    KucoinExec(std::shared_ptr<VenueState> state, MarketType market)
-        : state_{std::move(state)} {
+    KucoinExec(std::shared_ptr<VenueState> state, MarketType market) : state_{std::move(state)} {
         // One link, because one process serves one market. The list stays a
         // list: the private stream is per market and the loop below does not
         // care how many there are.
@@ -957,10 +954,11 @@ private:
     }
 
     [[nodiscard]] static exec::VenueError market_not_enabled(MarketType market) noexcept {
-        return exec::VenueError::make(
-            exec::ErrorClass::Terminal, 0, market == MarketType::Spot
-                                               ? "kucoin spot is not enabled on this gateway"
-                                               : "kucoin futures is not enabled on this gateway");
+        return exec::VenueError::make(exec::ErrorClass::Terminal,
+                                      0,
+                                      market == MarketType::Spot
+                                          ? "kucoin spot is not enabled on this gateway"
+                                          : "kucoin futures is not enabled on this gateway");
     }
 
     [[nodiscard]] MarketLink* link_for(MarketType market) noexcept {
@@ -1009,8 +1007,8 @@ private:
         static thread_local SymbolBuffer symbol_storage;
         const auto symbols = parse_active_symbols(*symbols_body, symbol_storage);
         if (!symbols.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(symbols.error()))};
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(symbols.error()))};
         }
 
         std::vector<exec::OrderStatusReport> reports;
@@ -1057,23 +1055,20 @@ private:
         if (link == nullptr) {
             emit_reject(cmd,
                         kind,
-                        exec::VenueError::make(exec::ErrorClass::Terminal,
-                                               0,
-                                               "no link for this instrument's market"));
+                        exec::VenueError::make(
+                            exec::ErrorClass::Terminal, 0, "no link for this instrument's market"));
             return;
         }
         const auto now = state_->venue_now();
         const auto request =
-            kind == Kind::Create ? link->builder().create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel
-                ? link->builder().cancel_order(cmd, state_->instruments, now)
-                : link->builder().amend_order(cmd, state_->instruments, now);
+            kind == Kind::Create   ? link->builder().create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? link->builder().cancel_order(cmd, state_->instruments, now)
+                                   : link->builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(
                 cmd,
                 kind,
-                exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(request.error())));
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         const auto client_order_id = cmd.client_order_id;
@@ -1081,23 +1076,21 @@ private:
         const auto instrument = cmd.instrument;
         const auto side = cmd.side;
         const auto qty = cmd.qty;
-        if (!link->rest().send(*request,
-                               [this,
+        if (!link->rest().send(
+                *request,
+                [this, client_order_id, exchange_client_order_id, instrument, side, qty, kind](
+                    net::RestResponse&& response) {
+                    on_response(std::move(response),
                                 client_order_id,
                                 exchange_client_order_id,
                                 instrument,
                                 side,
                                 qty,
-                                kind](net::RestResponse&& response) {
-                                   on_response(std::move(response),
-                                               client_order_id,
-                                               exchange_client_order_id,
-                                               instrument,
-                                               side,
-                                               qty,
-                                               kind);
-                               })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                                kind);
+                })) {
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -1112,7 +1105,10 @@ private:
             emit(client_order_id, exchange_client_order_id, instrument, side, qty, kind, error);
         };
         if (response.transport_failed()) {
-            refuse(exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            refuse(exec::VenueError::make(
+                exec::ErrorClass::Connectivity,
+                0,
+                "no response from venue")); // no verdict from the venue at all
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -1193,9 +1189,9 @@ public:
     explicit KucoinInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          spot_rest_{state_->io,
-                     net::RestConfig{.host = std::string{rest_host(MarketType::Spot)},
-                                     .port = "443"}} {}
+          spot_rest_{
+              state_->io,
+              net::RestConfig{.host = std::string{rest_host(MarketType::Spot)}, .port = "443"}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         switch (market) {
@@ -1330,8 +1326,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Kucoin);
     adapter.data = std::make_unique<KucoinData>(state);
-    adapter.execution =
-        std::make_unique<KucoinExec>(state, config.market);
+    adapter.execution = std::make_unique<KucoinExec>(state, config.market);
     adapter.instruments = std::make_unique<KucoinInstruments>(state);
     return adapter;
 }

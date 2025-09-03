@@ -91,8 +91,8 @@ void b64_encode(std::span<const std::uint8_t> bytes, std::span<char> out) noexce
     std::size_t o = 0;
     std::size_t i = 0;
     for (; i + 3 <= bytes.size(); i += 3) {
-        const std::uint32_t triple = (std::uint32_t{bytes[i]} << 16) |
-                                     (std::uint32_t{bytes[i + 1]} << 8) | bytes[i + 2];
+        const std::uint32_t triple =
+            (std::uint32_t{bytes[i]} << 16) | (std::uint32_t{bytes[i + 1]} << 8) | bytes[i + 2];
         out[o++] = k_b64_digits[(triple >> 18) & 0x3FU];
         out[o++] = k_b64_digits[(triple >> 12) & 0x3FU];
         out[o++] = k_b64_digits[(triple >> 6) & 0x3FU];
@@ -129,25 +129,22 @@ authent(std::string_view secret_base64, std::string_view message, std::span<char
     unsigned int inner_len = 0;
     // An empty message still hashes: a GET with no parameters signs
     // SHA256("" + nonce + path), so a null data pointer must not short-circuit.
-    const bool hashed = ::EVP_Digest(message.data(),
-                                     message.size(),
-                                     inner.data(),
-                                     &inner_len,
-                                     EVP_sha256(),
-                                     nullptr) == 1 &&
-                        inner_len == k_sha256_bytes;
+    const bool hashed =
+        ::EVP_Digest(
+            message.data(), message.size(), inner.data(), &inner_len, EVP_sha256(), nullptr) == 1 &&
+        inner_len == k_sha256_bytes;
 
     std::array<std::uint8_t, k_sha512_bytes> outer{};
     unsigned int outer_len = 0;
-    const bool signed_ok =
-        hashed && ::HMAC(EVP_sha512(),
-                         key.data(),
-                         static_cast<int>(key_len),
-                         inner.data(),
-                         inner.size(),
-                         outer.data(),
-                         &outer_len) != nullptr &&
-        outer_len == k_sha512_bytes;
+    const bool signed_ok = hashed &&
+                           ::HMAC(EVP_sha512(),
+                                  key.data(),
+                                  static_cast<int>(key_len),
+                                  inner.data(),
+                                  inner.size(),
+                                  outer.data(),
+                                  &outer_len) != nullptr &&
+                           outer_len == k_sha512_bytes;
     ::OPENSSL_cleanse(key.data(), key.size());
     if (!signed_ok) {
         return {};

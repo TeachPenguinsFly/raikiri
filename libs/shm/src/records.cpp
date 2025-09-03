@@ -20,9 +20,8 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.funding_charges == nullptr ||
-        ch.greeks == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
-        ch.cmd_create == nullptr || ch.cmd_cancel == nullptr ||
+        ch.funding_charges == nullptr || ch.greeks == nullptr || ch.positions == nullptr ||
+        ch.balances == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr ||
         ch.order_intents == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }

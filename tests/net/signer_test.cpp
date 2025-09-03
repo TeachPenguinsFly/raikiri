@@ -69,13 +69,19 @@ TEST(Signer, BybitStyleMessageShape) {
 
     std::array<char, 256> msg_buf{};
     const std::string_view body = R"({"symbol":"BTCUSDT"})";
-    int n = std::snprintf(msg_buf.data(), msg_buf.size(), "%s%s%s%.*s", "1700000000000",
-                          "abc123", "5000", static_cast<int>(body.size()), body.data());
+    int n = std::snprintf(msg_buf.data(),
+                          msg_buf.size(),
+                          "%s%s%s%.*s",
+                          "1700000000000",
+                          "abc123",
+                          "5000",
+                          static_cast<int>(body.size()),
+                          body.data());
     ASSERT_GT(n, 0);
 
     std::array<char, k_hex_bytes> sig{};
-    const auto out = signer.sign({msg_buf.data(), static_cast<std::size_t>(n)},
-                                 Signer::Encoding::Hex, sig);
+    const auto out =
+        signer.sign({msg_buf.data(), static_cast<std::size_t>(n)}, Signer::Encoding::Hex, sig);
     EXPECT_EQ(out.size(), k_hex_bytes);
     EXPECT_EQ(out.find_first_not_of("0123456789abcdef"), std::string_view::npos);
 }

@@ -5,8 +5,7 @@
 namespace raikiri::portfolio {
 namespace {
 
-constexpr auto k_instrument =
-    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
+constexpr auto k_instrument = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{1});
 
 PositionReport reported(std::int64_t lots) {
     PositionReport report{};

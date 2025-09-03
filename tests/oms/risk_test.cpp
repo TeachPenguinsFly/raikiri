@@ -64,7 +64,8 @@ TEST(RiskGate, BadQty) {
 
 TEST(RiskGate, QtyTooLarge) {
     const RiskGate gate{RiskConfig{.max_open_orders = 64, .max_qty_lots = QtyLots::from_raw(10)}};
-    EXPECT_TRUE(gate.check(valid_limit(10), Exposure{.open_orders = 0}).has_value()); // at the cap is fine
+    EXPECT_TRUE(
+        gate.check(valid_limit(10), Exposure{.open_orders = 0}).has_value()); // at the cap is fine
     const auto res = gate.check(valid_limit(11), Exposure{.open_orders = 0});
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), RiskReject::QtyTooLarge);
@@ -107,11 +108,13 @@ TEST(RiskGate, TooManyOpen) {
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), RiskReject::TooManyOpen);
 
-    const RiskGate tight{RiskConfig{.max_open_orders = 2, .max_qty_lots = QtyLots::from_raw(
-                                        std::numeric_limits<std::int64_t>::max())}};
+    const RiskGate tight{
+        RiskConfig{.max_open_orders = 2,
+                   .max_qty_lots = QtyLots::from_raw(std::numeric_limits<std::int64_t>::max())}};
     EXPECT_TRUE(tight.check(valid_limit(), Exposure{.open_orders = 1}).has_value());
     ASSERT_FALSE(tight.check(valid_limit(), Exposure{.open_orders = 2}).has_value());
-    EXPECT_EQ(tight.check(valid_limit(), Exposure{.open_orders = 2}).error(), RiskReject::TooManyOpen);
+    EXPECT_EQ(tight.check(valid_limit(), Exposure{.open_orders = 2}).error(),
+              RiskReject::TooManyOpen);
 }
 
 TEST(RiskGate, MostFundamentalRejectWinsWhenSeveralApply) {
@@ -124,7 +127,6 @@ TEST(RiskGate, MostFundamentalRejectWinsWhenSeveralApply) {
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), RiskReject::BadInstrument);
 }
-
 
 TEST(RiskGate, PositionLimitCountsOrdersAlreadyOnTheWire) {
     // The failure this exists for: sixty-four buys of one lot each, every one
@@ -157,8 +159,9 @@ TEST(RiskGate, OppositeSideWorkingOrdersAreNotNettedOff) {
     cmd.side = Side::Buy;
     cmd.qty = QtyLots::from_raw(1);
 
-    EXPECT_FALSE(gate.check(cmd, Exposure{.position_lots = QtyLots::from_raw(10),
-                                          .working_sell_lots = QtyLots::from_raw(10)})
+    EXPECT_FALSE(gate.check(cmd,
+                            Exposure{.position_lots = QtyLots::from_raw(10),
+                                     .working_sell_lots = QtyLots::from_raw(10)})
                      .has_value());
 }
 
@@ -234,7 +237,7 @@ TEST(RiskGate, ThePriceBandMeansTheSameAtAnyTickScale) {
     };
 
     // A cheap instrument: 13'865 ticks, so 500 bp admits 693 ticks either way.
-    EXPECT_TRUE(admits(13'865, 13'865 - 550));  // 3.97 %
+    EXPECT_TRUE(admits(13'865, 13'865 - 550)); // 3.97 %
     EXPECT_TRUE(admits(13'865, 13'865 + 550));
     EXPECT_FALSE(admits(13'865, 13'865 - 800)); // 5.77 %
 

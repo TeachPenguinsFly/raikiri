@@ -6,8 +6,8 @@
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
-#include <raikiri/venues/mexc/spot_wire.hpp>
 #include <raikiri/venues/mexc/rest.hpp>
+#include <raikiri/venues/mexc/spot_wire.hpp>
 #include <raikiri/venues/mexc/ws.hpp>
 
 #include <algorithm>
@@ -91,6 +91,7 @@ struct VenueState {
         ExchangeClientOrderId client_order_id{};
         QtyLots leaves{QtyLots::from_raw(0)};
     };
+
     std::unordered_map<std::string, OrderMemo> live_orders;
 
     void add_subscription(std::string_view channel, std::string_view symbol, std::uint32_t limit) {
@@ -162,8 +163,8 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
         if (!quote.has_value()) {
             return;
         }
-        if (const auto bbo = map_spot_bbo(*quote, event->symbol, event->ts_ms, state.instruments,
-                                          received);
+        if (const auto bbo =
+                map_spot_bbo(*quote, event->symbol, event->ts_ms, state.instruments, received);
             bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
@@ -176,7 +177,8 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
             return;
         }
         for (const auto& entry : *parsed) {
-            if (const auto trade = map_spot_trade(entry, event->symbol, state.instruments, received);
+            if (const auto trade =
+                    map_spot_trade(entry, event->symbol, state.instruments, received);
                 trade.has_value()) {
                 state.sink->on_trade(*trade);
             }
@@ -189,8 +191,8 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
         if (!book.has_value()) {
             return;
         }
-        if (const auto depth = map_spot_book(*book, event->symbol, event->ts_ms, state.instruments,
-                                             received);
+        if (const auto depth =
+                map_spot_book(*book, event->symbol, event->ts_ms, state.instruments, received);
             depth.has_value()) {
             state.sink->on_depth(*depth);
         }
@@ -418,9 +420,8 @@ public:
         }
         // The level count rides the channel name on spot and the param object
         // on futures, and only the depth channel takes one on spot.
-        const std::uint32_t limit =
-            spot ? (kind == exec::SubKind::Depth ? k_spot_book_depth : 0)
-                 : (kind == exec::SubKind::Bbo ? k_book_depth : 0);
+        const std::uint32_t limit = spot ? (kind == exec::SubKind::Depth ? k_spot_book_depth : 0)
+                                         : (kind == exec::SubKind::Bbo ? k_book_depth : 0);
         state_->add_subscription(channel, symbol, limit);
         if (client_.connected()) {
             const Subscription one{.channel = channel, .symbol = symbol, .limit = limit};
@@ -667,9 +668,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -691,8 +690,8 @@ public:
         }
         for (std::size_t at = 0; at < cmds.size(); at += k_max_batch_cancel) {
             const auto chunk = cmds.subspan(at, std::min(k_max_batch_cancel, cmds.size() - at));
-            const auto request =
-                builder_.cancel_batch(chunk, state_->instruments, state_->venue_now(MarketType::Perp));
+            const auto request = builder_.cancel_batch(
+                chunk, state_->instruments, state_->venue_now(MarketType::Perp));
             if (!request.has_value()) {
                 // An order known only by our own id cannot ride the array
                 // endpoint; one call each still cancels it.
@@ -711,14 +710,18 @@ public:
                     }
                     const auto refusal =
                         response.transport_failed()
-                            ? exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")
+                            ? exec::VenueError::make(
+                                  exec::ErrorClass::Connectivity, 0, "no response from venue")
                             : rest_failure(response.body, pending.front().instrument.market());
                     for (const auto& cmd : pending) {
                         emit_reject(cmd, Kind::Cancel, refusal);
                     }
                 })) {
                 for (const auto& cmd : chunk) {
-                    emit_reject(cmd, Kind::Cancel, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+                    emit_reject(
+                        cmd,
+                        Kind::Cancel,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
                 }
             }
         }
@@ -737,8 +740,7 @@ public:
             return std::unexpected{
                 exec::not_implemented("mexc spot open-order sweep (openOrders is per-symbol)")};
         }
-        const auto request =
-            builder_.open_orders(market, {}, state_->venue_now(market));
+        const auto request = builder_.open_orders(market, {}, state_->venue_now(market));
         if (!request.has_value()) {
             return std::unexpected{build_failure(request.error())};
         }
@@ -876,8 +878,7 @@ public:
         std::vector<exec::PositionReport> reports;
         reports.reserve(positions->size());
         for (const auto& wire : *positions) {
-            if (auto report = map_futures_position(wire, state_->instruments);
-                report.has_value()) {
+            if (auto report = map_futures_position(wire, state_->instruments); report.has_value()) {
                 reports.push_back(*report);
             }
         }
@@ -887,8 +888,8 @@ public:
 private:
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(const net::RestRequest& request,
-                                                                    MarketType market) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request, MarketType market) {
         const auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {
             return std::unexpected{
@@ -942,14 +943,21 @@ private:
         if (!rest_.send(*request, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
-    void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind,
-                     MarketType market) {
+    void
+    on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
         if (response.transport_failed()) {
-            emit_reject(cmd, kind, exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response from venue")); // no verdict from the venue at all
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(
+                            exec::ErrorClass::Connectivity,
+                            0,
+                            "no response from venue")); // no verdict from the venue at all
             return;
         }
         const bool http_ok = response.status >= 200 && response.status < 300;
@@ -981,8 +989,8 @@ private:
         // Futures answers 200 with success:false, so an HTTP 2xx is not a fill
         // of the request — the envelope's code is.
         const auto envelope = parse_rest_envelope(response.body);
-        const bool accepted = http_ok && envelope.has_value() && envelope->success &&
-                              envelope->code == k_ok;
+        const bool accepted =
+            http_ok && envelope.has_value() && envelope->success && envelope->code == k_ok;
         if (accepted) {
             return; // the socket's push carries the lifecycle
         }
@@ -1084,9 +1092,8 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire, [](const WireInstrument& row) {
-            return map_instrument(row, MarketType::Perp);
-        });
+        return intern(
+            *wire, [](const WireInstrument& row) { return map_instrument(row, MarketType::Perp); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {

@@ -25,8 +25,8 @@ using WireError = wire::Error;
 enum class EventKind : std::uint8_t {
     Ticker, // bid/ask, mark, index and funding on one frame
     Trade,
-    Books,  // books5/books15/books share one shape
-    Orders, // private: lifecycle AND fills on one channel
+    Books,    // books5/books15/books share one shape
+    Orders,   // private: lifecycle AND fills on one channel
     LoginAck, // the private handshake's answer, distinct from a subscribe ack
     SubscribeAck,
     Error,

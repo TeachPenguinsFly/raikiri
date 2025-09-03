@@ -141,7 +141,8 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto bbo = map_bbo(*wire, state.instruments, state.market, received); bbo.has_value()) {
+        if (const auto bbo = map_bbo(*wire, state.instruments, state.market, received);
+            bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
         break;
@@ -166,7 +167,8 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (!wire.has_value()) {
             return;
         }
-        if (const auto book = map_book(*wire, state.instruments, state.market, received); book.has_value()) {
+        if (const auto book = map_book(*wire, state.instruments, state.market, received);
+            book.has_value()) {
             state.sink->on_depth(*book);
         }
         break;
@@ -205,8 +207,7 @@ void handle_private_frame(VenueState& state,
             return;
         }
         const auto fallback = state.remembered(wire->order_id);
-        const auto event =
-            map_order_update(*wire, state.instruments, market, fallback, received);
+        const auto event = map_order_update(*wire, state.instruments, market, fallback, received);
         if (!event.has_value()) {
             return;
         }
@@ -623,9 +624,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -753,8 +752,8 @@ private:
 
     // A refusal arrives at HTTP 200 with the verdict in the body, so the status
     // is checked for transport health and the ENVELOPE decides the outcome.
-    [[nodiscard]] std::expected<std::string, exec::VenueError> fetch(
-        const net::RestRequest& request) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError>
+    fetch(const net::RestRequest& request) {
         const auto response = await_response(*state_, rest_, request);
         if (!response.has_value() || response->transport_failed()) {
             return std::unexpected{
@@ -786,15 +785,15 @@ private:
             emit_reject(
                 cmd,
                 kind,
-                exec::VenueError::make(
-                    exec::ErrorClass::Terminal, 0, to_string(request.error())));
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
         if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
-            emit_reject(
-                cmd, kind, exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
         }
     }
 
@@ -827,9 +826,8 @@ private:
         if (!envelope.has_value()) {
             emit_reject(cmd,
                         kind,
-                        exec::VenueError::make(exec::ErrorClass::Terminal,
-                                               response.status,
-                                               "unparseable envelope"));
+                        exec::VenueError::make(
+                            exec::ErrorClass::Terminal, response.status, "unparseable envelope"));
             return;
         }
         emit_reject(
@@ -1030,15 +1028,14 @@ public:
         case MarketType::Option:
             // Neither tree lists them, so an empty vector would be a claim
             // about a market BingX does not have.
-            return std::unexpected{
-                exec::not_implemented(to_string(*market_refusal(market)))};
+            return std::unexpected{exec::not_implemented(to_string(*market_refusal(market)))};
         }
         return std::unexpected{exec::not_implemented("bingx: unknown market")};
     }
 
 private:
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    read(const net::RestRequest& request, std::uint64_t timeout_ms) {
+    [[nodiscard]] std::expected<std::string, exec::VenueError> read(const net::RestRequest& request,
+                                                                    std::uint64_t timeout_ms) {
         const auto response = await_response(*state_, rest_, request, timeout_ms);
         if (!response.has_value()) {
             return std::unexpected{exec::VenueError::make(
@@ -1075,9 +1072,8 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(*wire, [](const WireContract& row) {
-            return map_instrument(row, MarketType::Perp);
-        });
+        return intern(
+            *wire, [](const WireContract& row) { return map_instrument(row, MarketType::Perp); });
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {

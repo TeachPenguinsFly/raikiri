@@ -390,9 +390,7 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
-    }
+    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -410,7 +408,8 @@ public:
         }
         // frontendOpenOrders, not openOrders: the plain form omits `isTrigger`,
         // so a dormant conditional reads there as a limit at its trigger price.
-        const auto body = read_info(*state_, rest_, requests_.frontend_open_orders(state_->address));
+        const auto body =
+            read_info(*state_, rest_, requests_.frontend_open_orders(state_->address));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -521,8 +520,7 @@ public:
         if (state_->address.empty()) {
             return std::unexpected{no_address()};
         }
-        const auto body =
-            read_info(*state_, rest_, requests_.clearinghouse_state(state_->address));
+        const auto body = read_info(*state_, rest_, requests_.clearinghouse_state(state_->address));
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
@@ -559,8 +557,7 @@ private:
         const auto asset = asset_of(cmd.instrument);
         const auto nonce = state_->nonces.next(state_->clock->wall());
         const auto request =
-            kind == Kind::Create
-                ? builder_.create_order(cmd, state_->instruments, asset, nonce)
+            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, asset, nonce)
             : kind == Kind::Cancel ? builder_.cancel_order(cmd, asset, nonce)
                                    : builder_.modify_order(cmd, state_->instruments, asset, nonce);
         if (!request.has_value()) {
@@ -673,8 +670,8 @@ private:
         }
         fill.qty = *filled;
         fill.leaves_qty = leaves;
-        fill.liquidity = has_flag(cmd.flags, OrderFlags::PostOnly) ? Liquidity::Maker
-                                                                   : Liquidity::Taker;
+        fill.liquidity =
+            has_flag(cmd.flags, OrderFlags::PostOnly) ? Liquidity::Maker : Liquidity::Taker;
         fill.ts_event = state_->clock->wall();
         fill.ts_init = fill.ts_event;
         state_->sink->on_order_event(fill);
@@ -717,10 +714,8 @@ private:
         event.qty = cmd.qty;
     }
 
-    void emit(const OrderCmd& cmd,
-              OrderEventType type,
-              std::uint64_t oid,
-              QtyLots leaves) noexcept {
+    void
+    emit(const OrderCmd& cmd, OrderEventType type, std::uint64_t oid, QtyLots leaves) noexcept {
         OrderEvent event{};
         populate(event, cmd);
         event.type = type;
@@ -737,9 +732,8 @@ private:
         // The reason was already named by every caller and went only to the
         // auth check below; `OrderEvent` has no room for it, so it reaches the
         // sink here or not at all.
-        state_->sink->on_order_error(
-            cmd.client_order_id,
-            exec::VenueError::make(classify_reason(reason), 0, reason));
+        state_->sink->on_order_error(cmd.client_order_id,
+                                     exec::VenueError::make(classify_reason(reason), 0, reason));
         OrderEvent event{};
         populate(event, cmd);
         event.type = kind == Kind::Create   ? OrderEventType::Rejected

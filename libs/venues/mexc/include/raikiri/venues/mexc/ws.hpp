@@ -96,8 +96,8 @@ public:
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"method":"ping"})"; }
 
 private:
-    [[nodiscard]] std::expected<Frame, WsBuildError> spot_op_frame(std::string_view op,
-                                                                   const Subscription& subscription);
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    spot_op_frame(std::string_view op, const Subscription& subscription);
 
     [[nodiscard]] std::expected<Frame, WsBuildError> op_frame(std::string_view op,
                                                               const Subscription& subscription);

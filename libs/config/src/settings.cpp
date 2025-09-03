@@ -1,15 +1,13 @@
 #include <raikiri/config/settings.hpp>
 
+#include <cstdlib>
 #include <glaze/glaze.hpp>
 #include <glaze/yaml.hpp>
-
-#include <cstdlib>
 
 namespace raikiri::config {
 namespace {
 
-template <typename T>
-std::expected<T, std::string> read_file(std::string_view path) {
+template <typename T> std::expected<T, std::string> read_file(std::string_view path) {
     T out{};
     if (const auto ec = glz::read_file_yaml(out, path); ec) {
         return std::unexpected{std::string{path} + ": " + glz::format_error(ec)};

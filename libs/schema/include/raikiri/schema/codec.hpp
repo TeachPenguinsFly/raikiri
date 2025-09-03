@@ -11,11 +11,10 @@
 
 #include <raikiri/journal/writer.hpp>
 
-#include <raikiri_journal/raikiri_journal.hpp>
-
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <raikiri_journal/raikiri_journal.hpp>
 #include <utility>
 
 namespace raikiri::schema {
@@ -41,8 +40,10 @@ append_msg(journal::JournalWriter& writer, std::uint64_t ts_ns, Fill&& fill) noe
     std::forward<Fill>(fill)(msg);
 
     const auto used = static_cast<std::size_t>(sbepp::size_bytes(msg));
-    return writer.append(static_cast<std::uint16_t>(Traits::id()), k_schema_version,
-                         std::span<const std::byte>{buf.data(), used}, ts_ns);
+    return writer.append(static_cast<std::uint16_t>(Traits::id()),
+                         k_schema_version,
+                         std::span<const std::byte>{buf.data(), used},
+                         ts_ns);
 }
 
 // Read-side: view a frame payload as message MsgTag. The caller has already
@@ -53,8 +54,7 @@ template <typename MsgTag>
     return Msg{payload.data(), payload.size()};
 }
 
-template <typename MsgTag>
-[[nodiscard]] constexpr std::uint16_t message_id() noexcept {
+template <typename MsgTag> [[nodiscard]] constexpr std::uint16_t message_id() noexcept {
     return static_cast<std::uint16_t>(sbepp::message_traits<MsgTag>::id());
 }
 

@@ -103,12 +103,12 @@ public:
                                                                      UnixNanos now);
 
     // {"op":"sub","topic":"orders_cross.*","cid":"1"}
-    [[nodiscard]] std::expected<Frame, WsBuildError> swap_private_subscribe_frame(
-        std::string_view topic);
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    swap_private_subscribe_frame(std::string_view topic);
 
     // {"action":"sub","ch":"orders#*"}
-    [[nodiscard]] std::expected<Frame, WsBuildError> spot_private_subscribe_frame(
-        std::string_view channel);
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    spot_private_subscribe_frame(std::string_view channel);
 
     // Exposed for tests: the exact bytes signed by the last auth frame.
     [[nodiscard]] std::string_view last_auth_message() const noexcept;

@@ -199,8 +199,8 @@ parse_executions(std::string_view payload, ExecutionBuffer& storage) {
     return read_rows<WireExecution>(payload, storage.executions, read_execution);
 }
 
-std::expected<std::span<const WirePosition>, WireError>
-parse_positions(std::string_view payload, PositionBuffer& storage) {
+std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view payload,
+                                                                        PositionBuffer& storage) {
     return read_rows<WirePosition>(payload, storage.positions, read_position);
 }
 

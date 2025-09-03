@@ -89,7 +89,6 @@ std::optional<FixedE9> tick_size_of(std::string_view place_text, std::string_vie
     return FixedE9::from_raw(raw);
 }
 
-
 // Our own ULID coming back from the venue. A value that does not fit the
 // field cannot be one of ours, so the event stays unattributed rather than
 // matched to a truncated lookalike.
@@ -153,8 +152,7 @@ FixedE9 charge_from(std::string_view text) {
 // quote coin instead: spot market buys size the order in quote, and no base
 // figure appears anywhere on the row.
 std::optional<QtyLots> order_qty(const WireOrderUpdate& wire, const InstrumentBase& base) {
-    if (base.id.market() == MarketType::Spot && wire.order_type == "market" &&
-        wire.side == "buy") {
+    if (base.id.market() == MarketType::Spot && wire.order_type == "market" && wire.side == "buy") {
         return std::nullopt;
     }
     return to_lots(wire.new_size.empty() ? wire.size : wire.new_size, base);
@@ -289,7 +287,6 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
     return out;
 }
 
-
 Side side_from(std::string_view text) noexcept {
     return text == "sell" ? Side::Sell : Side::Buy;
 }
@@ -363,7 +360,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
     out.leaves_qty = out.type == OrderEventType::Canceled ? QtyLots::from_raw(0)
                      : (total.has_value() && filled.has_value())
                          ? QtyLots::from_raw(total->raw - filled->raw)
-                     : total.value_or(QtyLots::from_raw(0));
+                         : total.value_or(QtyLots::from_raw(0));
     out.ts_event = ms_to_unix(wire.update_ms, ts_init);
     return out;
 }

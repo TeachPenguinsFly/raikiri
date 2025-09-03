@@ -494,8 +494,8 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     case WireOrderStatus::Unknown:
         return std::nullopt;
     }
-    out.ts_venue = ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create,
-                              UnixNanos{0});
+    out.ts_venue =
+        ms_to_unix(wire.mts_update != 0 ? wire.mts_update : wire.mts_create, UnixNanos{0});
     return out;
 }
 
@@ -521,8 +521,7 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     out.instrument = base->id;
     out.side = executed.negative ? Side::Sell : Side::Buy;
     out.exchange_client_order_id = context.client_order_id;
-    if (!copy_id(wire.order_id, out.exchange_order_id) ||
-        !copy_exec_id(wire.id, out.exec_id)) {
+    if (!copy_id(wire.order_id, out.exchange_order_id) || !copy_exec_id(wire.id, out.exec_id)) {
         return std::nullopt;
     }
     out.price = *price;

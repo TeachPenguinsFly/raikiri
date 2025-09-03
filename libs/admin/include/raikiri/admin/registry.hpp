@@ -76,6 +76,7 @@ public:
         const Gateway* gateway{nullptr};
         const raikiri::Instrument* instrument{nullptr};
     };
+
     [[nodiscard]] std::optional<CatalogueRow> catalogue_row(InstrumentId id) const noexcept;
 
     // What each attached gateway's venue last said the account holds, or just
