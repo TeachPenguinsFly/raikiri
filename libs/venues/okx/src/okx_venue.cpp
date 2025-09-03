@@ -43,6 +43,7 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    std::uint64_t order_answer_timeout_ns{0};
 
     net::IoContext io;
     net::Signer signer;
@@ -422,6 +423,10 @@ private:
     net::WsClient* client_{nullptr};
 };
 
+// A desk with more than this many orders awaiting an answer at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_max_unanswered = 512;
+
 class OkxExec final : public exec::ExecutionClient {
 public:
     explicit OkxExec(std::shared_ptr<VenueState> state)
@@ -461,7 +466,37 @@ public:
     // has already closed only if something sweeps it; nothing did, so an idle
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
-    void poll(UnixNanos now) noexcept override { rest_.keepalive(now); }
+    void poll(UnixNanos now) noexcept override {
+        rest_.keepalive(now);
+        sweep_unanswered();
+    }
+
+    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
+    // audit only, moving no status — and closed by reconciliation.
+    void sweep_unanswered() noexcept {
+        if (state_->order_answer_timeout_ns == 0) {
+            return;
+        }
+        for (const auto& stale :
+             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+            state_->sink->on_order_error(
+                stale.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                                       "no answer from the venue; outcome unknown"));
+            OrderEvent event{};
+            event.type = OrderEventType::ReconGap;
+            event.instrument = stale.instrument;
+            event.client_order_id = stale.client_order_id;
+            event.exchange_client_order_id = stale.exchange_client_order_id;
+            event.side = stale.side;
+            event.qty = stale.qty;
+            // UNDEF, not zero: zero leaves would read as "nothing is working".
+            event.leaves_qty = QtyLots::undef();
+            event.ts_event = state_->clock->wall();
+            event.ts_init = event.ts_event;
+            state_->sink->on_order_event(event);
+        }
+    }
 
     void submit(const OrderCmd& cmd) noexcept override {
         fire(builder_.create_order(cmd, state_->instruments, state_->venue_now()),
@@ -669,16 +704,35 @@ private:
         }
         const auto captured = cmd;
         const auto sent = rest_.send(*request, [this, captured, on_failure](net::RestResponse&& r) {
-            if (const auto refusal = verdict(r, captured.exchange_client_order_id, on_failure);
-                refusal.has_value()) {
+            const auto refusal = verdict(r, captured.exchange_client_order_id, on_failure);
+            // A CONNECTIVITY REFUSAL IS NOT THE VENUE'S ANSWER. The request may
+            // have reached the matcher before the read failed, so it stays in
+            // the table for the sweep rather than being called rejected here.
+            if (refusal.has_value() && refusal->cls == exec::ErrorClass::Connectivity) {
+                state_->sink->on_order_error(captured.client_order_id, *refusal);
+                return;
+            }
+            (void)unanswered_.resolve(captured.client_order_id);
+            if (refusal.has_value()) {
                 emit(captured, on_failure, *refusal);
             }
         });
         if (!sent) {
+            // Never left this process, so nothing is in doubt.
             emit(cmd,
                  on_failure,
                  exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            return;
         }
+        // ON THE WIRE AND UNANSWERED, recorded before the callback that may
+        // never run.
+        (void)unanswered_.add({.client_order_id = cmd.client_order_id,
+                               .exchange_client_order_id = cmd.exchange_client_order_id,
+                               .instrument = cmd.instrument,
+                               .side = cmd.side,
+                               .qty = cmd.qty,
+                               .kind = cmd.kind,
+                               .sent = state_->clock->mono()});
     }
 
     bool send_batch(const net::RestRequest& request, std::span<const OrderCmd> chunk) noexcept {
@@ -767,6 +821,8 @@ private:
     net::WsClient ws_;
     net::RestClient rest_;
     RequestBuilder builder_;
+    // Orders handed to the transport and not yet answered.
+    exec::InFlightTable unanswered_{k_max_unanswered};
 };
 
 std::optional<net::RestResponse> await_response(VenueState& state,
@@ -893,6 +949,7 @@ void load_credentials(VenueState& state, const exec::VenueConfig& config) {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     state->spot_enabled = config.market == MarketType::Spot;
     state->perp_enabled = config.market == MarketType::Perp;
     load_credentials(*state, config);
