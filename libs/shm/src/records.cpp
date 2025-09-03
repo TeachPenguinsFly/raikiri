@@ -14,13 +14,14 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.funding_charges = owner.create_channel<FundingChargeRing>("funding_charges");
     ch.positions = owner.create_channel<PositionTable>("positions");
+    ch.open_orders = owner.create_channel<OpenOrderTable>("open_orders");
     ch.balances = owner.create_channel<BalanceTable>("balances");
     ch.cmd_create = owner.create_channel<CmdRing>("cmd_create");
     ch.cmd_cancel = owner.create_channel<CmdRing>("cmd_cancel");
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.funding_charges == nullptr || ch.greeks == nullptr || ch.positions == nullptr ||
+        ch.funding_charges == nullptr || ch.open_orders == nullptr || ch.greeks == nullptr || ch.positions == nullptr ||
         ch.balances == nullptr || ch.cmd_create == nullptr || ch.cmd_cancel == nullptr ||
         ch.order_intents == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
@@ -65,6 +66,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!positions) {
         return std::unexpected{positions.error()};
     }
+    const auto open_orders = client.open_channel<OpenOrderTable>("open_orders");
+    if (!open_orders) {
+        return std::unexpected{open_orders.error()};
+    }
     const auto balances = client.open_channel<BalanceTable>("balances");
     if (!balances) {
         return std::unexpected{balances.error()};
@@ -90,6 +95,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
                            *exec,
                            *charges,
                            *positions,
+                           *open_orders,
                            *balances,
                            *create,
                            *cancel,

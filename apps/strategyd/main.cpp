@@ -332,6 +332,13 @@ public:
     // Counted per comparison, not per instrument: a run that agrees prints
     // nothing, and "nothing" has to be distinguishable from "never ran".
     std::uint64_t recon_agreed{0};
+    // Orders the venue had dropped while this process still held them open.
+    std::uint64_t orders_closed_by_recon{0};
+
+    // The order book, for the reconciliation that compares it against what the
+    // venue still has working. Public for the same reason `positions` is: the
+    // main loop owns the comparison, the context owns the state.
+    [[nodiscard]] oms::OrderStore& orders() noexcept { return *store_; }
     std::uint64_t recon_unknown{0};
     std::uint64_t recon_broken{0};
 
@@ -499,6 +506,79 @@ void journal_break(raikiri::journal::JournalWriter& journal,
 // sum across strategies. One gateway has exactly one command producer — the
 // rings are SPSC — so that sum is the whole book for this venue, not a share
 // of it.
+// Orders the book still holds open that the venue no longer has.
+//
+// THE ANSWER TO SILENCE IS NOT "CLOSED". A stale table is a venue that did not
+// answer, and closing a desk's book on that basis is a far worse error than
+// carrying a dead order for another interval — so a pass that is not fresh
+// closes nothing at all.
+//
+// AND A YOUNG ORDER IS NOT A MISSING ONE. The venue answered at some instant;
+// an order sent after that instant was never in its list and is absent for the
+// most ordinary reason there is. Only orders older than the pull are judged.
+void reconcile_open_orders(KernelContext& ctx,
+                           raikiri::VenueId venue,
+                           const raikiri::shm::OpenOrderTable& table,
+                           raikiri::journal::JournalWriter& journal,
+                           raikiri::UnixNanos now) {
+    using namespace raikiri;
+
+    std::unordered_set<std::string_view> at_venue;
+    UnixNanos pulled{};
+    for (std::size_t idx = 0; idx < shm::k_open_order_cells; ++idx) {
+        shm::OpenOrderCell cell{};
+        if (table.read(idx, cell) == 0 || cell.ts_pulled.ns == 0) {
+            continue;
+        }
+        if (now.ns - cell.ts_pulled.ns > k_snapshot_max_age_ns) {
+            continue; // last pass has aged out
+        }
+        pulled = UnixNanos{std::max(pulled.ns, cell.ts_pulled.ns)};
+        at_venue.insert(cell.exchange_client_order_id.view());
+    }
+    if (pulled.ns == 0) {
+        return; // the venue said nothing recent; this is Unknown, not empty
+    }
+
+    std::vector<const oms::Order*> closed;
+    ctx.orders().for_each_open([&](const oms::Order& order) {
+        if (order.is_terminal() || order.instrument().venue() != venue) {
+            return;
+        }
+        if (at_venue.contains(order.exchange_client_order_id().view())) {
+            return;
+        }
+        // `ts_created` is when this process minted the order, which is the
+        // earliest it could possibly have reached the venue. Anything younger
+        // than the pull was never in that list and is absent for the most
+        // ordinary reason there is.
+        if (order.ts_created().ns == 0 || order.ts_created().ns > pulled.ns) {
+            return;
+        }
+        closed.push_back(&order);
+    });
+
+    for (const auto* order : closed) {
+        ++ctx.orders_closed_by_recon;
+        fmt::print(stderr,
+                   "strategyd: RECON order {} is open here and gone at {} — closing\n",
+                   order->exchange_client_order_id().view(),
+                   to_string(venue));
+        OrderEvent event{};
+        event.type = OrderEventType::ReconClosed;
+        event.instrument = order->instrument();
+        event.side = order->side();
+        event.client_order_id = order->client_order_id();
+        event.exchange_client_order_id = order->exchange_client_order_id();
+        event.qty = order->qty();
+        event.leaves_qty = QtyLots::from_raw(0);
+        event.ts_event = now;
+        event.ts_init = now;
+        (void)ctx.orders().apply_event(event);
+        (void)journal;
+    }
+}
+
 void reconcile_against_venue(KernelContext& ctx,
                              raikiri::VenueId venue,
                              const raikiri::shm::CatalogueTable& catalogue,
@@ -1196,6 +1276,8 @@ int main(int argc, char** argv) {
                 break;
             }
             if (now_ns >= gw.recon_due) {
+                reconcile_open_orders(
+                    ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 reconcile_against_venue(ctx,
                                         gw.account.venue,
                                         *gw.ch.catalogue,
@@ -1255,6 +1337,7 @@ int main(int argc, char** argv) {
     // Charges booked, and charges LOST. The second is money the ledger will
     // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
+    fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,

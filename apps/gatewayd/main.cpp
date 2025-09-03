@@ -337,6 +337,70 @@ struct NullSink final : raikiri::exec::GatewaySink {
 // the next one rather than missed. The cursor only ever moves forward, and a
 // failed pull does not move it — a charge is money, and skipping one because a
 // request timed out would be a silent loss.
+// What the venue still has working, onto the table the book compares against.
+//
+// WRITTEN WHOLESALE OR NOT AT ALL. A successful pull writes every order the
+// venue named and clears the rest, so absence is the venue's word; a failed
+// pull writes nothing, so every cell ages together and a reader sees silence
+// rather than an empty book. Closing a desk's orders because a request timed
+// out is the failure this shape exists to make impossible.
+void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
+                         raikiri::MarketType market,
+                         raikiri::shm::OpenOrderTable& table,
+                         raikiri::UnixNanos now) {
+    char buf[16];
+    const auto who =
+        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    static bool announced = false;
+    if (!adapter.caps.order_pull) {
+        if (!announced) {
+            announced = true;
+            fmt::print("gatewayd[{}]: open-order reconciliation unavailable for this venue\n", who);
+        }
+        return;
+    }
+    const auto reports = adapter.execution->open_order_reports(market);
+    if (!reports.has_value()) {
+        fmt::print(stderr,
+                   "gatewayd[{}]: open-order pull failed — {}\n",
+                   who,
+                   reports.error().message.view());
+        return;
+    }
+    if (reports->size() > raikiri::shm::k_open_order_cells) {
+        // Refused rather than truncated: a partial list read as complete would
+        // close every order past the cut.
+        fmt::print(stderr,
+                   "gatewayd[{}]: venue reports {} open orders, table holds {} — not published\n",
+                   who,
+                   reports->size(),
+                   raikiri::shm::k_open_order_cells);
+        return;
+    }
+    std::size_t slot = 0;
+    for (const auto& report : *reports) {
+        raikiri::shm::OpenOrderCell cell{};
+        cell.exchange_client_order_id = report.exchange_client_order_id;
+        cell.instrument = report.instrument;
+        cell.leaves = report.leaves;
+        cell.ts_venue = report.ts_venue;
+        cell.ts_pulled = now;
+        table.write(slot++, cell);
+    }
+    // The tail is CLEARED, not left: a cell still holding last pass's order
+    // would keep an order alive in the reader's eyes after the venue dropped it.
+    for (; slot < raikiri::shm::k_open_order_cells; ++slot) {
+        table.write(slot, raikiri::shm::OpenOrderCell{});
+    }
+    static bool answered = false;
+    if (!answered) {
+        answered = true;
+        fmt::print("gatewayd[{}]: venue answered its open orders — {} working\n",
+                   who,
+                   reports->size());
+    }
+}
+
 void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                              raikiri::MarketType market,
                              raikiri::shm::FundingChargeRing& ring,
@@ -943,6 +1007,10 @@ int main(int argc, char** argv) {
                     // seconds apart.
                     publish_balances(
                         *poller_adapter, market, *channels_ptr->balances, clock.wall());
+                    // On the same pass as the positions: both are the venue's
+                    // word on this account.
+                    publish_open_orders(
+                        *poller_adapter, market, *channels_ptr->open_orders, clock.wall());
                     publish_funding_charges(
                         *poller_adapter, market, *channels_ptr->funding_charges, funding_cursor);
                     // Woken in slices so a shutdown does not wait out the

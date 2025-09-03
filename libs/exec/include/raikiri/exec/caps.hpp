@@ -60,6 +60,10 @@ struct VenueCaps {
     // answers "no positions" and an adapter that cannot answer at all look
     // identical, and the reconciler reads the second as the first.
     bool position_pull{false};
+    // Whether the adapter can list what the venue still has WORKING. Same rule
+    // as position_pull, and the stakes are higher: "no open orders" read off a
+    // venue that cannot answer would close a desk's whole book.
+    bool order_pull{false};
     bool fill_pull{false};
     // Whether the adapter reads what the account holds. Same rule as the two
     // above: absence of a balance and an inability to ask are different facts,

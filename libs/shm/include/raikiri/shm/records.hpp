@@ -78,6 +78,28 @@ struct FundingChargeRec {
 
 static_assert(std::is_trivially_copyable_v<FundingChargeRec>);
 
+// One order the VENUE says is still working, as of the pull that wrote it.
+//
+// FRESHNESS IS THE WHOLE SIGNAL, exactly as for positions below. A pass writes
+// every order the venue reports and clears `ts_pulled` on the cells it did not
+// use, so a fresh cell means "the venue still has this one" and an empty or
+// stale one means the venue did not mention it. No count is written, because a
+// count would have to be read atomically with the cells and cannot be.
+//
+// A pull that FAILED writes nothing at all, so every cell ages out together and
+// a reader sees "the venue did not answer" rather than "the venue has no
+// orders" — which is the difference between closing nothing and closing the
+// whole book.
+struct OpenOrderCell {
+    ExchangeClientOrderId exchange_client_order_id{};
+    InstrumentId instrument{};
+    QtyLots leaves{};
+    UnixNanos ts_venue{};
+    UnixNanos ts_pulled{};
+};
+
+static_assert(std::is_trivially_copyable_v<OpenOrderCell>);
+
 // What the venue says it holds, as of the pull that wrote it.
 //
 // ts_pulled is the whole design. A pull that succeeds writes EVERY catalogued
@@ -129,6 +151,9 @@ inline constexpr std::size_t k_funding_cells = 4096;
 inline constexpr std::size_t k_greeks_cells = 4096;
 inline constexpr std::size_t k_depth_cells = 4096;
 inline constexpr std::size_t k_position_cells = 4096;
+// A desk with more than this many orders resting on one venue at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_open_order_cells = 1024;
 inline constexpr std::size_t k_md_ring = 65536;
 inline constexpr std::size_t k_exec_ring = 65536;
 inline constexpr std::size_t k_cmd_ring = 4096;
@@ -153,6 +178,7 @@ using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
 using GreeksTable = SeqlockTable<OptionGreeks, k_greeks_cells>;
 using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
+using OpenOrderTable = SeqlockTable<OpenOrderCell, k_open_order_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using FundingChargeRing = BroadcastRing<FundingChargeRec, k_funding_charge_ring>;
@@ -178,6 +204,10 @@ struct GatewayChannels {
     // and must not lose one.
     FundingChargeRing* funding_charges{nullptr};
     PositionTable* positions{nullptr};
+    // What the venue still has working. Read beside `positions`, because both
+    // are the venue's word on this account and comparing numbers taken minutes
+    // apart is how a reconciliation invents a break.
+    OpenOrderTable* open_orders{nullptr};
     BalanceTable* balances{nullptr};
     CmdRing* cmd_create{nullptr};
     CmdRing* cmd_cancel{nullptr};
