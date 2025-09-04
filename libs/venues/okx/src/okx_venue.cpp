@@ -481,7 +481,8 @@ public:
              unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
@@ -737,15 +738,37 @@ private:
 
     bool send_batch(const net::RestRequest& request, std::span<const OrderCmd> chunk) noexcept {
         std::vector<OrderCmd> captured{chunk.begin(), chunk.end()};
-        return rest_.send(request, [this, captured](net::RestResponse&& r) {
+        const bool sent = rest_.send(request, [this, captured](net::RestResponse&& r) {
             for (const auto& cmd : captured) {
-                if (const auto refusal =
-                        verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
-                    refusal.has_value()) {
+                const auto refusal =
+                    verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
+                // WORSE IN A BATCH THAN ALONE. A lost connection here would
+                // declare every cancel in the chunk refused, while the venue may
+                // have taken all of them — leaving the desk sure it still has
+                // orders it no longer has.
+                if (refusal.has_value() && refusal->cls == exec::ErrorClass::Connectivity) {
+                    state_->sink->on_order_error(cmd.client_order_id, *refusal);
+                    continue;
+                }
+                (void)unanswered_.resolve(cmd.client_order_id);
+                if (refusal.has_value()) {
                     emit(cmd, OrderEventType::CancelRejected, *refusal);
                 }
             }
         });
+        if (!sent) {
+            return false;
+        }
+        for (const auto& cmd : chunk) {
+            (void)unanswered_.add({.client_order_id = cmd.client_order_id,
+                                   .exchange_client_order_id = cmd.exchange_client_order_id,
+                                   .instrument = cmd.instrument,
+                                   .side = cmd.side,
+                                   .qty = cmd.qty,
+                                   .kind = cmd.kind,
+                                   .sent = state_->clock->mono()});
+        }
+        return true;
     }
 
     // OKX answers a refused single order with envelope code "1" — "Operation

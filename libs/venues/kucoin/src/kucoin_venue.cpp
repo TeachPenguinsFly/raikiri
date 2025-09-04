@@ -60,6 +60,7 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    std::uint64_t order_answer_timeout_ns{0};
 
     // The one market this process serves. KuCoin's two trees are separate
     // deployments reached through separate bullets, and they share a subject
@@ -709,6 +710,10 @@ private:
     bool started_{false};
 };
 
+// A desk with more than this many orders awaiting an answer at once has a
+// problem no table size fixes.
+inline constexpr std::size_t k_max_unanswered = 512;
+
 // Order entry. Every refusal is named: a market this venue does not serve, a
 // pull it does not offer and a request that failed to build are three different
 // facts, and the reconciler acts on the difference.
@@ -765,6 +770,37 @@ public:
     void poll(UnixNanos now) noexcept override {
         for (auto& link : links_) {
             link->rest().keepalive(now);
+        }
+        sweep_unanswered();
+    }
+
+    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
+    // audit only, moving no status — because whether the venue acted is the one
+    // thing this process cannot know. Reconciliation closes these.
+    void sweep_unanswered() noexcept {
+        if (state_->order_answer_timeout_ns == 0) {
+            return;
+        }
+        for (const auto& stale :
+             unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
+            state_->sink->on_order_error(
+                stale.client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
+                                       "no answer from the venue; outcome unknown"));
+            OrderEvent event{};
+            event.type = OrderEventType::ReconGap;
+            event.instrument = stale.instrument;
+            event.client_order_id = stale.client_order_id;
+            event.exchange_client_order_id = stale.exchange_client_order_id;
+            event.side = stale.side;
+            event.qty = stale.qty;
+            // UNDEF, not zero: zero leaves would read as "nothing is working",
+            // and whether anything is working is exactly what is unknown.
+            event.leaves_qty = QtyLots::undef();
+            event.ts_event = state_->clock->wall();
+            event.ts_init = event.ts_event;
+            state_->sink->on_order_event(event);
         }
     }
 
@@ -1088,10 +1124,21 @@ private:
                                 qty,
                                 kind);
                 })) {
+            // Never left this process, so nothing is in doubt.
             emit_reject(cmd,
                         kind,
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
+            return;
         }
+        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
+        // because the callback is exactly what may never run.
+        (void)unanswered_.add({.client_order_id = client_order_id,
+                               .exchange_client_order_id = exchange_client_order_id,
+                               .instrument = instrument,
+                               .side = side,
+                               .qty = qty,
+                               .kind = cmd.kind,
+                               .sent = state_->clock->mono()});
     }
 
     void on_response(net::RestResponse&& response,
@@ -1104,11 +1151,21 @@ private:
         const auto refuse = [&](const exec::VenueError& error) {
             emit(client_order_id, exchange_client_order_id, instrument, side, qty, kind, error);
         };
+        // Any answer settles it, including a refusal: the table tracks silence.
+        if (!response.transport_failed()) {
+            (void)unanswered_.resolve(client_order_id);
+        }
         if (response.transport_failed()) {
-            refuse(exec::VenueError::make(
-                exec::ErrorClass::Connectivity,
-                0,
-                "no response from venue")); // no verdict from the venue at all
+            // NOT A REJECTION. The request may have reached the matcher before
+            // the read failed, and calling that a refusal is how a process
+            // records a rejection opposite a live position.
+            state_->sink->on_order_error(
+                client_order_id,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
+                                       response.error.empty()
+                                           ? std::string_view{"no response from venue"}
+                                           : std::string_view{response.error}));
             return;
         }
         const auto envelope = parse_rest_envelope(response.body);
@@ -1166,6 +1223,8 @@ private:
 
     std::shared_ptr<VenueState> state_;
     std::vector<std::unique_ptr<MarketLink>> links_;
+    // Orders handed to the transport and not yet answered.
+    exec::InFlightTable unanswered_{k_max_unanswered};
 };
 
 void sync_clock(VenueState& state, net::RestClient& rest) {
@@ -1319,6 +1378,7 @@ void load_credentials(const exec::VenueConfig& config, VenueState& state) {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
+    state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     load_credentials(config, *state);
 
     state->market = config.market;

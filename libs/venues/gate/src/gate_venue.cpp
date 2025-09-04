@@ -736,7 +736,8 @@ public:
              unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
@@ -783,12 +784,25 @@ public:
                         response.status < 300) {
                         return;
                     }
-                    const auto refusal =
-                        response.transport_failed()
-                            ? exec::VenueError::make(
-                                  exec::ErrorClass::Connectivity, 0, "no response from venue")
-                            : rest_failure(response.body);
+                    // A LOST CONNECTION IS WORSE IN A BATCH THAN ALONE: it would declare
+                    // every cancel in the chunk refused while the venue may have taken all
+                    // of them, leaving the desk sure it still holds orders it does not.
+                    if (response.transport_failed()) {
+                        for (const auto& cmd : pending) {
+                            state_->sink->on_order_error(
+                                cmd.client_order_id,
+                                exec::VenueError::make(
+                                    exec::ErrorClass::Connectivity,
+                                    0,
+                                    response.error.empty()
+                                        ? std::string_view{"no response from venue"}
+                                        : std::string_view{response.error}));
+                        }
+                        return;
+                    }
+                    const auto refusal = rest_failure(response.body);
                     for (const auto& cmd : pending) {
+                        (void)unanswered_.resolve(cmd.client_order_id);
                         emit_reject(cmd, Kind::Cancel, refusal);
                     }
                 })) {
@@ -1099,7 +1113,8 @@ private:
             // records a rejection opposite a live position.
             state_->sink->on_order_error(
                 cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        response.error.empty()
                                            ? std::string_view{"no response from venue"}
                                            : std::string_view{response.error}));

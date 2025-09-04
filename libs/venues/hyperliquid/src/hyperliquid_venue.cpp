@@ -411,7 +411,8 @@ public:
              unanswered_.expire(state_->clock->mono(), state_->order_answer_timeout_ns)) {
             state_->sink->on_order_error(
                 stale.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        "no answer from the venue; outcome unknown"));
             OrderEvent event{};
             event.type = OrderEventType::ReconGap;
@@ -427,7 +428,6 @@ public:
             state_->sink->on_order_event(event);
         }
     }
-
 
     void submit(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Create); }
 
@@ -616,7 +616,6 @@ private:
                                .qty = cmd.qty,
                                .kind = cmd.kind,
                                .sent = state_->clock->mono()});
-
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) noexcept {
@@ -630,7 +629,8 @@ private:
             // records a rejection opposite a live position.
             state_->sink->on_order_error(
                 cmd.client_order_id,
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0,
+                exec::VenueError::make(exec::ErrorClass::Connectivity,
+                                       0,
                                        response.error.empty()
                                            ? std::string_view{"no response from venue"}
                                            : std::string_view{response.error}));
