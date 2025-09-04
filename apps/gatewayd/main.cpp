@@ -395,9 +395,8 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     static bool answered = false;
     if (!answered) {
         answered = true;
-        fmt::print("gatewayd[{}]: venue answered its open orders — {} working\n",
-                   who,
-                   reports->size());
+        fmt::print(
+            "gatewayd[{}]: venue answered its open orders — {} working\n", who, reports->size());
     }
 }
 

@@ -339,6 +339,7 @@ public:
     // venue still has working. Public for the same reason `positions` is: the
     // main loop owns the comparison, the context owns the state.
     [[nodiscard]] oms::OrderStore& orders() noexcept { return *store_; }
+
     std::uint64_t recon_unknown{0};
     std::uint64_t recon_broken{0};
 
