@@ -290,19 +290,22 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
     return finish(net::HttpMethod::Get, "/fapi/v1/order", q.size());
 }
 
-// The account's own record of what it was charged.
+// The account's own record of what it was charged — settlements AND commissions.
 //
-// `incomeType=FUNDING_FEE` narrows it to settlements — the same endpoint also
-// states COMMISSION and REALIZED_PNL, which is what makes it the right place to
-// reconcile fees against later. `income` is SIGNED the way the account moved,
-// so it needs no flipping to reach the domain's convention.
+// `income` is SIGNED the way the account moved, so it needs no flipping to
+// reach the domain's convention. REALIZED_PNL rows also arrive here and are
+// dropped by the caller: that number is derived from fills this process already
+// booked, and taking the venue's copy as well would count every close twice.
 std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixNanos since,
                                                                            UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
     Appender q{query_};
-    q << "incomeType=FUNDING_FEE&limit=100";
+    // NO incomeType FILTER. The same endpoint states COMMISSION beside
+    // FUNDING_FEE, and the fee rows are what a fee reconciliation compares
+    // against — asking twice would spend thirty weight twice for one answer.
+    q << "limit=200";
     if (since.ns != 0) {
         q << "&startTime=" << to_ms(since);
     }

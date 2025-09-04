@@ -81,7 +81,7 @@ struct Gateway {
     shm::SegmentClient client;
     shm::GatewayChannels ch{};
     shm::ExecReader exec;
-    shm::FundingChargeReader charges;
+    shm::LedgerEntryReader charges;
     shm::MdReader md;
     shm::CmdProducer creates;
     shm::CmdProducer cancels;
@@ -314,6 +314,13 @@ public:
     const Clock& clock() const noexcept override { return *clock_; }
 
     // --- kernel-side state the main loop reads ---
+    // A fee this process wrote, kept only long enough for the venue's ledger to
+    // quote it back.
+    struct FeeMemo {
+        FixedE9 amount{};
+        UnixNanos booked_at{};
+    };
+
     struct Timer {
         std::uint32_t id{0};
         std::uint64_t deadline_ns{0};
@@ -334,6 +341,60 @@ public:
     std::uint64_t recon_agreed{0};
     // Orders the venue had dropped while this process still held them open.
     std::uint64_t orders_closed_by_recon{0};
+
+    // What this process booked as a fee, keyed by the venue's own id for the
+    // execution that incurred it — which is what the venue's ledger quotes back
+    // when it states the same fee. Bounded and pruned: a desk that never
+    // reconciles must not grow a map for the life of the process.
+    std::unordered_map<std::string, FeeMemo> booked_fees;
+    std::uint64_t fees_agreed{0};
+    std::uint64_t fees_disagreed{0};
+    std::uint64_t fees_unmatched{0};
+
+    // The venue's own record of a fee, against what this process wrote.
+    //
+    // NEVER BOOKED. The fill already wrote it; this is the check that the two
+    // agree, and a disagreement is a fact for a human rather than a correction
+    // to apply automatically — the venue's number and ours are both evidence,
+    // and silently overwriting one with the other loses the disagreement.
+    void reconcile_fee(const LedgerEntry& charge, const InstrumentBase& base) {
+        const std::string key{charge.reference.view()};
+        const auto it = booked_fees.find(key);
+        if (it == booked_fees.end()) {
+            ++fees_unmatched;
+            // Either a fill this process never saw, or the venue quotes a
+            // different id here than on the execution — both worth a line,
+            // because one is lost money and the other is a wrong join.
+            fmt::print(stderr,
+                       "strategyd: FEE {} on {} — venue charged {}.{:09} against no fill we hold\n",
+                       key,
+                       base.exchange_symbol.view(),
+                       charge.amount.raw / 1'000'000'000,
+                       std::abs(charge.amount.raw) % 1'000'000'000);
+            return;
+        }
+        if (it->second.amount.raw == charge.amount.raw) {
+            ++fees_agreed;
+            return;
+        }
+        ++fees_disagreed;
+        fmt::print(stderr,
+                   "strategyd: FEE BREAK {} on {} — we booked {} e9, venue says {} e9\n",
+                   key,
+                   base.exchange_symbol.view(),
+                   it->second.amount.raw,
+                   charge.amount.raw);
+    }
+
+    // Dropped once older than the window a venue's ledger still reaches back
+    // over: past that the venue will never quote the fee again, so keeping the
+    // memo only grows the map.
+    void prune_booked_fees(UnixNanos now, std::uint64_t max_age_ns) {
+        std::erase_if(booked_fees, [&](const auto& entry) {
+            return now.ns > entry.second.booked_at.ns &&
+                   now.ns - entry.second.booked_at.ns > max_age_ns;
+        });
+    }
 
     // The order book, for the reconciliation that compares it against what the
     // venue still has working. Public for the same reason `positions` is: the
@@ -713,7 +774,7 @@ struct Restoration {
 
 // One row of the ledger for a funding charge, on one strategy's book.
 void write_funding_row(journal::JournalWriter& writer,
-                       const FundingCharge& charge,
+                       const LedgerEntry& charge,
                        const InstrumentBase& base,
                        std::uint16_t strategy_id,
                        FixedE9 amount) noexcept {
@@ -772,7 +833,7 @@ void write_funding_row(journal::JournalWriter& writer,
 // permanently at odds with the venue's balance.
 void journal_funding(journal::JournalWriter& writer,
                      const portfolio::PositionBook& book,
-                     const FundingCharge& charge,
+                     const LedgerEntry& charge,
                      const InstrumentBase& base) noexcept {
     if (charge.amount.raw == 0 || charge.amount.is_undef()) {
         return;
@@ -1122,7 +1183,7 @@ int main(int argc, char** argv) {
 
         // Funding first: a charge settled before the fills that follow it in
         // this pass, and the ledger reads better in the order money moved.
-        shm::FundingChargeRec charge_rec{};
+        shm::LedgerEntryRec charge_rec{};
         for (auto& gw : gateways) {
             for (;;) {
                 const auto poll = gw.charges.poll(charge_rec);
@@ -1138,8 +1199,16 @@ int main(int argc, char** argv) {
                 if (instrument == nullptr) {
                     continue; // an id from a catalogue this process never read
                 }
-                journal_funding(*journal_writer, ctx.positions, charge, base_of(*instrument));
-                ++funding_charges;
+                // THE TWO KINDS ARE NOT BOOKED THE SAME WAY. Funding has no
+                // other source, so it is written. A fee was already written
+                // from the fill that incurred it, and writing this copy too
+                // would charge every commission twice — so it is compared.
+                if (charge.kind == LedgerKind::Funding) {
+                    journal_funding(*journal_writer, ctx.positions, charge, base_of(*instrument));
+                    ++funding_charges;
+                    continue;
+                }
+                ctx.reconcile_fee(charge, base_of(*instrument));
             }
         }
 
@@ -1201,11 +1270,18 @@ int main(int argc, char** argv) {
                             // book keeps the opposite convention internally —
                             // net_realized() subtracts it — and this is the
                             // edge where the two meet.
-                            ctx.journal_pnl(event,
-                                            base,
-                                            jt::pnlKindEnum::Fee,
-                                            FixedE9::from_raw(
-                                                -(applied->close_fee.raw + applied->open_fee.raw)));
+                            const auto booked_fee = FixedE9::from_raw(
+                                -(applied->close_fee.raw + applied->open_fee.raw));
+                            ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, booked_fee);
+                            // Remembered under the venue's own id for this
+                            // execution, because that is what its ledger quotes
+                            // back when it states the same fee.
+                            if (booked_fee.raw != 0 && !event.exec_id.empty()) {
+                                ctx.booked_fees.insert_or_assign(
+                                    std::string{event.exec_id.view()},
+                                    KernelContext::FeeMemo{.amount = booked_fee,
+                                                           .booked_at = clock.wall()});
+                            }
                             // After the increments, because the row is the
                             // state those increments produced.
                             if (const auto* held = ctx.positions.find(
@@ -1277,6 +1353,9 @@ int main(int argc, char** argv) {
                 break;
             }
             if (now_ns >= gw.recon_due) {
+                // Seven days is the widest window any venue's ledger reaches
+                // back over, so a memo older than that will never be quoted.
+                ctx.prune_booked_fees(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 reconcile_against_venue(ctx,
@@ -1339,6 +1418,13 @@ int main(int argc, char** argv) {
     // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
+    // Unmatched is printed beside the other two on purpose: a reconciliation
+    // that agrees on nothing because it joined on the wrong id looks identical
+    // to one that had nothing to check.
+    fmt::print("fees: agreed={}  disagreed={}  unmatched={}\n",
+               ctx.fees_agreed,
+               ctx.fees_disagreed,
+               ctx.fees_unmatched);
     fmt::print("recon: agreed={}  unknown={}  broken={}  halted={}\n",
                ctx.recon_agreed,
                ctx.recon_unknown,

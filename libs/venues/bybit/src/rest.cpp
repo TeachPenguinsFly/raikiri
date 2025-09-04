@@ -307,7 +307,10 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
     return signed_get("/v5/position/list", query.view(), now);
 }
 
-// The account's own record of what it was charged, filtered to settlements.
+// The account's own record of what it was charged: settlements AND the fees on
+// trades. NO type FILTER — both ride this endpoint, and it is metered at
+// twenty-five requests a second where the rest of v5 allows fifty, so asking
+// twice would spend the scarcer budget for one answer.
 //
 // `startTime` is required to be within seven days of `endTime`, so a caller
 // asking for more gets an error rather than a truncated answer — the window is
@@ -325,7 +328,7 @@ RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos no
     char end_buf[24];
     Appender query{body_};
     query << "accountType=" << k_account_type << "&category=" << category_of(market)
-          << "&type=SETTLEMENT&limit=50&startTime=" << render_u64(start_ms, start_buf)
+          << "&limit=50&startTime=" << render_u64(start_ms, start_buf)
           << "&endTime=" << render_u64(end_ms, end_buf);
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};

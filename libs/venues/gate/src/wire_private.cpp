@@ -421,6 +421,7 @@ parse_account_book(std::string_view body, AccountBookBuffer& storage) {
                 // number. Verified against a live row: gate quotes the ledger's
                 // own id as "991", and reading it as a number yields nothing.
                 out.id = field(obj, "id");
+                out.trade_id = field(obj, "trade_id");
                 obj.reset();
                 out.time_s = detail::opt_u64(obj, "time").value_or(0);
                 return {};

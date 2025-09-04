@@ -698,7 +698,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
 }
 
-// The account book, narrowed to settlements.
+// The account book: settlements AND commissions.
 //
 // `change` is SIGNED the way the account moved, which is already the domain's
 // convention. `from` is in SECONDS — gate states every timestamp in this ledger
@@ -713,7 +713,10 @@ SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos
     Appender path{path_};
     Appender query{query_};
     path << k_prefix << "/futures/" << k_settle_usdt << "/account_book";
-    query << "type=fund&limit=" << k_page_limit;
+    // NO type FILTER. `fund` and `fee` share this endpoint, and the fee rows
+    // are what a fee reconciliation compares against; asking twice would pay
+    // for one answer twice.
+    query << "limit=" << k_page_limit;
     if (since.ns != 0) {
         char buf[24];
         const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, since.ns / 1'000'000'000);

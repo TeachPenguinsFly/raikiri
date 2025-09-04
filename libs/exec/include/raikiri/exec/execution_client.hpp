@@ -3,8 +3,8 @@
 // Execution side of a venue adapter.
 
 #include <raikiri/domain/balance.hpp>
-#include <raikiri/domain/funding_charge.hpp>
 #include <raikiri/domain/identifiers.hpp>
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -103,7 +103,7 @@ public:
     // adapter that returns nothing because it cannot ask, and one that returns
     // nothing because nothing was charged, are different facts, and booking
     // the second when the first is true loses money silently.
-    [[nodiscard]] virtual std::expected<std::vector<FundingCharge>, VenueError>
+    [[nodiscard]] virtual std::expected<std::vector<LedgerEntry>, VenueError>
     funding_charges(MarketType market, UnixNanos since) {
         (void)market;
         (void)since;

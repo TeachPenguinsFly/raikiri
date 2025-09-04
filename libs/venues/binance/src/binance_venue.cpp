@@ -774,7 +774,7 @@ public:
         return out;
     }
 
-    std::expected<std::vector<FundingCharge>, exec::VenueError>
+    std::expected<std::vector<LedgerEntry>, exec::VenueError>
     funding_charges(MarketType, UnixNanos since) override {
         if (const auto allowed = spend(costs().ledger, exec::RateClass::Poll);
             !allowed.has_value()) {
@@ -797,11 +797,19 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
         }
-        std::vector<FundingCharge> charges;
+        std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
         for (const auto& row : *rows) {
-            if (row.income_type != "FUNDING_FEE") {
-                continue; // the endpoint also states commission and realised pnl
+            LedgerKind kind{};
+            if (row.income_type == "FUNDING_FEE") {
+                kind = LedgerKind::Funding;
+            } else if (row.income_type == "COMMISSION") {
+                kind = LedgerKind::Fee;
+            } else {
+                // REALIZED_PNL and the transfer kinds: derived from fills this
+                // process already booked, so taking the venue's copy would
+                // count the same money twice.
+                continue;
             }
             const auto* instrument = state_->instruments.find(row.symbol);
             if (instrument == nullptr) {
@@ -811,12 +819,15 @@ public:
             if (!amount.has_value()) {
                 continue; // an unreadable figure is not a zero one
             }
-            FundingCharge charge{};
+            LedgerEntry charge{};
             charge.instrument = base_of(*instrument).id;
             charge.amount = *amount;
+            charge.kind = kind;
             charge.settled_at = UnixNanos{row.time_ms * 1'000'000};
             char buf[32];
-            const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, row.tran_id);
+            const auto id_for_reference =
+                kind == LedgerKind::Fee && row.trade_id != 0 ? row.trade_id : row.tran_id;
+            const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, id_for_reference);
             if (ec == std::errc{}) {
                 if (auto id =
                         ExecId::from(std::string_view{buf, static_cast<std::size_t>(end - buf)});

@@ -216,9 +216,9 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
 // states a charge the way the account moved, positive for received. The REST
 // ledger already uses the domain's convention, so without this flip the socket
 // and the reconciliation would disagree about direction on every settlement.
-std::optional<FundingCharge> map_funding_charge(const WireExecution& wire,
-                                                const exec::InstrumentTable& table,
-                                                UnixNanos ts_init) {
+std::optional<LedgerEntry> map_funding_charge(const WireExecution& wire,
+                                              const exec::InstrumentTable& table,
+                                              UnixNanos ts_init) {
     if (!is_funding_execution(wire)) {
         return std::nullopt;
     }
@@ -230,7 +230,7 @@ std::optional<FundingCharge> map_funding_charge(const WireExecution& wire,
     if (!fee.has_value()) {
         return std::nullopt; // an unreadable figure is not a zero one
     }
-    FundingCharge out{};
+    LedgerEntry out{};
     out.instrument = base_of(*instrument).id;
     out.amount = FixedE9{-fee->raw};
     out.settled_at = ms_to_unix(wire.exec_ms, ts_init);

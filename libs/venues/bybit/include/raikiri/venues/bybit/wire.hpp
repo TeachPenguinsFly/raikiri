@@ -206,20 +206,23 @@ struct PositionBuffer {
 // `id` IS THE IDENTITY. bybit mints a unique one per row, which is what lets a
 // charge be booked exactly once — most venues mint nothing for funding, and
 // the ledger downstream keys on this.
-struct WireFundingCharge {
+struct WireLedgerEntry {
     std::string_view id;
     std::string_view symbol;
+    std::string_view type;     // SETTLEMENT | TRADE | TRANSFER_IN | ...
     std::string_view funding;  // SIGNED: positive received, negative paid away
+    std::string_view fee;      // SIGNED the same way; a rebate stays negative
+    std::string_view trade_id; // what a fee row's comparison keys on
     std::string_view currency; // the settlement asset, never assumed
     std::uint64_t transaction_ms{0};
 };
 
-struct FundingChargeBuffer {
-    WireFundingCharge charges[k_max_updates];
+struct LedgerEntryBuffer {
+    WireLedgerEntry charges[k_max_updates];
 };
 
-[[nodiscard]] std::expected<std::span<const WireFundingCharge>, WireError>
-parse_funding_charges(std::string_view result, FundingChargeBuffer& storage);
+[[nodiscard]] std::expected<std::span<const WireLedgerEntry>, WireError>
+parse_funding_charges(std::string_view result, LedgerEntryBuffer& storage);
 
 // A funding settlement as the private execution topic states it.
 //

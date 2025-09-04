@@ -228,15 +228,15 @@ bool is_funding_execution(const WireExecution& wire) noexcept {
     return wire.exec_type == "Funding";
 }
 
-std::expected<std::span<const WireFundingCharge>, WireError>
-parse_funding_charges(std::string_view result, FundingChargeBuffer& storage) {
+std::expected<std::span<const WireLedgerEntry>, WireError>
+parse_funding_charges(std::string_view result, LedgerEntryBuffer& storage) {
     return guarded([&] {
-        return read_array<WireFundingCharge>(
+        return read_array<WireLedgerEntry>(
             result,
             "list",
             storage.charges,
             k_max_updates,
-            [](ondemand::object& obj, WireFundingCharge& out) -> std::expected<void, WireError> {
+            [](ondemand::object& obj, WireLedgerEntry& out) -> std::expected<void, WireError> {
                 auto id = detail::req_str(obj, "id");
                 if (!id.has_value()) {
                     return std::unexpected{id.error()};
@@ -247,7 +247,10 @@ parse_funding_charges(std::string_view result, FundingChargeBuffer& storage) {
                     return detail::opt_str(obj, key).value_or(std::string_view{});
                 };
                 out.symbol = field("symbol");
+                out.type = field("type");
                 out.funding = field("funding");
+                out.fee = field("fee");
+                out.trade_id = field("tradeId");
                 out.currency = field("currency");
                 out.transaction_ms = detail::digits_to_u64(field("transactionTime"));
                 return {};

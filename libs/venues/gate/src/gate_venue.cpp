@@ -956,7 +956,7 @@ public:
         return std::vector<BalanceReport>{*balance};
     }
 
-    [[nodiscard]] std::expected<std::vector<FundingCharge>, exec::VenueError>
+    [[nodiscard]] std::expected<std::vector<LedgerEntry>, exec::VenueError>
     funding_charges(MarketType market, UnixNanos since) override {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
@@ -976,11 +976,18 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
-        std::vector<FundingCharge> charges;
+        std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
         for (const auto& row : *rows) {
-            if (row.type != "fund") {
-                continue; // the book also states fees, pnl and transfers
+            LedgerKind kind{};
+            if (row.type == "fund") {
+                kind = LedgerKind::Funding;
+            } else if (row.type == "fee") {
+                kind = LedgerKind::Fee;
+            } else {
+                // pnl and transfers: derived from fills this process already
+                // booked, or not trading money at all.
+                continue;
             }
             const auto* instrument = state_->instruments.find(row.contract);
             if (instrument == nullptr) {
@@ -990,12 +997,17 @@ public:
             if (!amount.has_value()) {
                 continue; // an unreadable figure is not a zero one
             }
-            FundingCharge charge{};
+            LedgerEntry charge{};
             charge.instrument = base_of(*instrument).id;
             charge.amount = *amount;
+            charge.kind = kind;
             // SECONDS on this endpoint, not milliseconds.
             charge.settled_at = UnixNanos{row.time_s * 1'000'000'000ULL};
-            if (auto id = ExecId::from(row.id); id.has_value()) {
+            // A fee names the trade it was charged on, and that is what the
+            // comparison keys on; the book's own row id is the fallback.
+            const auto reference =
+                kind == LedgerKind::Fee && !row.trade_id.empty() ? row.trade_id : row.id;
+            if (auto id = ExecId::from(reference); id.has_value()) {
                 charge.reference = *id;
             }
             charge.ts_init = state_->clock->wall();

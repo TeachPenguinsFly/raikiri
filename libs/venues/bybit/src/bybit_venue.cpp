@@ -596,7 +596,7 @@ public:
         return reports;
     }
 
-    std::expected<std::vector<FundingCharge>, exec::VenueError>
+    std::expected<std::vector<LedgerEntry>, exec::VenueError>
     funding_charges(MarketType market, UnixNanos since) override {
         const auto request = builder_.funding_charges(market, since, state_->venue_now());
         if (!request.has_value()) {
@@ -608,7 +608,7 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local FundingChargeBuffer storage;
+        static thread_local LedgerEntryBuffer storage;
         const auto rows = parse_funding_charges(envelope->result, storage);
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger. Saying "no charges"
@@ -616,22 +616,34 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "unreadable transaction log")};
         }
-        std::vector<FundingCharge> charges;
+        std::vector<LedgerEntry> charges;
         charges.reserve(rows->size());
         for (const auto& wire : *rows) {
             const auto instrument = state_->instruments.find(wire.symbol);
             if (instrument == nullptr) {
                 continue; // a symbol this gateway does not carry
             }
-            const auto amount = parse_decimal_e9(wire.funding);
-            if (!amount.has_value()) {
-                continue; // an unparseable figure is not a zero one
+            // ONE ROW CARRIES BOTH COLUMNS, and which one is money depends on
+            // the row's type: a TRADE states its fee and leaves funding at
+            // zero, a SETTLEMENT the reverse. Reading the wrong column books a
+            // zero over a real charge.
+            const bool is_fee = wire.type == "TRADE";
+            const auto amount = parse_decimal_e9(is_fee ? wire.fee : wire.funding);
+            if (!amount.has_value() || amount->raw == 0) {
+                continue; // an unparseable or absent figure is not a zero charge
             }
-            FundingCharge charge{};
+            LedgerEntry charge{};
             charge.instrument = base_of(*instrument).id;
-            charge.amount = *amount;
+            // bybit states a FEE as a cost: positive is paid away, which is the
+            // opposite of how the account moved. Flipped here so both kinds
+            // reach the book in one convention.
+            charge.amount = is_fee ? FixedE9{-amount->raw} : *amount;
+            charge.kind = is_fee ? LedgerKind::Fee : LedgerKind::Funding;
             charge.settled_at = UnixNanos{wire.transaction_ms * 1'000'000};
-            if (auto id = ExecId::from(wire.id); id.has_value()) {
+            // A fee names the trade it was charged on, which is what the
+            // comparison keys on; the log's own row id is the fallback.
+            const auto reference = is_fee && !wire.trade_id.empty() ? wire.trade_id : wire.id;
+            if (auto id = ExecId::from(reference); id.has_value()) {
                 charge.reference = *id;
             }
             charge.ts_init = state_->clock->wall();

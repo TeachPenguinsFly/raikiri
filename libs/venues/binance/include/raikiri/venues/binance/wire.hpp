@@ -303,6 +303,10 @@ struct WireIncome {
     std::string_view income;
     std::string_view asset;
     std::uint64_t tran_id{0};
+    // The trade a COMMISSION row was charged on. Zero on funding rows, which
+    // have no trade — and it is what a fee reconciliation keys on, because the
+    // fee this process already booked is keyed by the same execution.
+    std::uint64_t trade_id{0};
     std::uint64_t time_ms{0};
 };
 

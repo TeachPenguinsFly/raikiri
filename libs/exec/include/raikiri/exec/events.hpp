@@ -6,7 +6,7 @@
 // tables / broadcast rings / journal appends) and never throw; adapters may
 // call from their I/O thread at full tick rate.
 
-#include <raikiri/domain/funding_charge.hpp>
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/error.hpp>
@@ -48,7 +48,7 @@ public:
     // `funding_charge` capability bit: an adapter that cannot read its venue's
     // account ledger must stay silent here rather than let a caller mistake
     // silence for nothing having been charged.
-    virtual void on_funding_charge(const FundingCharge& charge) noexcept { (void)charge; }
+    virtual void on_funding_charge(const LedgerEntry& charge) noexcept { (void)charge; }
 
     // Declining by default: one venue publishes greeks today, and an adapter
     // for a venue that lists no options has nothing to say here.

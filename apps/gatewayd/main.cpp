@@ -226,7 +226,7 @@ public:
     // for one settlement — so nothing downstream may key on that id. The
     // ledger keys on (venue, symbol, settlement time), which both legs agree
     // on, and the second arrival is dropped there rather than here.
-    void on_funding_charge(const raikiri::FundingCharge& charge) noexcept override {
+    void on_funding_charge(const raikiri::LedgerEntry& charge) noexcept override {
         ++counts_.funding_charges;
         ch_.funding_charges->publish({charge});
     }
@@ -402,7 +402,7 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
 
 void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                              raikiri::MarketType market,
-                             raikiri::shm::FundingChargeRing& ring,
+                             raikiri::shm::LedgerEntryRing& ring,
                              raikiri::UnixNanos& cursor) {
     char buf[16];
     const auto who =

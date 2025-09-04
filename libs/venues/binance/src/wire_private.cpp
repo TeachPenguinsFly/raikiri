@@ -225,6 +225,9 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
                 return std::unexpected(ok.error());
             }
             out.tran_id = detail::opt_u64(obj, "tranId").value_or(0);
+            // A STRING on funding rows ("") and a number on trades, so it is
+            // read leniently rather than required.
+            out.trade_id = detail::opt_u64(obj, "tradeId").value_or(0);
             const auto time_ms = detail::opt_u64(obj, "time");
             if (!time_ms.has_value()) {
                 return std::unexpected(WireError::WrongType);

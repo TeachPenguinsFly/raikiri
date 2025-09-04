@@ -16,7 +16,7 @@
 //   cmd_*        SpscRing       command: lossless; Full = venue down
 
 #include <raikiri/domain/balance.hpp>
-#include <raikiri/domain/funding_charge.hpp>
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -72,11 +72,11 @@ static_assert(std::is_trivially_copyable_v<ExecEventRec>);
 // overwriting another is money that silently never happened. The seqlock
 // tables above can afford to lose an update because the next one restates the
 // whole truth — a charge restates nothing.
-struct FundingChargeRec {
-    FundingCharge charge{};
+struct LedgerEntryRec {
+    LedgerEntry charge{};
 };
 
-static_assert(std::is_trivially_copyable_v<FundingChargeRec>);
+static_assert(std::is_trivially_copyable_v<LedgerEntryRec>);
 
 // One order the VENUE says is still working, as of the pull that wrote it.
 //
@@ -181,11 +181,11 @@ using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using OpenOrderTable = SeqlockTable<OpenOrderCell, k_open_order_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
-using FundingChargeRing = BroadcastRing<FundingChargeRec, k_funding_charge_ring>;
+using LedgerEntryRing = BroadcastRing<LedgerEntryRec, k_funding_charge_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 using MdReader = BroadcastReader<MdEvent, k_md_ring>;
 using ExecReader = BroadcastReader<ExecEventRec, k_exec_ring>;
-using FundingChargeReader = BroadcastReader<FundingChargeRec, k_funding_charge_ring>;
+using LedgerEntryReader = BroadcastReader<LedgerEntryRec, k_funding_charge_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
 
@@ -202,7 +202,7 @@ struct GatewayChannels {
     // What the venue TOOK, beside what it quoted. The `funding` table above
     // holds the rate and is overwritten every tick; this carries the charges
     // and must not lose one.
-    FundingChargeRing* funding_charges{nullptr};
+    LedgerEntryRing* funding_charges{nullptr};
     PositionTable* positions{nullptr};
     // What the venue still has working. Read beside `positions`, because both
     // are the venue's word on this account and comparing numbers taken minutes
