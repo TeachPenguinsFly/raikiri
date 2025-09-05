@@ -1,11 +1,12 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { api, type Fill, type Listing, type Order, type Position } from '@/api/client'
 import { BalanceTree } from '@/components/BalanceTree'
-import { ClosePosition } from '@/components/trading/ClosePosition'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Venue } from '@/components/shared/Venue'
+import { num } from '@/lib/live'
+import { useQuery, type Query } from '@/lib/query'
 import { cn } from '@/lib/utils'
-import { BALANCES, ORDERS, POSITIONS, TRADES, type MockPosition } from '@/mock/data'
 
 export type Tab = 'orders' | 'trades' | 'positions' | 'balances'
 
@@ -38,19 +39,76 @@ function Cols({ rest }: { rest: Array<number | null> }) {
   )
 }
 
-const num = (v: number, dp = 2) =>
-  v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
-const signed = (v: number, dp = 2) => `${v >= 0 ? '+' : '−'}${num(Math.abs(v), dp)}`
+const dp = (v: number, places = 2) =>
+  v.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places })
+const signed = (v: number, places = 2) => `${v >= 0 ? '+' : '−'}${dp(Math.abs(v), places)}`
+
+/** A figure the venue did not publish. Never a zero: a zero is a measurement. */
+const Silent = () => <span className="text-fg-dim">—</span>
+
+/** What the catalogue says about an instrument, keyed by the id every ledger
+ *  row carries. Orders, fills and positions name only the id — venue and symbol
+ *  live here, and a row whose id the catalogue does not know shows the id
+ *  rather than inventing a name for it. */
+type Catalogue = Map<string, Listing>
+
+const useCatalogue = (): Catalogue => {
+  const markets = useQuery(() => api.markets({}), [], 60_000)
+  return useMemo(() => {
+    const map: Catalogue = new Map()
+    if (markets.state !== 'ready') return map
+    for (const m of markets.data) {
+      for (const l of m.listings) map.set(l.instrument_id, l)
+    }
+    return map
+  }, [markets])
+}
+
+/** Loading, failed and empty are three different screens.
+ *
+ *  A failed query renders the server's own words: `/v1/orders` and its
+ *  neighbours answer 503 with a message explaining that admind was started
+ *  without a DSN, and that message is the whole answer to "why is this table
+ *  empty" — replacing it with an empty table asserts that nothing happened. */
+function Outcome<T>({ q, empty, children }: {
+  q: Query<T>
+  empty: string
+  children: (data: T) => ReactNode
+}) {
+  if (q.state === 'loading') return <EmptyState title="Asking admind" />
+  if (q.state === 'failed') {
+    return (
+      <div className="flex flex-col gap-1 p-4">
+        <span className="text-sm text-down">{q.title}</span>
+        {q.detail !== undefined && <span className="text-xs text-fg-mid">{q.detail}</span>}
+      </div>
+    )
+  }
+  return <>{Array.isArray(q.data) && q.data.length === 0 ? <EmptyState title={empty} /> : children(q.data)}</>
+}
 
 /** The bottom of the screen, where what you have done lives. */
 export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
   const [tab, setTab] = useState<Tab>(tabs[0] as Tab)
+  const catalogue = useCatalogue()
 
-  const counts: Record<Tab, number> = {
-    orders: ORDERS.length,
-    trades: TRADES.length,
-    positions: POSITIONS.length,
-    balances: BALANCES.filter((b) => b.reported).length,
+  // All four run, not just the open one: the counts on the tabs are the reason
+  // to switch, and a count that only appears after you switch is not one.
+  const orders = useQuery(() => api.orders({ open: true }), [], 5_000)
+  const fills = useQuery(() => api.fills({ limit: '100' }), [], 5_000)
+  const positions = useQuery(() => api.positions(), [], 5_000)
+  const balances = useQuery(() => api.balances(), [], 10_000)
+
+  // NO COUNT until the answer arrived. A zero beside a tab whose query failed
+  // would read as "nothing here", which is the one thing it does not know.
+  const count = (q: Query<{ items: unknown[] } | unknown[]>): string =>
+    q.state !== 'ready' ? '' : String(Array.isArray(q.data) ? q.data.length : q.data.items.length)
+
+  const counts: Record<Tab, string> = {
+    orders: count(orders),
+    trades: count(fills),
+    positions: count(positions),
+    balances: count(balances),
   }
 
   return (
@@ -77,9 +135,21 @@ export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {tab === 'orders' && <Orders />}
-        {tab === 'trades' && <Trades />}
-        {tab === 'positions' && <Positions />}
+        {tab === 'orders' && (
+          <Outcome q={orders} empty="Nothing working">
+            {(d) => <Orders rows={d.items} catalogue={catalogue} />}
+          </Outcome>
+        )}
+        {tab === 'trades' && (
+          <Outcome q={fills} empty="No fills yet">
+            {(d) => <Trades rows={d.items} catalogue={catalogue} />}
+          </Outcome>
+        )}
+        {tab === 'positions' && (
+          <Outcome q={positions} empty="Flat everywhere">
+            {(d) => <Positions rows={d} catalogue={catalogue} />}
+          </Outcome>
+        )}
         {tab === 'balances' && <BalanceTree />}
       </div>
     </section>
@@ -116,8 +186,27 @@ const N = ({ children, className }: { children: ReactNode; className?: string })
   <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
 )
 
-function Orders() {
-  if (ORDERS.length === 0) return <EmptyState title="Nothing working" />
+const where = (c: Catalogue, id: string) => c.get(id)
+
+function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
+  return (
+    <>
+      <td className="px-3">
+        {listing === undefined ? (
+          <Silent />
+        ) : (
+          <Venue venue={listing.venue} market={listing.market === 'spot' ? 'spot' : 'perp'} />
+        )}
+      </td>
+      {/* The id when the catalogue does not know it: a row whose instrument
+          this gateway never loaded is still a real row, and blanking it would
+          hide the one case worth looking at. */}
+      <td className="px-3 text-fg">{listing?.exchange_symbol ?? id}</td>
+    </>
+  )
+}
+
+function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
   return (
     <Grid
       cols={[64, 80, 112, 116, null, 168]}
@@ -131,175 +220,133 @@ function Orders() {
           <Th right>Price</Th>
           <Th right>Filled</Th>
           <Th>Status</Th>
-          <Th right>Time</Th>
+          <Th right>Created</Th>
         </>
       }
     >
-      {ORDERS.map((o) => (
-        <tr key={o.id} className="row">
-          <Id>{o.id}</Id>
-          <td className="px-3">
-            <Venue venue={o.venue} market={o.market} />
-          </td>
-          <td className="px-3 text-fg">{o.symbol}</td>
-          <td className="px-3">
-            <StatusBadge status={o.side} />
-          </td>
-          <td className="px-3 text-fg-mid capitalize">{o.type}</td>
-          <N>{o.price === null ? '—' : num(o.price, 1)}</N>
-          <N>
-            <span className={o.filled > 0 ? 'text-amber' : 'text-fg-dim'}>{o.filled}</span>
-            <span className="text-fg-dim"> / {o.qty}</span>
-          </N>
-          <td className="px-3">
-            <StatusBadge status={o.status} />
-          </td>
-          {/* The stamp, not an age. An age has to be recomputed before it can
-              be compared with anything else in the journal. */}
-          <td className="num px-3 text-right text-xs text-fg-mid">{o.placedAt}</td>
-        </tr>
-      ))}
+      {rows.map((o) => {
+        const qty = num(o.qty)
+        const leaves = num(o.leaves)
+        return (
+          <tr key={o.client_order_id} className="row">
+            <Id>{o.client_order_id}</Id>
+            <Cell listing={where(catalogue, o.instrument_id)} id={o.instrument_id} />
+            <td className="px-3">
+              <StatusBadge status={o.side} />
+            </td>
+            <td className="px-3 text-fg-mid capitalize">{o.order_type}</td>
+            <N>{o.price === undefined || o.price === null ? <Silent /> : o.price}</N>
+            {/* FILLED IS A DIFFERENCE, not a field: what the venue reports is
+                what is still working, and the fill is the drop in it. */}
+            <N>
+              {qty === null || leaves === null ? (
+                <Silent />
+              ) : (
+                <>
+                  <span className={qty - leaves > 0 ? 'text-amber' : 'text-fg-dim'}>
+                    {dp(qty - leaves, 4)}
+                  </span>
+                  <span className="text-fg-dim"> / {dp(qty, 4)}</span>
+                </>
+              )}
+            </N>
+            <td className="px-3">
+              <StatusBadge status={o.status} />
+            </td>
+            {/* The stamp, not an age. An age has to be recomputed before it can
+                be compared with anything else in the journal. */}
+            <td className="num px-3 text-right text-xs text-fg-mid">{o.ts_created}</td>
+          </tr>
+        )
+      })}
     </Grid>
   )
 }
 
-function Trades() {
+function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
   return (
     <Grid
-      cols={[64, 112, 88, 96, 96, null, 168]}
+      cols={[64, 112, 88, 96, 96, null]}
       head={
         <>
-          <Th>ID</Th>
+          <Th>Exec</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th>Side</Th>
           <Th right>Price</Th>
           <Th right>Qty</Th>
           <Th right>Fee</Th>
-          <Th right>Funding</Th>
-          <Th>Type</Th>
+          <Th>Liquidity</Th>
           <Th right>Time</Th>
         </>
       }
     >
-      {TRADES.map((t) => (
-        <tr key={t.id} className="row">
-          <Id>{t.id}</Id>
-          <td className="px-3">
-            <Venue venue={t.venue} market={t.market} />
-          </td>
-          <td className="px-3 text-fg">{t.symbol}</td>
+      {rows.map((t) => (
+        <tr key={`${t.venue}:${t.exec_id}`} className="row">
+          <Id>{t.exec_id}</Id>
+          <Cell listing={where(catalogue, t.instrument_id)} id={t.instrument_id} />
           <td className="px-3">
             <StatusBadge status={t.side} />
           </td>
-          <N>{num(t.price, 1)}</N>
+          <N>{t.price}</N>
           <N>{t.qty}</N>
-          <td className="num px-3 text-right text-fg-mid">{t.fee.toFixed(4)}</td>
-          {/* Funding accrued on the position this fill belongs to. Spot has
-              none and shows nothing — a zero would claim it was measured. */}
-          <td
-            className={cn(
-              'num px-3 text-right',
-              t.fundingUsd === null ? 'text-fg-dim' : t.fundingUsd >= 0 ? 'text-up' : 'text-down',
-            )}
-          >
-            {t.fundingUsd === null ? '—' : signed(t.fundingUsd)}
+          {/* A NEGATIVE FEE IS A MAKER REBATE and stays negative: folding it
+              into a cost would hide the one case a desk is trying to earn. */}
+          <td className="num px-3 text-right text-fg-mid">
+            {t.fee === undefined || t.fee === null ? <Silent /> : t.fee}
           </td>
-          <td className="px-3 text-fg-mid capitalize">{t.liquidity}</td>
-          <td className="num px-3 text-right text-xs text-fg-mid">{t.at}</td>
+          <td className="px-3 text-fg-mid capitalize">{t.liquidity ?? 'unknown'}</td>
+          <td className="num px-3 text-right text-xs text-fg-mid">{t.ts_event}</td>
         </tr>
       ))}
     </Grid>
   )
 }
 
-function Positions() {
-  const [closing, setClosing] = useState<MockPosition | null>(null)
+function Positions({ rows, catalogue }: { rows: Position[]; catalogue: Catalogue }) {
   return (
-    <>
     <Grid
-      cols={[88, 52, 104, 104, 104, 96, 104, null, 120]}
+      cols={[88, 52, 104, 104, 104, null]}
       head={
         <>
-          <Th>ID</Th>
+          <Th>Strategy</Th>
           <Th>Venue</Th>
           <Th>Symbol</Th>
           <Th right>Qty</Th>
-          <Th right>Lev</Th>
           <Th right>Entry</Th>
-          <Th right>Mark</Th>
-          <Th right>Liq.</Th>
-          <Th right>Funding</Th>
-          <Th right>Unrealized</Th>
-          <Th>Owner</Th>
-          <Th right>Close</Th>
+          <Th right>Realized</Th>
+          <Th right>Venue says</Th>
+          <Th right>Updated</Th>
         </>
       }
     >
-      {POSITIONS.map((p) => {
-        const pnl = (p.mark - p.entry) * p.qty
+      {rows.map((p) => {
+        const qty = num(p.qty)
         return (
-          <tr key={p.id} className="row">
-            <Id>{p.id}</Id>
-            <td className="px-3">
-              <Venue venue={p.venue} market={p.market} />
-            </td>
-            <td className="px-3 text-fg">{p.symbol}</td>
-            <N className={p.qty >= 0 ? 'text-up' : 'text-down'}>
-              {p.qty > 0 ? '+' : ''}
-              {p.qty}
+          <tr key={`${p.strategy_id}:${p.instrument_id}`} className="row">
+            <Id>{p.strategy_id}</Id>
+            <Cell listing={where(catalogue, p.instrument_id)} id={p.instrument_id} />
+            <N className={qty !== null && qty < 0 ? 'text-down' : 'text-up'}>
+              {qty === null ? <Silent /> : signed(qty, 4)}
             </N>
-            <td className="num px-2 text-right text-fg-mid">{p.leverage}×</td>
-            <td className="num px-3 text-right text-fg-mid">{num(p.entry, 1)}</td>
-            <N>{num(p.mark, 1)}</N>
-            {/* Spot cannot be liquidated, so it shows nothing rather than a
-                price that does not exist. */}
-            <td className="num px-3 text-right text-amber">
-              {p.liqPrice === null ? <span className="text-fg-dim">—</span> : num(p.liqPrice, 1)}
-            </td>
-            <td
-              className={cn(
-                'num px-3 text-right',
-                p.fundingUsd === null ? 'text-fg-dim' : p.fundingUsd >= 0 ? 'text-up' : 'text-down',
+            <td className="num px-3 text-right text-fg-mid">
+              {p.avg_entry_price === undefined || p.avg_entry_price === null ? (
+                <Silent />
+              ) : (
+                p.avg_entry_price
               )}
-            >
-              {p.fundingUsd === null ? '—' : signed(p.fundingUsd)}
             </td>
-            <N className={pnl >= 0 ? 'text-up' : 'text-down'}>{signed(pnl)}</N>
-            <td className="px-2 text-xs text-fg-mid">
-              {p.strategy ?? <span className="text-fg-dim">manual</span>}
+            <N>{p.realized === undefined || p.realized === null ? <Silent /> : p.realized}</N>
+            {/* NULL IS NOT FLAT. A venue that has not answered and a venue
+                reporting zero are different facts, and this column exists to
+                keep them apart rather than to agree with the one beside it. */}
+            <td className="num px-3 text-right text-fg-mid">
+              {p.venue_qty === undefined || p.venue_qty === null ? <Silent /> : p.venue_qty}
             </td>
-            {/* Only a hand-opened position gets close controls. A strategy's
-                position is closed by the strategy — a button that unwinds one
-                behind its back leaves the strategy holding a leg it thinks it
-                still has. */}
-            <td className="px-2 text-right">
-              {p.strategy === null ? (
-                <span className="inline-flex gap-1">
-                  <CloseButton onClick={() => setClosing(p)}>Limit</CloseButton>
-                  <CloseButton>Market</CloseButton>
-                </span>
-              ) : null}
-            </td>
+            <td className="num px-3 text-right text-xs text-fg-mid">{p.ts_updated}</td>
           </tr>
         )
       })}
     </Grid>
-    {closing !== null && (
-      <ClosePosition position={closing} onClose={() => setClosing(null)} />
-    )}
-    </>
-  )
-}
-
-function CloseButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="h-5 rounded-sm bg-raised px-1.5 text-2xs text-fg-mid transition-colors duration-150 hover:bg-hover hover:text-fg"
-    >
-      {children}
-    </button>
   )
 }

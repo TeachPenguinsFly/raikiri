@@ -12,6 +12,8 @@ export type Market = Schema<'Market'>
 export type PnlIncrement = Schema<'PnlIncrement'>
 export type PnlKind = Schema<'PnlKind'>
 export type Position = Schema<'Position'>
+export type Order = Schema<'Order'>
+export type Fill = Schema<'Fill'>
 export type Problem = Schema<'Problem'>
 
 /** A refusal the server explained. Carries the RFC 9457 body, so a screen can
@@ -42,6 +44,39 @@ async function get<T>(path: string, params?: Record<string, string | undefined>)
   return (await res.json()) as T
 }
 
+/** A write, which needs the one header a read does not.
+ *
+ *  IDEMPOTENCY-KEY IS MANDATORY and the server mints the order id, not us: a
+ *  retry after a timeout must reach the same order rather than a second one.
+ *  The key is generated per ATTEMPT by the caller and reused across retries of
+ *  that attempt — generating a fresh one on retry is the bug this guards. */
+async function post<T>(path: string, body: unknown, idempotencyKey: string): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const problem = await res.json().catch(() => null)
+    throw new ApiError(res.status, problem as Problem | null)
+  }
+  return (await res.json()) as T
+}
+
+export type NewOrder = Schema<'NewOrder'>
+export type OrderAccepted = Schema<'OrderAccepted'>
+
+/** Hands an order to the desk. A 202 means QUEUED, not filled and not even
+ *  accepted by the venue: the risk gate sits past this call, and its refusal
+ *  arrives later on the order's own events. A screen that reads 202 as success
+ *  is claiming something this answer does not say. */
+export const placeOrder = (order: NewOrder, idempotencyKey: string) =>
+  post<OrderAccepted>('/v1/orders', order, idempotencyKey)
+
 type InstrumentQuery = NonNullable<paths['/v1/instruments']['get']['parameters']['query']>
 
 export const api = {
@@ -60,6 +95,19 @@ export const api = {
       account: params.account,
       kind: params.kind,
       cursor: params.cursor,
+      limit: params.limit,
+    }),
+  // Everything from here reads Postgres and answers 503 without a DSN. That
+  // refusal is a real answer and must reach the screen — a screen that renders
+  // an empty table instead is claiming nothing happened.
+  orders: (params: { account?: string | undefined; open?: boolean | undefined } = {}) =>
+    get<{ items: Order[]; next_cursor?: string | null }>('/v1/orders', {
+      account: params.account,
+      open: params.open === undefined ? undefined : String(params.open),
+    }),
+  fills: (params: { account?: string | undefined; limit?: string | undefined } = {}) =>
+    get<{ items: Fill[]; next_cursor?: string | null }>('/v1/fills', {
+      account: params.account,
       limit: params.limit,
     }),
   balances: (params: { account?: string | undefined } = {}) =>

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExchangeIcon } from '@/components/shared/ExchangeIcon'
 import { Icon } from '@/components/shared/Icon'
+import { api, placeOrder } from '@/api/client'
+import { type LiveListing } from '@/lib/live'
+import { useQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
-import { BALANCES, type MockListing } from '@/mock/data'
 
 type Kind = 'limit' | 'market'
 
@@ -25,15 +27,19 @@ export function OrderTicket({
   venue,
   onVenue,
 }: {
-  listings: MockListing[]
+  listings: LiveListing[]
   venue: string | null
   onVenue: (venue: string) => void
 }) {
   const [kind, setKind] = useState<Kind>('limit')
-  const [leverage, setLeverage] = useState(3)
   const [limit, setLimit] = useState('')
   const [qty, setQty] = useState('')
   const [sent, setSent] = useState<string | null>(null)
+  const [inFlight, setInFlight] = useState(false)
+
+  // The venue's own free figure, for the sizing buttons. Refreshed on the
+  // gateway's own cadence rather than per keystroke.
+  const balances = useQuery(() => api.balances(), [], 10_000)
 
   const listing = listings.find((l) => l.venue === venue) ?? null
 
@@ -42,8 +48,8 @@ export function OrderTicket({
   // wrong side of the spread by half of it, and there is no side to prefill
   // from until a person presses Buy or Sell.
   useEffect(() => {
-    if (listing !== null) setLimit(price(listing.bid))
-  }, [listing?.venue, listing?.exchangeSymbol])
+    if (listing?.bid != null) setLimit(price(listing.bid))
+  }, [listing?.venue, listing?.exchange_symbol, listing?.bid])
 
   if (listing === null) {
     return (
@@ -56,22 +62,69 @@ export function OrderTicket({
     )
   }
 
-  const base = listing.exchangeSymbol.replace(/USDT.*|_.*|-.*/, '')
+  const base = listing.exchange_symbol.replace(/USDT.*|_.*|-.*/, '')
+  // A market order has no price of its own; the ask is what it will cross.
+  // Null until the venue has quoted, which is also when the ticket is armed.
   const working = kind === 'market' ? listing.ask : Number(limit)
-  const notional = working * Number(qty)
-  const armed = Number(qty) > 0 && (kind === 'market' || Number(limit) > 0)
+  const notional = working === null ? null : working * Number(qty)
+  const armed =
+    !inFlight && Number(qty) > 0 && (kind === 'market' ? listing.ask !== null : Number(limit) > 0)
 
   // Sizing buttons spend the venue's own free figure. NULL IS NOT FLAT: where
   // a venue publishes no per-asset available balance the row is refused rather
   // than sized off a total that is already committed as margin.
   const free =
-    BALANCES.find((b) => b.venue === listing.venue && b.asset === 'USDT')?.available ?? null
+    balances.state === 'ready'
+      ? (() => {
+          const account = balances.data.find((a) => a.account === listing.account)
+          const usdt = account?.assets.find((x) => x.asset === 'USDT')
+          const v = usdt?.available
+          return v === undefined || v === null ? null : Number(v)
+        })()
+      : null
+
+  /** Hands the order to the desk.
+   *
+   *  A 202 IS NOT A FILL and not even a venue acceptance: the risk gate sits
+   *  past this call and refuses on the order's own events. So the line below
+   *  says "queued" and names the id, and nothing here claims more than that.
+   *
+   *  The idempotency key is minted once per attempt. A retry of a timed-out
+   *  send must carry the SAME key or it becomes a second order. */
+  const submit = async (side: 'buy' | 'sell') => {
+    if (!armed) return
+    setInFlight(true)
+    const key = crypto.randomUUID()
+    try {
+      const accepted = await placeOrder(
+        {
+          account: listing.account,
+          instrument_id: listing.instrument_id,
+          side,
+          order_type: kind,
+          tif: kind === 'market' ? 'ioc' : 'gtc',
+          // A market order carrying a price is an instruction with two
+          // meanings; the contract refuses one.
+          ...(kind === 'limit' ? { price: limit } : {}),
+          qty,
+          post_only: false,
+          reduce_only: false,
+        },
+        key,
+      )
+      setSent(`queued ${accepted.client_order_id}`)
+    } catch (err) {
+      setSent(err instanceof Error ? err.message : 'the desk did not answer')
+    } finally {
+      setInFlight(false)
+    }
+  }
 
   return (
     <section className="panel flex flex-col overflow-visible">
       <div className="flex h-7 items-center justify-between px-3">
         <span className="panel-title">Ticket</span>
-        <span className="text-2xs text-fg-dim">{listing.exchangeSymbol}</span>
+        <span className="text-2xs text-fg-dim">{listing.exchange_symbol}</span>
       </div>
 
       <div className="flex flex-col gap-2 px-3 pb-3">
@@ -83,45 +136,25 @@ export function OrderTicket({
         <div className="flex items-stretch gap-1">
           <button
             type="button"
-            onClick={() => setLimit(price(listing.bid))}
+            disabled={listing.bid === null}
+            onClick={() => listing.bid !== null && setLimit(price(listing.bid))}
             className="num flex h-8 flex-1 items-center justify-center rounded-sm bg-up/[0.10] text-sm text-up transition-colors duration-150 hover:bg-up/[0.16]"
           >
-            {price(listing.bid)}
+            {listing.bid === null ? '—' : price(listing.bid)}
           </button>
           <span className="num flex w-14 shrink-0 items-center justify-center text-2xs text-fg-dim">
-            {(((listing.ask - listing.bid) / listing.bid) * 10_000).toFixed(1)} bp
+            {listing.bid === null || listing.ask === null || listing.bid === 0
+              ? '—'
+              : `${(((listing.ask - listing.bid) / listing.bid) * 10_000).toFixed(1)} bp`}
           </span>
           <button
             type="button"
-            onClick={() => setLimit(price(listing.ask))}
+            disabled={listing.ask === null}
+            onClick={() => listing.ask !== null && setLimit(price(listing.ask))}
             className="num flex h-8 flex-1 items-center justify-center rounded-sm bg-down/[0.10] text-sm text-down transition-colors duration-150 hover:bg-down/[0.16]"
           >
-            {price(listing.ask)}
+            {listing.ask === null ? '—' : price(listing.ask)}
           </button>
-        </div>
-
-        {/* Leverage is set on the position, not on the order — a venue applies
-            it to the whole netted instrument. Sending it with the ticket is
-            how a desk avoids opening at whatever the last strategy left set. */}
-        <div className="flex items-center gap-1">
-          <span className="text-2xs text-fg-dim">Leverage</span>
-          <span className="ml-auto flex gap-1">
-            {[1, 2, 3, 5, 10].map((x) => (
-              <button
-                key={x}
-                type="button"
-                onClick={() => setLeverage(x)}
-                className={cn(
-                  'num h-6 w-8 rounded-sm text-2xs transition-colors duration-150',
-                  leverage === x
-                    ? 'bg-active text-fg'
-                    : 'bg-raised text-fg-dim hover:bg-hover hover:text-fg-mid',
-                )}
-              >
-                {x}×
-              </button>
-            ))}
-          </span>
         </div>
 
         <div className="flex gap-4">
@@ -146,7 +179,7 @@ export function OrderTicket({
           label="Price"
           unit="USDT"
           value={kind === 'market' ? '' : limit}
-          placeholder={kind === 'market' ? price(listing.ask) : ''}
+          placeholder={kind === 'market' && listing.ask !== null ? price(listing.ask) : ''}
           disabled={kind === 'market'}
           onChange={setLimit}
         />
@@ -157,8 +190,13 @@ export function OrderTicket({
             <button
               key={f}
               type="button"
-              disabled={free === null || working <= 0}
-              onClick={() => setQty(((free as number) * f / working).toFixed(4))}
+              disabled={free === null || working === null || working <= 0}
+              onClick={() =>
+                free !== null &&
+                working !== null &&
+                working > 0 &&
+                setQty(((free * f) / working).toFixed(4))
+              }
               className="h-6 flex-1 rounded-sm bg-raised text-2xs text-fg-mid transition-colors duration-150 hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:text-fg-dim disabled:hover:bg-raised"
             >
               {f === 1 ? 'Max' : `${f * 100}%`}
@@ -182,9 +220,7 @@ export function OrderTicket({
               key={s}
               type="button"
               disabled={!armed}
-              onClick={() =>
-                setSent(`${s} ${qty} ${base} at ${leverage}× on ${listing.venue}`)
-              }
+              onClick={() => void submit(s)}
               className={cn(
                 'flex flex-col items-center gap-0.5 rounded-sm py-2 transition-colors duration-150',
                 'disabled:cursor-not-allowed disabled:bg-raised disabled:text-fg-dim',
@@ -197,7 +233,7 @@ export function OrderTicket({
                 {s} {base}
               </span>
               <span className={cn('num text-2xs', armed ? 'opacity-70' : 'text-fg-dim')}>
-                {Number.isFinite(notional) && notional > 0
+                {notional !== null && Number.isFinite(notional) && notional > 0
                   ? `${grouped(notional)} USDT`
                   : `0 ${base}`}
               </span>
@@ -222,8 +258,8 @@ function VenuePicker({
   chosen,
   onChoose,
 }: {
-  listings: MockListing[]
-  chosen: MockListing
+  listings: LiveListing[]
+  chosen: LiveListing
   onChoose: (venue: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -257,7 +293,9 @@ function VenuePicker({
       >
         <ExchangeIcon venue={chosen.venue} className="size-[18px]" />
         <span className="text-sm text-fg">{chosen.venue}</span>
-        <span className="num ml-auto text-xs text-fg-dim">{price(chosen.bid)}</span>
+        <span className="num ml-auto text-xs text-fg-dim">
+          {chosen.bid === null ? '—' : price(chosen.bid)}
+        </span>
         <Icon.Caret
           className={cn('size-3.5 text-fg-dim transition-transform duration-150', open && 'rotate-180')}
           strokeWidth={1.75}
@@ -283,8 +321,12 @@ function VenuePicker({
               <span className={cn('text-sm', l.venue === chosen.venue ? 'text-fg' : 'text-fg-mid')}>
                 {l.venue}
               </span>
-              <span className="num ml-auto text-xs text-up">{price(l.bid)}</span>
-              <span className="num w-[52px] text-right text-xs text-down">{price(l.ask)}</span>
+              <span className="num ml-auto text-xs text-up">
+                {l.bid === null ? '—' : price(l.bid)}
+              </span>
+              <span className="num w-[52px] text-right text-xs text-down">
+                {l.ask === null ? '—' : price(l.ask)}
+              </span>
             </button>
           ))}
         </div>

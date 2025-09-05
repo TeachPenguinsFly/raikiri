@@ -1,93 +1,113 @@
+import { api } from '@/api/client'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { PanelHeader } from '@/components/shared/PanelHeader'
 import { Venue } from '@/components/shared/Venue'
-import { VENUES } from '@/mock/data'
+import { nanosToMillis } from '@/lib/format'
+import { useQuery } from '@/lib/query'
 
-/** Which markets a venue's key actually opens.
+/** Which gateways are attached, which is NOT which keys work.
  *
- *  The screen used to report a state, an instrument count and a segment path —
- *  three facts about a process, none of which is the question anyone opens
- *  Settings to ask. That question is: can I trade this venue, and on which
- *  markets. A key is per venue and the permissions are per market, so the grid
- *  is venue by market and nothing else. */
-const MARKETS = ['spot', 'perp'] as const
-type Market = (typeof MARKETS)[number]
+ *  The screen used to draw a venue-by-market grid of key permissions with `ok`
+ *  and `refused` in it. Nothing behind the screen tests a credential: there is
+ *  no credentials endpoint, and `GET /v1/accounts` answers the narrower
+ *  question of which (venue, market) pairs have a gatewayd attached. A key
+ *  that is missing or refused shows up here as a venue that is simply not in
+ *  the list, and saying more than that would be inventing a check. */
+const k_refresh_ms = 5_000
 
-/** `null` where the venue has no key at all — which is a different fact from a
- *  key that is present and refused, and the two get different words. */
-const KEYS: Record<string, Partial<Record<Market, boolean>> | null> = {
-  bybit: { spot: true, perp: true },
-  binance: { spot: false, perp: true },
-  okx: { spot: true, perp: true },
-  gate: { spot: false, perp: true },
-  kucoin: { spot: true, perp: true },
-  bitget: null,
-  xt: { spot: false, perp: true },
-  bingx: null,
-}
-
-const SOURCES: Record<string, string> = {
-  bybit: 'env:RAIKIRI_BYBIT_KEY',
-  binance: 'env:RAIKIRI_BINANCE_KEY',
-  okx: 'env:RAIKIRI_OKX_KEY',
-  gate: 'env:RAIKIRI_GATE_KEY',
-  kucoin: 'env:RAIKIRI_KUCOIN_KEY',
-  xt: 'env:RAIKIRI_XT_KEY',
+/** Age rather than a wall clock: a heartbeat is only ever read as "how long
+ *  since", and the terminal keeps every clock in UTC. */
+function since(nanos: string | undefined, now: number): string {
+  if (nanos === undefined) return '—'
+  const seconds = Math.max(0, Math.round((now - nanosToMillis(nanos)) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  return `${Math.floor(seconds / 3600)}h ago`
 }
 
 export function SettingsPage() {
-  const working = VENUES.filter((v) => KEYS[v] !== null && KEYS[v] !== undefined).length
+  const accounts = useQuery(() => api.accounts(), [], k_refresh_ms)
+  const rows = accounts.state === 'ready' ? accounts.data : []
+  const alive = rows.filter((a) => a.gateway.alive).length
+  const now = Date.now()
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <section className="panel flex min-h-0 flex-1 flex-col">
         <PanelHeader
-          title="API keys"
+          title="Attached gateways"
           right={
-            <span className="meta">
-              {working}/{VENUES.length} venues keyed
-            </span>
+            accounts.state === 'ready' ? (
+              <span className="meta">
+                {alive}/{rows.length} answering
+              </span>
+            ) : null
           }
         />
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full border-collapse text-sm whitespace-nowrap">
-            <thead className="sticky top-0 z-10 bg-panel">
-              <tr className="h-6 shadow-[inset_0_-1px_0_0_var(--color-line)]">
-                <th className="col-head px-3 text-left">Venue</th>
-                {MARKETS.map((m) => (
-                  <th key={m} className="col-head w-24 px-3 text-left">
-                    {m}
-                  </th>
-                ))}
-                <th className="col-head px-3 text-left">Credential</th>
-              </tr>
-            </thead>
-            <tbody>
-              {VENUES.map((venue) => {
-                const key = KEYS[venue]
-                return (
-                  <tr key={venue} className="row">
+          {accounts.state === 'loading' && <EmptyState title="Asking admind" />}
+
+          {accounts.state === 'failed' && (
+            <div className="px-3 py-6 text-xs">
+              <div className="text-down">
+                {accounts.status !== null && (
+                  <span className="num mr-2 text-fg-dim">{accounts.status}</span>
+                )}
+                {accounts.title}
+              </div>
+              {accounts.detail !== undefined && (
+                <div className="mt-1 text-fg-dim">{accounts.detail}</div>
+              )}
+            </div>
+          )}
+
+          {accounts.state === 'ready' && rows.length === 0 && (
+            <EmptyState
+              title="No gateway is attached"
+              hint="a venue whose key is missing or refused never attaches one"
+            />
+          )}
+
+          {accounts.state === 'ready' && rows.length > 0 && (
+            <table className="w-full border-collapse text-sm whitespace-nowrap">
+              <thead className="sticky top-0 z-10 bg-panel">
+                <tr className="h-6 shadow-[inset_0_-1px_0_0_var(--color-line)]">
+                  <th className="col-head px-3 text-left">Venue</th>
+                  <th className="col-head px-3 text-left">Account</th>
+                  <th className="col-head w-24 px-3 text-left">Market</th>
+                  <th className="col-head w-32 px-3 text-left">Gateway</th>
+                  <th className="col-head w-28 px-3 text-right">Instruments</th>
+                  <th className="col-head w-28 px-3 text-right">Heartbeat</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((a) => (
+                  <tr key={a.account} className="row">
                     <td className="px-3">
-                      <Venue venue={venue} />
+                      <Venue venue={a.venue} />
                     </td>
-                    {MARKETS.map((m) => (
-                      <td key={m} className="px-3">
-                        {key === null || key === undefined ? (
-                          <span className="text-fg-dim">no key</span>
-                        ) : key[m] === true ? (
-                          <span className="text-up">ok</span>
-                        ) : (
-                          <span className="text-down">refused</span>
-                        )}
-                      </td>
-                    ))}
-                    <td className="px-3 text-xs text-fg-mid">
-                      {SOURCES[venue] ?? <span className="text-amber">not configured</span>}
+                    <td className="px-3 text-fg">{a.account}</td>
+                    <td className="px-3 text-fg-mid">{a.market}</td>
+                    <td className="px-3">
+                      {a.gateway.alive ? (
+                        <span className="text-up">alive</span>
+                      ) : (
+                        <span className="text-down">not answering</span>
+                      )}
+                    </td>
+                    {/* A dead gateway's catalogue belongs to the generation that
+                        died with it, so the count is not a fact any more. */}
+                    <td className="num px-3 text-right text-fg-mid">
+                      {a.gateway.alive ? a.gateway.instruments.toLocaleString() : '—'}
+                    </td>
+                    <td className="num px-3 text-right text-xs text-fg-dim">
+                      {since(a.gateway.last_heartbeat, now)}
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
     </div>

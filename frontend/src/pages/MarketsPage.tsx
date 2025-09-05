@@ -9,29 +9,26 @@ import { Ladder } from '@/components/trading/Ladder'
 import { OrderTicket } from '@/components/trading/OrderTicket'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { cn } from '@/lib/utils'
-import {
-  useBook,
-  useMarkets,
-  useTickingMarket,
-  type MockListing,
-  type MockMarket,
-} from '@/mock/data'
+import { api, type Market } from '@/api/client'
+import { num, type LiveListing, type LiveMarket } from '@/lib/live'
+import { useQuery } from '@/lib/query'
+import { useBook, useFunding, useQuotes } from '@/lib/stream'
 
 const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
 
-/** The best bid across the venues quoting a market — the one figure that
- *  answers "what is this trading at" without picking a venue for the reader. */
-const best = (m: MockMarket): number | null =>
-  m.listings.length === 0 ? null : Math.max(...m.listings.map((l) => l.bid))
 
 /** What the board can be ordered by. Funding is the reason the sort exists:
  *  the venue paying the most and the venue charging the most are the two ends
  *  of a carry, and finding them by eye across sixteen rows is the work this
  *  removes. */
-type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding' | 'volume'
+// No volume: nothing in the contract publishes a 24h figure — not on Quote,
+// not on Funding, not on Instrument — so the column it used to sort is gone
+// rather than filled with a number nobody measured.
+type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding'
 
-const sortValue = (l: MockListing, key: SortKey): number | string => {
-  const mid = (l.bid + l.ask) / 2
+/** A venue that has not quoted sorts LAST whichever way the column runs, so a
+ *  silent venue never displaces a live one at the top of the board. */
+const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
   switch (key) {
     case 'venue':
       return l.venue
@@ -39,14 +36,19 @@ const sortValue = (l: MockListing, key: SortKey): number | string => {
       return l.bid
     case 'ask':
       return l.ask
-    case 'spread':
-      return ((l.ask - l.bid) / mid) * 10_000
-    // Normalised to eight hours before comparing. okx funds every four, and
-    // two raw rates side by side compare different things.
+    case 'spread': {
+      if (l.bid === null || l.ask === null) return null
+      const mid = (l.bid + l.ask) / 2
+      return mid === 0 ? null : ((l.ask - l.bid) / mid) * 10_000
+    }
+    // Normalised to eight hours before comparing. okx funds every four and
+    // hyperliquid every hour; two raw rates side by side compare different
+    // things.
     case 'funding':
-      return (l.fundingRate / l.fundingIntervalHours) * 8
-    case 'volume':
-      return l.volume24h
+      return l.fundingRate === null || l.fundingIntervalHours === null ||
+             l.fundingIntervalHours === 0
+        ? null
+        : (l.fundingRate / l.fundingIntervalHours) * 8
   }
 }
 
@@ -92,7 +94,10 @@ export function MarketsPage() {
   const { favorites, toggle } = useFavorites()
   const [onlyFavorites, setOnlyFavorites] = useState(false)
 
-  const found = useMarkets(query)
+  // The catalogue: names and which venues list them. Refreshed slowly — a
+  // listing appearing is a rare event, and the numbers arrive on the socket.
+  const catalogue = useQuery(() => api.markets({ q: query || undefined }), [query], 30_000)
+  const found: Market[] = catalogue.state === 'ready' ? catalogue.data : []
   // Starred pairs float to the top rather than into a separate list: a desk
   // watching six markets still wants the seventh to be one scroll away.
   const markets = useMemo(() => {
@@ -105,7 +110,36 @@ export function MarketsPage() {
     () => markets.find((m) => m.symbol === chosen) ?? markets[0] ?? null,
     [markets, chosen],
   )
-  const live = useTickingMarket(selected)
+  // Only the open market is subscribed. Subscribing to the whole catalogue
+  // would be thousands of instruments to read sixteen rows.
+  const shown = useMemo(
+    () => (selected === null ? [] : selected.listings.map((l) => l.instrument_id)),
+    [selected],
+  )
+  const quotes = useQuotes(shown)
+  const funding = useFunding(shown)
+
+  const live: LiveMarket | null = useMemo(() => {
+    if (selected === null) return null
+    return {
+      symbol: selected.symbol,
+      listings: selected.listings.map((l) => {
+        const q = quotes.get(l.instrument_id)
+        const f = funding.get(l.instrument_id)
+        const seconds = f?.interval_seconds ?? null
+        return {
+          ...l,
+          bid: num(q?.bid),
+          ask: num(q?.ask),
+          fundingRate: num(f?.rate),
+          // NULL, not a default of eight: a venue that does not state its
+          // interval cannot have its rate normalised, and guessing one is how
+          // hyperliquid's hourly rate reads as eight times itself.
+          fundingIntervalHours: seconds === null || seconds === 0 ? null : seconds / 3600,
+        }
+      }),
+    }
+  }, [selected, quotes, funding])
   const entering = useEntranceOnce(live !== null, live?.symbol)
 
   // The row you clicked is what the ticket writes against and what the ladder
@@ -114,11 +148,15 @@ export function MarketsPage() {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'venue', desc: false })
 
   const chosenVenue = live?.listings.find((l) => l.venue === venue) ?? live?.listings[0] ?? null
-  const book = useBook(chosenVenue === null ? null : (chosenVenue.bid + chosenVenue.ask) / 2, 12)
+  const book = useBook(chosenVenue?.instrument_id ?? null, 12)
 
   const ordered = [...(live?.listings ?? [])].sort((a, b) => {
     const x = sortValue(a, sort.key)
     const y = sortValue(b, sort.key)
+    // A venue that has said nothing sinks, whichever way the column runs.
+    if (x === null && y === null) return 0
+    if (x === null) return 1
+    if (y === null) return -1
     const c = typeof x === 'string' ? x.localeCompare(y as string) : x - (y as number)
     return sort.desc ? -c : c
   })
@@ -169,9 +207,6 @@ export function MarketsPage() {
                     Funding
                   </SortHead>
                   <th className="col-head px-3 text-right">Every</th>
-                  <SortHead k="volume" sort={sort} onSort={setSort} right>
-                    24h vol
-                  </SortHead>
                 </tr>
               </thead>
               <tbody>
@@ -214,7 +249,14 @@ export function MarketsPage() {
               )
             }
           />
-          <Ladder bids={book.bids} asks={book.asks} />
+          {book === null ? (
+            <EmptyState title="No book yet" />
+          ) : (
+            <Ladder
+              bids={book.bids.map(toLevel)}
+              asks={book.asks.map(toLevel)}
+            />
+          )}
         </section>
       </div>
     </div>
@@ -249,7 +291,7 @@ function MarketList({
   onQuery,
   onPick,
 }: {
-  markets: MockMarket[]
+  markets: Market[]
   selected: string | null
   query: string
   entering: boolean
@@ -358,12 +400,12 @@ function MarketList({
                 <span className="flex shrink-0 items-baseline gap-3">
                   {/* The count is why this view exists: a market four venues
                       quote is worth opening, a market one venue lists is not.
-                      The price is why you would open THIS one. */}
+                      NO PRICE HERE. Only the open market is subscribed —
+                      quoting the whole catalogue would be thousands of live
+                      instruments to fill a sidebar — and a stale or invented
+                      figure beside a name is worse than none. */}
                   <span className="num w-3 text-right text-2xs text-fg-dim">
                     {m.listings.length}
-                  </span>
-                  <span className="num w-20 text-right text-sm text-fg">
-                    {best(m) === null ? '—' : price(best(m) as number)}
                   </span>
                 </span>
               </button>
@@ -388,16 +430,19 @@ function VenueRow({
   style,
   entering,
 }: {
-  listing: MockListing
+  listing: LiveListing
   selected: boolean
   onSelect: () => void
   style: React.CSSProperties | undefined
   entering: boolean
 }) {
-  const mid = (listing.bid + listing.ask) / 2
   // Basis points of the mid, not currency: two venues quoting one market at
-  // different tick sizes are not comparable in their own units.
-  const spread = ((listing.ask - listing.bid) / mid) * 10_000
+  // different tick sizes are not comparable in their own units. Null until
+  // BOTH sides have quoted — half a spread is not a narrow one.
+  const spread =
+    listing.bid === null || listing.ask === null || listing.bid + listing.ask === 0
+      ? null
+      : ((listing.ask - listing.bid) / ((listing.bid + listing.ask) / 2)) * 10_000
   return (
     <tr
       style={style}
@@ -414,32 +459,65 @@ function VenueRow({
       <td className="px-3">
         <Venue venue={listing.venue} />
       </td>
-      <td className="px-3 text-xs text-fg-mid">{listing.exchangeSymbol}</td>
+      <td className="px-3 text-xs text-fg-mid">{listing.exchange_symbol}</td>
+      {/* An em-dash where the venue has not quoted. A zero would be a price. */}
       <td className="px-3 text-right">
-        <FlashPrice value={listing.bid} format={price} className="text-up" />
+        {listing.bid === null ? (
+          <Silent />
+        ) : (
+          <FlashPrice value={listing.bid} format={price} className="text-up" />
+        )}
       </td>
       <td className="px-3 text-right">
-        <FlashPrice value={listing.ask} format={price} className="text-down" />
+        {listing.ask === null ? (
+          <Silent />
+        ) : (
+          <FlashPrice value={listing.ask} format={price} className="text-down" />
+        )}
       </td>
-      <td className="num px-3 text-right text-fg-mid">{spread.toFixed(1)}</td>
+      <td className="num px-3 text-right text-fg-mid">
+        {spread === null ? <Silent /> : spread.toFixed(1)}
+      </td>
       <td className="num px-3 text-right">
         {/* The sign is always printed, so a positive rate occupies the same
             width as a negative one and the column's digits line up.
             Colour marks only the negative: paying to be long is the exception
             worth finding, and a column that is mostly green is a column the
             eye stops reading. */}
-        <span className={listing.fundingRate < 0 ? 'text-down' : 'text-fg'}>
-          {listing.fundingRate >= 0 ? '+' : '−'}
-          {(Math.abs(listing.fundingRate) * 100).toFixed(4)}%
-        </span>
+        {listing.fundingRate === null ? (
+          <Silent />
+        ) : (
+          <span className={listing.fundingRate < 0 ? 'text-down' : 'text-fg'}>
+            {listing.fundingRate >= 0 ? '+' : '−'}
+            {(Math.abs(listing.fundingRate) * 100).toFixed(4)}%
+          </span>
+        )}
       </td>
       {/* The interval travels with the rate, in a column of its own. okx funds
-          every four hours where the others fund every eight, and two identical
-          rates side by side without it compare different things. */}
-      <td className="num px-3 text-right text-fg-dim">{listing.fundingIntervalHours}h</td>
-      <td className="num px-3 text-right text-fg">{(listing.volume24h / 1e6).toFixed(1)}M</td>
+          every four hours and hyperliquid every one where the others fund every
+          eight; two identical rates side by side without it compare different
+          things. */}
+      <td className="num px-3 text-right text-fg-dim">
+        {listing.fundingIntervalHours === null ? <Silent /> : `${listing.fundingIntervalHours}h`}
+      </td>
     </tr>
   )
+}
+
+/** A book level as the ladder draws it. The wire carries decimal STRINGS —
+ *  a price and a size are exact there and must not be compared as text — and a
+ *  level that will not parse is dropped to zero size rather than dropped from
+ *  the book, so the ladder's depth stays monotonic. */
+const toLevel = (l: { price: string; size: string }) => ({
+  price: Number(l.price),
+  size: Number(l.size) || 0,
+})
+
+/** What a venue that has published nothing looks like. One component, so the
+ *  distinction between "no figure" and "a figure of zero" is drawn the same
+ *  way everywhere rather than re-invented per column. */
+function Silent() {
+  return <span className="text-fg-dim" title="the venue has published no figure">—</span>
 }
 
 /** A column header that sorts. The caret shows only on the active column —
