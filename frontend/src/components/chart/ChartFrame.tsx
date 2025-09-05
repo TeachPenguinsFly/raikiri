@@ -58,7 +58,7 @@ export function ChartFrame({
     >
       <header className="flex items-start justify-between gap-4 px-3 pt-3">
         <div className="min-w-0">
-          <h2 className="panel-label">{title}</h2>
+          <h2 className="panel-title">{title}</h2>
           {note !== undefined && <p className="mt-1 text-xs text-fg-dim">{note}</p>}
         </div>
         {readout !== undefined && <div className="shrink-0 text-right">{readout}</div>}
