@@ -117,6 +117,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true,
         .book_checksum = false,
         .position_pull = true,
+        .order_pull = true,
         .balance_pull = true,
         .fill_pull = true,
         .needs_passphrase = true,
@@ -139,6 +140,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true, // VERIFIED: timeInForce=PostOnly, both trees
         .book_checksum = false,
         .position_pull = true,
+        .order_pull = true,
         // /allFillOrders states neither a trade id nor a side: a FillReport
         // without an exec_id cannot be deduplicated and one without a side
         // cannot be netted. Live fills carry both; the pull does not.
@@ -161,6 +163,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true, // provisional
         .book_checksum = false,
         .position_pull = true,
+        .order_pull = true,
         .balance_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::ListenKey,
@@ -183,6 +186,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .native_post_only = true, // provisional
         .book_checksum = false,
         .position_pull = true,
+        // TRUE FOR PERP ONLY. MEXC's spot /api/v3/openOrders demands a symbol
+        // and offers no account-wide form, so the spot arm refuses. That is
+        // safe rather than wrong: a refused pull publishes nothing, the cells
+        // age out together, and a reader sees "the venue did not answer" — the
+        // one thing it must never read as "the account has no orders".
+        .order_pull = true,
         // Holds for perp, not for spot: fill_reports(Spot) refuses because
         // MEXC's spot history is per-symbol. The reconciler reads this bit
         // BEFORE calling, so a spot gateway pulls and always fails. One
@@ -209,6 +218,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // once an order retires, and inventing one would make the demo prove
         // something the code does not do.
         .position_pull = true,
+        .order_pull = true,
         .user_stream = UserStreamModel::None, // in-process events
         .max_client_order_id_len = 40,
         .headline_order_rate_per_s = 0,
@@ -230,6 +240,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64, // `label`
@@ -245,6 +256,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 34, // `cloid`: 0x + 32 hex, exactly 128 bits
@@ -259,6 +271,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .native_post_only = true,
         .needs_passphrase = true,
+        // Positions and open orders are DIFFERENT questions, and coinbase
+        // answers only the second: it serves spot, where there is no position
+        // to report and orders very much rest.
+        .order_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // UUIDv4 and ONLY a UUIDv4: anything else is accepted by REST and
         // then silently never processed. The ULID is converted, not sent.
@@ -278,6 +294,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 100, // `cliOrdId`
@@ -293,6 +310,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36, // clOrdID
@@ -312,6 +330,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = false,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .needs_passphrase = true,
         .user_stream = UserStreamModel::AuthSubscribe,
@@ -327,6 +346,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .batch_cancel = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         // HTX windows trade history by CONTRACT, and the pull names only a
         // market; a sweep over every instrument is a different call the
         // reconciler does not make. Positions answer, fills do not.
@@ -346,6 +366,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .amend_order = true,
         .native_post_only = true,
         .position_pull = true,
+        .order_pull = true,
         .fill_pull = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36,
