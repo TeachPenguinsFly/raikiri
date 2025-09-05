@@ -1091,6 +1091,7 @@ int main(int argc, char** argv) {
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
     std::uint64_t exec_overruns = 0;
+    std::uint64_t unattributed_fills = 0;
     std::uint64_t funding_overruns = 0;
     std::uint64_t funding_charges = 0;
     std::uint64_t fills = 0;
@@ -1232,8 +1233,22 @@ int main(int argc, char** argv) {
                 // Read leaves BEFORE the FSM moves it: the fill quantity is the
                 // drop in leaves, never the event's own qty. A venue that resends
                 // a fill notification then derives zero and moves no money.
+                //
+                // FOUND THE WAY apply_event ROUTES, which is not by our own id.
+                // A venue knows an order only by the id we sent it, so every
+                // fill off a private stream carries client_order_id ZERO and a
+                // lookup by it finds nothing — leaving prev_leaves at zero, a
+                // delta of zero, and the whole booking below skipped in
+                // silence. The order store already resolves either id; this has
+                // to resolve the same one or the book never learns what the
+                // store just did.
                 QtyLots prev_leaves = QtyLots::from_raw(0);
-                if (const auto* order = store.find(event.client_order_id); order != nullptr) {
+                const auto* order =
+                    event.client_order_id.raw != 0 ? store.find(event.client_order_id) : nullptr;
+                if (order == nullptr && !event.exchange_client_order_id.empty()) {
+                    order = store.find(event.exchange_client_order_id);
+                }
+                if (order != nullptr) {
                     prev_leaves = order->leaves();
                 }
                 if (const auto applied = store.apply_event(event);
@@ -1242,6 +1257,16 @@ int main(int argc, char** argv) {
                 }
                 if (event.type == OrderEventType::Filled) {
                     ++fills;
+                    if (order == nullptr) {
+                        // A fill for an order this process never had. Counted
+                        // and said out loud: it is money that moved on an
+                        // account we hold, and a silent one is the difference
+                        // between a quiet desk and a broken one.
+                        ++unattributed_fills;
+                        fmt::print(stderr,
+                                   "strategyd: FILL {} matched no order here\n",
+                                   event.exchange_client_order_id.view());
+                    }
                     const auto delta = QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
                     const auto* listed = ctx.instrument(event.instrument);
                     if (listed != nullptr && delta.raw > 0) {
@@ -1417,6 +1442,7 @@ int main(int argc, char** argv) {
     // Charges booked, and charges LOST. The second is money the ledger will
     // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
+    fmt::print("fills-unattributed={}\n", unattributed_fills);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     // Unmatched is printed beside the other two on purpose: a reconciliation
     // that agrees on nothing because it joined on the wrong id looks identical

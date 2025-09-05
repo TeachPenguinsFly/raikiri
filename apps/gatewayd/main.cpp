@@ -400,10 +400,17 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// How often the whole window is written again for whoever has since attached.
+// Ten minutes: often enough that a strategyd restart loses nothing for long,
+// rare enough that it is not a second feed.
+constexpr std::uint64_t k_ledger_replay_interval_ns = 600ULL * 1'000'000'000ULL;
+
 void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                              raikiri::MarketType market,
                              raikiri::shm::LedgerEntryRing& ring,
-                             raikiri::UnixNanos& cursor) {
+                             raikiri::UnixNanos& cursor,
+                             raikiri::UnixNanos& replay_due,
+                             raikiri::UnixNanos now) {
     char buf[16];
     const auto who =
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
@@ -425,16 +432,27 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
                    charges.error().venue_code);
         return;
     }
+    // RE-PUBLISHED PERIODICALLY, not only when new. The ring is a broadcast:
+    // a reader that attaches after a charge was written never sees it, and the
+    // cursor below would make sure it never sees it again either — money the
+    // ledger silently never books. Replaying the whole window costs nothing
+    // downstream, because the ledger keys on the settlement itself and drops a
+    // repeat.
+    const bool replay = now.ns >= replay_due.ns;
+    if (replay) {
+        replay_due = raikiri::UnixNanos{now.ns + k_ledger_replay_interval_ns};
+    }
     for (const auto& charge : *charges) {
-        if (charge.settled_at.ns <= cursor.ns) {
+        if (!replay && charge.settled_at.ns <= cursor.ns) {
             continue; // already published on an earlier pass
         }
         ring.publish({charge});
         // Money moving is worth a line. Funding settles a few times a day per
         // instrument, so this is a record an operator can read, not a stream.
         fmt::print(stderr,
-                   "gatewayd[{}]: funding {}{}.{:09} settled at {} ref {}\n",
+                   "gatewayd[{}]: {} {}{}.{:09} settled at {} ref {}\n",
                    who,
+                   charge.kind == raikiri::LedgerKind::Fee ? "fee" : "funding",
                    charge.amount.raw < 0 ? "-" : "+",
                    std::abs(charge.amount.raw) / 1'000'000'000,
                    std::abs(charge.amount.raw) % 1'000'000'000,
@@ -953,6 +971,7 @@ int main(int argc, char** argv) {
     // allows — a gateway that restarted mid-interval must not skip the
     // settlement it was down for.
     raikiri::UnixNanos funding_cursor{};
+    raikiri::UnixNanos ledger_replay_due{};
     if (can_trade) {
         auto made = exec::make_venue({.venue = venue,
                                       .market = market,
@@ -1010,8 +1029,12 @@ int main(int argc, char** argv) {
                     // word on this account.
                     publish_open_orders(
                         *poller_adapter, market, *channels_ptr->open_orders, clock.wall());
-                    publish_funding_charges(
-                        *poller_adapter, market, *channels_ptr->funding_charges, funding_cursor);
+                    publish_funding_charges(*poller_adapter,
+                                            market,
+                                            *channels_ptr->funding_charges,
+                                            funding_cursor,
+                                            ledger_replay_due,
+                                            clock.wall());
                     // Woken in slices so a shutdown does not wait out the
                     // whole interval.
                     for (int i = 0;
