@@ -1224,7 +1224,13 @@ int main(int argc, char** argv) {
                     ++exec_overruns; // policy: halt+reconcile; demo just counts
                     continue;
                 }
-                const auto& event = rec.event;
+                // A COPY, because the id has to be restored onto it. A venue
+                // event names the order by OUR exchange id and leaves
+                // client_order_id at zero; everything downstream — the position
+                // book's attribution, the ledger's strategy column, the fill's
+                // dedup key, the round-trip clock — reads the strategy out of
+                // that id. Left at zero they all quietly say "strategy 0".
+                OrderEvent event = rec.event;
                 if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
                     it != ctx.inflight_.end()) {
                     rt_hist.record(clock.mono().ns - it->second);
@@ -1250,6 +1256,11 @@ int main(int argc, char** argv) {
                 }
                 if (order != nullptr) {
                     prev_leaves = order->leaves();
+                    // Restored BEFORE anything reads it. The store knows which
+                    // order this is; without this line the book, the ledger and
+                    // the latency histogram each answer a question about it
+                    // with a zero.
+                    event.client_order_id = order->client_order_id();
                 }
                 if (const auto applied = store.apply_event(event);
                     !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
