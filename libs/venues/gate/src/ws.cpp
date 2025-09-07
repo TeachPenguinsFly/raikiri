@@ -1,3 +1,4 @@
+#include <raikiri/venues/gate/endpoints.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 
 #include <algorithm>
@@ -7,14 +8,6 @@
 namespace raikiri::venues::gate {
 
 namespace {
-
-constexpr std::string_view k_host_live = "fx-ws.gateio.ws";
-constexpr std::string_view k_host_testnet = "fx-ws-testnet.gateio.ws";
-
-// Spot lives on the REST host under a different path, and its testnet is a
-// third hostname again.
-constexpr std::string_view k_spot_host_live = "api.gateio.ws";
-constexpr std::string_view k_spot_host_testnet = "ws-testnet.gate.com";
 
 constexpr std::string_view k_channel_depth = "futures.order_book_update";
 constexpr std::string_view k_channel_spot_depth = "spot.order_book";
@@ -73,7 +66,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(bool testnet) noexcept {
-    return testnet ? k_host_testnet : k_host_live;
+    return ep::futures_stream_host(testnet);
 }
 
 std::string_view stream_port() noexcept {
@@ -81,7 +74,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path() noexcept {
-    return "/v4/ws/usdt";
+    return ep::k_ws_futures_usdt;
 }
 
 std::string_view private_host(bool testnet, MarketType market) noexcept {
@@ -89,7 +82,7 @@ std::string_view private_host(bool testnet, MarketType market) noexcept {
     case MarketType::Perp:
         return stream_host(testnet);
     case MarketType::Spot:
-        return testnet ? k_spot_host_testnet : k_spot_host_live;
+        return ep::spot_stream_host(testnet);
     case MarketType::Future:
     case MarketType::Option:
         return {};
@@ -102,9 +95,7 @@ std::string_view private_path(bool testnet, MarketType market) noexcept {
     case MarketType::Perp:
         return stream_path();
     case MarketType::Spot:
-        // The live spot socket keeps its trailing slash; the testnet one is a
-        // different path entirely rather than the same path on another host.
-        return testnet ? "/v4/ws/spot" : "/ws/v4/";
+        return ep::ws_spot_path(testnet);
     case MarketType::Future:
     case MarketType::Option:
         return {};

@@ -1,3 +1,4 @@
+#include <raikiri/venues/bitget/endpoints.hpp>
 #include <raikiri/venues/bitget/ws.hpp>
 
 #include <algorithm>
@@ -8,7 +9,6 @@ namespace raikiri::venues::bitget {
 
 namespace {
 
-constexpr std::string_view k_host = "ws.bitget.com";
 constexpr std::string_view k_inst_type_live = "USDT-FUTURES";
 constexpr std::string_view k_inst_type_demo = "SUSDT-FUTURES";
 constexpr std::string_view k_inst_type_spot = "SPOT";
@@ -41,7 +41,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host() noexcept {
-    return k_host;
+    return ep::stream_host();
 }
 
 std::string_view stream_port() noexcept {
@@ -49,11 +49,11 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path() noexcept {
-    return "/v2/ws/public";
+    return ep::k_ws_public;
 }
 
 std::string_view private_stream_path() noexcept {
-    return "/v2/ws/private";
+    return ep::k_ws_private;
 }
 
 std::string_view inst_type(MarketType market, bool testnet) noexcept {

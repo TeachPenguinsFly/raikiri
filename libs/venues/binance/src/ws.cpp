@@ -1,3 +1,4 @@
+#include <raikiri/venues/binance/endpoints.hpp>
 #include <raikiri/venues/binance/ws.hpp>
 
 #include <algorithm>
@@ -7,9 +8,6 @@
 namespace raikiri::venues::binance {
 
 namespace {
-
-constexpr std::string_view k_host_live = "fstream.binance.com";
-constexpr std::string_view k_host_test = "fstream.binancefuture.com";
 
 [[nodiscard]] constexpr char lower(char c) noexcept {
     return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
@@ -47,11 +45,11 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(bool testnet) noexcept {
-    return testnet ? k_host_test : k_host_live;
+    return ep::stream_host(testnet);
 }
 
 std::string_view stream_path() noexcept {
-    return "/stream";
+    return ep::k_ws_combined;
 }
 
 std::string_view

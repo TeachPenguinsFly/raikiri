@@ -1,3 +1,4 @@
+#include <raikiri/venues/okx/endpoints.hpp>
 #include <raikiri/venues/okx/ws.hpp>
 
 #include <algorithm>
@@ -7,9 +8,6 @@
 namespace raikiri::venues::okx {
 
 namespace {
-
-constexpr std::string_view k_host_live = "ws.okx.com";
-constexpr std::string_view k_host_demo = "wspap.okx.com";
 
 // The literal OKX signs on login. It is not a path any request goes to and
 // not a method — it is a fixed string that happens to look like both.
@@ -32,19 +30,19 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(bool testnet) noexcept {
-    return testnet ? k_host_demo : k_host_live;
+    return ep::stream_host(testnet);
 }
 
 std::string_view stream_port() noexcept {
-    return "8443";
+    return ep::k_stream_port;
 }
 
 std::string_view stream_path() noexcept {
-    return "/ws/v5/public";
+    return ep::k_ws_public;
 }
 
 std::string_view private_stream_path() noexcept {
-    return "/ws/v5/private";
+    return ep::k_ws_private;
 }
 
 std::string_view channel_for(exec::SubKind kind) noexcept {

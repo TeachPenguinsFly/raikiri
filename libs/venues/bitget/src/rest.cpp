@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bitget/endpoints.hpp>
 #include <raikiri/venues/bitget/rest.hpp>
 
 #include <charconv>
@@ -8,7 +9,6 @@ namespace raikiri::venues::bitget {
 
 namespace {
 
-constexpr std::string_view k_host = "api.bitget.com";
 constexpr std::string_view k_product_live = "USDT-FUTURES";
 constexpr std::string_view k_product_demo = "SUSDT-FUTURES";
 
@@ -164,7 +164,7 @@ std::string_view to_string(BuildError err) noexcept {
 }
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::rest_host();
 }
 
 std::string_view product_type(bool testnet) noexcept {
@@ -179,26 +179,28 @@ std::string_view margin_coin(std::string_view product) noexcept {
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v2/public/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 // Every public builder below writes into the same buffer, so a request must be
 // sent before the next one is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::contracts(std::string_view product) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v2/mix/market/contracts?productType=");
+    writer.put(ep::k_mix_contracts);
+    writer.put("?productType=");
     writer.put(product);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::spot_symbols() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v2/spot/public/symbols", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
 net::RestRequest RequestBuilder::ticker(std::string_view symbol,
                                         std::string_view product) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v2/mix/market/ticker?symbol=");
+    writer.put(ep::k_mix_ticker);
+    writer.put("?symbol=");
     writer.put(symbol);
     writer.put("&productType=");
     writer.put(product);
@@ -208,7 +210,8 @@ net::RestRequest RequestBuilder::ticker(std::string_view symbol,
 net::RestRequest RequestBuilder::current_fund_rate(std::string_view symbol,
                                                    std::string_view product) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v2/mix/market/current-fund-rate?symbol=");
+    writer.put(ep::k_mix_fund_rate);
+    writer.put("?symbol=");
     writer.put(symbol);
     writer.put("&productType=");
     writer.put(product);
@@ -219,7 +222,8 @@ net::RestRequest RequestBuilder::orderbook(std::string_view symbol,
                                            std::string_view product,
                                            std::uint32_t depth) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v2/mix/market/orderbook?symbol=");
+    writer.put(ep::k_mix_orderbook);
+    writer.put("?symbol=");
     writer.put(symbol);
     writer.put("&productType=");
     writer.put(product);
@@ -381,9 +385,8 @@ RequestBuilder::create_order(const OrderCmd& cmd,
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post(cmd.instrument.market() == MarketType::Spot
-                           ? "/api/v2/spot/trade/place-order"
-                           : "/api/v2/mix/order/place-order",
+    return signed_post(cmd.instrument.market() == MarketType::Spot ? ep::k_spot_place_order
+                                                                   : ep::k_mix_place_order,
                        json.view(),
                        now);
 }
@@ -401,11 +404,11 @@ RequestBuilder::cancel_order(const OrderCmd& cmd,
     net::JsonWriter json{body_};
     switch (cmd.instrument.market()) {
     case MarketType::Spot:
-        path = "/api/v2/spot/trade/cancel-order";
+        path = ep::k_spot_cancel_order;
         json.obj_begin().str("symbol", symbol);
         break;
     case MarketType::Perp:
-        path = "/api/v2/mix/order/cancel-order";
+        path = ep::k_mix_cancel_order;
         json.obj_begin().str("symbol", symbol).str("productType", product);
         break;
     case MarketType::Future:
@@ -452,12 +455,12 @@ RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
     net::JsonWriter json{body_};
     switch (instrument.market()) {
     case MarketType::Spot:
-        path = "/api/v2/spot/trade/batch-cancel-order";
+        path = ep::k_spot_batch_cancel;
         list_key = "orderList";
         json.obj_begin().str("symbol", symbol);
         break;
     case MarketType::Perp:
-        path = "/api/v2/mix/order/batch-cancel-orders";
+        path = ep::k_mix_batch_cancel;
         list_key = "orderIdList";
         json.obj_begin().str("symbol", symbol).str("productType", product);
         break;
@@ -499,13 +502,13 @@ RequestBuilder::open_orders(MarketType market, std::string_view product, UnixNan
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/spot/trade/unfilled-orders", query.view(), now);
+        return signed_get(ep::k_spot_unfilled_orders, query.view(), now);
     case MarketType::Perp:
         query << "limit=" << k_page_limit << "&productType=" << product;
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/mix/order/orders-pending", query.view(), now);
+        return signed_get(ep::k_mix_orders_pending, query.view(), now);
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Option:
@@ -526,13 +529,13 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::order_by_client_id(
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/spot/trade/orderInfo", query.view(), now);
+        return signed_get(ep::k_spot_order_info, query.view(), now);
     case MarketType::Perp:
         query << "clientOid=" << id.view() << "&productType=" << product;
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/mix/order/orders-pending", query.view(), now);
+        return signed_get(ep::k_mix_orders_pending, query.view(), now);
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Option:
@@ -555,7 +558,7 @@ RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos sin
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/spot/trade/fills", query.view(), now);
+        return signed_get(ep::k_spot_fills, query.view(), now);
     case MarketType::Perp:
         query << "&productType=" << product;
         if (since.ns != 0) {
@@ -564,7 +567,7 @@ RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos sin
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/mix/order/fills", query.view(), now);
+        return signed_get(ep::k_mix_fills, query.view(), now);
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Option:
@@ -586,7 +589,7 @@ RequestBuilder::positions(MarketType market, std::string_view product, UnixNanos
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return signed_get("/api/v2/mix/position/all-position", query.view(), now);
+        return signed_get(ep::k_mix_positions, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};

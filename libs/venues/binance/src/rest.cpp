@@ -1,3 +1,4 @@
+#include <raikiri/venues/binance/endpoints.hpp>
 #include <raikiri/venues/binance/rest.hpp>
 
 #include <charconv>
@@ -7,8 +8,6 @@ namespace raikiri::venues::binance {
 
 namespace {
 
-constexpr std::string_view k_host_live = "fapi.binance.com";
-constexpr std::string_view k_host_test = "testnet.binancefuture.com";
 constexpr std::string_view k_hdr_key = "X-MBX-APIKEY";
 constexpr std::string_view k_form = "application/x-www-form-urlencoded";
 
@@ -110,27 +109,27 @@ std::string_view to_string(BuildError err) noexcept {
 }
 
 std::string_view rest_host(bool testnet) noexcept {
-    return testnet ? k_host_test : k_host_live;
+    return ep::rest_host(testnet);
 }
 
 net::RestRequest RequestBuilder::instruments() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/fapi/v1/exchangeInfo", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
 }
 
 // Every symbol in one call. Binance answers ~880 rows, which is cheaper than
 // asking per instrument and is why this needs no round-robin cursor.
 net::RestRequest RequestBuilder::premium_index() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/fapi/v1/premiumIndex", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_premium_index, .body = {}};
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/fapi/v1/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol,
                                                 std::uint32_t limit) noexcept {
     Appender target{target_};
-    target << "/fapi/v1/depth?symbol=" << symbol << "&limit=" << std::uint64_t{limit};
+    target << ep::k_depth << "?symbol=" << symbol << "&limit=" << std::uint64_t{limit};
     return {.method = net::HttpMethod::Get,
             .target = target.ok() ? target.view() : std::string_view{},
             .body = {}};
@@ -212,7 +211,7 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Post, "/fapi/v1/order", q.size());
+    return finish(net::HttpMethod::Post, ep::k_order, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -232,7 +231,7 @@ RequestBuilder::cancel_order(const OrderCmd& cmd, const InstrumentBase& instrume
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Delete, "/fapi/v1/order", q.size());
+    return finish(net::HttpMethod::Delete, ep::k_order, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -261,7 +260,7 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const InstrumentBase& instrumen
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Put, "/fapi/v1/order", q.size());
+    return finish(net::HttpMethod::Put, ep::k_order, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(UnixNanos now) {
@@ -273,7 +272,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(UnixNano
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v1/openOrders", q.size());
+    return finish(net::HttpMethod::Get, ep::k_open_orders, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
@@ -287,7 +286,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v1/order", q.size());
+    return finish(net::HttpMethod::Get, ep::k_order, q.size());
 }
 
 // The account's own record of what it was charged — settlements AND commissions.
@@ -313,7 +312,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixN
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v1/income", q.size());
+    return finish(net::HttpMethod::Get, ep::k_income, q.size());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -330,7 +329,7 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v1/userTrades", q.size());
+    return finish(net::HttpMethod::Get, ep::k_user_trades, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNanos now) {
@@ -342,12 +341,9 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNa
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v3/positionRisk", q.size());
+    return finish(net::HttpMethod::Get, ep::k_position_risk, q.size());
 }
 
-// Asked at v2 while positionRisk above is asked at v3: binance versions these
-// endpoints one at a time, and the mismatch is the current shape of the API
-// rather than a stale path.
 std::expected<net::RestRequest, BuildError> RequestBuilder::balance(UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
@@ -357,28 +353,28 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::balance(UnixNanos no
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, "/fapi/v2/balance", q.size());
+    return finish(net::HttpMethod::Get, ep::k_balance, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_create() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Post, "/fapi/v1/listenKey");
+    return header_only(net::HttpMethod::Post, ep::k_listen_key);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_keepalive() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Put, "/fapi/v1/listenKey");
+    return header_only(net::HttpMethod::Put, ep::k_listen_key);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_close() {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    return header_only(net::HttpMethod::Delete, "/fapi/v1/listenKey");
+    return header_only(net::HttpMethod::Delete, ep::k_listen_key);
 }
 
 } // namespace raikiri::venues::binance

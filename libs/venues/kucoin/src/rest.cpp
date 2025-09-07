@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/kucoin/endpoints.hpp>
 #include <raikiri/venues/kucoin/rest.hpp>
 
 #include <charconv>
@@ -8,9 +9,6 @@
 namespace raikiri::venues::kucoin {
 
 namespace {
-
-constexpr std::string_view k_host = "api-futures.kucoin.com";
-constexpr std::string_view k_host_spot = "api.kucoin.com";
 
 // Header names are KuCoin's, capitalisation and all.
 constexpr std::string_view k_hdr_key = "KC-API-KEY";
@@ -157,18 +155,18 @@ std::string_view to_string(BuildError err) noexcept {
 }
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::k_rest_futures;
 }
 
 std::string_view rest_host(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
-        return k_host_spot;
+        return ep::k_rest_spot;
     case MarketType::Perp:
     case MarketType::Future:
         // One host serves both: the perpetuals and the dated contracts share
         // /api/v1/contracts/active, and only `type` tells them apart.
-        return k_host;
+        return ep::k_rest_futures;
     case MarketType::Option:
         return {}; // KuCoin lists no options on the APIs in scope
     }
@@ -176,34 +174,36 @@ std::string_view rest_host(MarketType market) noexcept {
 }
 
 net::RestRequest RequestBuilder::bullet_public() noexcept {
-    return {.method = net::HttpMethod::Post, .target = "/api/v1/bullet-public", .body = {}};
+    return {.method = net::HttpMethod::Post, .target = ep::k_bullet_public, .body = {}};
 }
 
 net::RestRequest RequestBuilder::contracts_active() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v1/contracts/active", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_contracts_active, .body = {}};
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v1/timestamp", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_symbols() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v2/symbols", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
 // Every builder below writes into the same buffer, so a request must be sent
 // before the next one is built. One cold read at a time is the only use.
 net::RestRequest RequestBuilder::funding_rate_current(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v1/funding-rate/");
+    writer.put(ep::k_funding_rate);
+    writer.put("/");
     writer.put(symbol);
-    writer.put("/current");
+    writer.put(ep::k_funding_rate_current);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::level2_snapshot(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v1/level2/snapshot?symbol=");
+    writer.put(ep::k_level2_snapshot);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
@@ -302,7 +302,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
             // an opening order where a closing one was asked for.
             return std::unexpected{BuildError::UnsupportedRequest};
         }
-        path = "/api/v1/hf/orders";
+        path = ep::k_spot_orders;
         json.obj_begin()
             .str("clientOid", client_oid)
             .str("symbol", symbol)
@@ -328,7 +328,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
         if (contracts.raw <= 0 || contracts.raw % k_e9 != 0) {
             return std::unexpected{BuildError::BadQuantity};
         }
-        path = "/api/v1/orders";
+        path = ep::k_futures_orders;
         json.obj_begin()
             .str("clientOid", client_oid)
             .str("symbol", symbol)
@@ -382,21 +382,21 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::cancel_order(
     case MarketType::Spot:
         // Both spot cancel paths demand the symbol as a query parameter, and
         // it is part of the signed string.
-        path << "/api/v1/hf/orders/";
+        path << ep::k_spot_orders << "/";
         if (by_order_id) {
             path << cmd.target_exchange_order_id.view();
         } else {
-            path << "client-order/" << client_oid;
+            path << ep::k_client_order_segment << client_oid;
         }
         path << "?symbol=" << symbol;
         break;
     case MarketType::Perp:
     case MarketType::Future:
-        path << "/api/v1/orders/";
+        path << ep::k_futures_orders << "/";
         if (by_order_id) {
             path << cmd.target_exchange_order_id.view();
         } else {
-            path << "client-order/" << client_oid << "?symbol=" << symbol;
+            path << ep::k_client_order_segment << client_oid << "?symbol=" << symbol;
         }
         break;
     case MarketType::Option:
@@ -457,7 +457,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::amend_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(net::HttpMethod::Post, "/api/v1/hf/orders/alter", json.view(), now);
+    return sign(net::HttpMethod::Post, ep::k_spot_order_amend, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -470,13 +470,13 @@ OrderRequestBuilder::open_orders(MarketType market, std::string_view symbol, Uni
             // symbol would fetch nothing and read as "no open orders".
             return std::unexpected{BuildError::UnsupportedRequest};
         }
-        path << "/api/v1/hf/orders/active?symbol=" << symbol;
+        path << ep::k_spot_orders_active << "?symbol=" << symbol;
         break;
     case MarketType::Perp:
     case MarketType::Future:
         // Without status=active KuCoin returns the DONE orders instead, which
         // a reconciler would read as a book full of orders that are gone.
-        path << "/api/v1/orders?status=active";
+        path << ep::k_futures_orders << "?status=active";
         if (!symbol.empty()) {
             path << "&symbol=" << symbol;
         }
@@ -494,7 +494,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::active_symbols(
                                                                                 UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
-        return sign(net::HttpMethod::Get, "/api/v1/hf/orders/active/symbols", {}, now);
+        return sign(net::HttpMethod::Get, ep::k_spot_active_symbols, {}, now);
     case MarketType::Perp:
     case MarketType::Future:
         // The futures list is account-wide already; asking per symbol would
@@ -514,11 +514,11 @@ OrderRequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     Appender path{path_};
     switch (market) {
     case MarketType::Spot:
-        path << "/api/v1/hf/fills";
+        path << ep::k_spot_fills;
         break;
     case MarketType::Perp:
     case MarketType::Future:
-        path << "/api/v1/fills";
+        path << ep::k_futures_fills;
         break;
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
@@ -541,7 +541,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(Marke
         return std::unexpected{BuildError::UnsupportedRequest};
     case MarketType::Perp:
     case MarketType::Future:
-        return sign(net::HttpMethod::Get, "/api/v1/positions", {}, now);
+        return sign(net::HttpMethod::Get, ep::k_positions, {}, now);
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
     }
@@ -558,7 +558,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overvie
     case MarketType::Perp:
     case MarketType::Future: {
         Appender path{path_};
-        path << "/api/v1/account-overview?currency=" << k_settle_currency;
+        path << ep::k_account_overview << "?currency=" << k_settle_currency;
         if (!path.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
@@ -578,7 +578,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::bullet_private(
     case MarketType::Future:
         // Same path on both hosts; which host it reaches decides which
         // account's stream the token opens.
-        return sign(net::HttpMethod::Post, "/api/v1/bullet-private", {}, now);
+        return sign(net::HttpMethod::Post, ep::k_bullet_private, {}, now);
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
     }

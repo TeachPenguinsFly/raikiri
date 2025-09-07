@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/gate/endpoints.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 
 #include <charconv>
@@ -9,11 +10,6 @@
 namespace raikiri::venues::gate {
 
 namespace {
-
-constexpr std::string_view k_host_live = "api.gateio.ws";
-constexpr std::string_view k_host_testnet = "api-testnet.gateapi.io";
-
-constexpr std::string_view k_prefix = "/api/v4";
 
 constexpr std::string_view k_hdr_key = "KEY";
 constexpr std::string_view k_hdr_sign = "SIGN";
@@ -161,7 +157,7 @@ private:
 } // namespace
 
 std::string_view rest_host(bool testnet) noexcept {
-    return testnet ? k_host_testnet : k_host_live;
+    return ep::rest_host(testnet);
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -210,29 +206,28 @@ std::string_view client_id_from_text(std::string_view text) noexcept {
 // before the next one is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::contracts(std::string_view settle) noexcept {
     TargetWriter writer{target_};
-    writer.put(k_prefix);
-    writer.put("/futures/");
+    writer.put(ep::k_futures_prefix);
     writer.put(settle);
-    writer.put("/contracts");
+    writer.put(ep::k_futures_contracts);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::currency_pairs() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v4/spot/currency_pairs", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_currency_pairs, .body = {}};
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v4/spot/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::order_book(std::string_view settle,
                                             std::string_view contract,
                                             std::uint32_t depth) noexcept {
     TargetWriter writer{target_};
-    writer.put(k_prefix);
-    writer.put("/futures/");
+    writer.put(ep::k_futures_prefix);
     writer.put(settle);
-    writer.put("/order_book?contract=");
+    writer.put(ep::k_futures_order_book);
+    writer.put("?contract=");
     writer.put(contract);
     writer.put("&limit=");
     writer.put(depth);
@@ -369,7 +364,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             json.boolean("reduce_only", true);
         }
         json.obj_end();
-        path << k_prefix << "/futures/" << k_settle_usdt << "/orders";
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders;
         break;
     }
     case MarketType::Spot: {
@@ -401,7 +396,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             json.decimal("price", price).str("time_in_force", tif_text(cmd.tif, cmd.flags));
         }
         json.obj_end();
-        path << k_prefix << "/spot/orders";
+        path << ep::k_spot_orders;
         break;
     }
     case MarketType::Future:
@@ -436,14 +431,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         // seconds after it finishes. Past that Gate answers ORDER_NOT_FOUND
         // for an order that very much existed, which is why a cancel prefers
         // the venue id whenever the order store has one.
-        path << k_prefix << "/futures/" << k_settle_usdt << "/orders/" << target;
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders << "/" << target;
         break;
     case MarketType::Spot: {
         const auto symbol = table.exchange_symbol(cmd.instrument);
         if (symbol.empty()) {
             return std::unexpected{BuildError::UnknownInstrument};
         }
-        path << k_prefix << "/spot/orders/" << target;
+        path << ep::k_spot_orders << "/" << target;
         query << "currency_pair=" << symbol << "&account=" << k_spot_account;
         break;
     }
@@ -494,7 +489,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
             json.decimal("price", base.ticks_to_price(cmd.price));
         }
         json.obj_end();
-        path << k_prefix << "/futures/" << k_settle_usdt << "/orders/" << target;
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders << "/" << target;
         break;
     }
     case MarketType::Spot: {
@@ -508,7 +503,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
             json.decimal("price", base.ticks_to_price(cmd.price));
         }
         json.obj_end();
-        path << k_prefix << "/spot/orders/" << target;
+        path << ep::k_spot_orders << "/" << target;
         query << "currency_pair=" << base.exchange_symbol.view() << "&account=" << k_spot_account;
         break;
     }
@@ -552,7 +547,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
             body << (i == 0 ? "\"" : ",\"") << target << "\"";
         }
         body << "]";
-        path << k_prefix << "/futures/" << k_settle_usdt << "/batch_cancel_orders";
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_batch_cancel;
         break;
     case MarketType::Spot:
         body << "[";
@@ -570,7 +565,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
                  << target << "\"}";
         }
         body << "]";
-        path << k_prefix << "/spot/cancel_batch_orders";
+        path << ep::k_spot_cancel_batch;
         break;
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -589,13 +584,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
     Appender query{query_};
     switch (market) {
     case MarketType::Perp:
-        path << k_prefix << "/futures/" << k_settle_usdt << "/orders";
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders;
         query << "status=open&limit=" << k_page_limit;
         break;
     case MarketType::Spot:
         // /spot/open_orders answers with one entry PER CURRENCY PAIR, each
         // holding its own `orders` array; `limit` counts pairs, not orders.
-        path << k_prefix << "/spot/open_orders";
+        path << ep::k_spot_open_orders;
         query << "limit=100&account=" << k_spot_account;
         break;
     case MarketType::Future:
@@ -620,7 +615,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
     Appender path{path_};
     switch (market) {
     case MarketType::Perp:
-        path << k_prefix << "/futures/" << k_settle_usdt << "/orders/" << target;
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders << "/" << target;
         break;
     case MarketType::Spot:
         // /spot/orders/{id} demands currency_pair, and a client order id does
@@ -648,14 +643,14 @@ SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos no
     case MarketType::Perp:
         // The plain /my_trades pages by order id and cannot answer "since";
         // only the _timerange variant takes from/to.
-        path << k_prefix << "/futures/" << k_settle_usdt << "/my_trades_timerange";
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_my_trades;
         query << "limit=" << k_page_limit;
         if (from_s > 0) {
             query << "&from=" << from_s;
         }
         break;
     case MarketType::Spot:
-        path << k_prefix << "/spot/my_trades";
+        path << ep::k_spot_my_trades;
         query << "limit=" << k_page_limit << "&account=" << k_spot_account;
         if (from_s > 0) {
             query << "&from=" << from_s;
@@ -678,7 +673,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     Appender query{query_};
     switch (market) {
     case MarketType::Perp:
-        path << k_prefix << "/futures/" << k_settle_usdt << "/positions";
+        path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_positions;
         // holding=true drops the size-0 rows Gate keeps for every contract the
         // account ever touched; absent then means flat, as PositionReport reads.
         query << "holding=true&limit=" << k_page_limit;
@@ -712,7 +707,7 @@ SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos
     }
     Appender path{path_};
     Appender query{query_};
-    path << k_prefix << "/futures/" << k_settle_usdt << "/account_book";
+    path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_account_book;
     // NO type FILTER. `fund` and `fee` share this endpoint, and the fee rows
     // are what a fee reconciliation compares against; asking twice would pay
     // for one answer twice.
@@ -732,7 +727,7 @@ SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_account(UnixNanos now) {
     Appender path{path_};
-    path << k_prefix << "/futures/" << k_settle_usdt << "/accounts";
+    path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_accounts;
     if (!path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

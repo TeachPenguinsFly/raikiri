@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/okx/endpoints.hpp>
 #include <raikiri/venues/okx/rest.hpp>
 
 #include <algorithm>
@@ -8,8 +9,6 @@
 namespace raikiri::venues::okx {
 
 namespace {
-
-constexpr std::string_view k_host = "www.okx.com";
 
 // Header names are OKX's, capitalisation and all.
 constexpr std::string_view k_hdr_key = "OK-ACCESS-KEY";
@@ -168,7 +167,7 @@ std::expected<std::string_view, BuildError> td_mode_of(MarketType market) noexce
 }
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::rest_host();
 }
 
 std::string_view iso8601_ms(UnixNanos now, std::span<char, 24> out) noexcept {
@@ -207,35 +206,39 @@ std::string_view iso8601_ms(UnixNanos now, std::span<char, 24> out) noexcept {
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v5/public/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 // Every builder below writes into the same buffer, so a request must be sent
 // before the next one is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::instruments(std::string_view inst_type) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v5/public/instruments?instType=");
+    writer.put(ep::k_instruments);
+    writer.put("?instType=");
     writer.put(inst_type);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::mark_price(std::string_view inst_id) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v5/public/mark-price?instType=SWAP&instId=");
+    writer.put(ep::k_mark_price);
+    writer.put("?instType=SWAP&instId=");
     writer.put(inst_id);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::funding_rate(std::string_view inst_id) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v5/public/funding-rate?instId=");
+    writer.put(ep::k_funding_rate);
+    writer.put("?instId=");
     writer.put(inst_id);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::books(std::string_view inst_id, std::uint32_t depth) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v5/market/books?instId=");
+    writer.put(ep::k_books);
+    writer.put("?instId=");
     writer.put(inst_id);
     writer.put("&sz=");
     writer.put(depth);
@@ -382,7 +385,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/api/v5/trade/order", json.view(), now);
+    return signed_post(ep::k_order_create, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
@@ -406,7 +409,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/api/v5/trade/cancel-order", json.view(), now);
+    return signed_post(ep::k_order_cancel, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
@@ -441,7 +444,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/api/v5/trade/amend-order", json.view(), now);
+    return signed_post(ep::k_order_amend, json.view(), now);
 }
 
 std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
@@ -481,7 +484,7 @@ std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    const auto request = signed_post("/api/v5/trade/cancel-batch-orders", json.view(), now);
+    const auto request = signed_post(ep::k_order_cancel_batch, json.view(), now);
     if (!request.has_value()) {
         return std::unexpected{request.error()};
     }
@@ -495,7 +498,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketTy
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/api/v5/trade/orders-pending", query.view(), now);
+    return signed_get(ep::k_orders_pending, query.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -518,7 +521,7 @@ RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/api/v5/trade/fills", query.view(), now);
+    return signed_get(ep::k_fills, query.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
@@ -528,7 +531,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/api/v5/account/positions", query.view(), now);
+    return signed_get(ep::k_positions, query.view(), now);
 }
 
 } // namespace raikiri::venues::okx
