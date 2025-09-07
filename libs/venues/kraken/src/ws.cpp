@@ -1,3 +1,4 @@
+#include <raikiri/venues/kraken/endpoints.hpp>
 #include <raikiri/venues/kraken/ws.hpp>
 
 #include <algorithm>
@@ -6,8 +7,6 @@
 namespace raikiri::venues::kraken {
 
 namespace {
-
-constexpr std::string_view k_host = "futures.kraken.com";
 
 // Appends into the protocol's frame buffer, reporting overflow rather than
 // truncating: half a subscribe frame is still valid JSON often enough to be
@@ -54,7 +53,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host() noexcept {
-    return k_host;
+    return ep::k_stream;
 }
 
 std::string_view stream_port() noexcept {
@@ -62,7 +61,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path() noexcept {
-    return "/ws/v1";
+    return ep::k_ws;
 }
 
 std::string_view feed_for(exec::SubKind kind) noexcept {

@@ -1,3 +1,4 @@
+#include <raikiri/venues/deribit/endpoints.hpp>
 #include <raikiri/venues/deribit/sign.hpp>
 #include <raikiri/venues/deribit/ws.hpp>
 
@@ -8,9 +9,6 @@
 namespace raikiri::venues::deribit {
 
 namespace {
-
-constexpr std::string_view k_host_live = "www.deribit.com";
-constexpr std::string_view k_host_test = "test.deribit.com";
 
 // The only cadence open to an unauthenticated socket: "raw" is refused with
 // 13778 (verified live).
@@ -64,7 +62,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(bool testnet) noexcept {
-    return testnet ? k_host_test : k_host_live;
+    return ep::stream_host(testnet);
 }
 
 std::string_view stream_port() noexcept {
@@ -72,7 +70,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path() noexcept {
-    return "/ws/api/v2";
+    return ep::k_ws;
 }
 
 std::string_view user_changes_channel(std::string_view kind,

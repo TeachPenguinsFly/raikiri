@@ -1,3 +1,4 @@
+#include <raikiri/venues/kraken/endpoints.hpp>
 #include <raikiri/venues/kraken/rest.hpp>
 
 #include <charconv>
@@ -7,19 +8,6 @@
 namespace raikiri::venues::kraken {
 
 namespace {
-
-constexpr std::string_view k_host = "futures.kraken.com";
-// The prefix the request carries and the signature does NOT: Kraken sends
-// /derivatives/api/v3/sendorder and signs /api/v3/sendorder.
-constexpr std::string_view k_route_prefix = "/derivatives";
-constexpr std::string_view k_base = "/derivatives/api/v3";
-
-constexpr std::string_view k_send_order = "/api/v3/sendorder";
-constexpr std::string_view k_cancel_order = "/api/v3/cancelorder";
-constexpr std::string_view k_edit_order = "/api/v3/editorder";
-constexpr std::string_view k_open_orders = "/api/v3/openorders";
-constexpr std::string_view k_fills = "/api/v3/fills";
-constexpr std::string_view k_open_positions = "/api/v3/openpositions";
 
 constexpr std::string_view k_hdr_key = "APIKey";
 constexpr std::string_view k_hdr_nonce = "Nonce";
@@ -143,7 +131,7 @@ private:
 } // namespace
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::k_rest;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -191,23 +179,25 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
 // next is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::instruments() noexcept {
     TargetWriter writer{target_};
-    writer.put(k_base);
-    writer.put("/instruments");
+    writer.put(ep::k_route_prefix);
+    writer.put(ep::k_instruments);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put(k_base);
-    writer.put("/tickers/");
+    writer.put(ep::k_route_prefix);
+    writer.put(ep::k_tickers);
+    writer.put("/");
     writer.put(symbol);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::orderbook(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put(k_base);
-    writer.put("/orderbook?symbol=");
+    writer.put(ep::k_route_prefix);
+    writer.put(ep::k_orderbook);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
@@ -259,7 +249,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::finish(net::Ht
     authent_len_ = signature.size();
 
     Appender target{target_};
-    target << k_route_prefix << endpoint;
+    target << ep::k_route_prefix << endpoint;
     if (method == net::HttpMethod::Get && !post_data.empty()) {
         target << "?" << post_data;
     }
@@ -325,7 +315,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     if (!params.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post(k_send_order, params.view(), now);
+    return signed_post(ep::k_send_order, params.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
@@ -349,7 +339,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     if (!params.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post(k_cancel_order, params.view(), now);
+    return signed_post(ep::k_cancel_order, params.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
@@ -386,19 +376,19 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (!params.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post(k_edit_order, params.view(), now);
+    return signed_post(ep::k_edit_order, params.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(UnixNanos now) {
     // No parameters at all: the signed message is nonce + path, and the empty
     // postData still hashes.
-    return signed_get(k_open_orders, {}, now);
+    return signed_get(ep::k_open_orders, {}, now);
 }
 
 std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::fills(std::string_view last_fill_time, UnixNanos now) {
     if (last_fill_time.empty()) {
-        return signed_get(k_fills, {}, now);
+        return signed_get(ep::k_fills, {}, now);
     }
     Appender params{params_};
     // Echoed verbatim: the cursor is the instant the venue itself printed, and
@@ -408,11 +398,11 @@ SignedRequestBuilder::fills(std::string_view last_fill_time, UnixNanos now) {
     if (!params.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get(k_fills, params.view(), now);
+    return signed_get(ep::k_fills, params.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(UnixNanos now) {
-    return signed_get(k_open_positions, {}, now);
+    return signed_get(ep::k_open_positions, {}, now);
 }
 
 } // namespace raikiri::venues::kraken

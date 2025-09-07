@@ -1,3 +1,4 @@
+#include <raikiri/venues/bingx/endpoints.hpp>
 #include <raikiri/venues/bingx/ws.hpp>
 
 #include <charconv>
@@ -5,17 +6,6 @@
 #include <string>
 
 namespace raikiri::venues::bingx {
-
-namespace {
-
-constexpr std::string_view k_host = "open-api-swap.bingx.com";
-
-// Spot is a different deployment entirely — one host and one path for both its
-// public and its private stream, where the perpetual tree splits them.
-constexpr std::string_view k_spot_host = "open-api-ws.bingx.com";
-constexpr std::string_view k_spot_path = "/market";
-
-} // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
     switch (err) {
@@ -28,7 +18,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(MarketType market) noexcept {
-    return market == MarketType::Spot ? k_spot_host : k_host;
+    return market == MarketType::Spot ? ep::k_stream_spot : ep::k_stream_perp;
 }
 
 std::string_view stream_port() noexcept {
@@ -36,7 +26,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path(MarketType market) noexcept {
-    return market == MarketType::Spot ? k_spot_path : "/swap-market";
+    return market == MarketType::Spot ? ep::k_ws_spot : ep::k_ws_perp;
 }
 
 std::string_view private_stream_host(MarketType market) noexcept {

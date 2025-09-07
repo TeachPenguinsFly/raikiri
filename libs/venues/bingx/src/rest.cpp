@@ -1,4 +1,5 @@
 #include <raikiri/venues/bingx/client_id.hpp>
+#include <raikiri/venues/bingx/endpoints.hpp>
 #include <raikiri/venues/bingx/rest.hpp>
 
 #include <charconv>
@@ -9,8 +10,6 @@
 namespace raikiri::venues::bingx {
 
 namespace {
-
-constexpr std::string_view k_host = "open-api.bingx.com";
 
 constexpr std::string_view k_hdr_api_key = "X-BX-APIKEY";
 
@@ -170,7 +169,7 @@ private:
 } // namespace
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::k_rest;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -248,31 +247,31 @@ std::string_view position_side(Side side, OrderFlags flags, bool hedge) noexcept
 // ------------------------------------------------------------ unsigned ----
 
 net::RestRequest RequestBuilder::contracts() noexcept {
-    return {
-        .method = net::HttpMethod::Get, .target = "/openApi/swap/v2/quote/contracts", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_perp_contracts, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_symbols() noexcept {
-    return {
-        .method = net::HttpMethod::Get, .target = "/openApi/spot/v1/common/symbols", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/openApi/swap/v2/server/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 // Every builder below shares one buffer, so a request must be sent before the
 // next is built. One catalogue load or funding poll at a time is the only use.
 net::RestRequest RequestBuilder::premium_index(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/openApi/swap/v2/quote/premiumIndex?symbol=");
+    writer.put(ep::k_premium_index);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t limit) noexcept {
     TargetWriter writer{target_};
-    writer.put("/openApi/swap/v2/quote/depth?symbol=");
+    writer.put(ep::k_depth);
+    writer.put("?symbol=");
     writer.put(symbol);
     writer.put("&limit=");
     writer.put(limit);
@@ -281,7 +280,8 @@ net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t li
 
 net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/openApi/swap/v2/quote/ticker?symbol=");
+    writer.put(ep::k_ticker);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
@@ -391,7 +391,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::UnsafeParameter};
         }
-        return sign(net::HttpMethod::Post, "/openApi/swap/v2/trade/order", query.view());
+        return sign(net::HttpMethod::Post, ep::k_perp_order, query.view());
     }
     case MarketType::Spot: {
         // Spot names the field a third way on create, and BingX's docs and
@@ -414,7 +414,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::UnsafeParameter};
         }
-        return sign(net::HttpMethod::Post, "/openApi/spot/v1/trade/order", query.view());
+        return sign(net::HttpMethod::Post, ep::k_spot_order, query.view());
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -456,7 +456,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::UnsafeParameter};
         }
-        return sign(net::HttpMethod::Delete, "/openApi/swap/v2/trade/order", query.view());
+        return sign(net::HttpMethod::Delete, ep::k_perp_order, query.view());
     }
     case MarketType::Spot: {
         // A cancel here is a POST, not a DELETE, and its client-id field is
@@ -473,7 +473,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::UnsafeParameter};
         }
-        return sign(net::HttpMethod::Post, "/openApi/spot/v1/trade/cancel", query.view());
+        return sign(net::HttpMethod::Post, ep::k_spot_cancel, query.view());
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -527,7 +527,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (!query.ok()) {
         return std::unexpected{BuildError::UnsafeParameter};
     }
-    return sign(net::HttpMethod::Post, "/openApi/swap/v1/trade/amend", query.view());
+    return sign(net::HttpMethod::Post, ep::k_perp_amend, query.view());
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(MarketType market,
@@ -540,9 +540,9 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
     }
     switch (market) {
     case MarketType::Perp:
-        return sign(net::HttpMethod::Get, "/openApi/swap/v2/trade/openOrders", query.view());
+        return sign(net::HttpMethod::Get, ep::k_perp_open_orders, query.view());
     case MarketType::Spot:
-        return sign(net::HttpMethod::Get, "/openApi/spot/v1/trade/openOrders", query.view());
+        return sign(net::HttpMethod::Get, ep::k_spot_open_orders, query.view());
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
@@ -571,7 +571,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(net::HttpMethod::Get, "/openApi/swap/v2/user/positions", query.view());
+    return sign(net::HttpMethod::Get, ep::k_perp_positions, query.view());
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::position_mode(UnixNanos now) {
@@ -581,7 +581,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::position_mode(
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(net::HttpMethod::Get, "/openApi/swap/v1/positionSide/dual", query.view());
+    return sign(net::HttpMethod::Get, ep::k_position_mode, query.view());
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key_create(UnixNanos now) {
@@ -591,7 +591,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key_cre
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return sign(net::HttpMethod::Post, "/openApi/user/auth/userDataStream", query.view());
+    return sign(net::HttpMethod::Post, ep::k_listen_key, query.view());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -602,7 +602,7 @@ SignedRequestBuilder::listen_key_keepalive(std::string_view key, UnixNanos now) 
     if (!query.ok()) {
         return std::unexpected{BuildError::UnsafeParameter};
     }
-    return sign(net::HttpMethod::Put, "/openApi/user/auth/userDataStream", query.view());
+    return sign(net::HttpMethod::Put, ep::k_listen_key, query.view());
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -613,7 +613,7 @@ SignedRequestBuilder::listen_key_close(std::string_view key, UnixNanos now) {
     if (!query.ok()) {
         return std::unexpected{BuildError::UnsafeParameter};
     }
-    return sign(net::HttpMethod::Delete, "/openApi/user/auth/userDataStream", query.view());
+    return sign(net::HttpMethod::Delete, ep::k_listen_key, query.view());
 }
 
 } // namespace raikiri::venues::bingx

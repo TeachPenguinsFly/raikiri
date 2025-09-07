@@ -1,5 +1,6 @@
 #include <raikiri/net/json_writer.hpp>
 #include <raikiri/venues/xt/client_id.hpp>
+#include <raikiri/venues/xt/endpoints.hpp>
 #include <raikiri/venues/xt/rest.hpp>
 
 #include <charconv>
@@ -9,9 +10,6 @@
 namespace raikiri::venues::xt {
 
 namespace {
-
-constexpr std::string_view k_host = "fapi.xt.com";
-constexpr std::string_view k_spot_host = "sapi.xt.com";
 
 // Header names are XT's, and the prefix is load-bearing: the server rebuilds
 // the signed prefix out of the headers it received, so `xt-validate-*` on the
@@ -160,11 +158,11 @@ private:
 } // namespace
 
 std::string_view rest_host() noexcept {
-    return k_host;
+    return ep::k_rest_futures;
 }
 
 std::string_view spot_rest_host() noexcept {
-    return k_spot_host;
+    return ep::k_rest_spot;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -240,35 +238,35 @@ std::string_view time_in_force(TimeInForce tif, OrderFlags flags) noexcept {
 // ------------------------------------------------------------ unsigned ----
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/future/market/v1/public/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_futures_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/v4/public/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::symbol_list() noexcept {
-    return {.method = net::HttpMethod::Get,
-            .target = "/future/market/v1/public/symbol/list",
-            .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_futures_symbols, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_symbol_list() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/v4/public/symbol", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
 // Every builder below writes into the same buffer, so a request must be sent
 // before the next one is built. One funding poll at a time is the only use.
 net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/future/market/v1/public/q/funding-rate?symbol=");
+    writer.put(ep::k_futures_funding_rate);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t level) noexcept {
     TargetWriter writer{target_};
-    writer.put("/future/market/v1/public/q/depth?symbol=");
+    writer.put(ep::k_futures_depth);
+    writer.put("?symbol=");
     writer.put(symbol);
     writer.put("&level=");
     writer.put(level);
@@ -448,7 +446,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/future/trade/v1/order/create", {}, json.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_create, {}, json.view(), now);
     }
     case MarketType::Spot: {
         if (is_market && cmd.side == Side::Buy) {
@@ -478,7 +476,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         if (!json.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Post, "/v4/order", {}, json.view(), now);
+        return sign_spot(net::HttpMethod::Post, ep::k_spot_order, {}, json.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -511,13 +509,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/future/trade/v1/order/cancel", {}, json.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_cancel, {}, json.view(), now);
     }
     case MarketType::Spot: {
         // The order id is a PATH SEGMENT here, so it is inside the signature's
         // path term rather than beside it. The body is empty.
         Appender path{path_};
-        path << "/v4/order/" << venue_id;
+        path << ep::k_spot_order << "/" << venue_id;
         if (!path.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
@@ -572,11 +570,11 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/future/trade/v1/order/update", {}, json.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_update, {}, json.view(), now);
     }
     case MarketType::Spot: {
         Appender path{path_};
-        path << "/v4/order/" << venue_id;
+        path << ep::k_spot_order << "/" << venue_id;
         if (!path.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
@@ -604,16 +602,14 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
     switch (market) {
     case MarketType::Perp: {
         if (symbol.empty()) {
-            return sign_futures(
-                net::HttpMethod::Post, "/future/trade/v1/order/list-open-order", {}, {}, now);
+            return sign_futures(net::HttpMethod::Post, ep::k_futures_open_orders, {}, {}, now);
         }
         net::JsonWriter json{body_};
         json.obj_begin().str("symbol", symbol).obj_end();
         if (!json.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_futures(
-            net::HttpMethod::Post, "/future/trade/v1/order/list-open-order", {}, json.view(), now);
+        return sign_futures(net::HttpMethod::Post, ep::k_futures_open_orders, {}, json.view(), now);
     }
     case MarketType::Spot: {
         // Query parameters go into the digest SORTED BY NAME, which is what
@@ -626,7 +622,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/v4/open-order", query.view(), {}, now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_open_orders, query.view(), {}, now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -649,7 +645,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/v4/order", query.view(), {}, now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_order, query.view(), {}, now);
     }
     case MarketType::Perp:
         // /future/trade/v1/order/detail is keyed by the VENUE order id and XT
@@ -677,8 +673,7 @@ SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos no
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_futures(
-            net::HttpMethod::Get, "/future/trade/v1/order/trade-list", query.view(), {}, now);
+        return sign_futures(net::HttpMethod::Get, ep::k_futures_trades, query.view(), {}, now);
     }
     case MarketType::Spot: {
         Appender query{query_};
@@ -689,7 +684,7 @@ SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos no
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/v4/trade", query.view(), {}, now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_trades, query.view(), {}, now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -703,7 +698,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
                                                                             UnixNanos now) {
     switch (market) {
     case MarketType::Perp:
-        return sign_futures(net::HttpMethod::Get, "/future/user/v1/position/list", {}, {}, now);
+        return sign_futures(net::HttpMethod::Get, ep::k_futures_positions, {}, {}, now);
     case MarketType::Spot:
         // A spot balance is not a position. Answering "flat" would be a claim
         // about a concept this API does not have.
@@ -717,15 +712,15 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_balances(UnixNanos now) {
-    return sign_futures(net::HttpMethod::Get, "/future/user/v1/balance/list", {}, {}, now);
+    return sign_futures(net::HttpMethod::Get, ep::k_futures_balances, {}, {}, now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key(UnixNanos now) {
-    return sign_futures(net::HttpMethod::Get, "/future/user/v1/user/listen-key", {}, {}, now);
+    return sign_futures(net::HttpMethod::Get, ep::k_futures_listen_key, {}, {}, now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::ws_token(UnixNanos now) {
-    return sign_spot(net::HttpMethod::Post, "/v4/ws-token", {}, {}, now);
+    return sign_spot(net::HttpMethod::Post, ep::k_spot_ws_token, {}, {}, now);
 }
 
 } // namespace raikiri::venues::xt

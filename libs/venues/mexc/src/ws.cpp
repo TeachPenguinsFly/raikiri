@@ -1,3 +1,4 @@
+#include <raikiri/venues/mexc/endpoints.hpp>
 #include <raikiri/venues/mexc/ws.hpp>
 
 #include <array>
@@ -5,17 +6,6 @@
 #include <cstring>
 
 namespace raikiri::venues::mexc {
-
-namespace {
-
-constexpr std::string_view k_host = "contract.mexc.com";
-
-// Spot is a different deployment with a different protocol: JSON in, protobuf
-// out, and a subscription string where the futures tree takes a method and a
-// param object.
-constexpr std::string_view k_spot_host = "wbs-api.mexc.com";
-
-} // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
     switch (err) {
@@ -31,8 +21,11 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
+// Spot is a different deployment with a different protocol: JSON in, protobuf
+// out, and a subscription string where the futures tree takes a method and a
+// param object.
 std::string_view stream_host(MarketType market) noexcept {
-    return market == MarketType::Spot ? k_spot_host : k_host;
+    return market == MarketType::Spot ? ep::k_stream_spot : ep::k_stream_futures;
 }
 
 std::string_view stream_port() noexcept {
@@ -40,7 +33,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path(MarketType market) noexcept {
-    return market == MarketType::Spot ? "/ws" : "/edge";
+    return market == MarketType::Spot ? ep::k_ws_spot : ep::k_ws_futures;
 }
 
 std::string_view channel_for(exec::SubKind kind) noexcept {

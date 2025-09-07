@@ -1,3 +1,4 @@
+#include <raikiri/venues/htx/endpoints.hpp>
 #include <raikiri/venues/htx/sign.hpp>
 #include <raikiri/venues/htx/ws.hpp>
 
@@ -8,10 +9,6 @@
 namespace raikiri::venues::htx {
 
 namespace {
-
-constexpr std::string_view k_host = "api.hbdm.com";
-constexpr std::string_view k_spot_host = "api.huobi.pro";
-constexpr std::string_view k_spot_private_path = "/ws/v2";
 
 // Fills the protocol's frame buffer. A part that would overflow marks the
 // whole frame bad rather than truncating it: a half-written subscribe names a
@@ -65,7 +62,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host() noexcept {
-    return k_host;
+    return ep::k_stream_futures;
 }
 
 std::string_view stream_port() noexcept {
@@ -73,11 +70,11 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view market_path() noexcept {
-    return "/linear-swap-ws";
+    return ep::k_ws_market;
 }
 
 std::string_view notify_path() noexcept {
-    return "/linear-swap-notification";
+    return ep::k_ws_notify;
 }
 
 std::string_view topic_suffix(exec::SubKind kind) noexcept {
@@ -171,11 +168,11 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_pong_frame(std::stri
 }
 
 std::string_view spot_stream_host() noexcept {
-    return k_spot_host;
+    return ep::k_stream_spot;
 }
 
 std::string_view spot_private_path() noexcept {
-    return k_spot_private_path;
+    return ep::k_ws_spot_private;
 }
 
 std::string_view Protocol::last_auth_message() const noexcept {
@@ -200,7 +197,8 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net
     if (rendered.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    const auto message = sign::canonical("GET", k_host, notify_path(), rendered, auth_msg_);
+    const auto message =
+        sign::canonical("GET", ep::k_stream_futures, notify_path(), rendered, auth_msg_);
     if (message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
@@ -243,7 +241,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::spot_auth_frame(const net
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
     const auto message =
-        sign::canonical("GET", k_spot_host, k_spot_private_path, rendered, auth_msg_);
+        sign::canonical("GET", ep::k_stream_spot, ep::k_ws_spot_private, rendered, auth_msg_);
     if (message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }

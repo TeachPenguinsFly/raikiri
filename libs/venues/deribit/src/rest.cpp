@@ -1,3 +1,4 @@
+#include <raikiri/venues/deribit/endpoints.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
 
 #include <charconv>
@@ -6,11 +7,6 @@
 namespace raikiri::venues::deribit {
 
 namespace {
-
-constexpr std::string_view k_host_live = "www.deribit.com";
-constexpr std::string_view k_host_test = "test.deribit.com";
-
-constexpr std::string_view k_prefix = "/api/v2/";
 
 constexpr std::string_view k_hdr_authorization = "Authorization";
 
@@ -146,7 +142,7 @@ private:
 } // namespace
 
 std::string_view rest_host(bool testnet) noexcept {
-    return testnet ? k_host_test : k_host_live;
+    return ep::rest_host(testnet);
 }
 
 std::string_view kind_of(MarketType market) noexcept {
@@ -210,13 +206,14 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v2/public/get_time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::instruments(std::string_view currency,
                                              std::string_view kind) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v2/public/get_instruments?currency=");
+    writer.put(ep::k_instruments);
+    writer.put("?currency=");
     writer.put(currency);
     writer.put("&kind=");
     writer.put(kind);
@@ -284,7 +281,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     const bool post_only = has_flag(cmd.flags, OrderFlags::PostOnly) && !is_market;
 
     Appender target{target_};
-    target << k_prefix << (cmd.side == Side::Sell ? "private/sell" : "private/buy")
+    target << (cmd.side == Side::Sell ? ep::k_order_sell : ep::k_order_buy)
            << "?instrument_name=" << base.exchange_symbol.view() << "&amount=" << *amount
            << "&label=" << cmd.exchange_client_order_id.view()
            << "&type=" << (is_market ? "market" : "limit");
@@ -321,7 +318,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     }
     Appender target{target_};
     if (!cmd.target_exchange_order_id.empty()) {
-        target << k_prefix << "private/cancel?order_id=" << cmd.target_exchange_order_id.view();
+        target << ep::k_order_cancel << "?order_id=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
         const auto symbol = table.exchange_symbol(cmd.instrument);
         if (symbol.empty()) {
@@ -334,8 +331,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         // Scoped to the currency on purpose: an unscoped cancel_by_label
         // sweeps every currency, and a label collision across coins would
         // cancel an order this command never named.
-        target << k_prefix
-               << "private/cancel_by_label?label=" << cmd.exchange_client_order_id.view()
+        target << ep::k_order_cancel_by_label << "?label=" << cmd.exchange_client_order_id.view()
                << "&currency=" << currency;
     } else {
         return std::unexpected{BuildError::NoOrderTarget};
@@ -359,12 +355,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
 
     Appender target{target_};
     if (!cmd.target_exchange_order_id.empty()) {
-        target << k_prefix << "private/edit?order_id=" << cmd.target_exchange_order_id.view();
+        target << ep::k_order_edit << "?order_id=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
         // edit_by_label works only while EXACTLY ONE open order carries the
         // label. A ULID is minted per order, so that holds by construction —
         // and the instrument is required beside it.
-        target << k_prefix << "private/edit_by_label?label=" << cmd.exchange_client_order_id.view()
+        target << ep::k_order_edit_by_label << "?label=" << cmd.exchange_client_order_id.view()
                << "&instrument_name=" << base.exchange_symbol.view();
     } else {
         return std::unexpected{BuildError::NoOrderTarget};
@@ -407,7 +403,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view currency, 
     Appender target{target_};
     // "future" covers the perpetual AND the dated series; the caller keeps
     // only the rows whose instrument resolves to the market it asked for.
-    target << k_prefix << "private/get_open_orders_by_currency?currency=" << currency
+    target << ep::k_open_orders_by_currency << "?currency=" << currency
            << "&kind=" << kind_of(market);
     if (!target.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -424,8 +420,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::order_state_by
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    target << k_prefix << "private/get_order_state_by_label?currency=" << currency
-           << "&label=" << id.view();
+    target << ep::k_order_state_by_label << "?currency=" << currency << "&label=" << id.view();
     if (!target.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -441,7 +436,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::user_trades(
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    target << k_prefix << "private/get_user_trades_by_currency?currency=" << currency
+    target << ep::k_user_trades_by_currency << "?currency=" << currency
            << "&kind=" << kind_of(market)
            << "&count=" << static_cast<std::uint64_t>(k_max_trade_page);
     if (since.ns != 0) {
@@ -465,8 +460,7 @@ SignedRequestBuilder::positions(MarketType market, std::string_view currency, Un
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    target << k_prefix << "private/get_positions?currency=" << currency
-           << "&kind=" << kind_of(market);
+    target << ep::k_positions << "?currency=" << currency << "&kind=" << kind_of(market);
     if (!target.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

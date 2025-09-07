@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/htx/endpoints.hpp>
 #include <raikiri/venues/htx/rest.hpp>
 
 #include <charconv>
@@ -8,11 +9,6 @@
 namespace raikiri::venues::htx {
 
 namespace {
-
-constexpr std::string_view k_host_futures = "api.hbdm.com";
-constexpr std::string_view k_host_spot = "api.huobi.pro";
-
-constexpr std::string_view k_swap_prefix = "/linear-swap-api";
 
 // The four constants every signed HTX request carries. SignatureVersion is "2"
 // everywhere except the spot websocket handshake, which spells it "2.1".
@@ -162,23 +158,23 @@ private:
 } // namespace
 
 std::string_view rest_host() noexcept {
-    return k_host_futures;
+    return ep::k_rest_futures;
 }
 
 std::string_view spot_rest_host() noexcept {
-    return k_host_spot;
+    return ep::k_rest_spot;
 }
 
 std::string_view rest_host(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
-        return k_host_spot;
+        return ep::k_rest_spot;
     case MarketType::Perp:
     case MarketType::Future:
     case MarketType::Option:
         break;
     }
-    return k_host_futures;
+    return ep::k_rest_futures;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -243,17 +239,15 @@ std::optional<std::int64_t> swap_client_id(ClientOrderId id) noexcept {
 }
 
 net::RestRequest RequestBuilder::contracts() noexcept {
-    return {.method = net::HttpMethod::Get,
-            .target = "/linear-swap-api/v1/swap_contract_info",
-            .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_swap_contract_info, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_symbols() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/v1/common/symbols", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v1/timestamp", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
 // -------------------------------------------------------------- signed ----
@@ -318,7 +312,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::spot_accounts(UnixNanos now) {
     sign::Query query;
-    return sign(net::HttpMethod::Get, MarketType::Spot, "/v1/account/accounts", query, {}, now);
+    return sign(net::HttpMethod::Get, MarketType::Spot, ep::k_spot_accounts, query, {}, now);
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
@@ -365,7 +359,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             json.num("reduce_only", 1);
         }
         json.obj_end();
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_order";
+        path << ep::k_swap_order;
         break;
     }
     case MarketType::Spot: {
@@ -399,7 +393,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         // ReduceOnly is deliberately not forwarded: a spot balance cannot be
         // short, so HTX has no field for it.
         json.obj_end();
-        path << "/v1/order/orders/place";
+        path << ep::k_spot_order_place;
         break;
     }
     case MarketType::Future:
@@ -444,12 +438,13 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
             json.str("client_order_id", render_i64(*client_id, account_text_));
         }
         json.obj_end();
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_cancel";
+        path << ep::k_swap_cancel;
         break;
     }
     case MarketType::Spot: {
         if (!cmd.target_exchange_order_id.empty()) {
-            path << "/v1/order/orders/" << cmd.target_exchange_order_id.view() << "/submitcancel";
+            path << ep::k_spot_orders << "/" << cmd.target_exchange_order_id.view()
+                 << ep::k_spot_submit_cancel_suffix;
             break;
         }
         const auto coid = cmd.exchange_client_order_id.view();
@@ -457,7 +452,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
             return std::unexpected{BuildError::NoOrderTarget};
         }
         json.obj_begin().str("client-order-id", coid).obj_end();
-        path << "/v1/order/orders/submitCancelClientOrder";
+        path << ep::k_spot_cancel_by_client_id;
         break;
     }
     case MarketType::Future:
@@ -527,7 +522,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
         // string and an array is refused as an illegal parameter.
         body << R"({"contract_code":")" << symbol << R"(","client_order_id":")" << ids.view()
              << R"("})";
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_cancel";
+        path << ep::k_swap_cancel;
         break;
     }
     case MarketType::Spot: {
@@ -543,7 +538,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
             body << (i == 0 ? "\"" : ",\"") << coid << "\"";
         }
         body << "]}";
-        path << "/v1/order/orders/batchcancel";
+        path << ep::k_spot_batch_cancel;
         break;
     }
     case MarketType::Future:
@@ -572,14 +567,14 @@ SignedRequestBuilder::open_orders(MarketType market, std::uint32_t page, UnixNan
             .num("page_index", static_cast<std::int64_t>(page == 0 ? 1 : page))
             .num("page_size", static_cast<std::int64_t>(k_swap_page_size))
             .obj_end();
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_openorders";
+        path << ep::k_swap_open_orders;
         break;
     case MarketType::Spot:
         method = net::HttpMethod::Get;
         // account-id and symbol are both optional here; leaving them out is
         // the only account-wide open-order read HTX spot has.
         query.add("size", k_spot_page_limit);
-        path << "/v1/order/openOrders";
+        path << ep::k_spot_open_orders;
         break;
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -616,7 +611,7 @@ SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
             .str("contract_code", contract_code)
             .str("client_order_id", render_i64(numeric_id, account_text_))
             .obj_end();
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_order_info";
+        path << ep::k_swap_order_info;
         break;
     }
     case MarketType::Spot: {
@@ -627,7 +622,7 @@ SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
         // The query parameter is camelCase where the body field everywhere
         // else on this API is hyphenated. HTX's own spelling, not a typo.
         query.add("clientOrderId", id.view());
-        path << "/v1/order/orders/getClientOrder";
+        path << ep::k_spot_order_by_client_id;
         break;
     }
     case MarketType::Future:
@@ -654,7 +649,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     case MarketType::Perp:
         // contract_code omitted: the whole cross account in one call.
         json.obj_begin().obj_end();
-        path << k_swap_prefix << "/v1/swap_" << k_margin_mode << "_position_info";
+        path << ep::k_swap_position_info;
         break;
     case MarketType::Spot:
         // A spot balance is not a position, and one BTC balance backs btcusdt,

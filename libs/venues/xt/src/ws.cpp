@@ -1,3 +1,5 @@
+
+#include <raikiri/venues/xt/endpoints.hpp>
 #include <raikiri/venues/xt/ws.hpp>
 
 #include <algorithm>
@@ -5,12 +7,6 @@
 #include <cstring>
 
 namespace raikiri::venues::xt {
-
-namespace {
-
-constexpr std::string_view k_host = "fstream.xt.com";
-
-} // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
     switch (err) {
@@ -25,9 +21,9 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(MarketType market) noexcept {
-    // Two deployments. Spot's public socket is the same host as its private
-    // one, which this adapter already knew about.
-    return market == MarketType::Spot ? spot_private_stream_host() : k_host;
+    // Two deployments, one name each: spot's public socket is the same host
+    // as its private one, and so is the futures tree's.
+    return market == MarketType::Spot ? ep::k_stream_spot : ep::k_stream_futures;
 }
 
 std::string_view stream_port() noexcept {
@@ -35,7 +31,7 @@ std::string_view stream_port() noexcept {
 }
 
 std::string_view stream_path(MarketType market) noexcept {
-    return market == MarketType::Spot ? "/public" : "/ws/market";
+    return market == MarketType::Spot ? ep::k_ws_spot_public : ep::k_ws_futures_market;
 }
 
 Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
@@ -123,19 +119,19 @@ Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
 }
 
 std::string_view private_stream_host() noexcept {
-    return k_host;
+    return ep::k_stream_futures;
 }
 
 std::string_view private_stream_path() noexcept {
-    return "/ws/user";
+    return ep::k_ws_futures_user;
 }
 
 std::string_view spot_private_stream_host() noexcept {
-    return "stream.xt.com";
+    return ep::k_stream_spot;
 }
 
 std::string_view spot_private_stream_path() noexcept {
-    return "/private";
+    return ep::k_ws_spot_private;
 }
 
 std::string_view PrivateProtocol::ping_frame() noexcept {

@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/mexc/endpoints.hpp>
 #include <raikiri/venues/mexc/rest.hpp>
 
 #include <charconv>
@@ -9,9 +10,6 @@
 namespace raikiri::venues::mexc {
 
 namespace {
-
-constexpr std::string_view k_host_public = "contract.mexc.com";
-constexpr std::string_view k_host_private = "api.mexc.com";
 
 // Header names are MEXC's, capitalisation and all.
 constexpr std::string_view k_hdr_spot_key = "X-MEXC-APIKEY";
@@ -160,11 +158,11 @@ private:
 } // namespace
 
 std::string_view rest_host() noexcept {
-    return k_host_public;
+    return ep::k_rest_public;
 }
 
 std::string_view private_rest_host() noexcept {
-    return k_host_private;
+    return ep::k_rest_private;
 }
 
 std::string_view to_string(BuildError err) noexcept {
@@ -249,26 +247,27 @@ std::string_view spot_order_type(OrderType type, OrderFlags flags) noexcept {
 // ------------------------------------------------------------ unsigned ----
 
 net::RestRequest RequestBuilder::server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v1/contract/ping", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_futures_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::spot_server_time() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v3/time", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_server_time, .body = {}};
 }
 
 net::RestRequest RequestBuilder::contract_detail() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v1/contract/detail", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_contract_detail, .body = {}};
 }
 
 net::RestRequest RequestBuilder::exchange_info() noexcept {
-    return {.method = net::HttpMethod::Get, .target = "/api/v3/exchangeInfo", .body = {}};
+    return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
 }
 
 // Every builder below writes into the same buffer, so a request must be sent
 // before the next one is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t limit) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v1/contract/depth/");
+    writer.put(ep::k_contract_depth);
+    writer.put("/");
     writer.put(symbol);
     if (limit != 0) {
         writer.put("?limit=");
@@ -279,14 +278,16 @@ net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t li
 
 net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v1/contract/ticker?symbol=");
+    writer.put(ep::k_contract_ticker);
+    writer.put("?symbol=");
     writer.put(symbol);
     return writer.get();
 }
 
 net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
-    writer.put("/api/v1/contract/funding_rate/");
+    writer.put(ep::k_contract_funding_rate);
+    writer.put("/");
     writer.put(symbol);
     return writer.get();
 }
@@ -439,7 +440,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/api/v1/private/order/create", {}, json.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_create, {}, json.view(), now);
     }
     case MarketType::Spot: {
         // MEXC spot advertises no timeInForce parameter at all: IOC and FOK
@@ -464,7 +465,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Post, "/api/v3/order", query.view(), now);
+        return sign_spot(net::HttpMethod::Post, ep::k_spot_order, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -500,7 +501,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
                 return std::unexpected{BuildError::BufferTooSmall};
             }
             return sign_futures(net::HttpMethod::Post,
-                                "/api/v1/private/order/cancel_with_external",
+                                ep::k_futures_order_cancel_by_client_id,
                                 {},
                                 json.view(),
                                 now);
@@ -518,7 +519,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/api/v1/private/order/cancel", {}, body.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_cancel, {}, body.view(), now);
     }
     case MarketType::Spot: {
         Appender query{query_};
@@ -531,7 +532,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Delete, "/api/v3/order", query.view(), now);
+        return sign_spot(net::HttpMethod::Delete, ep::k_spot_order, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -595,7 +596,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
             return std::unexpected{BuildError::BufferTooSmall};
         }
         return sign_futures(
-            net::HttpMethod::Post, "/api/v1/private/order/cancel", {}, body.view(), now);
+            net::HttpMethod::Post, ep::k_futures_order_cancel, {}, body.view(), now);
     }
     case MarketType::Spot:
         // MEXC spot cancels by symbol or by single order, never by a list of
@@ -624,7 +625,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
         // while the current one dropped the segment entirely. Naming a symbol
         // keeps the old form and leaving it out keeps the new one, so a
         // trailing empty segment is never emitted.
-        path << "/api/v1/private/order/list/open_orders";
+        path << ep::k_futures_open_orders;
         if (!symbol.empty()) {
             path << "/" << symbol;
         }
@@ -644,7 +645,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/api/v3/openOrders", query.view(), now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_open_orders, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -666,7 +667,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
             return std::unexpected{BuildError::NeedsSymbol};
         }
         Appender path{path_};
-        path << "/api/v1/private/order/external/" << symbol << "/" << coid;
+        path << ep::k_futures_order_by_client_id << "/" << symbol << "/" << coid;
         if (!path.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
@@ -684,7 +685,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/api/v3/order", query.view(), now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_order, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -714,8 +715,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(Mark
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_futures(
-            net::HttpMethod::Get, "/api/v1/private/order/list/order_deals", query.view(), {}, now);
+        return sign_futures(net::HttpMethod::Get, ep::k_futures_order_deals, query.view(), {}, now);
     }
     case MarketType::Spot: {
         if (symbol.empty()) {
@@ -729,7 +729,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(Mark
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        return sign_spot(net::HttpMethod::Get, "/api/v3/myTrades", query.view(), now);
+        return sign_spot(net::HttpMethod::Get, ep::k_spot_my_trades, query.view(), now);
     }
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -743,8 +743,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
                                                                             UnixNanos now) {
     switch (market) {
     case MarketType::Perp:
-        return sign_futures(
-            net::HttpMethod::Get, "/api/v1/private/position/open_positions", {}, {}, now);
+        return sign_futures(net::HttpMethod::Get, ep::k_futures_positions, {}, {}, now);
     case MarketType::Spot:
         // A spot balance is not a position. Answering "flat" would be a claim
         // about a concept this API does not have.
