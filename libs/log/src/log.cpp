@@ -21,9 +21,20 @@ void init(std::string_view process_name) {
     }
     quill::BackendOptions backend;
     backend.thread_name = "log-backend";
+    // Quill escapes every byte outside printable ASCII whenever a statement
+    // carries a string argument, and nearly every message in this codebase
+    // holds an em dash: "pull failed \xE2\x80\x94 timeout" is not a line anyone
+    // reads. High bytes pass; control characters are still escaped, so a venue
+    // string cannot break one record into two.
+    backend.check_printable_char = [](char c) {
+        return static_cast<unsigned char>(c) >= 0x80 || (c >= ' ' && c <= '~') || c == '\n' ||
+               c == '\t' || c == '\r';
+    };
     quill::Backend::start(backend);
 
-    auto sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>("console");
+    quill::ConsoleSinkConfig console;
+    console.set_stream("stderr");
+    auto sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>("stderr", console);
     auto* logger = quill::Frontend::create_or_get_logger(
         std::string{process_name},
         std::move(sink),

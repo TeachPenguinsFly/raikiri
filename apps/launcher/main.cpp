@@ -2,6 +2,8 @@
 // the strategy run to finish, take the gateway down, report. Production uses
 // systemd units; this exists so `make demo` is one command.
 
+#include <raikiri/log/log.hpp>
+
 #include <fmt/format.h>
 
 #include <libgen.h>
@@ -28,6 +30,8 @@ pid_t spawn(const std::string& path, const std::vector<std::string>& args) {
     }
     argv.push_back(nullptr);
     ::execv(path.c_str(), argv.data());
+    // Between fork and exec, where there is no logger: the process starts one
+    // only after both spawns, and a backend thread would not survive the fork.
     fmt::print(stderr, "launcher: exec {} failed\n", path);
     ::_exit(127);
 }
@@ -52,6 +56,10 @@ int main(int argc, char** argv) {
     const pid_t gw = spawn(gatewayd, {"--venue=sim"});
     const pid_t st = spawn(strategyd, {"--duration", duration});
 
+    // AFTER the forks. A child of a multi-threaded parent may call only
+    // async-signal-safe functions until exec, and spawn() allocates.
+    const raikiri::log::Scope logging{"launcher"};
+
     int status = 0;
     ::waitpid(st, &status, 0);
     const int strategy_rc = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
@@ -61,7 +69,7 @@ int main(int argc, char** argv) {
     const int gateway_rc = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 
     if (strategy_rc != 0 || gateway_rc != 0) {
-        fmt::print(stderr, "launcher: strategyd rc={} gatewayd rc={}\n", strategy_rc, gateway_rc);
+        RLOG_ERROR("launcher: strategyd rc={} gatewayd rc={}", strategy_rc, gateway_rc);
         return 1;
     }
     return 0;

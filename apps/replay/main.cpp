@@ -8,6 +8,7 @@
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/journal/reader.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/schema/codec.hpp>
 
 #include <fmt/format.h>
@@ -114,6 +115,9 @@ void print_frame(const FrameView& frame) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // The decoded stream stays on stdout, where golden-replay tests compare it
+    // byte for byte; the logger writes to stderr and cannot reach it.
+    const raikiri::log::Scope logging{"replay"};
     if (argc < 2) {
         fmt::print(stderr, "usage: replay <dir> [--prefix <name>] [--stats]\n");
         return 2;
@@ -131,7 +135,7 @@ int main(int argc, char** argv) {
 
     auto reader = raikiri::journal::JournalReader::open(dir, prefix);
     if (!reader.has_value()) {
-        fmt::print(stderr, "replay: cannot open journal in {} (prefix {})\n", dir, prefix);
+        RLOG_ERROR("replay: cannot open journal in {} (prefix {})", dir, prefix);
         return 1;
     }
 
@@ -144,7 +148,7 @@ int main(int argc, char** argv) {
             break;
         }
         if (result == raikiri::journal::ReadResult::Corrupt) {
-            fmt::print(stderr, "replay: CORRUPT frame after seq {}\n", reader->last_seq());
+            RLOG_ERROR("replay: CORRUPT frame after seq {}", reader->last_seq());
             return 3;
         }
         ++total;

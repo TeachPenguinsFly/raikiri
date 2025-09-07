@@ -30,14 +30,12 @@
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
-
-#include <fmt/format.h>
+#include <raikiri/log/log.hpp>
 
 #include <unistd.h>
 
 #include <atomic>
 #include <csignal>
-#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -53,10 +51,7 @@ void on_signal(int) {
 } // namespace
 
 int main(int argc, char** argv) {
-    // Line buffered, for the reason gatewayd is: redirected to a file a
-    // daemon's stdout is block buffered, so a healthy process shows an
-    // empty log and a crashed one shows everything at once.
-    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    const raikiri::log::Scope logging{"admind"};
     using namespace raikiri;
 
     std::string address = "127.0.0.1";
@@ -94,22 +89,25 @@ int main(int argc, char** argv) {
         // Not fatal, and not final: the loop below rescans, so a gateway that
         // is still starting — or started tomorrow — is picked up rather than
         // missed for the life of the process.
-        fmt::print("admind: no gateway segments under {} yet\n", shm_dir);
+        RLOG_INFO("admind: no gateway segments under {} yet", shm_dir);
     }
     for (const auto& account : registry.accounts(clock.mono())) {
-        fmt::print("admind: attached to {} — {} instruments, owner {}\n",
-                   account.account,
-                   account.gateway.instruments,
-                   account.gateway.alive ? "alive" : "not answering");
+        RLOG_INFO("admind: attached to {} — {} instruments, owner {}",
+                  account.account,
+                  account.gateway.instruments,
+                  account.gateway.alive ? "alive" : "not answering");
     }
 
     std::unique_ptr<admin::History> history;
     if (dsn.empty()) {
-        fmt::print("admind: no DSN — history paths will answer 503\n");
+        RLOG_WARN("admind: no DSN — history paths will answer 503");
     } else {
         history = std::make_unique<admin::History>(dsn);
-        fmt::print("admind: postgres {}\n",
-                   history->connected() ? "reachable" : "not answering, will retry per request");
+        if (history->connected()) {
+            RLOG_INFO("admind: postgres reachable");
+        } else {
+            RLOG_WARN("admind: postgres not answering, will retry per request");
+        }
     }
 
     // One desk for the process. It mints client order ids and remembers
@@ -126,19 +124,19 @@ int main(int argc, char** argv) {
                              [&clock] { return clock.mono(); },
                              [&clock] { return clock.wall(); })};
     if (!server.start()) {
-        fmt::print(stderr, "admind: cannot bind {}:{}\n", address, port);
+        RLOG_ERROR("admind: cannot bind {}:{}", address, port);
         return 1;
     }
-    fmt::print("admind: listening on http://{}:{}\n", address, server.port());
+    RLOG_INFO("admind: listening on http://{}:{}", address, server.port());
 
     admin::Stream stream{registry, clock, address, stream_port};
     if (!stream.start()) {
         // Fatal, unlike a missing database: a terminal that silently has no
         // live half looks like a terminal whose markets have stopped moving.
-        fmt::print(stderr, "admind: cannot bind stream on {}:{}\n", address, stream_port);
+        RLOG_ERROR("admind: cannot bind stream on {}:{}", address, stream_port);
         return 1;
     }
-    fmt::print("admind: stream on ws://{}:{}/v1/stream\n", address, stream.port());
+    RLOG_INFO("admind: stream on ws://{}:{}/v1/stream", address, stream.port());
 
     // Gateways come and go, and one starting a second after this process is a
     // gateway a single scan would never see again. Two seconds is far below
@@ -152,9 +150,9 @@ int main(int argc, char** argv) {
             rescan_due = mono + k_rescan_ns;
             if (const auto found = registry.discover(shm_dir, ::getpid()); found > attached) {
                 for (const auto& account : registry.accounts(clock.mono())) {
-                    fmt::print("admind: attached to {} — {} instruments\n",
-                               account.account,
-                               account.gateway.instruments);
+                    RLOG_INFO("admind: attached to {} — {} instruments",
+                              account.account,
+                              account.gateway.instruments);
                 }
                 attached = found;
             }
@@ -171,6 +169,6 @@ int main(int argc, char** argv) {
     }
     stream.stop();
     server.stop();
-    fmt::print("admind: down\n");
+    RLOG_INFO("admind: down");
     return 0;
 }

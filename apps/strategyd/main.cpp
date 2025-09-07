@@ -22,6 +22,7 @@
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
@@ -182,10 +183,9 @@ public:
         // for all ten. Named here because this is the last place the specific
         // reason exists — past this return it is gone.
         if (const auto allowed = risk_->check(cmd, exposure); !allowed.has_value()) {
-            fmt::print(stderr,
-                       "strategyd: risk refused coid={} — {}\n",
-                       cmd.client_order_id.raw,
-                       oms::to_string(allowed.error()));
+            RLOG_WARN("strategyd: risk refused coid={} — {}",
+                      cmd.client_order_id.raw,
+                      oms::to_string(allowed.error()));
             return std::unexpected{strategy::RejectReason::Risk};
         }
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {
@@ -365,12 +365,11 @@ public:
             // Either a fill this process never saw, or the venue quotes a
             // different id here than on the execution — both worth a line,
             // because one is lost money and the other is a wrong join.
-            fmt::print(stderr,
-                       "strategyd: FEE {} on {} — venue charged {}.{:09} against no fill we hold\n",
-                       key,
-                       base.exchange_symbol.view(),
-                       charge.amount.raw / 1'000'000'000,
-                       std::abs(charge.amount.raw) % 1'000'000'000);
+            RLOG_WARN("strategyd: FEE {} on {} — venue charged {}.{:09} against no fill we hold",
+                      key,
+                      base.exchange_symbol.view(),
+                      charge.amount.raw / 1'000'000'000,
+                      std::abs(charge.amount.raw) % 1'000'000'000);
             return;
         }
         if (it->second.amount.raw == charge.amount.raw) {
@@ -378,8 +377,7 @@ public:
             return;
         }
         ++fees_disagreed;
-        fmt::print(stderr,
-                   "strategyd: FEE BREAK {} on {} — we booked {} e9, venue says {} e9\n",
+        RLOG_ERROR("strategyd: FEE BREAK {} on {} — we booked {} e9, venue says {} e9",
                    key,
                    base.exchange_symbol.view(),
                    it->second.amount.raw,
@@ -622,10 +620,9 @@ void reconcile_open_orders(KernelContext& ctx,
 
     for (const auto* order : closed) {
         ++ctx.orders_closed_by_recon;
-        fmt::print(stderr,
-                   "strategyd: RECON order {} is open here and gone at {} — closing\n",
-                   order->exchange_client_order_id().view(),
-                   to_string(venue));
+        RLOG_WARN("strategyd: RECON order {} is open here and gone at {} — closing",
+                  order->exchange_client_order_id().view(),
+                  to_string(venue));
         OrderEvent event{};
         event.type = OrderEventType::ReconClosed;
         event.instrument = order->instrument();
@@ -732,14 +729,23 @@ void reconcile_against_venue(KernelContext& ctx,
             continue;
         }
         journal_break(journal, venue, id, base_of(listed).exchange_symbol.view(), result, now);
-        fmt::print(stderr,
-                   "strategyd: RECON {}{} {} local={} venue={} — {}\n",
-                   portfolio::to_string(result.verdict),
-                   confirmed ? " (halted)" : "",
-                   base_of(listed).exchange_symbol.view(),
-                   result.local_qty.raw,
-                   result.venue_qty.raw,
-                   result.detail);
+        // A halt is the loudest thing this process does on its own, so it gets
+        // the level someone greps for rather than the one every break shares.
+        if (confirmed) {
+            RLOG_ERROR("strategyd: RECON {} (halted) {} local={} venue={} — {}",
+                       portfolio::to_string(result.verdict),
+                       base_of(listed).exchange_symbol.view(),
+                       result.local_qty.raw,
+                       result.venue_qty.raw,
+                       result.detail);
+        } else {
+            RLOG_WARN("strategyd: RECON {} {} local={} venue={} — {}",
+                      portfolio::to_string(result.verdict),
+                      base_of(listed).exchange_symbol.view(),
+                      result.local_qty.raw,
+                      result.venue_qty.raw,
+                      result.detail);
+        }
     }
 }
 
@@ -945,9 +951,10 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
-    // Line buffered, for the reason gatewayd is: redirected to a file a
-    // daemon's stdout is block buffered, so a healthy process shows an
-    // empty log and a crashed one shows everything at once.
+    const raikiri::log::Scope logging{"strategyd"};
+    // Stdout carries the end-of-run report and nothing else; the logger writes
+    // to stderr. Line buffered so that a run redirected with 2>&1 keeps the
+    // report in the right place relative to the records around it.
     (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::uint64_t duration_s = 10;
     // Account names, which are also the segment names: "bybit" is bybit perp,
@@ -1005,13 +1012,12 @@ int main(int argc, char** argv) {
             ::usleep(50'000);
         }
         if (!client.has_value()) {
-            fmt::print(stderr, "strategyd: cannot attach {}\n", seg_path);
+            RLOG_ERROR("strategyd: cannot attach {}", seg_path);
             return 1;
         }
         auto channels = shm::open_gateway_channels(*client);
         if (!channels.has_value()) {
-            fmt::print(stderr,
-                       "strategyd: channel open failed on {} ({})\n",
+            RLOG_ERROR("strategyd: channel open failed on {} ({})",
                        seg_path,
                        static_cast<int>(channels.error()));
             return 1;
@@ -1024,7 +1030,7 @@ int main(int argc, char** argv) {
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
     auto journal_writer = journal::JournalWriter::open(data_dir + "/journal/strategyd", "journal");
     if (!journal_writer.has_value()) {
-        fmt::print(stderr, "strategyd: journal open failed\n");
+        RLOG_ERROR("strategyd: journal open failed");
         return 1;
     }
 
@@ -1043,7 +1049,7 @@ int main(int argc, char** argv) {
         instrument_count += gw.ch.catalogue->size();
     }
     if (instrument_count == 0) {
-        fmt::print(stderr, "strategyd: every attached gateway published an empty catalogue\n");
+        RLOG_ERROR("strategyd: every attached gateway published an empty catalogue");
         return 1;
     }
 
@@ -1060,17 +1066,16 @@ int main(int argc, char** argv) {
     const auto restoration =
         restore_book(ctx.positions, catalogues, data_dir + "/journal/strategyd");
     if (restoration.restored > 0) {
-        fmt::print("strategyd: restored {} position(s) from the journal\n", restoration.restored);
+        RLOG_INFO("strategyd: restored {} position(s) from the journal", restoration.restored);
     }
     if (!restoration.unattached.empty()) {
         std::string accounts;
         for (const auto& name : restoration.unattached) {
             accounts += (accounts.empty() ? "" : ", ") + name;
         }
-        fmt::print(stderr,
-                   "strategyd: the journal holds positions on {} and no attached gateway lists "
-                   "them — this process is flat on those and will not reconcile them\n",
-                   accounts);
+        RLOG_WARN("strategyd: the journal holds positions on {} and no attached gateway lists "
+                  "them — this process is flat on those and will not reconcile them",
+                  accounts);
     }
 
     strategies::DemoMaker maker;
@@ -1081,11 +1086,11 @@ int main(int argc, char** argv) {
     for (const auto& gw : gateways) {
         attached += (attached.empty() ? "" : ", ") + gw.name;
     }
-    fmt::print("strategyd: attached to {}, {} instruments, running {} for {}s\n",
-               attached,
-               instrument_count,
-               quoting ? "DemoMaker" : "observer",
-               duration_s);
+    RLOG_INFO("strategyd: attached to {}, {} instruments, running {} for {}s",
+              attached,
+              instrument_count,
+              quoting ? "DemoMaker" : "observer",
+              duration_s);
     active.on_start(ctx);
 
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
@@ -1157,19 +1162,17 @@ int main(int argc, char** argv) {
                         // WHY, not just that. A desk that refuses in silence is
                         // a desk nobody can debug: from the caller's side a
                         // rejected order and a lost one look identical.
-                        fmt::print(stderr,
-                                   "strategyd: desk order {} refused — {}\n",
-                                   intent.client_order_id.raw,
-                                   reject_name(placed.error()));
+                        RLOG_WARN("strategyd: desk order {} refused — {}",
+                                  intent.client_order_id.raw,
+                                  reject_name(placed.error()));
                     }
                     break;
                 }
                 case CmdKind::Cancel:
                     if (!ctx.cancel(intent.client_order_id)) {
                         desk_refusals += 1;
-                        fmt::print(stderr,
-                                   "strategyd: desk cancel {} refused — no such order here\n",
-                                   intent.client_order_id.raw);
+                        RLOG_WARN("strategyd: desk cancel {} refused — no such order here",
+                                  intent.client_order_id.raw);
                     }
                     break;
                 case CmdKind::Amend:
@@ -1274,8 +1277,7 @@ int main(int argc, char** argv) {
                         // account we hold, and a silent one is the difference
                         // between a quiet desk and a broken one.
                         ++unattributed_fills;
-                        fmt::print(stderr,
-                                   "strategyd: FILL {} matched no order here\n",
+                        RLOG_ERROR("strategyd: FILL {} matched no order here",
                                    event.exchange_client_order_id.view());
                     }
                     const auto delta = QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
@@ -1410,9 +1412,8 @@ int main(int argc, char** argv) {
     active.on_stop(ctx);
     journal_writer->flush();
     if (!gateway_gone.empty()) {
-        fmt::print(stderr,
-                   "strategyd: gateway {} stopped answering — cursors and book belong to a dead "
-                   "generation, stopping\n",
+        RLOG_ERROR("strategyd: gateway {} stopped answering — cursors and book belong to a dead "
+                   "generation, stopping",
                    gateway_gone);
     }
 

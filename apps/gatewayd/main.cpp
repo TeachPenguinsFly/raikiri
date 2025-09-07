@@ -27,6 +27,7 @@
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
@@ -213,12 +214,11 @@ public:
     void on_order_error(raikiri::ClientOrderId client_order_id,
                         const raikiri::exec::VenueError& error) noexcept override {
         ++counts_.order_errors;
-        fmt::print(stderr,
-                   "gatewayd: refused coid={:#x} — {} (class={}, code={})\n",
-                   client_order_id.raw,
-                   error.message.view(),
-                   error_class_name(error.cls),
-                   error.venue_code);
+        RLOG_WARN("gatewayd: refused coid={:#x} — {} (class={}, code={})",
+                  client_order_id.raw,
+                  error.message.view(),
+                  error_class_name(error.cls),
+                  error.venue_code);
     }
 
     // THE LIVE LEG, straight off the private socket. The poller's REST pull
@@ -355,23 +355,19 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     if (!adapter.caps.order_pull) {
         if (!announced) {
             announced = true;
-            fmt::print("gatewayd[{}]: open-order reconciliation unavailable for this venue\n", who);
+            RLOG_INFO("gatewayd[{}]: open-order reconciliation unavailable for this venue", who);
         }
         return;
     }
     const auto reports = adapter.execution->open_order_reports(market);
     if (!reports.has_value()) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: open-order pull failed — {}\n",
-                   who,
-                   reports.error().message.view());
+        RLOG_WARN("gatewayd[{}]: open-order pull failed — {}", who, reports.error().message.view());
         return;
     }
     if (reports->size() > raikiri::shm::k_open_order_cells) {
         // Refused rather than truncated: a partial list read as complete would
         // close every order past the cut.
-        fmt::print(stderr,
-                   "gatewayd[{}]: venue reports {} open orders, table holds {} — not published\n",
+        RLOG_ERROR("gatewayd[{}]: venue reports {} open orders, table holds {} — not published",
                    who,
                    reports->size(),
                    raikiri::shm::k_open_order_cells);
@@ -395,8 +391,8 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     static bool answered = false;
     if (!answered) {
         answered = true;
-        fmt::print(
-            "gatewayd[{}]: venue answered its open orders — {} working\n", who, reports->size());
+        RLOG_INFO(
+            "gatewayd[{}]: venue answered its open orders — {} working", who, reports->size());
     }
 }
 
@@ -418,18 +414,17 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
     if (!adapter.caps.funding_charge) {
         if (!announced) {
             announced = true;
-            fmt::print("gatewayd[{}]: this venue reports no funding charges\n", who);
+            RLOG_INFO("gatewayd[{}]: this venue reports no funding charges", who);
         }
         return;
     }
     const auto charges = adapter.execution->funding_charges(market, cursor);
     if (!charges.has_value()) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: funding pull failed — {} (class={}, code={})\n",
-                   who,
-                   charges.error().message.view(),
-                   error_class_name(charges.error().cls),
-                   charges.error().venue_code);
+        RLOG_WARN("gatewayd[{}]: funding pull failed — {} (class={}, code={})",
+                  who,
+                  charges.error().message.view(),
+                  error_class_name(charges.error().cls),
+                  charges.error().venue_code);
         return;
     }
     // RE-PUBLISHED PERIODICALLY, not only when new. The ring is a broadcast:
@@ -449,15 +444,14 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
         ring.publish({charge});
         // Money moving is worth a line. Funding settles a few times a day per
         // instrument, so this is a record an operator can read, not a stream.
-        fmt::print(stderr,
-                   "gatewayd[{}]: {} {}{}.{:09} settled at {} ref {}\n",
-                   who,
-                   charge.kind == raikiri::LedgerKind::Fee ? "fee" : "funding",
-                   charge.amount.raw < 0 ? "-" : "+",
-                   std::abs(charge.amount.raw) / 1'000'000'000,
-                   std::abs(charge.amount.raw) % 1'000'000'000,
-                   charge.settled_at.ns,
-                   charge.reference.view());
+        RLOG_INFO("gatewayd[{}]: {} {}{}.{:09} settled at {} ref {}",
+                  who,
+                  charge.kind == raikiri::LedgerKind::Fee ? "fee" : "funding",
+                  charge.amount.raw < 0 ? "-" : "+",
+                  std::abs(charge.amount.raw) / 1'000'000'000,
+                  std::abs(charge.amount.raw) % 1'000'000'000,
+                  charge.settled_at.ns,
+                  charge.reference.view());
     }
     for (const auto& charge : *charges) {
         cursor = raikiri::UnixNanos{std::max(cursor.ns, charge.settled_at.ns)};
@@ -480,7 +474,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
             // is a standing condition, not an event, and repeating it every
             // 30s would train an operator to ignore the line that matters.
             announced = true;
-            fmt::print("gatewayd[{}]: position reconciliation unavailable for this venue\n", who);
+            RLOG_INFO("gatewayd[{}]: position reconciliation unavailable for this venue", who);
         }
         return;
     }
@@ -490,10 +484,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         // Not a break and not flatness — the venue declined to answer this
         // round. Publishing nothing is the whole point: the cells age out and
         // the reader sees Unknown.
-        fmt::print(stderr,
-                   "gatewayd[{}]: position pull failed — {}\n",
-                   who,
-                   reports.error().message.view());
+        RLOG_WARN("gatewayd[{}]: position pull failed — {}", who, reports.error().message.view());
         return;
     }
 
@@ -503,7 +494,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         // a venue that was never asked, which is the distinction this whole
         // channel exists to keep.
         answered = true;
-        fmt::print("gatewayd[{}]: venue answered its positions — {} open\n", who, reports->size());
+        RLOG_INFO("gatewayd[{}]: venue answered its positions — {} open", who, reports->size());
     }
 
     std::unordered_map<std::uint64_t, raikiri::exec::PositionReport> by_instrument;
@@ -553,24 +544,20 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
     if (!adapter.caps.balance_pull) {
         if (!announced) {
             announced = true;
-            fmt::print("gatewayd[{}]: balances unavailable for this venue\n", who);
+            RLOG_INFO("gatewayd[{}]: balances unavailable for this venue", who);
         }
         return;
     }
 
     const auto reports = adapter.execution->balance_reports(market);
     if (!reports.has_value()) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: balance pull failed — {}\n",
-                   who,
-                   reports.error().message.view());
+        RLOG_WARN("gatewayd[{}]: balance pull failed — {}", who, reports.error().message.view());
         return;
     }
     if (reports->size() > raikiri::shm::k_balance_rows) {
         // Refused rather than truncated: a partial balance set sums to an
         // equity nobody holds, and this cell exists so a reader never sees one.
-        fmt::print(stderr,
-                   "gatewayd[{}]: {} assets exceeds the {} the snapshot holds\n",
+        RLOG_ERROR("gatewayd[{}]: {} assets exceeds the {} the snapshot holds",
                    who,
                    reports->size(),
                    raikiri::shm::k_balance_rows);
@@ -587,17 +574,19 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 
     if (!answered) {
         answered = true;
-        fmt::print(
-            "gatewayd[{}]: venue answered its balances — {} asset(s)\n", who, snapshot.count);
+        RLOG_INFO("gatewayd[{}]: venue answered its balances — {} asset(s)", who, snapshot.count);
     }
 }
 
 int main(int argc, char** argv) {
-    // LINE BUFFERED, ALWAYS. Redirected to a file, stdout is block buffered by
-    // default, so a gateway that is running normally shows an empty log and one
-    // that has just crashed shows everything at once. Neither is watchable, and
-    // this process is meant to be watched.
-    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    // NOTHING HERE WRITES TO STDOUT. Every line this process emits goes to
+    // stderr, which is unbuffered; a print added to stdout would need the line
+    // buffering set back, or a redirected gateway shows an empty log while it
+    // runs and everything at once when it dies.
+    //
+    // Named for the process, not the account: the account is not parsed yet,
+    // and it is already the first thing in every message this gateway writes.
+    const raikiri::log::Scope logging{"gatewayd"};
     using namespace raikiri;
 
     std::string venue_name = "sim";
@@ -652,37 +641,33 @@ int main(int argc, char** argv) {
         }
         const auto ref = config::SecretRef::parse(spec);
         if (!ref.has_value()) {
-            fmt::print(stderr,
-                       "gatewayd: {} reference is malformed ({})\n",
-                       what,
-                       config::to_string(ref.error()));
+            RLOG_ERROR(
+                "gatewayd: {} reference is malformed ({})", what, config::to_string(ref.error()));
             return false;
         }
-        fmt::print("gatewayd: {} from {}\n", what, config::to_string(ref->scheme));
+        RLOG_INFO("gatewayd: {} from {}", what, config::to_string(ref->scheme));
         if (ref->scheme == config::SecretRef::Scheme::OnePassword) {
             // Reading the secret would say whether it worked, but only after
             // the adapter has already decided to run read-only. The probe
             // touches no secret and answers the question before that.
             const auto status = config::probe_one_password();
             if (!status.usable()) {
-                fmt::print(stderr, "gatewayd: 1password unusable — {}\n", status.diagnostic);
-                fmt::print(stderr,
-                           "gatewayd: on a server set OP_SERVICE_ACCOUNT_TOKEN; on a laptop "
-                           "run `eval $(op signin)`\n");
+                RLOG_ERROR("gatewayd: 1password unusable — {}", status.diagnostic);
+                RLOG_ERROR("gatewayd: on a server set OP_SERVICE_ACCOUNT_TOKEN; on a laptop "
+                           "run `eval $(op signin)`");
                 return false;
             }
-            fmt::print(
-                "gatewayd: 1password {} as {}\n", config::to_string(status.auth), status.account);
+            RLOG_INFO(
+                "gatewayd: 1password {} as {}", config::to_string(status.auth), status.account);
         }
         if (config::is_plaintext(ref->scheme)) {
             // Deliberately available and deliberately loud: it is the one
             // scheme that puts key material into a file that gets committed,
             // baked into an image, and pasted into a bug report.
-            fmt::print(stderr,
-                       "gatewayd: WARNING {} is a literal value in configuration. Fine for a "
-                       "demo; for anything holding real funds use env:, file: or exec: (e.g. "
-                       "exec:op read op://vault/item/field).\n",
-                       what);
+            RLOG_WARN("gatewayd: {} is a literal value in configuration. Fine for a demo; "
+                      "for anything holding real funds use env:, file: or exec: (e.g. "
+                      "exec:op read op://vault/item/field).",
+                      what);
         }
         return true;
     };
@@ -717,8 +702,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (!caps.serves(market)) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: this adapter does not serve the {} market\n",
+        RLOG_ERROR("gatewayd[{}]: this adapter does not serve the {} market",
                    venue_name,
                    to_string(market));
         return 2;
@@ -733,14 +717,13 @@ int main(int argc, char** argv) {
     // shm segment (owner side).
     const auto seg_path = shm::gateway_segment_path(account);
     if (!journal::detail::mkdir_p(platform::runtime_dir() + "/shm")) {
-        fmt::print(stderr, "gatewayd: cannot create runtime dir\n");
+        RLOG_ERROR("gatewayd: cannot create runtime dir");
         return 1;
     }
     auto owner = shm::SegmentOwner::create(
         seg_path, shm::k_gateway_segment_bytes, clock.mono().ns, clock.mono().ns);
     if (!owner.has_value()) {
-        fmt::print(
-            stderr, "gatewayd: segment create failed ({})\n", static_cast<int>(owner.error()));
+        RLOG_ERROR("gatewayd: segment create failed ({})", static_cast<int>(owner.error()));
         return 1;
     }
     auto channels = shm::create_gateway_channels(*owner);
@@ -756,8 +739,7 @@ int main(int argc, char** argv) {
         // AlreadyWriting is the interesting one: another gatewayd for this
         // same account is live, and the segment did not catch it because that
         // process may own a different path under an older naming.
-        fmt::print(stderr,
-                   "gatewayd[{}]: journal open failed{}\n",
+        RLOG_ERROR("gatewayd[{}]: journal open failed{}",
                    account_name,
                    journal_writer.error() == journal::JournalError::AlreadyWriting
                        ? " — another process is already writing it"
@@ -805,13 +787,12 @@ int main(int argc, char** argv) {
                                                    .ledger = rate.costs.ledger});
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
         } else {
-            fmt::print("gatewayd[{}]: no rate budget configured — running unlimited\n",
-                       account_name);
+            RLOG_INFO("gatewayd[{}]: no rate budget configured — running unlimited", account_name);
         }
     } else {
         // Said out loud rather than swallowed: running unlimited because a file
         // failed to parse is a different fact from running unlimited on purpose.
-        fmt::print(stderr, "gatewayd: {} — running unlimited\n", settings.error());
+        RLOG_WARN("gatewayd: {} — running unlimited", settings.error());
     }
 
     auto adapter = exec::make_venue({.venue = venue,
@@ -825,13 +806,11 @@ int main(int argc, char** argv) {
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
-        fmt::print(
-            stderr, "gatewayd: adapter build failed — {}\n", exec::to_string(adapter.error()));
+        RLOG_ERROR("gatewayd: adapter build failed — {}", exec::to_string(adapter.error()));
         return 1;
     }
     if (const auto started = adapter->data->start(); !started.has_value()) {
-        fmt::print(
-            stderr, "gatewayd: market data failed to start — {}\n", started.error().message.view());
+        RLOG_ERROR("gatewayd: market data failed to start — {}", started.error().message.view());
         return 1;
     }
     // Order entry is allowed to refuse when no key was configured, and that is
@@ -844,12 +823,11 @@ int main(int argc, char** argv) {
     if (const auto started = adapter->execution->start(); started.has_value()) {
         can_trade = true;
     } else if (credentials_configured) {
-        fmt::print(
-            stderr, "gatewayd: order entry failed to start — {}\n", started.error().message.view());
+        RLOG_ERROR("gatewayd: order entry failed to start — {}", started.error().message.view());
         return 1;
     } else {
-        fmt::print(
-            "gatewayd[{}]: market data only — {}\n", account_name, started.error().message.view());
+        RLOG_INFO(
+            "gatewayd[{}]: market data only — {}", account_name, started.error().message.view());
     }
     // The catalogue must load before any subscription: an adapter cannot map
     // a single inbound frame without the tick and lot sizes, and a gateway
@@ -861,8 +839,7 @@ int main(int argc, char** argv) {
     } else {
         auto loaded = adapter->instruments->fetch_all(market);
         if (!loaded.has_value()) {
-            fmt::print(stderr,
-                       "gatewayd[{}]: catalogue load failed: {} (code {})\n",
+            RLOG_ERROR("gatewayd[{}]: catalogue load failed: {} (code {})",
                        account_name,
                        loaded.error().message.view(),
                        loaded.error().venue_code);
@@ -870,14 +847,13 @@ int main(int argc, char** argv) {
         }
         catalogue = std::move(*loaded);
     }
-    fmt::print("gatewayd[{}]: {} instruments loaded\n", account_name, catalogue.size());
+    RLOG_INFO("gatewayd[{}]: {} instruments loaded", account_name, catalogue.size());
 
     // Publish the numbering before the segment goes Ready, so a consumer that
     // can attach at all can resolve every id the gateway will ever send.
     for (const auto& instrument : catalogue) {
         if (const auto pushed = channels->catalogue->push(instrument); !pushed.has_value()) {
-            fmt::print(stderr,
-                       "gatewayd[{}]: catalogue publish refused symbol {}\n",
+            RLOG_ERROR("gatewayd[{}]: catalogue publish refused symbol {}",
                        account_name,
                        base_of(instrument).exchange_symbol.view());
             return 1;
@@ -917,20 +893,18 @@ int main(int argc, char** argv) {
         }
     }
     if (matched == 0) {
-        fmt::print(
-            stderr, "gatewayd[{}]: no requested symbol matched the catalogue\n", account_name);
+        RLOG_ERROR("gatewayd[{}]: no requested symbol matched the catalogue", account_name);
         return 1;
     }
     if (subscribed == 0) {
-        fmt::print(stderr,
-                   "gatewayd[{}]: every subscription was refused — {}\n",
+        RLOG_ERROR("gatewayd[{}]: every subscription was refused — {}",
                    account_name,
                    first_refusal.empty() ? "no reason given" : first_refusal);
         return 1;
     }
-    fmt::print("gatewayd[{}]: subscribed to {} instrument(s)\n", account_name, subscribed);
+    RLOG_INFO("gatewayd[{}]: subscribed to {} instrument(s)", account_name, subscribed);
     owner->publish();
-    fmt::print("gatewayd[{}]: up, segment {}\n", account_name, seg_path);
+    RLOG_INFO("gatewayd[{}]: up, segment {}", account_name, seg_path);
 
     shm::SpscConsumer creates{channels->cmd_create};
     shm::SpscConsumer cancels{channels->cmd_cancel};
@@ -989,9 +963,8 @@ int main(int argc, char** argv) {
         if (made.has_value()) {
             poller_adapter = std::make_unique<exec::VenueAdapter>(std::move(*made));
             if (const auto up = poller_adapter->execution->start(); !up.has_value()) {
-                fmt::print(stderr,
-                           "gatewayd: account poller could not start — {}\n",
-                           up.error().message.view());
+                RLOG_WARN("gatewayd: account poller could not start — {}",
+                          up.error().message.view());
                 poller_adapter.reset();
             }
             // ITS OWN CATALOGUE, because it has its own instrument table.
@@ -1003,9 +976,8 @@ int main(int argc, char** argv) {
             if (poller_adapter != nullptr) {
                 if (const auto loaded = poller_adapter->instruments->fetch_all(market);
                     !loaded.has_value()) {
-                    fmt::print(stderr,
-                               "gatewayd: account poller has no catalogue — {}\n",
-                               loaded.error().message.view());
+                    RLOG_WARN("gatewayd: account poller has no catalogue — {}",
+                              loaded.error().message.view());
                     poller_adapter.reset();
                 }
             }
@@ -1115,16 +1087,16 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
-    fmt::print("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-               "order-events={} refusals={}\n",
-               account_name,
-               counts.bbo,
-               counts.depth,
-               counts.depth_levels,
-               counts.trades,
-               counts.funding,
-               counts.greeks,
-               counts.order_events,
-               counts.order_errors);
+    RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
+              "order-events={} refusals={}",
+              account_name,
+              counts.bbo,
+              counts.depth,
+              counts.depth_levels,
+              counts.trades,
+              counts.funding,
+              counts.greeks,
+              counts.order_events,
+              counts.order_errors);
     return 0;
 }

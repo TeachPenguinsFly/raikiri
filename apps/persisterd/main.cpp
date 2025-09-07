@@ -16,6 +16,7 @@
 // this at only one directory persists half the record.
 
 #include <raikiri/journal/reader.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/persist/mapper.hpp>
 #include <raikiri/persist/sink.hpp>
 
@@ -41,10 +42,7 @@ void on_signal(int) {
 } // namespace
 
 int main(int argc, char** argv) {
-    // Line buffered, for the reason gatewayd is: redirected to a file a
-    // daemon's stdout is block buffered, so a healthy process shows an
-    // empty log and a crashed one shows everything at once.
-    (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    const raikiri::log::Scope logging{"persisterd"};
     std::string dir;
     std::string prefix = "journal";
     std::string name;
@@ -95,7 +93,7 @@ int main(int argc, char** argv) {
         raikiri::persist::PgSink sink{dsn};
         if (!migrate_file.empty()) {
             sink.exec_file(migrate_file);
-            fmt::print("persisterd: applied {}\n", migrate_file);
+            RLOG_INFO("persisterd: applied {}", migrate_file);
         }
 
         const auto cursor = sink.load_cursor(name);
@@ -103,11 +101,11 @@ int main(int argc, char** argv) {
         if (!reader.has_value()) {
             // No segments yet is a normal cold start when tailing.
             if (once) {
-                fmt::print("persisterd: no journal at {} — nothing to do\n", dir);
+                RLOG_INFO("persisterd: no journal at {} — nothing to do", dir);
                 return 0;
             }
         }
-        fmt::print("persisterd: tailing {} (prefix {}, cursor {})\n", dir, prefix, cursor);
+        RLOG_INFO("persisterd: tailing {} (prefix {}, cursor {})", dir, prefix, cursor);
 
         raikiri::persist::RowBatch batch;
         auto last_flush = std::chrono::steady_clock::now();
@@ -142,9 +140,7 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (result == raikiri::journal::ReadResult::Corrupt) {
-                fmt::print(stderr,
-                           "persisterd: CORRUPT frame after seq {} — stopping\n",
-                           reader->last_seq());
+                RLOG_ERROR("persisterd: CORRUPT frame after seq {} — stopping", reader->last_seq());
                 flush();
                 return 3;
             }
@@ -160,11 +156,11 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         flush();
-        fmt::print("persisterd: done, {} rows committed, cursor at {}\n",
-                   committed_rows,
-                   once && reader.has_value() ? reader->last_seq() : 0);
+        RLOG_INFO("persisterd: done, {} rows committed, cursor at {}",
+                  committed_rows,
+                  once && reader.has_value() ? reader->last_seq() : 0);
     } catch (const std::exception& e) {
-        fmt::print(stderr, "persisterd: fatal: {}\n", e.what());
+        RLOG_CRITICAL("persisterd: fatal: {}", e.what());
         return 1;
     }
     return 0;
