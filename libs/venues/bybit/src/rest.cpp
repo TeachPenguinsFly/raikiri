@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bybit/endpoints.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
 
 #include <charconv>
@@ -203,7 +204,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/v5/order/create", json.view(), now);
+    return signed_post(ep::k_order_create, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
@@ -225,7 +226,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/v5/order/cancel", json.view(), now);
+    return signed_post(ep::k_order_cancel, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
@@ -255,7 +256,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/v5/order/amend", json.view(), now);
+    return signed_post(ep::k_order_amend, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketType market,
@@ -268,7 +269,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_all(MarketTyp
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_post("/v5/order/cancel-all", json.view(), now);
+    return signed_post(ep::k_order_cancel_all, json.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketType market,
@@ -278,7 +279,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::open_orders(MarketTy
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/v5/order/realtime", query.view(), now);
+    return signed_get(ep::k_order_open, query.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError>
@@ -294,7 +295,7 @@ RequestBuilder::executions(MarketType market, UnixNanos since, UnixNanos now) {
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/v5/execution/list", query.view(), now);
+    return signed_get(ep::k_execution_list, query.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
@@ -304,7 +305,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/v5/position/list", query.view(), now);
+    return signed_get(ep::k_position_list, query.view(), now);
 }
 
 // The account's own record of what it was charged: settlements AND the fees on
@@ -333,7 +334,7 @@ RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos no
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/v5/account/transaction-log", query.view(), now);
+    return signed_get(ep::k_transaction_log, query.view(), now);
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixNanos now) {
@@ -342,12 +343,12 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::wallet_balance(UnixN
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return signed_get("/v5/account/wallet-balance", query.view(), now);
+    return signed_get(ep::k_wallet_balance, query.view(), now);
 }
 
 net::RestRequest RequestBuilder::instruments(MarketType market) {
     Appender target{target_};
-    target << "/v5/market/instruments-info?category=" << category_of(market) << "&limit=1000";
+    target << ep::k_instruments << "?category=" << category_of(market) << "&limit=1000";
 
     net::RestRequest request{};
     request.method = net::HttpMethod::Get;

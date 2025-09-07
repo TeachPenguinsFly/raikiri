@@ -1,4 +1,5 @@
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bybit/endpoints.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <charconv>
@@ -38,15 +39,15 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view public_stream_path(MarketType market) noexcept {
-    return market == MarketType::Spot ? "/v5/public/spot" : "/v5/public/linear";
+    return market == MarketType::Spot ? ep::k_ws_public_spot : ep::k_ws_public_linear;
 }
 
 std::string_view private_stream_path() noexcept {
-    return "/v5/private";
+    return ep::k_ws_private;
 }
 
 std::string_view host(bool testnet) noexcept {
-    return testnet ? "stream-testnet.bybit.com" : "stream.bybit.com";
+    return ep::stream_host(testnet);
 }
 
 std::string_view
