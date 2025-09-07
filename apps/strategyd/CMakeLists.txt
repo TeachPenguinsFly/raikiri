@@ -1,5 +1,4 @@
 add_executable(strategyd main.cpp)
-target_link_libraries(strategyd PRIVATE raikiri::strategy raikiri::strategies raikiri::oms raikiri::shm
-                                        raikiri::portfolio
-                                        raikiri::journal raikiri::schema raikiri::observ fmt::fmt
-                                        raikiri::warnings)
+target_link_libraries(strategyd
+  PRIVATE fmt::fmt raikiri::journal raikiri::observ raikiri::oms raikiri::portfolio
+          raikiri::schema raikiri::shm raikiri::strategies raikiri::strategy raikiri::warnings)

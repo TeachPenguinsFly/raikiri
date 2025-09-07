@@ -1,9 +1,9 @@
-add_library(raikiri_oms STATIC
-  src/order_store.cpp
-)
+add_library(raikiri_oms STATIC src/order_store.cpp)
 add_library(raikiri::oms ALIAS raikiri_oms)
 
 target_include_directories(raikiri_oms PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(raikiri_oms PUBLIC raikiri::domain PRIVATE raikiri::warnings)
+target_link_libraries(raikiri_oms
+  PUBLIC raikiri::domain
+  PRIVATE raikiri::warnings)

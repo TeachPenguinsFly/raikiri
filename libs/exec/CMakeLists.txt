@@ -12,4 +12,6 @@ target_include_directories(raikiri_exec PUBLIC
 )
 # exec depends only on domain: venue contracts speak vocabulary types, never
 # transport types. (shm reuses the same domain PODs as its slot formats.)
-target_link_libraries(raikiri_exec PUBLIC raikiri::domain PRIVATE raikiri::warnings)
+target_link_libraries(raikiri_exec
+  PUBLIC raikiri::domain
+  PRIVATE raikiri::warnings)

@@ -20,8 +20,10 @@ add_custom_target(raikiri_schema_gen
 add_library(raikiri_schema INTERFACE)
 add_library(raikiri::schema ALIAS raikiri_schema)
 add_dependencies(raikiri_schema raikiri_schema_gen)
+
 target_include_directories(raikiri_schema INTERFACE
   ${RAIKIRI_SBE_OUT}
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(raikiri_schema INTERFACE sbepp::sbepp raikiri::journal)
+target_link_libraries(raikiri_schema
+  INTERFACE raikiri::journal sbepp::sbepp)

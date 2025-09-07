@@ -16,4 +16,4 @@ target_include_directories(raikiri_net PUBLIC
 # header of this facade (the io_context wrapper is a pimpl for that reason).
 target_link_libraries(raikiri_net
   PUBLIC raikiri::common raikiri::config
-  PRIVATE OpenSSL::SSL OpenSSL::Crypto Boost::headers raikiri::warnings)
+  PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL raikiri::warnings)

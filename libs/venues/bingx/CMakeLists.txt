@@ -23,5 +23,5 @@ target_include_directories(raikiri_venue_bingx PUBLIC
 # implementation the dependency set already carries. It stays PRIVATE for the
 # same reason simdjson does — ws.hpp hides it behind a pimpl.
 target_link_libraries(raikiri_venue_bingx
-  PUBLIC raikiri::domain raikiri::wire raikiri::exec raikiri::net
-  PRIVATE simdjson::simdjson Boost::headers raikiri::config raikiri::warnings)
+  PUBLIC raikiri::domain raikiri::exec raikiri::net raikiri::wire
+  PRIVATE Boost::headers raikiri::config simdjson::simdjson raikiri::warnings)

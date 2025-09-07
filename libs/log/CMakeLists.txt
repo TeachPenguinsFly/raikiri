@@ -8,4 +8,6 @@ target_include_directories(raikiri_log PUBLIC
 # so the facade header re-exports quill's logging macros. This is the one
 # facade where the backend leaks into the header; swapping it means editing
 # exactly one header. Documented trade-off, not an accident.
-target_link_libraries(raikiri_log PUBLIC quill::quill PRIVATE raikiri::warnings)
+target_link_libraries(raikiri_log
+  PUBLIC quill::quill
+  PRIVATE raikiri::warnings)

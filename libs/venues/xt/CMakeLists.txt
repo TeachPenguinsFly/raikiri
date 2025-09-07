@@ -1,7 +1,7 @@
 add_library(raikiri_venue_xt STATIC
   src/xt_venue.cpp
-  src/errors.cpp
   src/client_id.cpp
+  src/errors.cpp
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
@@ -18,5 +18,5 @@ target_include_directories(raikiri_venue_xt PUBLIC
 # simdjson stays PRIVATE: wire.hpp hands out std::string_view and std::span, so
 # which JSON library walks the frame is a fact confined to src/.
 target_link_libraries(raikiri_venue_xt
-  PUBLIC raikiri::domain raikiri::wire raikiri::exec raikiri::net
-  PRIVATE simdjson::simdjson raikiri::config raikiri::warnings)
+  PUBLIC raikiri::domain raikiri::exec raikiri::net raikiri::wire
+  PRIVATE raikiri::config simdjson::simdjson raikiri::warnings)

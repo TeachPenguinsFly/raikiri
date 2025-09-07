@@ -28,7 +28,8 @@ function(raikiri_add_fuzzer name)
   # so a corpus found under ASan reproduces under ASan.
   target_compile_options(${name} PRIVATE -fsanitize=fuzzer-no-link)
   target_link_options(${name} PRIVATE -fsanitize=fuzzer)
-  target_link_libraries(${name} PRIVATE ${ARG_LIBS} raikiri::warnings)
+  target_link_libraries(${name}
+    PRIVATE ${ARG_LIBS} raikiri::warnings)
   if(ARG_CORPUS)
     set_property(TARGET ${name} PROPERTY RAIKIRI_CORPUS ${ARG_CORPUS})
   endif()

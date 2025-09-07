@@ -9,5 +9,5 @@ target_include_directories(raikiri_persist PUBLIC
 )
 # libpqxx is confined to src/ behind the PgSink pimpl (facade rule).
 target_link_libraries(raikiri_persist
-  PUBLIC raikiri::journal raikiri::domain
-  PRIVATE raikiri::schema libpqxx::pqxx raikiri::warnings)
+  PUBLIC raikiri::domain raikiri::journal
+  PRIVATE libpqxx::pqxx raikiri::schema raikiri::warnings)

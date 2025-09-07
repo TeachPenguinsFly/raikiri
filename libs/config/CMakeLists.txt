@@ -12,4 +12,4 @@ target_include_directories(raikiri_config PUBLIC
 # appear in any public header.
 target_link_libraries(raikiri_config
   PUBLIC raikiri::domain
-  PRIVATE OpenSSL::Crypto glaze::glaze raikiri::warnings)
+  PRIVATE glaze::glaze OpenSSL::Crypto raikiri::warnings)

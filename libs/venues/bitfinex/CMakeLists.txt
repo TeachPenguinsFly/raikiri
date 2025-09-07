@@ -23,5 +23,5 @@ target_include_directories(raikiri_venue_bitfinex PUBLIC
 # HMAC-SHA384, which libs/net carries neither of, and SHA-384 is not SHA-512
 # truncated — it has a different initial state, so no caller can synthesise it.
 target_link_libraries(raikiri_venue_bitfinex
-  PUBLIC raikiri::domain raikiri::book raikiri::wire raikiri::exec raikiri::net
-  PRIVATE simdjson::simdjson OpenSSL::Crypto raikiri::config raikiri::warnings)
+  PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
+  PRIVATE OpenSSL::Crypto raikiri::config simdjson::simdjson raikiri::warnings)
