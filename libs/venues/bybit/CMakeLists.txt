@@ -1,7 +1,10 @@
 add_library(raikiri_venue_bybit STATIC
   src/bybit_venue.cpp
   src/book_sync.cpp
+  src/data_client.cpp
   src/errors.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
