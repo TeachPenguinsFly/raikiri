@@ -1,5 +1,8 @@
 add_library(raikiri_venue_hyperliquid STATIC
   src/hyperliquid_venue.cpp
+  src/data_client.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
   src/errors.cpp
   src/exchange.cpp
   src/keccak.cpp

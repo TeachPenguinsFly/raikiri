@@ -1,5 +1,8 @@
 add_library(raikiri_venue_coinbase STATIC
   src/coinbase_venue.cpp
+  src/data_client.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
   src/book.cpp
   src/errors.cpp
   src/map.cpp

@@ -1,7 +1,10 @@
 add_library(raikiri_venue_xt STATIC
   src/xt_venue.cpp
   src/client_id.cpp
+  src/data_client.cpp
   src/errors.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
