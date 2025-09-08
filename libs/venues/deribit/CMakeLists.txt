@@ -1,5 +1,9 @@
 add_library(raikiri_venue_deribit STATIC
   src/deribit_venue.cpp
+  src/data_client.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
+  src/frames.cpp
   src/book.cpp
   src/errors.cpp
   src/map.cpp
