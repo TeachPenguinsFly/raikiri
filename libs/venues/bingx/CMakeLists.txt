@@ -1,5 +1,8 @@
 add_library(raikiri_venue_bingx STATIC
   src/bingx_venue.cpp
+  src/data_client.cpp
+  src/exec_client.cpp
+  src/instruments.cpp
   src/client_id.cpp
   src/errors.cpp
   src/map.cpp
