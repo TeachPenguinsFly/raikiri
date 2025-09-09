@@ -21,5 +21,5 @@ target_include_directories(raikiri_venue_bitmex PUBLIC
 # simdjson stays PRIVATE: wire.hpp hands out std::string_view and std::span, so
 # which JSON library walks the frame is a fact confined to src/.
 target_link_libraries(raikiri_venue_bitmex
-  PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::portfolio raikiri::wire
-  PRIVATE raikiri::config simdjson::simdjson raikiri::warnings)
+  PUBLIC raikiri::book raikiri::domain raikiri::exec raikiri::net raikiri::wire
+  PRIVATE raikiri::config raikiri::portfolio simdjson::simdjson raikiri::warnings)
