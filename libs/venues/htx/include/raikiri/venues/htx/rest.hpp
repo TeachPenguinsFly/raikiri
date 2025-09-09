@@ -46,8 +46,8 @@ namespace raikiri::venues::htx {
 // This adapter trades USDT-margined swaps in CROSS margin. Isolated margin is
 // a parallel endpoint family (swap_order / swap_openorders / swap_position_info
 // with no `_cross`) and a parallel set of websocket topics; VenueConfig carries
-// no margin-mode field, so widening to isolated means adding one rather than
-// switching this constant.
+// no margin-mode field, so widening to isolated means adding one and moving
+// endpoints.hpp and ws.hpp with it, not switching this constant alone.
 inline constexpr std::string_view k_margin_mode = "cross";
 
 // HTX requires lever_rate on every swap order and refuses one that disagrees
