@@ -1,9 +1,6 @@
-# libFuzzer targets.
-#
-# Off by default and gated on a compiler that actually ships the runtime:
-# AppleClang does not, so a plain macOS build must not fail because of it.
-# CI runs these on Linux with clang; locally use the `fuzz` preset, which
-# selects Homebrew's clang.
+# AppleClang ships no libFuzzer runtime, so these are off by default and a
+# plain macOS build must not fail for want of them. The `fuzz` preset selects
+# Homebrew's clang; CI runs them on Linux.
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   message(STATUS "fuzz: skipped (needs Clang with libFuzzer)")
   return()

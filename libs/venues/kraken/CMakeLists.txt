@@ -19,9 +19,6 @@ add_library(raikiri::venue_kraken ALIAS raikiri_venue_kraken)
 target_include_directories(raikiri_venue_kraken PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-# simdjson stays PRIVATE: wire.hpp hands out std::string_view and std::span, so
-# which JSON library walks the frame is a fact confined to src/.
-#
 # OpenSSL is PRIVATE and confined to src/sign.cpp: Kraken's Authent chain is
 # SHA-256 then HMAC-SHA-512 over raw bytes with a base64-decoded key, and
 # libs/net exposes none of those three steps.

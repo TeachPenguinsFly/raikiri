@@ -1,6 +1,5 @@
-# Generated SBE codecs. schema/journal.xml is the single source of truth;
-# sbeppc output lands in the build tree only — generated code is never
-# checked in, so the schema cannot drift from the codecs.
+# Generated code lands in the build tree only, never checked in — that is
+# what keeps schema/journal.xml and the codecs from drifting apart.
 find_program(SBEPPC_EXECUTABLE sbeppc REQUIRED)
 
 set(RAIKIRI_SBE_SCHEMA ${PROJECT_SOURCE_DIR}/schema/journal.xml)
