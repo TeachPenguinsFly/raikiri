@@ -52,6 +52,7 @@ enum class Feed : std::uint8_t {
     Book,
     Greeks,
     Funding,
+    Ticker,
     Positions,
     Health,
     Orders,
@@ -74,6 +75,7 @@ struct ClientMessage {
     std::optional<std::size_t> levels;
     std::vector<InstrumentId> greeks;
     std::vector<InstrumentId> funding;
+    std::vector<InstrumentId> ticker;
     std::vector<Feed> events;
     std::optional<std::int64_t> millihertz;
 };

@@ -146,6 +146,16 @@ struct Funding {
     std::string ts_event;
 };
 
+// What the venue's rolling 24-hour ticker says about turnover. Both columns,
+// because base volume compares only between venues quoting the same base and
+// quote volume is stated in the quote currency, which is not always dollars.
+struct Ticker {
+    std::string instrument_id;
+    std::string volume_24h_base;
+    std::string volume_24h_quote;
+    std::string ts_event;
+};
+
 // ------------------------------------------------------------ trading ----
 
 struct Position {

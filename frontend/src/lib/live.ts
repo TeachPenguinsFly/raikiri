@@ -23,6 +23,10 @@ export type LiveListing = Listing & {
    *  hyperliquid quotes hourly, and normalising with a guessed interval reads
    *  its rate as eight times itself. */
   fundingIntervalHours: number | null
+  /** The venue's 24-hour turnover in the QUOTE currency. Null until a ticker
+   *  frame arrives, and null for good on a venue whose adapter does not read
+   *  the field — which is not the same as a market that did not trade. */
+  volume24h: number | null
 }
 
 export type LiveMarket = { symbol: string; listings: LiveListing[] }

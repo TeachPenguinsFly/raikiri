@@ -8,11 +8,12 @@ import { Blotter } from '@/components/trading/Blotter'
 import { Ladder } from '@/components/trading/Ladder'
 import { OrderTicket } from '@/components/trading/OrderTicket'
 import { enterDelay, useEntranceOnce } from '@/lib/entrance'
+import { compact } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { api, type Market } from '@/api/client'
 import { num, type LiveListing, type LiveMarket } from '@/lib/live'
 import { useQuery } from '@/lib/query'
-import { useBook, useFunding, useQuotes } from '@/lib/stream'
+import { useBook, useFunding, useQuotes, useTicker } from '@/lib/stream'
 
 const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
 
@@ -21,10 +22,10 @@ const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) :
  *  the venue paying the most and the venue charging the most are the two ends
  *  of a carry, and finding them by eye across sixteen rows is the work this
  *  removes. */
-// No volume: nothing in the contract publishes a 24h figure — not on Quote,
-// not on Funding, not on Instrument — so the column it used to sort is gone
-// rather than filled with a number nobody measured.
-type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding'
+// Volume is the QUOTE column, never the base one: ranking sixteen venues by
+// coins traded puts an inverse contract on top, because its base is the coin
+// the contract is priced in rather than the one it settles.
+type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding' | 'volume'
 
 /** A venue that has not quoted sorts LAST whichever way the column runs, so a
  *  silent venue never displaces a live one at the top of the board. */
@@ -49,6 +50,8 @@ const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
              l.fundingIntervalHours === 0
         ? null
         : (l.fundingRate / l.fundingIntervalHours) * 8
+    case 'volume':
+      return l.volume24h
   }
 }
 
@@ -118,6 +121,7 @@ export function MarketsPage() {
   )
   const quotes = useQuotes(shown)
   const funding = useFunding(shown)
+  const ticker = useTicker(shown)
 
   const live: LiveMarket | null = useMemo(() => {
     if (selected === null) return null
@@ -126,11 +130,13 @@ export function MarketsPage() {
       listings: selected.listings.map((l) => {
         const q = quotes.get(l.instrument_id)
         const f = funding.get(l.instrument_id)
+        const t = ticker.get(l.instrument_id)
         const seconds = f?.interval_seconds ?? null
         return {
           ...l,
           bid: num(q?.bid),
           ask: num(q?.ask),
+          volume24h: num(t?.volume_24h_quote),
           fundingRate: num(f?.rate),
           // NULL, not a default of eight: a venue that does not state its
           // interval cannot have its rate normalised, and guessing one is how
@@ -139,7 +145,7 @@ export function MarketsPage() {
         }
       }),
     }
-  }, [selected, quotes, funding])
+  }, [selected, quotes, funding, ticker])
   const entering = useEntranceOnce(live !== null, live?.symbol)
 
   // The row you clicked is what the ticket writes against and what the ladder
@@ -202,6 +208,9 @@ export function MarketsPage() {
                   </SortHead>
                   <SortHead k="spread" sort={sort} onSort={setSort} right>
                     Spread bp
+                  </SortHead>
+                  <SortHead k="volume" sort={sort} onSort={setSort} right>
+                    Volume 24h
                   </SortHead>
                   <SortHead k="funding" sort={sort} onSort={setSort} right>
                     Funding
@@ -477,6 +486,11 @@ function VenueRow({
       </td>
       <td className="num px-3 text-right text-fg-mid">
         {spread === null ? <Silent /> : spread.toFixed(1)}
+      </td>
+      {/* The quote-currency column. Dimmed, because it is context for the two
+          numbers a trade is decided on rather than one of them. */}
+      <td className="num px-3 text-right text-fg-mid">
+        {listing.volume24h === null ? <Silent /> : compact(listing.volume24h)}
       </td>
       <td className="num px-3 text-right">
         {/* The sign is always printed, so a positive rate occupies the same

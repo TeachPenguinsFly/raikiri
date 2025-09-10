@@ -572,6 +572,22 @@ export interface components {
             interval_seconds?: number | null;
             ts_event: components["schemas"]["Nanos"];
         };
+        Ticker: {
+            instrument_id: components["schemas"]["InstrumentId"];
+            /**
+             * @description Traded in the base asset over the venue's rolling 24 hours. Compares
+             *     between venues quoting the SAME base and between nothing else.
+             */
+            volume_24h_base: components["schemas"]["Decimal"];
+            /**
+             * @description The same window in the QUOTE currency, which for a coin-margined
+             *     contract is not dollars. This is the column a cross-venue board
+             *     ranks on; a board that ranks on the base column puts an inverse
+             *     contract at the top.
+             */
+            volume_24h_quote: components["schemas"]["Decimal"];
+            ts_event: components["schemas"]["Nanos"];
+        };
         NewOrder: {
             /**
              * @description Which gateway sends it, as `format_account` writes the name —
@@ -775,6 +791,7 @@ export interface components {
             book?: components["schemas"]["InstrumentId"];
             greeks?: components["schemas"]["InstrumentId"][];
             funding?: components["schemas"]["InstrumentId"][];
+            ticker?: components["schemas"]["InstrumentId"][];
             events?: ("orders" | "fills" | "recon" | "positions" | "health")[];
             /**
              * @description Asked-for cadence for the state subscriptions in this message. The
@@ -838,6 +855,16 @@ export interface components {
             ts: components["schemas"]["Nanos"];
             funding: components["schemas"]["Funding"][];
         };
+        StreamTicker: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "ticker";
+            id: string;
+            ts: components["schemas"]["Nanos"];
+            ticker: components["schemas"]["Ticker"][];
+        };
         StreamPositions: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -900,7 +927,7 @@ export interface components {
             problem: components["schemas"]["Problem"];
         };
         /** @description Anything the server sends; `type` selects the variant. */
-        StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
+        StreamFrame: components["schemas"]["StreamAck"] | components["schemas"]["StreamQuotes"] | components["schemas"]["StreamBook"] | components["schemas"]["StreamGreeks"] | components["schemas"]["StreamFunding"] | components["schemas"]["StreamTicker"] | components["schemas"]["StreamPositions"] | components["schemas"]["StreamHealth"] | components["schemas"]["StreamEvent"] | components["schemas"]["StreamGap"] | components["schemas"]["StreamProblem"];
     };
     responses: {
         /** @description No such thing */

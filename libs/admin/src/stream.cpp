@@ -58,6 +58,7 @@ struct Message {
     std::string book;
     std::vector<std::string> greeks;
     std::vector<std::string> funding;
+    std::vector<std::string> ticker;
     std::vector<std::string> events;
     // Raw, so the cadence never passes through a double on its way to being an
     // integer count of millihertz.
@@ -221,6 +222,7 @@ bool sequenced(Feed feed) noexcept {
     case Feed::Book:
     case Feed::Greeks:
     case Feed::Funding:
+    case Feed::Ticker:
     case Feed::Positions:
     case Feed::Health:
         return false;
@@ -270,6 +272,11 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
         return std::unexpected(funding.error());
     }
     out.funding = std::move(*funding);
+    auto ticker = read_ids(wire.ticker);
+    if (!ticker.has_value()) {
+        return std::unexpected(ticker.error());
+    }
+    out.ticker = std::move(*ticker);
     if (!wire.book.empty()) {
         out.book = read_id(wire.book);
         if (!out.book.has_value()) {
@@ -307,11 +314,12 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     channels += out.book.has_value() ? 1 : 0;
     channels += out.greeks.empty() ? 0 : 1;
     channels += out.funding.empty() ? 0 : 1;
+    channels += out.ticker.empty() ? 0 : 1;
     channels += out.events.empty() ? 0 : 1;
     if (channels == 0) {
         return std::unexpected(Problem{.title = "subscribe named no channel",
                                        .status = 400,
-                                       .detail = "one of quotes, book, greeks, funding, events"});
+                                       .detail = "one of quotes, book, greeks, funding, ticker, events"});
     }
     if (channels > 1) {
         // The ack states ONE cadence, so a handle covers one channel. Nothing
@@ -342,6 +350,7 @@ std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
         return 1'000;
     case Feed::Greeks:
     case Feed::Funding:
+    case Feed::Ticker:
     case Feed::Positions:
     case Feed::Health:
         return 1'000;
@@ -496,6 +505,21 @@ std::string book_frame(std::string_view id, UnixNanos ts, const Book& book) {
 
 std::string greeks_frame(std::string_view id, UnixNanos ts, std::span<const Greeks> greeks) {
     return list_frame("greeks", id, ts, greeks);
+}
+
+Ticker ticker_of(const TickerStats& stats) {
+    Ticker out{};
+    out.instrument_id = digits(stats.instrument);
+    // Not scaled by the instrument's tick or lot: a turnover is money and a
+    // base volume is coins, and neither is priced in the units a ladder is.
+    out.volume_24h_base = decimal(stats.volume_24h_base);
+    out.volume_24h_quote = decimal(stats.volume_24h_quote);
+    out.ts_event = digits(stats.ts_event);
+    return out;
+}
+
+std::string ticker_frame(std::string_view id, UnixNanos ts, std::span<const Ticker> rows) {
+    return list_frame("ticker", id, ts, rows);
 }
 
 std::string funding_frame(std::string_view id, UnixNanos ts, std::span<const Funding> funding) {
@@ -809,6 +833,10 @@ private:
             open_state(message, Feed::Funding, message.funding);
             return;
         }
+        if (!message.ticker.empty()) {
+            open_state(message, Feed::Ticker, message.ticker);
+            return;
+        }
         open_events(message);
     }
 
@@ -922,6 +950,7 @@ private:
             case Feed::Book:
             case Feed::Greeks:
             case Feed::Funding:
+            case Feed::Ticker:
                 continue; // not reachable: the events array names none of these
             }
         }
@@ -952,6 +981,8 @@ private:
             return sample_greeks(feed, wall);
         case Feed::Funding:
             return sample_funding(feed, wall);
+        case Feed::Ticker:
+            return sample_ticker(feed, wall);
         case Feed::Positions:
             return sample_positions(feed, wall);
         case Feed::Health:
@@ -1059,6 +1090,23 @@ private:
             taken.emplace_back(cell.slot, cell.version);
         }
         enqueue(funding_frame(feed.id, wall, rows));
+        remember(feed, taken);
+        return true;
+    }
+
+    bool sample_ticker(FeedState& feed, UnixNanos wall) {
+        const auto moved = changed<TickerStats>(feed, &shm::GatewayChannels::ticker_stats);
+        if (moved.empty()) {
+            return false;
+        }
+        std::vector<Ticker> rows;
+        rows.reserve(moved.size());
+        std::vector<std::pair<std::size_t, std::uint32_t>> taken;
+        for (const auto& cell : moved) {
+            rows.push_back(ticker_of(cell.record));
+            taken.emplace_back(cell.slot, cell.version);
+        }
+        enqueue(ticker_frame(feed.id, wall, rows));
         remember(feed, taken);
         return true;
     }

@@ -4,6 +4,7 @@ import type { components } from '@/api/types'
 type Frame = components['schemas']['StreamFrame']
 type Quote = components['schemas']['Quote']
 type Funding = components['schemas']['Funding']
+type Ticker = components['schemas']['Ticker']
 type Book = components['schemas']['Book']
 
 /** What a screen asks for. One channel per subscription, which is what the
@@ -11,6 +12,7 @@ type Book = components['schemas']['Book']
 export type Request =
   | { channel: 'quotes'; instruments: string[]; hz?: number }
   | { channel: 'funding'; instruments: string[]; hz?: number }
+  | { channel: 'ticker'; instruments: string[]; hz?: number }
   | { channel: 'book'; instrument: string; levels?: number; hz?: number }
 
 /** One socket for the whole terminal.
@@ -176,6 +178,18 @@ export function useFunding(instruments: string[]): Map<string, Funding> {
     (frame) => (frame.type === 'funding' ? frame.funding : null),
   )
   const merged = useRef(new Map<string, Funding>())
+  if (rows !== null) {
+    for (const row of rows) merged.current.set(row.instrument_id, row)
+  }
+  return merged.current
+}
+
+export function useTicker(instruments: string[]): Map<string, Ticker> {
+  const rows = useFeed(
+    instruments.length === 0 ? null : { channel: 'ticker', instruments },
+    (frame) => (frame.type === 'ticker' ? frame.ticker : null),
+  )
+  const merged = useRef(new Map<string, Ticker>())
   if (rows !== null) {
     for (const row of rows) merged.current.set(row.instrument_id, row)
   }

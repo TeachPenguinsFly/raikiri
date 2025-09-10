@@ -856,6 +856,25 @@ components:
             by a factor of eight.
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
+    Ticker:
+      type: object
+      required: [instrument_id, volume_24h_base, volume_24h_quote, ts_event]
+      properties:
+        instrument_id: { $ref: "#/components/schemas/InstrumentId" }
+        volume_24h_base:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            Traded in the base asset over the venue's rolling 24 hours. Compares
+            between venues quoting the SAME base and between nothing else.
+        volume_24h_quote:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: |
+            The same window in the QUOTE currency, which for a coin-margined
+            contract is not dollars. This is the column a cross-venue board
+            ranks on; a board that ranks on the base column puts an inverse
+            contract at the top.
+        ts_event: { $ref: "#/components/schemas/Nanos" }
+
     # ----------------------------------------------------------- trading ----
 
     NewOrder:
@@ -1121,6 +1140,9 @@ components:
         funding:
           type: array
           items: { $ref: "#/components/schemas/InstrumentId" }
+        ticker:
+          type: array
+          items: { $ref: "#/components/schemas/InstrumentId" }
         events:
           type: array
           items: { type: string, enum: [orders, fills, recon, positions, health] }
@@ -1189,6 +1211,17 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Funding" }
 
+    StreamTicker:
+      type: object
+      required: [type, id, ts, ticker]
+      properties:
+        type: { type: string, const: ticker }
+        id: { type: string }
+        ts: { $ref: "#/components/schemas/Nanos" }
+        ticker:
+          type: array
+          items: { $ref: "#/components/schemas/Ticker" }
+
     StreamPositions:
       type: object
       required: [type, id, ts, positions]
@@ -1254,6 +1287,7 @@ components:
         - { $ref: "#/components/schemas/StreamBook" }
         - { $ref: "#/components/schemas/StreamGreeks" }
         - { $ref: "#/components/schemas/StreamFunding" }
+        - { $ref: "#/components/schemas/StreamTicker" }
         - { $ref: "#/components/schemas/StreamPositions" }
         - { $ref: "#/components/schemas/StreamHealth" }
         - { $ref: "#/components/schemas/StreamEvent" }
@@ -1271,6 +1305,7 @@ components:
           book: "#/components/schemas/StreamBook"
           greeks: "#/components/schemas/StreamGreeks"
           funding: "#/components/schemas/StreamFunding"
+          ticker: "#/components/schemas/StreamTicker"
           positions: "#/components/schemas/StreamPositions"
           health: "#/components/schemas/StreamHealth"
           event: "#/components/schemas/StreamEvent"
