@@ -29,11 +29,6 @@ namespace raikiri::venues::kraken {
 
 using namespace detail;
 
-// A definition of something DECLARED in `detail` must name it: `using
-// namespace detail` only affects lookup, so an unqualified definition here
-// quietly declares a second function in this namespace and the real one goes
-// undefined at link.
-
 namespace {
 
 exec::VenueAdapter

@@ -30,11 +30,6 @@ namespace raikiri::venues::kucoin {
 
 using namespace detail;
 
-// A definition of something DECLARED in `detail` must name it: `using
-// namespace detail` only affects lookup, so an unqualified definition here
-// quietly declares a second function in this namespace and the real one goes
-// undefined at link.
-
 namespace {
 
 // Credentials arrive as references to WHERE the secret lives; the value never

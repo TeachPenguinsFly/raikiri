@@ -1,13 +1,5 @@
 #pragma once
 
-// What the three htx clients share, and nothing else.
-//
-// The public socket, the private socket and the catalogue are separate
-// concerns that happen to run against one connection state. Only that state
-// crosses the boundary; each client keeps its own constants and its own
-// helpers in its own translation unit, where a reader looking for one of them
-// is not made to scroll past the other two.
-//
 // `detail`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 

@@ -1,7 +1,5 @@
 #pragma once
 
-// How the factory reaches the three clients without seeing them.
-//
 // Each client is defined privately in its own translation unit; only these
 // three functions cross the boundary.
 
