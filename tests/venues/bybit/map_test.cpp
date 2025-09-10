@@ -194,6 +194,29 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     EXPECT_FALSE(map_funding(delta, table, k_ingest).has_value());
 }
 
+TEST(BybitMapTickerStats, TurnoverPublishesAndAnAbsentColumnDoesNot) {
+    const auto table = make_table();
+    WireTicker wire{};
+    wire.symbol = "BTCUSDT";
+    wire.is_snapshot = true;
+    wire.volume_24h = "91705.276";
+    wire.turnover_24h = "1570383121.943499";
+    wire.ts_ms = 1'673'272'861'686ULL;
+
+    const auto stats = map_ticker_stats(wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 91'705'276'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'570'383'121'943'499'000LL);
+
+    // The same trap funding has: a delta that restated neither column must
+    // publish nothing, or the board reads a day's turnover as zero until the
+    // next snapshot arrives.
+    WireTicker delta{};
+    delta.symbol = "BTCUSDT";
+    delta.bid1_price = "17215.00";
+    EXPECT_FALSE(map_ticker_stats(delta, table, k_ingest).has_value());
+}
+
 TEST(BybitMapOrderEvent, LifecycleTransitions) {
     const auto table = make_table();
     WireOrderUpdate wire{};

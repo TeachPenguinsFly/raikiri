@@ -151,6 +151,27 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. A delta frame carries the fields that changed; both
+    // volume columns missing means the venue said nothing this tick, and
+    // writing a zero would erase yesterday's turnover until the next snapshot.
+    if (wire.volume_24h.empty() && wire.turnover_24h.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_e9(wire.volume_24h);
+    out.volume_24h_quote = to_e9(wire.turnover_24h);
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
                                           const exec::InstrumentTable& table,
                                           UnixNanos ts_init) {

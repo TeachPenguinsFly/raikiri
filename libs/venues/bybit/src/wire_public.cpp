@@ -262,6 +262,8 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.bid1_size = field("bid1Size");
         out.ask1_price = field("ask1Price");
         out.ask1_size = field("ask1Size");
+        out.volume_24h = field("volume24h");
+        out.turnover_24h = field("turnover24h");
         return out;
     });
 }

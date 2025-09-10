@@ -113,6 +113,10 @@ struct WireTicker {
     std::string_view funding_rate_indicative;
     std::string_view mark_price;
     std::string_view index_price;
+    // The base and quote columns by name. `volume_24h` alone is in
+    // CONTRACTS on this venue, which compares with nothing.
+    std::string_view volume_24h_base;
+    std::string_view volume_24h_quote;
     std::uint64_t funding_next_apply_s{0};
     std::uint32_t funding_interval_s{0};
     std::uint64_t ts_ms{0};

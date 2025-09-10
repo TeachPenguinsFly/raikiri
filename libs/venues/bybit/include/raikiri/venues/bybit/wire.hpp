@@ -109,6 +109,12 @@ struct WireTicker {
     std::string_view index_price;
     std::string_view funding_rate;
     std::string_view next_funding_ms;
+    // EMPTY ON A DELTA, and empty is not zero: bybit sends the 24-hour
+    // figures on the snapshot and omits them from every delta that did not
+    // change them. Publishing a zero here would erase the real turnover on
+    // the next tick.
+    std::string_view volume_24h;   // base units
+    std::string_view turnover_24h; // quote units
     std::string_view bid1_price;
     std::string_view bid1_size;
     std::string_view ask1_price;

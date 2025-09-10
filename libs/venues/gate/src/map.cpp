@@ -175,6 +175,24 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.contract);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_e9(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_e9(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 namespace {
 
 // Gate names the pair nowhere but the symbol: a futures contract's `name` and a

@@ -220,6 +220,8 @@ TEST(BybitTicker, SnapshotPopulatesEverything) {
     EXPECT_EQ(ticker->next_funding_ms, "1673280000000");
     EXPECT_EQ(ticker->bid1_price, "17215.50");
     EXPECT_EQ(ticker->ask1_size, "83.020");
+    EXPECT_EQ(ticker->volume_24h, "91705.276");
+    EXPECT_EQ(ticker->turnover_24h, "1570383121.943499");
 }
 
 TEST(BybitTicker, DeltaLeavesAbsentFieldsEmptyRatherThanZero) {
@@ -236,6 +238,10 @@ TEST(BybitTicker, DeltaLeavesAbsentFieldsEmptyRatherThanZero) {
     EXPECT_TRUE(ticker->funding_rate.empty()) << "absent means unchanged, not zero";
     EXPECT_TRUE(ticker->mark_price.empty());
     EXPECT_TRUE(ticker->next_funding_ms.empty());
+    // Same trap on the turnover columns: a zero here would erase a day's
+    // volume from the board until the next snapshot.
+    EXPECT_TRUE(ticker->volume_24h.empty());
+    EXPECT_TRUE(ticker->turnover_24h.empty());
 }
 
 TEST(BybitOrders, FilledUpdate) {

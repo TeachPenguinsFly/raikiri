@@ -32,6 +32,13 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same frame. Separate from map_funding because
+// spot has one and no funding, and because a delta that restates neither must
+// publish neither.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+
 // Private stream ----------------------------------------------------------
 
 // Lifecycle event for an order update, or nullopt when the update carries no

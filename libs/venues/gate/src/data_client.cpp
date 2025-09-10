@@ -150,6 +150,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
         break;
     }
     case EventKind::BookUpdate:

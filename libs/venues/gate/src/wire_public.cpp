@@ -304,6 +304,13 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             out.funding_interval_s = static_cast<std::uint32_t>(*interval);
             out.funding_next_apply_s = *next_apply;
             out.index_price = *index;
+            // OPTIONAL, unlike the rest: a contract that has not traded in the
+            // window carries no volume field at all, and refusing the whole
+            // frame over it would drop its funding rate too.
+            out.volume_24h_base =
+                detail::opt_num(obj, "volume_24h_base").value_or(std::string_view{});
+            out.volume_24h_quote =
+                detail::opt_num(obj, "volume_24h_quote").value_or(std::string_view{});
             out.ts_ms = *ts;
             return out;
         }

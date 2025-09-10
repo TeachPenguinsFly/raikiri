@@ -49,6 +49,11 @@ map_book(const WireBookUpdate& wire, const exec::InstrumentTable& table, UnixNan
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same frame. Gate's own `volume_24h` is in
+// CONTRACTS and is deliberately not read: it compares with no other venue.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything delisting or not trading, anything that is not

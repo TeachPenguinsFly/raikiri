@@ -219,6 +219,11 @@ TEST(GateWire, TickerCarriesFundingAndMarkOnOneChannel) {
     // Deprecated per Gate's own SDK and observed equal to funding_rate, which
     // is why the mapper refuses to publish it as a forecast.
     EXPECT_EQ(ticker->funding_rate_indicative, ticker->funding_rate);
+    // The base and quote columns by name. `volume_24h` on the same object
+    // is in CONTRACTS (498618666 against 49861.8666 BTC) and is the one
+    // number here that compares with no other venue.
+    EXPECT_EQ(ticker->volume_24h_base, "49861.8666");
+    EXPECT_EQ(ticker->volume_24h_quote, "3198952872");
 }
 
 TEST(GateWire, BookUpdateChainsOnUpdateIds) {
