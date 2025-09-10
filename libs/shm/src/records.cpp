@@ -10,6 +10,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.depth = owner.create_channel<DepthTable>("depth");
     ch.funding = owner.create_channel<FundingTable>("funding");
     ch.greeks = owner.create_channel<GreeksTable>("greeks");
+    ch.ticker_stats = owner.create_channel<TickerStatsTable>("ticker_stats");
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.funding_charges = owner.create_channel<LedgerEntryRing>("funding_charges");
@@ -22,7 +23,8 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
         ch.funding_charges == nullptr || ch.open_orders == nullptr || ch.greeks == nullptr ||
-        ch.positions == nullptr || ch.balances == nullptr || ch.cmd_create == nullptr ||
+        ch.ticker_stats == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
+        ch.cmd_create == nullptr ||
         ch.cmd_cancel == nullptr || ch.order_intents == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
     }
@@ -49,6 +51,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     const auto greeks = client.open_channel<GreeksTable>("greeks");
     if (!greeks) {
         return std::unexpected{greeks.error()};
+    }
+    const auto ticker = client.open_channel<TickerStatsTable>("ticker_stats");
+    if (!ticker) {
+        return std::unexpected{ticker.error()};
     }
     const auto md = client.open_channel<MdRing>("md_events");
     if (!md) {
@@ -86,20 +92,24 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!intents) {
         return std::unexpected{intents.error()};
     }
-    return GatewayChannels{*catalogue,
-                           *bbo,
-                           *depth,
-                           *funding,
-                           *greeks,
-                           *md,
-                           *exec,
-                           *charges,
-                           *positions,
-                           *open_orders,
-                           *balances,
-                           *create,
-                           *cancel,
-                           *intents};
+    // NAMED, not positional. This list once matched GatewayChannels by order
+    // alone, so a field added in the middle of that struct would have shifted
+    // every channel after it onto the wrong pointer, silently and at runtime.
+    return GatewayChannels{.catalogue = *catalogue,
+                           .bbo = *bbo,
+                           .depth = *depth,
+                           .funding = *funding,
+                           .greeks = *greeks,
+                           .ticker_stats = *ticker,
+                           .md_events = *md,
+                           .exec_events = *exec,
+                           .funding_charges = *charges,
+                           .positions = *positions,
+                           .open_orders = *open_orders,
+                           .balances = *balances,
+                           .cmd_create = *create,
+                           .cmd_cancel = *cancel,
+                           .order_intents = *intents};
 }
 
 std::string gateway_segment_path(AccountId account) {

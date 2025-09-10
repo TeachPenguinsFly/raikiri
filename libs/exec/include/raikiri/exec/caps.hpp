@@ -77,6 +77,11 @@ struct VenueCaps {
     // honest state rather than a wrong one.
     bool funding_charge{false};
 
+    // The venue publishes a rolling 24-hour turnover on its ticker AND this
+    // adapter reads it. False means the board has no volume for this venue —
+    // which must not be drawn as a zero.
+    bool ticker_stats{false};
+
     // A third credential beyond key and secret. The adapters that need one
     // refuse to sign without it, and two of them refuse quietly — okx and
     // bitget start successfully and then reject every order locally — so the

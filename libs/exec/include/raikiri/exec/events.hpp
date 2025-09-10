@@ -52,6 +52,12 @@ public:
 
     // Declining by default: one venue publishes greeks today, and an adapter
     // for a venue that lists no options has nothing to say here.
+    // The venue's 24-hour turnover, where it publishes one. Declining by
+    // default like the rest of the optional feeds: an adapter that never calls
+    // this and a market that never traded are different facts, and `caps
+    // .ticker_stats` is what separates them for a caller.
+    virtual void on_ticker_stats(const TickerStats& stats) noexcept { (void)stats; }
+
     virtual void on_option_greeks(const OptionGreeks& greeks) noexcept { (void)greeks; }
 
     virtual void on_order_event(const OrderEvent& event) noexcept = 0;

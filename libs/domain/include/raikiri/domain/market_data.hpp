@@ -81,6 +81,26 @@ struct FundingUpdate {
 
 static_assert(std::is_trivially_copyable_v<FundingUpdate>);
 
+// What the venue's rolling 24-hour ticker says about turnover.
+//
+// BOTH COLUMNS, because neither compares on its own. Base volume compares
+// between two venues quoting the same base and means nothing between different
+// ones; quote volume is stated in the QUOTE currency, which for a
+// coin-margined contract is not dollars. A board that ranks by one and labels
+// it the other is a board that puts an inverse contract at the top.
+//
+// A zero here is a market that did not trade. An instrument the venue has said
+// nothing about has no cell at all — the two must not be read alike.
+struct TickerStats {
+    InstrumentId instrument{};
+    FixedE9 volume_24h_base{};
+    FixedE9 volume_24h_quote{};
+    UnixNanos ts_event{};
+    UnixNanos ts_init{};
+};
+
+static_assert(std::is_trivially_copyable_v<TickerStats>);
+
 // What the venue says about an option beyond its price.
 //
 // THE VENUE'S NUMBERS, NOT OURS. Computing greeks here would need a vol

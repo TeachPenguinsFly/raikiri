@@ -149,6 +149,7 @@ static_assert(std::is_trivially_copyable_v<OrderCmd>);
 inline constexpr std::size_t k_bbo_cells = 4096;
 inline constexpr std::size_t k_funding_cells = 4096;
 inline constexpr std::size_t k_greeks_cells = 4096;
+inline constexpr std::size_t k_ticker_cells = 4096;
 inline constexpr std::size_t k_depth_cells = 4096;
 inline constexpr std::size_t k_position_cells = 4096;
 // A desk with more than this many orders resting on one venue at once has a
@@ -172,10 +173,12 @@ static_assert(k_catalogue_cells == k_bbo_cells);
 static_assert(k_depth_cells == k_bbo_cells);
 static_assert(k_position_cells == k_bbo_cells);
 static_assert(k_greeks_cells == k_bbo_cells);
+static_assert(k_ticker_cells == k_bbo_cells);
 
 using BboTable = SeqlockTable<Bbo, k_bbo_cells>;
 using FundingTable = SeqlockTable<FundingUpdate, k_funding_cells>;
 using GreeksTable = SeqlockTable<OptionGreeks, k_greeks_cells>;
+using TickerStatsTable = SeqlockTable<TickerStats, k_ticker_cells>;
 using DepthTable = SeqlockTable<BookSnapshot, k_depth_cells>;
 using PositionTable = SeqlockTable<PositionCell, k_position_cells>;
 using OpenOrderTable = SeqlockTable<OpenOrderCell, k_open_order_cells>;
@@ -197,6 +200,10 @@ struct GatewayChannels {
     DepthTable* depth{nullptr};
     FundingTable* funding{nullptr};
     GreeksTable* greeks{nullptr};
+    // Slow-moving beside the quote table: a 24-hour figure that a venue
+    // restates on every ticker frame. Latest-value, so a reader that missed
+    // an hour of frames still holds the right number.
+    TickerStatsTable* ticker_stats{nullptr};
     MdRing* md_events{nullptr};
     ExecRing* exec_events{nullptr};
     // What the venue TOOK, beside what it quoted. The `funding` table above

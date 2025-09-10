@@ -152,6 +152,17 @@ public:
         }
     }
 
+    void on_ticker_stats(const raikiri::TickerStats& stats) noexcept override {
+        ++counts_.ticker_stats;
+        const auto idx = stats.instrument.symbol().raw;
+        if (idx < raikiri::shm::k_ticker_cells) {
+            ch_.ticker_stats->write(idx, stats);
+        }
+        // Not journalled. A 24-hour figure the venue restates every tick is a
+        // running total, not an event: replaying it reconstructs nothing, and
+        // the only useful reading is the latest one, which the cell holds.
+    }
+
     void on_funding(const raikiri::FundingUpdate& funding) noexcept override {
         ++counts_.funding;
         const auto idx = funding.instrument.symbol().raw;
@@ -263,6 +274,7 @@ public:
         std::uint64_t depth{0};
         std::uint32_t depth_levels{0};
         std::uint64_t funding{0};
+        std::uint64_t ticker_stats{0};
         std::uint64_t greeks{0};
         std::uint64_t order_events{0};
         std::uint64_t order_errors{0};
@@ -322,6 +334,8 @@ struct NullSink final : raikiri::exec::GatewaySink {
     void on_bbo(const raikiri::Bbo&) noexcept override {}
 
     void on_trade(const raikiri::TradeTick&) noexcept override {}
+
+    void on_ticker_stats(const raikiri::TickerStats&) noexcept override {}
 
     void on_funding(const raikiri::FundingUpdate&) noexcept override {}
 
@@ -1088,7 +1102,7 @@ int main(int argc, char** argv) {
     journal_writer->flush();
     const auto& counts = sink.counts();
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-              "order-events={} refusals={}",
+              "ticker={} order-events={} refusals={}",
               account_name,
               counts.bbo,
               counts.depth,
@@ -1096,6 +1110,7 @@ int main(int argc, char** argv) {
               counts.trades,
               counts.funding,
               counts.greeks,
+              counts.ticker_stats,
               counts.order_events,
               counts.order_errors);
     return 0;
