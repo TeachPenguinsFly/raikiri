@@ -54,6 +54,9 @@ inline constexpr std::string_view k_listen_key = "/fapi/v1/listenKey";
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_exchange_info = "/fapi/v1/exchangeInfo";
 inline constexpr std::string_view k_premium_index = "/fapi/v1/premiumIndex";
+// Every symbol in one answer. Weight 40 for the whole table against 1 per
+// symbol, which is why nothing here asks per symbol.
+inline constexpr std::string_view k_ticker_24h = "/fapi/v1/ticker/24hr";
 inline constexpr std::string_view k_depth = "/fapi/v1/depth";
 inline constexpr std::string_view k_server_time = "/fapi/v1/time";
 

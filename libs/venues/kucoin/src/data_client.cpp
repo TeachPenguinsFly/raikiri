@@ -29,6 +29,11 @@ namespace raikiri::venues::kucoin::detail {
 
 namespace {
 
+// A day's turnover restated every five minutes. The catalogue endpoint
+// answers with every contract, so this is one call however many symbols
+// the gateway watches.
+constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
 // refuses is left alone, because the next change asks again.
@@ -281,6 +286,7 @@ public:
         }
         if (kind == exec::SubKind::Funding) {
             seed_funding(symbol);
+            wanted_.push_back(instrument);
         }
         return {};
     }
@@ -302,6 +308,54 @@ public:
         }
         for (auto* pumped : state_->pumps) {
             pumped->pump(now);
+        }
+        poll_ticker(now);
+    }
+
+    // The 24-hour window comes off the CATALOGUE endpoint, which is the only
+    // place kucoin states it — no stream this adapter subscribes to carries a
+    // turnover. Slow, because the figure it reads covers a day.
+    void poll_ticker(UnixNanos now) noexcept {
+        if (wanted_.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
+            return;
+        }
+        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
+        ticker_in_flight_ = true;
+        try {
+            if (!state_->depth_rest.send(
+                    state_->builder.contracts_active(),
+                    [this](net::RestResponse&& response) { on_ticker(response); })) {
+                ticker_in_flight_ = false;
+            }
+        } catch (...) {
+            ticker_in_flight_ = false;
+        }
+    }
+
+    void on_ticker(const net::RestResponse& response) noexcept {
+        ticker_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local ContractBuffer storage;
+        const auto rows = parse_contracts(response.body, storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto* instrument = state_->instruments.find(row.symbol);
+            if (instrument == nullptr) {
+                continue;
+            }
+            const auto id = base_of(*instrument).id;
+            if (std::ranges::none_of(wanted_, [id](InstrumentId sub) { return sub == id; })) {
+                continue;
+            }
+            if (const auto stats = map_ticker_stats(row, state_->instruments, received);
+                stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
         }
     }
 
@@ -377,6 +431,9 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::RestClient rest_;
+    std::vector<InstrumentId> wanted_;
+    std::uint64_t next_ticker_poll_ns_{0};
+    bool ticker_in_flight_{false};
     std::unique_ptr<net::WsClient> client_;
     bool started_{false};
 };

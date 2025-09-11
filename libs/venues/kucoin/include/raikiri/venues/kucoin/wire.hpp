@@ -168,6 +168,11 @@ struct WireContract {
     std::string_view multiplier;
     std::string_view index_tick_size;
     std::string_view max_order_qty;
+    // The 24-hour window rides the CATALOGUE row on this venue: kucoin
+    // states no turnover on any stream the adapter subscribes to, and the
+    // endpoint that lists the contracts states it per contract.
+    std::string_view volume_24h;   // volumeOf24h, base asset
+    std::string_view turnover_24h; // turnoverOf24h, quote currency
     std::uint64_t funding_granularity_ms{0};
 };
 

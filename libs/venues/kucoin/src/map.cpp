@@ -270,6 +270,26 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
+std::optional<TickerStats>
+map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table,
+                 UnixNanos ts_init) {
+    if (wire.volume_24h.empty() && wire.turnover_24h.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_e9(wire.volume_24h).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_e9(wire.turnover_24h).value_or(FixedE9::from_raw(0));
+    // The catalogue states no clock of its own, so the read is its own stamp.
+    out.ts_event = ts_init;
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                          std::string_view symbol,
                                          const exec::InstrumentTable& table,

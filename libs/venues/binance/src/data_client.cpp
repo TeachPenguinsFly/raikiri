@@ -36,6 +36,10 @@ namespace {
 // continuously; a poll a minute is far finer than the fact changes.
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
+// A 24-hour rolling figure barely moves in a minute, and the whole table
+// costs weight 40 against the funding read's 1. Slow on purpose.
+constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send that
 // the pool refuses is left alone, because the next delta asks again.
@@ -275,6 +279,7 @@ public:
         }
         state_->io.poll();
         poll_funding(now);
+        poll_ticker(now);
         if (state_->tick_hook) {
             state_->tick_hook(now);
         }
@@ -299,6 +304,56 @@ private:
             }
         } catch (...) {
             in_flight_ = false;
+        }
+    }
+
+    // Rides the funding subscription's instrument list: binance has no
+    // separate way to say "I want turnover for this symbol", and a gateway
+    // that subscribed to neither should not be paying weight for either.
+    void poll_ticker(UnixNanos now) noexcept {
+        if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ ||
+            ticker_in_flight_) {
+            return;
+        }
+        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
+        ticker_in_flight_ = true;
+        try {
+            if (!state_->depth_rest.send(
+                    state_->builder.ticker_24h(),
+                    [this](const net::RestResponse& response) { on_ticker(response); })) {
+                ticker_in_flight_ = false;
+            }
+        } catch (...) {
+            ticker_in_flight_ = false;
+        }
+    }
+
+    void on_ticker(const net::RestResponse& response) noexcept {
+        ticker_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local Ticker24hBuffer storage;
+        const auto rows = parse_ticker_24h(response.body, storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto* instrument = state_->instruments.find(row.symbol);
+            if (instrument == nullptr) {
+                continue;
+            }
+            const auto id = base_of(*instrument).id;
+            const bool wanted = std::ranges::any_of(state_->funding_instruments,
+                                                    [id](InstrumentId sub) { return sub == id; });
+            if (!wanted) {
+                continue;
+            }
+            if (const auto stats = map_ticker_stats(row, state_->instruments, received);
+                stats.has_value()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
         }
     }
 
@@ -336,6 +391,8 @@ private:
     net::WsClient client_;
     bool started_{false};
     bool in_flight_{false};
+    bool ticker_in_flight_{false};
+    std::uint64_t next_ticker_poll_ns_{0};
 };
 
 } // namespace

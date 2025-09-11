@@ -222,6 +222,38 @@ parse_premium_index(std::string_view body, PremiumBuffer& storage) {
     });
 }
 
+std::expected<std::span<const WireTicker24h>, WireError>
+parse_ticker_24h(std::string_view body, Ticker24hBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireTicker24h>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_ticker_rows) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireTicker24h out{};
+            const auto symbol = detail::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            out.volume = detail::opt_str(obj, "volume").value_or(std::string_view{});
+            out.quote_volume = detail::opt_str(obj, "quoteVolume").value_or(std::string_view{});
+            out.close_ms = detail::opt_u64(obj, "closeTime").value_or(0);
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireTicker24h>{storage.rows.data(), count};
+    });
+}
+
 std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
                                                              LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireDepthUpdate, WireError> {

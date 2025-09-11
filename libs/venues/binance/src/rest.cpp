@@ -118,6 +118,10 @@ net::RestRequest RequestBuilder::instruments() noexcept {
 
 // Every symbol in one call. Binance answers ~880 rows, which is cheaper than
 // asking per instrument and is why this needs no round-robin cursor.
+net::RestRequest RequestBuilder::ticker_24h() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_ticker_24h, .body = {}};
+}
+
 net::RestRequest RequestBuilder::premium_index() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_premium_index, .body = {}};
 }

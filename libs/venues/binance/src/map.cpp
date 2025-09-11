@@ -269,6 +269,25 @@ namespace {
 
 } // namespace
 
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table,
+                 UnixNanos ts_init) {
+    if (wire.volume.empty() && wire.quote_volume.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_e9(wire.volume);
+    out.volume_24h_quote = to_e9(wire.quote_volume);
+    out.ts_event = ms_to_unix(wire.close_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
                                           const exec::InstrumentTable& table,
                                           UnixNanos ts_init) {

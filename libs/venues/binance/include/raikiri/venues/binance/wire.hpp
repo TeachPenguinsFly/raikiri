@@ -102,6 +102,25 @@ struct WireMarkPrice {
 // this venue, so the rate has to be pulled or it does not arrive at all.
 inline constexpr std::size_t k_max_premium_rows = 2048;
 
+// GET /fapi/v1/ticker/24hr. The 24-hour window binance states per symbol; the
+// mark-price stream this adapter polls carries no turnover at all, so this is
+// a second read rather than another field on the first.
+struct WireTicker24h {
+    std::string_view symbol;
+    std::string_view volume;       // base asset
+    std::string_view quote_volume; // quote currency
+    std::uint64_t close_ms{0};
+};
+
+inline constexpr std::size_t k_max_ticker_rows = 2048;
+
+struct Ticker24hBuffer {
+    std::array<WireTicker24h, k_max_ticker_rows> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireTicker24h>, WireError>
+parse_ticker_24h(std::string_view body, Ticker24hBuffer& storage);
+
 struct PremiumBuffer {
     std::array<WireMarkPrice, k_max_premium_rows> rows{};
 };

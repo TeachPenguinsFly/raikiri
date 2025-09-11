@@ -173,6 +173,16 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                 return std::unexpected(granularity.error());
             }
             out.funding_granularity_ms = *granularity;
+            // OPTIONAL, unlike everything above: a contract listed but never
+            // traded carries neither field, and refusing the row over that
+            // would drop the instrument out of the catalogue entirely.
+            for (const auto& [key, field] :
+                 {std::pair{"volumeOf24h", &out.volume_24h},
+                  std::pair{"turnoverOf24h", &out.turnover_24h}}) {
+                if (const auto value = detail::opt_decimal(obj, key); value.has_value()) {
+                    *field = *value;
+                }
+            }
             storage.contracts[count] = out;
             ++count;
         }

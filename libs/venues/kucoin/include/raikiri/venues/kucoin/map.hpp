@@ -43,6 +43,12 @@ map_book(const WireBookSnapshot& wire, const exec::InstrumentTable& table, UnixN
 // rate at all — a contract without funding must not be reported as one
 // funding at zero. mark_price is left undefined because KuCoin ships mark
 // under a different subject; a zero there would read as a real price of zero.
+// The 24-hour window off a CATALOGUE row. Futures only: kucoin's spot
+// tickers carry their own turnover under different names and this adapter does
+// not read them, so a spot instrument has no volume rather than a zero.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                                        std::string_view symbol,
                                                        const exec::InstrumentTable& table,
