@@ -20,6 +20,9 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "mark-price") {
         return EventKind::MarkPrice;
     }
+    if (channel == "tickers") {
+        return EventKind::Tickers;
+    }
     if (channel == "books") {
         return EventKind::Books;
     }
@@ -288,6 +291,44 @@ std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view fr
                 }
                 out.funding_ms = *funding;
                 out.next_funding_ms = *next;
+                out.ts_ms = *ts;
+                return out;
+            });
+    });
+}
+
+std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return detail::with_first_data(
+            *root, [](detail::ondemand::object& obj) -> std::expected<WireTicker, WireError> {
+                WireTicker out{};
+                const auto inst_id = detail::req_str(obj, "instId");
+                const auto inst_type = detail::req_str(obj, "instType");
+                if (!inst_id.has_value() || !inst_type.has_value()) {
+                    // Without instType the two volume columns cannot be told
+                    // apart, and guessing puts a contract count on the board.
+                    return std::unexpected(WireError::MissingField);
+                }
+                out.inst_id = *inst_id;
+                out.inst_type = *inst_type;
+                // OPTIONAL: an instrument that has not traded in the window
+                // states no volume, and refusing the frame over it would cost
+                // every other fact on it.
+                const auto vol = detail::opt_str(obj, "vol24h");
+                const auto vol_ccy = detail::opt_str(obj, "volCcy24h");
+                if (!vol.has_value() || !vol_ccy.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                out.vol_24h = *vol;
+                out.vol_ccy_24h = *vol_ccy;
+                const auto ts = detail::opt_ms(obj, "ts");
+                if (!ts.has_value()) {
+                    return std::unexpected(ts.error());
+                }
                 out.ts_ms = *ts;
                 return out;
             });

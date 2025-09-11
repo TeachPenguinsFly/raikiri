@@ -61,6 +61,11 @@ inline constexpr std::string_view k_spot_orders_channel = "orders#*";
 // cancel twice.
 inline constexpr std::string_view k_spot_trades_channel = "trade.clearing#*#0";
 
+// The 24-hour window. It is on the MARKET socket while funding is on the
+// notification one, so the two arrive under one SubKind from two connections;
+// no kind of its own exists to ask for it with.
+inline constexpr std::string_view k_detail_topic = "detail";
+
 // The part after the contract code. Empty for a kind HTX does not stream
 // under these names — including Funding, which lives on the other socket and
 // so goes through funding_subscribe_frame instead.

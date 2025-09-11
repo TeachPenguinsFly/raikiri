@@ -65,6 +65,17 @@ struct WireTicker {
     std::string_view mark_price;
     std::string_view index_price;
     std::string_view funding_rate;
+    // Bitget's own names, and the pair is not interchangeable: `baseVolume`
+    // counts the BASE asset, `quoteVolume` the same window in the QUOTE. The
+    // REST row carries a third, `usdtVolume`, which equals quoteVolume only on
+    // a USDT-margined contract and is deliberately not read.
+    //
+    // EMPTY IS NOT ZERO. Every observed frame on this channel is a full
+    // snapshot (MEASURED 2026-09-04: 317 of 317 carried action "snapshot" and
+    // both columns), but a frame that omitted one must leave it empty rather
+    // than publish a zero, which would erase a day's turnover from the board.
+    std::string_view volume_24h_base;  // baseVolume
+    std::string_view volume_24h_quote; // quoteVolume
     std::uint64_t next_funding_ms{0};
     std::uint64_t ts_ms{0};
 };

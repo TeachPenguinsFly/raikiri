@@ -255,6 +255,27 @@ map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, Un
     return out;
 }
 
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
+                                            const exec::InstrumentTable& table,
+                                            MarketType market,
+                                            UnixNanos ts_init) {
+    if (wire.volume.empty() && wire.quote_volume.empty()) {
+        return std::nullopt;
+    }
+    const auto* base_ptr = base_for_market(wire.symbol, table, market);
+    if (base_ptr == nullptr) {
+        return std::nullopt;
+    }
+
+    TickerStats out{};
+    out.instrument = base_ptr->id;
+    out.volume_24h_base = to_e9(wire.volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_e9(wire.quote_volume).value_or(FixedE9::from_raw(0));
+    out.ts_event = ms_to_unix(wire.event_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
     if (wire.status != 1) {
         return std::nullopt;

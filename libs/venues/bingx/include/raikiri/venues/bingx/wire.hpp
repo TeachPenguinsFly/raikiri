@@ -30,6 +30,7 @@ enum class EventKind : std::uint8_t {
     Trade,      // {sym}@trade
     Depth,      // {sym}@depth100@100ms — a 100-level snapshot, not a delta
     MarkPrice,  // {sym}@markPrice — mark only; BingX streams no funding
+    Ticker,     // {sym}@ticker — the rolling 24-hour window, both trees
     Ping,       // the bare text "Ping"
     ControlAck, // a subscribe/unsubscribe answer with code 0
     Error,      // the same shape with a non-zero code
@@ -110,6 +111,26 @@ struct WireMarkPrice {
 };
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
+
+// {sym}@ticker, the venue's rolling 24-hour window. It is the only statistic
+// on either socket — BingX streams no funding at all, so nothing else shares
+// this channel and nothing downstream depends on it arriving.
+//
+// `v` is the window in BASE units and `q` the same window in QUOTE. VERIFIED
+// against the REST ticker taken a minute apart: volume 22266.0100 against
+// quoteVolume 1795681423.88, a quotient of 80646 inside that frame's
+// 78949-82264 low-high band. Both trees push a whole snapshot every second
+// rather than a delta, and both columns are optional even so — empty is not
+// zero. The perpetual tree QUOTES both numbers and spot sends them bare, which
+// is why they are read as scalars rather than as strings.
+struct WireTicker {
+    std::string_view symbol;
+    std::string_view volume;       // `v`, base units
+    std::string_view quote_volume; // `q`, quote units
+    std::uint64_t event_ms{0};
+};
+
+[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
 struct WireLevel {
     std::string_view price;

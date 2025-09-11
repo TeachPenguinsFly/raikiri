@@ -31,6 +31,7 @@ TEST(OkxWire, EventDispatchResolvesKindAndInstrument) {
     for (const auto& [file, kind] : {std::pair{"ws_bbo_tbt.json", EventKind::Bbo},
                                      std::pair{"ws_trades.json", EventKind::Trade},
                                      std::pair{"ws_funding_rate.json", EventKind::FundingRate},
+                                     std::pair{"ws_tickers.json", EventKind::Tickers},
                                      std::pair{"ws_books_snapshot.json", EventKind::Books}}) {
         const auto frame = fixture(file);
         const auto event = parse_event(frame);
@@ -116,6 +117,33 @@ TEST(OkxWire, FundingRateSeparatesCurrentSettlementFromTheOneAfter) {
     // Observed live: OKX ships the forecast field empty rather than omitting
     // it, so the mapper must not read "" as a rate of zero.
     EXPECT_TRUE(funding->next_funding_rate.empty());
+}
+
+TEST(OkxWire, TickersCarryTheTurnoverTheOtherChannelsDoNot) {
+    // The funding-rate and bbo-tbt frames state no volume at all; this is the
+    // only public channel that does.
+    const auto swap_frame = fixture("ws_tickers.json");
+    const auto swap = parse_ticker(swap_frame);
+    ASSERT_TRUE(swap.has_value());
+    EXPECT_EQ(swap->inst_id, "BTC-USDT-SWAP");
+    EXPECT_EQ(swap->inst_type, "SWAP");
+    // Captured live. vol24h is a CONTRACT count and volCcy24h the base asset,
+    // and the frame proves the relation: 13 446 460.96 contracts at the
+    // catalogue's 0.01 BTC ctVal is exactly 134 464.6096 BTC.
+    EXPECT_EQ(swap->vol_24h, "13446460.96");
+    EXPECT_EQ(swap->vol_ccy_24h, "134464.6096");
+    EXPECT_EQ(swap->ts_ms, 1'788'532'273'172ULL);
+
+    // The same two names, the other meaning. Here vol24h is the base asset and
+    // volCcy24h the quote: 843 192 320.03 / 10 451.54 is 80 675 a coin, inside
+    // the frame's own 78 990 .. 82 285 range.
+    const auto spot_frame = fixture("ws_tickers_spot.json");
+    const auto spot = parse_ticker(spot_frame);
+    ASSERT_TRUE(spot.has_value());
+    EXPECT_EQ(spot->inst_id, "BTC-USDT");
+    EXPECT_EQ(spot->inst_type, "SPOT");
+    EXPECT_EQ(spot->vol_24h, "10451.54374302");
+    EXPECT_EQ(spot->vol_ccy_24h, "843192320.028134105");
 }
 
 TEST(OkxWire, BooksSnapshotAndDeltasChainOnSeqId) {

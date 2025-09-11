@@ -128,6 +128,17 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                 out.mark_price = *mark;
                 out.index_price = *index;
                 out.funding_rate = *rate;
+                // Optional for the same reason, one step further: an
+                // instrument that has not traded in the window carries no
+                // volume column, and refusing the frame over it would drop
+                // the funding rate riding beside it.
+                const auto base_volume = detail::opt_str(obj, "baseVolume");
+                const auto quote_volume = detail::opt_str(obj, "quoteVolume");
+                if (!base_volume.has_value() || !quote_volume.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                out.volume_24h_base = *base_volume;
+                out.volume_24h_quote = *quote_volume;
                 const auto next = detail::opt_ms(obj, "nextFundingTime");
                 const auto ts = detail::opt_ms(obj, "ts");
                 if (!next.has_value() || !ts.has_value()) {

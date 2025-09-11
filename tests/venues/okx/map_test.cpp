@@ -223,6 +223,71 @@ TEST(OkxMap, ContractWithoutFundingIsNotReportedAsZero) {
     EXPECT_FALSE(map_funding(wire, table, k_ingest).has_value());
 }
 
+TEST(OkxMap, SwapTurnoverIsTheBaseAssetAndNeverTheContractCount) {
+    const auto table = table_with_btc();
+    // The frame is HELD: parse_ticker returns views into it, and a temporary
+    // string here leaves every field of the result dangling.
+    const auto frame = fixture("ws_tickers.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    // volCcy24h, the base asset. The other column on this frame reads
+    // 13 446 460.96 — a CONTRACT count, a hundred times larger, and the one
+    // number on the frame that compares with no other venue.
+    EXPECT_EQ(stats->volume_24h_base.raw, 134'464'609'600'000LL);
+    // OKX publishes no quote turnover for a derivative, so the column is zero
+    // rather than filled from a figure that does not mean it.
+    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
+    EXPECT_EQ(stats->ts_event.ns, 1'788'532'273'172ULL * 1'000'000ULL);
+}
+
+TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {
+    exec::InstrumentTable table;
+    WireInstrument row{};
+    row.inst_id = "BTC-USDT";
+    row.inst_type = "SPOT";
+    row.state = "live";
+    row.base_ccy = "BTC";
+    row.quote_ccy = "USDT";
+    row.tick_size = "0.1";
+    row.lot_size = "0.00000001";
+    row.min_size = "0.00001";
+    const auto spot = map_instrument(row, MarketType::Spot);
+    ASSERT_TRUE(spot.has_value());
+    ASSERT_TRUE(table.add(*spot).has_value());
+
+    // The frame is HELD: parse_ticker returns views into it, and a temporary
+    // string here leaves every field of the result dangling.
+    const auto frame = fixture("ws_tickers_spot.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    // vol24h is the base here and volCcy24h the quote — the exact opposite of
+    // the swap frame above, under the same two field names.
+    EXPECT_EQ(stats->volume_24h_base.raw, 10'451'543'743'020LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 843'192'320'028'134'105LL);
+}
+
+TEST(OkxMap, ATickerStatingNoVolumeIsNotAMarketAtZero) {
+    const auto table = table_with_btc();
+    WireTicker wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.inst_type = "SWAP";
+    wire.ts_ms = 1'788'532'273'172ULL;
+    // Neither column stated. Publishing zeroes here would erase a day's
+    // turnover from the board until the venue restates it.
+    EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
+
+    // An instrument the catalogue never loaded has no cell to write to, which
+    // is a different fact from a market that did not trade.
+    wire.vol_ccy_24h = "134464.6096";
+    wire.inst_id = "NOT-LISTED-SWAP";
+    EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
+}
+
 TEST(OkxMap, ContractValueComesFromTheCatalogueNotFromOne) {
     // A SWAP quotes in contracts. Pinning contract_value to 1 the way binance
     // USD-M allows would misprice every BTC-USDT-SWAP notional by 100x.

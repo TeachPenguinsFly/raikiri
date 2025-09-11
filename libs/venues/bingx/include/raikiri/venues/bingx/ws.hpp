@@ -55,6 +55,10 @@ enum class WsBuildError : std::uint8_t {
 // takes effect on a fresh connection.
 [[nodiscard]] std::string private_stream_target(MarketType market, std::string_view key);
 
+// The 24-hour window, on both trees. No SubKind asks for it: funding is the
+// nearest thing a caller can request, and BingX answers that one over REST.
+inline constexpr std::string_view k_ticker_channel = "ticker";
+
 // The part after the '@'. Empty for a kind BingX does not stream under these
 // names — including Funding, which has no channel at all (VERIFIED:
 // @fundingRate, @premiumIndex and @markPriceAndFundingRate are each refused

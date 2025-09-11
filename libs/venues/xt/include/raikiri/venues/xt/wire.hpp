@@ -26,6 +26,7 @@ enum class EventKind : std::uint8_t {
     DepthUpdate, // depth_update — incremental deltas
     Trade,       // trade
     MarkPrice,   // mark_price
+    Ticker,      // ticker — the rolling 24-hour window
     Ack,         // {"code":0,...} — a subscription XT accepted
     Error,       // {"code":1,...} — a subscription XT refused
     Unknown,
@@ -124,6 +125,28 @@ struct WireMarkPrice {
 };
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
+
+// ticker@SYMBOL: the rolling 24-hour window, restated in full every push, so
+// an empty view here is a field XT did not send rather than a window nothing
+// traded in.
+//
+// NOT agg_ticker, which carries the same keys and COPIES `a` INTO `v` —
+// verified live on btc_usdt, eth_usdt and doge_usdt, where the two are equal
+// to the digit while /public/q/agg-ticker states them apart. Its turnover is a
+// contract count wearing a turnover's name.
+//
+// THE BASE COLUMN IS SPOT-ONLY. Spot puts base units in `q`; futures puts `a`
+// in that slot and `a` counts CONTRACTS, which compares with nothing across
+// venues. Both trees state the quote turnover in `v`.
+struct WireTicker {
+    std::string_view symbol;
+    std::string_view volume_24h_base;  // spot `q`; always empty on futures
+    std::string_view volume_24h_quote; // `v` on both trees
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame,
+                                                                MarketType market);
 
 // ------------------------------------------------------------- rest ----
 

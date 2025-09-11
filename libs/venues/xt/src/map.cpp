@@ -226,6 +226,12 @@ std::optional<SymbolText> canonical_of(std::string_view symbol) {
 
 } // namespace
 
+// Defined below beside the balance readers, and declared here because a
+// turnover wants the same forgiving parse a wallet figure does: the exact
+// readers refuse a number with too many fractional digits, which would show
+// a market that traded as one that did not.
+std::optional<FixedE9> to_amount(std::string_view text);
+
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
     return ms == 0 ? fallback : UnixNanos{ms * 1'000'000ULL};
 }
@@ -353,6 +359,29 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
         out.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
     }
     out.ts_event = ts_init;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. A frame that restated neither column says nothing
+    // about the window, and a zero written here erases what the board had.
+    if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {
+        return std::nullopt;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base->id;
+    // Empty on futures by construction — see wire.hpp. A zero there says the
+    // column is unfilled, which the caps row names; it is not a claim that no
+    // coins changed hands.
+    out.volume_24h_base = to_amount(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_amount(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
 }

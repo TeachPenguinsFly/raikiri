@@ -70,6 +70,17 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         }
         break;
     }
+    case EventKind::Ticker: {
+        const auto wire = parse_ticker(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, state.market, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
+        break;
+    }
     case EventKind::Error: {
         if (const auto control = parse_control(frame); control.has_value()) {
             state.last_error_code = control->code;
@@ -180,7 +191,11 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
-            // Not a stream: BingX publishes funding over REST only.
+            // Not a stream: BingX publishes funding over REST only. The
+            // 24-hour window IS a stream, and this is the only kind a caller
+            // asks the venue's own statistics with, so the poll and the
+            // ticker subscription are registered together.
+            subscribe_channel(symbol, k_ticker_channel);
             for (const auto& existing : state_->funding_symbols) {
                 if (existing == symbol) {
                     return {};
@@ -193,13 +208,7 @@ public:
         if (suffix.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        state_->add_subscription(symbol, suffix);
-        if (client_.connected()) {
-            if (const auto frame = state_->protocol.subscribe_frame(symbol, suffix);
-                frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
-        }
+        subscribe_channel(symbol, suffix);
         return {};
     }
 
@@ -217,6 +226,16 @@ public:
     }
 
 private:
+    void subscribe_channel(std::string_view symbol, std::string_view suffix) {
+        state_->add_subscription(symbol, suffix);
+        if (client_.connected()) {
+            if (const auto frame = state_->protocol.subscribe_frame(symbol, suffix);
+                frame.has_value()) {
+                (void)client_.send(frame->text);
+            }
+        }
+    }
+
     void poll_funding(UnixNanos now) noexcept {
         if (state_->funding_symbols.empty() || now.ns < state_->next_funding_poll_ns ||
             funding_in_flight_) {

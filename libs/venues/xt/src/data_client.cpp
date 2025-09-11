@@ -73,6 +73,17 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::Ticker: {
+        const auto wire = parse_ticker(frame, state.market);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
+        break;
+    }
     case EventKind::DepthUpdate:
         break;
     case EventKind::MarkPrice:
@@ -183,13 +194,11 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }
-        state_->add_subscription(topic, symbol);
-        if (client_.connected()) {
-            const std::array<Subscription, 1> one{
-                Subscription{.channel = topic.channel, .symbol = symbol, .params = topic.params}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        want(topic, symbol);
+        if (kind == exec::SubKind::Bbo) {
+            // Rides with the BBO rather than with funding: XT streams no
+            // funding channel, so nothing else is asked for on both trees.
+            want(ticker_topic(), symbol);
         }
         return {};
     }
@@ -209,6 +218,20 @@ public:
     }
 
 private:
+    // Records the topic for the next reconnect and, if the socket is already
+    // up, asks for it now — the on_open replay is what covers the other case.
+    void want(const Topic& topic, std::string_view symbol) {
+        state_->add_subscription(topic, symbol);
+        if (!client_.connected()) {
+            return;
+        }
+        const std::array<Subscription, 1> one{
+            Subscription{.channel = topic.channel, .symbol = symbol, .params = topic.params}};
+        if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
+            (void)client_.send(frame->text);
+        }
+    }
+
     std::expected<void, exec::VenueError> watch_funding(std::string_view symbol) {
         for (const auto& existing : state_->funding_symbols) {
             if (existing == symbol) {

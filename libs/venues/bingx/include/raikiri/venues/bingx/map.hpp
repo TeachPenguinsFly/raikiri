@@ -57,6 +57,15 @@ namespace raikiri::venues::bingx {
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off {sym}@ticker. nullopt when the frame states neither
+// column and when the symbol does not resolve in THIS socket's market — the
+// spot pair and the perpetual are spelled the same, so the caller's market is
+// what tells them apart.
+[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
+                                                          const exec::InstrumentTable& table,
+                                                          MarketType market,
+                                                          UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything not online, anything that is not the requested

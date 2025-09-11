@@ -131,6 +131,11 @@ TEST(BitgetWire, TickerCarriesBookMarkAndFundingOnOneFrame) {
     EXPECT_EQ(ticker->mark_price, "63923.8");
     EXPECT_EQ(ticker->index_price, "63936.84");
     EXPECT_EQ(ticker->funding_rate, "0.0001");
+    // The turnover pair by name. quote / base = 64 371, which sits inside the
+    // frame's own 63 791 .. 65 333 range — the two are the same window in
+    // different currencies, not one figure counted twice.
+    EXPECT_EQ(ticker->volume_24h_base, "30602.4556");
+    EXPECT_EQ(ticker->volume_24h_quote, "1969900863.29574");
     EXPECT_EQ(ticker->next_funding_ms, 1'786'435'200'000ULL);
     // The element's own ts, not the frame's outer one: they differ by a
     // millisecond on this very frame (…946 against …947).
@@ -664,6 +669,32 @@ TEST(BitgetMap, FundingRidesTheTickerFrame) {
     // A contract quoting no rate is not a contract funding at zero.
     wire.funding_rate = "";
     EXPECT_FALSE(map_funding(wire, table, k_ingest).has_value());
+}
+
+TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
+    const auto table = table_from_catalogue();
+    const auto frame = fixture("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 30'602'455'600'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740'000LL);
+    EXPECT_EQ(stats->ts_event.ns, 1'786'430'817'946ULL * 1'000'000ULL);
+
+    // An instrument the catalogue has never heard of has no cell to write to,
+    // which is not the same fact as a market that did not trade.
+    auto unknown = *wire;
+    unknown.inst_id = "NOTLISTEDUSDT";
+    EXPECT_FALSE(map_ticker_stats(unknown, table, k_ingest).has_value());
+
+    // ABSENT IS NOT ZERO: a frame stating neither column must publish nothing,
+    // or the board reads a day's turnover as zero.
+    auto silent = *wire;
+    silent.volume_24h_base = {};
+    silent.volume_24h_quote = {};
+    EXPECT_FALSE(map_ticker_stats(silent, table, k_ingest).has_value());
 }
 
 // ----------------------------------------------------------- errors -----

@@ -69,6 +69,13 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
+// A turnover figure, and the reader above is the wrong one for it: an exact
+// read refuses a whole number over a tail below 1e-9, and a refused turnover
+// shows a market that traded as one that did not.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 const InstrumentBase* base_for(std::string_view symbol, const exec::InstrumentTable& table) {
     const auto* instrument = table.find(symbol);
     return instrument == nullptr ? nullptr : &base_of(*instrument);
@@ -318,6 +325,34 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
     if (wire.collect_cycle_h > 0) {
         out.interval_s = static_cast<std::uint32_t>(wire.collect_cycle_h * 3600);
     }
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. A frame that states no turnover says nothing about
+    // the window, and a zero written here erases the last figure the board had.
+    if (wire.volume_24h_quote.empty()) {
+        return std::nullopt;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto quote = to_amount(wire.volume_24h_quote);
+    if (!quote.has_value()) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base->id;
+    // NOT DERIVED, and not left undefined either. MEXC's only quantity column
+    // is `volume24`, a CONTRACT count; dividing the turnover by a price would
+    // put this process's own estimate in a column every other venue fills from
+    // what the venue itself said.
+    out.volume_24h_base = FixedE9::from_raw(0);
+    out.volume_24h_quote = *quote;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

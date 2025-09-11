@@ -176,6 +176,10 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.funding_rate = *funding;
         out.ts_ms = *ts;
+        // OPTIONAL, unlike the prices above: a frame that omits the turnover
+        // must still yield its funding rate, and this channel is the only
+        // place MEXC states one.
+        out.volume_24h_quote = detail::opt_scalar(*data, "amount24").value_or(std::string_view{});
         return out;
     });
 }

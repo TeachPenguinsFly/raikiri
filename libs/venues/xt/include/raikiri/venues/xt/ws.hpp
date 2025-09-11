@@ -42,6 +42,13 @@ struct Topic {
 
 [[nodiscard]] Topic topic_for(exec::SubKind kind, MarketType market) noexcept;
 
+// The rolling 24-hour window, which no SubKind names. It rides alongside the
+// BBO subscription because that is the one kind asked for on every instrument
+// and on both trees — XT streams no funding at all, so hanging it off
+// SubKind::Funding would leave spot with no turnover. Same channel name on
+// both deployments; only the payload's base column differs (see wire.hpp).
+[[nodiscard]] Topic ticker_topic() noexcept;
+
 struct Subscription {
     std::string_view channel;
     std::string_view symbol;

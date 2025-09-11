@@ -20,6 +20,9 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (topic == "mark_price") {
         return EventKind::MarkPrice;
     }
+    if (topic == "ticker") {
+        return EventKind::Ticker;
+    }
     return EventKind::Unknown;
 }
 
@@ -302,6 +305,42 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
                     return std::unexpected(ts.error());
                 }
                 out.ts_ms = *ts;
+                return out;
+            });
+    });
+}
+
+std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, MarketType market) {
+    const bool spot = market == MarketType::Spot;
+    return guarded([&]() -> std::expected<WireTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return with_data(
+            *root, [&](detail::ondemand::object& data) -> std::expected<WireTicker, WireError> {
+                WireTicker out{};
+                const auto symbol = detail::req_str(data, "s");
+                if (!symbol.has_value()) {
+                    return std::unexpected(symbol.error());
+                }
+                out.symbol = *symbol;
+                const auto ts = detail::opt_ms(data, "t");
+                if (!ts.has_value()) {
+                    return std::unexpected(ts.error());
+                }
+                out.ts_ms = *ts;
+                // OPTIONAL, both of them: a frame that states neither column
+                // is still a well-formed ticker, and refusing it would refuse
+                // the whole channel over a market that has not traded.
+                out.volume_24h_quote = detail::opt_scalar(data, "v").value_or(std::string_view{});
+                if (spot) {
+                    // `q` ONLY ON SPOT. The futures tree fills that slot with
+                    // `a`, a CONTRACT count, and reading it here would put a
+                    // number measured in contracts in a base-volume column.
+                    out.volume_24h_base =
+                        detail::opt_scalar(data, "q").value_or(std::string_view{});
+                }
                 return out;
             });
     });

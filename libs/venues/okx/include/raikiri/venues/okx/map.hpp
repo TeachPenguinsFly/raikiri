@@ -32,6 +32,17 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the `tickers` channel, which is a different frame
+// from the funding rate on this venue.
+//
+// Only ONE column is real on a derivative: OKX states the base asset in
+// volCcy24h and the quote nowhere, so a SWAP row leaves volume_24h_quote at
+// zero. vol24h is in CONTRACTS there and is deliberately not read — it
+// compares with nothing. On SPOT the two names mean the other thing, and the
+// mapper reads inst_type to tell them apart.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] Side side_from(std::string_view text) noexcept;
 
 // Private stream ----------------------------------------------------------

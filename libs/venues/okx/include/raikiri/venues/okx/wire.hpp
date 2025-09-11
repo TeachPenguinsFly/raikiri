@@ -21,6 +21,7 @@ enum class EventKind : std::uint8_t {
     Trade,       // trades
     FundingRate, // funding-rate
     MarkPrice,   // mark-price
+    Tickers,     // tickers — the only channel stating a 24-hour turnover
     Books,       // books — 400-level deltas
     Orders,      // orders — private, both lifecycle and fills
     SubscribeAck,
@@ -103,6 +104,32 @@ struct WireFundingRate {
 };
 
 [[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view frame);
+
+// The `tickers` channel, and GET /market/ticker(s) under the same names.
+//
+// It exists here for the 24-hour turnover alone: bbo-tbt is the book source
+// and funding-rate the rate source, and NEITHER states a volume — OKX splits
+// across three channels what bybit and gate put on one ticker frame.
+//
+// WHICH COLUMN IS WHICH DEPENDS ON inst_type, and OKX reuses the same two
+// names when the meaning flips:
+//   SWAP/FUTURES — vol24h counts CONTRACTS, which compares with nothing, and
+//                  volCcy24h is the BASE asset. No quote figure is published.
+//   SPOT/MARGIN  — vol24h is the BASE asset and volCcy24h is the QUOTE.
+// Reading one rule for both puts a contract count on a turnover board, so the
+// mapper branches on inst_type rather than on the field name.
+//
+// Empty rather than absent is what a quiet instrument sends; either way the
+// mapper must publish nothing, never a zero.
+struct WireTicker {
+    std::string_view inst_id;
+    std::string_view inst_type; // "SWAP" | "SPOT" | ...: decides the two below
+    std::string_view vol_24h;   // vol24h
+    std::string_view vol_ccy_24h; // volCcy24h
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
 // Also shared between the mark-price channel and GET /public/mark-price.
 struct WireMarkPrice {

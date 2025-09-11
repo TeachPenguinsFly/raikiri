@@ -39,6 +39,7 @@ Subscribed with `{"sub":"market.BTC-USDT.bbo","id":"id1"}` and friends.
 | `ws_trades_batch.json` | `market.ETH-USDT.trade.detail`, four prints off one match |
 | `ws_depth_step0.json` | `market.BTC-USDT.depth.step0`, **trimmed** (see below) |
 | `ws_depth_step0_full.json` | `market.BTC-USDT.depth.step0`, whole, 150 levels a side (2026-08-17) |
+| `ws_detail.json` | `market.BTC-USDT.detail`, the 24-hour window, captured 2026-09-04 |
 | `ws_subscribe_ack.json` | the answer to the bbo subscribe |
 | `ws_error.json` | the answer to `{"sub":"market.BTC-USDT.NOSUCH"}` |
 | `ws_ping.json` | the server's keepalive; the client answers `{"pong":1786431113951}` |

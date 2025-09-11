@@ -62,6 +62,17 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         }
         break;
     }
+    case EventKind::Detail: {
+        const auto wire = parse_detail(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
+        break;
+    }
     case EventKind::Depth: {
         static thread_local LevelBuffer levels;
         const auto wire = parse_depth(frame, levels);
@@ -249,6 +260,11 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
+            // The 24-hour turnover rides market.{code}.detail on the OTHER
+            // socket: this one subscription covers both, because no SubKind
+            // asks for a ticker and a caller that wanted funding wanted the
+            // venue's own statistics.
+            subscribe_detail(code);
             for (const auto& existing : state_->funding_codes) {
                 if (existing == code) {
                     return {};
@@ -285,6 +301,16 @@ public:
     }
 
 private:
+    void subscribe_detail(std::string_view code) {
+        state_->add_subscription(code, k_detail_topic);
+        if (market_.connected()) {
+            if (const auto frame = state_->protocol.subscribe_frame(code, k_detail_topic);
+                frame.has_value()) {
+                (void)market_.send(frame->text);
+            }
+        }
+    }
+
     std::shared_ptr<VenueState> state_;
     MarketHandler market_handler_;
     net::WsClient market_;

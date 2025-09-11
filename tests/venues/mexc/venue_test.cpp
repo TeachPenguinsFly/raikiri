@@ -186,6 +186,9 @@ TEST(MexcWire, TickerCarriesPricesAsNumberTokens) {
     EXPECT_EQ(ticker->fair_price, "64150.4");
     EXPECT_EQ(ticker->funding_rate, "0.000085");
     EXPECT_EQ(ticker->ts_ms, 1'786'394'656'908ULL);
+    // `amount24`, the QUOTE turnover. The `volume24` of 758957590 beside it in
+    // the same frame is a CONTRACT count and is deliberately not carried.
+    EXPECT_EQ(ticker->volume_24h_quote, "4912147390.01821");
 
     // Views point into the caller's buffer, not into parser scratch.
     EXPECT_GE(ticker->bid_price.data(), frame.data());
@@ -526,6 +529,28 @@ TEST(MexcMap, FundingFromTheTickerHasNoSchedule) {
     EXPECT_EQ(funding->next_funding_time.ns, 0U);
     EXPECT_EQ(funding->interval_s, 0U);
     EXPECT_EQ(funding->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
+}
+
+TEST(MexcMap, TickerStatsCarryTurnoverAndLeaveTheBaseColumnAlone) {
+    const auto table = catalogue();
+    const auto frame = fixture("ws_ticker.json");
+    const auto ticker = parse_ticker(frame);
+    ASSERT_TRUE(ticker.has_value());
+
+    const auto stats = map_ticker_stats(*ticker, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_quote.raw, 4'912'147'390'018'210'000LL);
+    // MEXC states no base volume at all; the caps row is what tells a reader
+    // the column is unfilled rather than a market that traded no coins.
+    EXPECT_EQ(stats->volume_24h_base.raw, 0);
+    EXPECT_EQ(stats->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
+
+    // A frame that restated no turnover must publish nothing, or the board
+    // reads a day's volume as zero.
+    WireTicker silent{};
+    silent.symbol = "BTC_USDT";
+    silent.funding_rate = "0.000085";
+    EXPECT_FALSE(map_ticker_stats(silent, table, k_ingest).has_value());
 }
 
 TEST(MexcMap, FundingFromRestCarriesTheSchedule) {

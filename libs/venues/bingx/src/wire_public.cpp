@@ -20,6 +20,11 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "markPrice") {
         return EventKind::MarkPrice;
     }
+    // "ticker", never "bookTicker": the compare above it takes that one, and
+    // the two channels answer different questions.
+    if (channel == "ticker") {
+        return EventKind::Ticker;
+    }
     if (channel.starts_with("depth")) {
         return EventKind::Depth;
     }
@@ -267,6 +272,38 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
+        out.event_ms = *event;
+        return out;
+    });
+}
+
+std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireTicker, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = detail::req_object(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        WireTicker out{};
+        const auto symbol = detail::req_str(*data, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        out.symbol = *symbol;
+        // Scalars, not strings: the perpetual tree quotes both numbers and
+        // spot sends them bare. Optional on top of that — an absent column
+        // reads empty and leaves the rest of the frame usable.
+        const auto volume = detail::opt_scalar(*data, "v");
+        const auto quote_volume = detail::opt_scalar(*data, "q");
+        const auto event = detail::opt_ms_any(*data, "E");
+        if (!volume.has_value() || !quote_volume.has_value() || !event.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.volume = *volume;
+        out.quote_volume = *quote_volume;
         out.event_ms = *event;
         return out;
     });

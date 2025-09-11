@@ -332,6 +332,25 @@ map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNan
     return out;
 }
 
+std::optional<TickerStats>
+map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.amount.empty() && wire.trade_turnover.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.contract_code);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    // `vol` on the same tick is the contract count and is not read here.
+    out.volume_24h_base = rate_e9(wire.amount).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = rate_e9(wire.trade_turnover).value_or(FixedE9::from_raw(0));
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<BookSnapshot>
 map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* instrument = table.find(wire.contract_code);

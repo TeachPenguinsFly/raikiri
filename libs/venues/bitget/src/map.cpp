@@ -41,6 +41,16 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
+// A 24-hour turnover is a magnitude, not a price and not a size, so it is read
+// the way a balance is: truncating below 1e-9 rather than refusing the whole
+// figure over a tail nothing divides an order by. An exact read would answer
+// nullopt for any column the venue happens to pad, and the caller writes a
+// zero for a column it cannot read — which reads as "this market did not
+// trade" on a market that traded all day.
+std::optional<FixedE9> turnover_of(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // Counts. Zero is a legitimate pricePlace (one live row quotes in whole
 // units), which is why this accepts it where okx's equivalent does not.
 std::optional<std::int64_t> whole_number(std::string_view text) {
@@ -212,6 +222,27 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
     }
+    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. Both columns missing means the venue said nothing
+    // about turnover on this frame, and writing a zero would erase the running
+    // figure the board is holding.
+    if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = turnover_of(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = turnover_of(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

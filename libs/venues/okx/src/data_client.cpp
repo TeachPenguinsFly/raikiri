@@ -72,6 +72,17 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
+    case EventKind::Tickers: {
+        const auto wire = parse_ticker(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
+        break;
+    }
     case EventKind::Books: {
         static thread_local LevelBuffer levels;
         const auto wire = parse_books(frame, levels);
@@ -196,13 +207,13 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }
-        state_->add_subscription(channel, symbol);
-        if (client_.connected()) {
-            const std::array<Subscription, 1> one{
-                Subscription{.channel = channel, .inst_id = symbol}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        open(channel, symbol);
+        // The turnover has no SubKind of its own and does not ride the
+        // funding-rate frame the way it does on bybit and gate, so it is
+        // opened beside it — otherwise nothing ever subscribes `tickers` and
+        // every OKX row on the board keeps an empty volume cell.
+        if (kind == exec::SubKind::Funding) {
+            open(k_tickers_channel, symbol);
         }
         return {};
     }
@@ -219,6 +230,22 @@ public:
     }
 
 private:
+    // Records the subscription and, on a live socket, sends it now; a socket
+    // still connecting picks it up from `desired` in on_open.
+    void open(std::string_view channel, std::string_view symbol) {
+        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
+            return;
+        }
+        state_->add_subscription(channel, symbol);
+        if (!client_.connected()) {
+            return;
+        }
+        const std::array<Subscription, 1> one{Subscription{.channel = channel, .inst_id = symbol}};
+        if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
+            (void)client_.send(frame->text);
+        }
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsClient client_;

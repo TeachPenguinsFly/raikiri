@@ -38,6 +38,8 @@ response carries 1021 rows and this keeps 4 (see below).
 | `ws_trade.json` | `BTC-USDT@trade` | `data` is an array; `m` = buyer was the maker; no trade id |
 | `ws_depth100.json` | `BTC-USDT@depth100@100ms` | recaptured 2026-08-17: full 100-level snapshot; `ts` sits beside `data`, no sequence number. 100 is the deepest tier — `depth200` drew 80015 "dataType not support" |
 | `ws_mark_price.json` | `BTC-USDT@markPrice` | mark only — BingX streams no funding rate anywhere |
+| `ws_ticker.json` | `BTC-USDT@ticker` | captured 2026-09-04: the 24-hour window. `v` is base and `q` quote — 1723468750.41 / 21355.7400 = 80704, inside the same frame's 78949.9-82264.7 band. Both QUOTED, the perpetual tree's habit |
+| `ws_spot_ticker.json` | `BTC-USDT@ticker` on the SPOT socket | the same channel and the same two columns sent as bare JSON numbers, captured in the same minute. The envelope also stamps `timestamp` where the swap stamps nothing |
 | `ws_subscribe_ack.json` | any | `code` 0, `dataType` empty, echoing the `id` that asked |
 | `ws_error.json` | `NOSUCH-USDT@bookTicker` | code 80015, unknown symbol |
 | `ws_error_data_type.json` | `BTC-USDT@fundingRate` | code 80015 again, this time "dataType not support" — the probe that established funding has no channel |

@@ -24,6 +24,7 @@ enum class EventKind : std::uint8_t {
     Bbo,             // market.{code}.bbo
     Trade,           // market.{code}.trade.detail
     Depth,           // market.{code}.depth.step0
+    Detail,          // market.{code}.detail — the 24-hour window
     Funding,         // op:notify carrying public.{code}.funding_rate
     MarketPing,      // {"ping":<ms>}
     NotifyPing,      // {"op":"ping","ts":"<ms>"}
@@ -131,6 +132,29 @@ struct WireDepth {
 
 [[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
                                                               LevelBuffer& storage);
+
+// market.{code}.detail — the rolling 24-hour window, and the only push HTX
+// has for it: the funding notification states no turnover, and neither does
+// bbo, trade.detail or depth.step0.
+//
+// THREE volume figures arrive on this tick and only two of them compare with
+// anything. `amount` is the window in BASE units and `trade_turnover` the same
+// window in QUOTE; `vol` is the same trade count in CONTRACTS — VERIFIED live
+// on BTC-USDT, vol 8266024 against amount 8266.024 at a contract_size of
+// 0.001 — and is deliberately not surfaced, because a contract is a different
+// quantity on every row of the catalogue.
+//
+// A whole snapshot every push, not a delta. Both columns are optional anyway:
+// empty is what a contract with nothing to report would leave here, and empty
+// is not zero.
+struct WireDetail {
+    std::string_view contract_code;
+    std::string_view amount;         // base units
+    std::string_view trade_turnover; // quote units
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireDetail, WireError> parse_detail(std::string_view frame);
 
 // The websocket funding notification. `settlement_time` is the next
 // settlement; `funding_time` is when HTX built the message and moves every few

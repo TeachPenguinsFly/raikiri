@@ -195,6 +195,9 @@ TEST(HtxWire, ClassifiesEveryTopicAcrossBothSockets) {
                             Row{"ws_trade.json", EventKind::Trade, "BTC-USDT"},
                             Row{"ws_trades_batch.json", EventKind::Trade, "ETH-USDT"},
                             Row{"ws_depth_step0.json", EventKind::Depth, "BTC-USDT"},
+                            // "detail" and "trade.detail" are two topics whose
+                            // suffixes end in the same word.
+                            Row{"ws_detail.json", EventKind::Detail, "BTC-USDT"},
                             Row{"ws_notify_funding.json", EventKind::Funding, "BTC-USDT"}}) {
         const auto frame = load(row.fixture);
         const auto event = parse_event(frame);
@@ -373,6 +376,20 @@ TEST(HtxWire, ParsesTheFundingNotification) {
     EXPECT_EQ(wire->settlement_ms, 1786435200000ULL);
     EXPECT_EQ(wire->funding_ms, 1786431110000ULL);
     EXPECT_EQ(wire->ts_ms, 1786431119069ULL);
+}
+
+TEST(HtxWire, DetailCarriesTheTwoTurnoverColumnsAndOneTrap) {
+    const auto frame = load("ws_detail.json");
+    const auto wire = parse_detail(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->contract_code, "BTC-USDT");
+    // amount is BASE, trade_turnover is QUOTE: their quotient, 80670.9, sits
+    // between this frame's low (78931.3) and high (82222.2). The third figure
+    // on the tick, `vol` 8021738, is the same window in CONTRACTS — exactly
+    // amount / 0.001, the contract size — and is not surfaced at all.
+    EXPECT_EQ(wire->amount, "8021.738");
+    EXPECT_EQ(wire->trade_turnover, "647118134.3374");
+    EXPECT_EQ(wire->ts_ms, 1788532163204ULL);
 }
 
 TEST(HtxWire, RefusesAFrameOfTheWrongShape) {
@@ -604,6 +621,30 @@ TEST(HtxMap, MapsFundingFromTheNotification) {
     silent.funding_rate = {};
     // No rate at all is not the same as a rate of zero.
     EXPECT_FALSE(map_funding(silent, table, UnixNanos{1}).has_value());
+}
+
+TEST(HtxMap, MapsTurnoverFromTheDetailTick) {
+    const auto table = catalogue();
+    const auto frame = load("ws_detail.json");
+    const auto wire = parse_detail(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{4321});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 8'021'738'000'000LL);          // 8021.738 BTC
+    EXPECT_EQ(stats->volume_24h_quote.raw, 647'118'134'337'400'000LL);   // 647118134.3374 USDT
+    EXPECT_EQ(stats->ts_event.ns, 1788532163204ULL * 1'000'000ULL);
+    EXPECT_EQ(stats->ts_init.ns, 4321U);
+
+    // A tick that states neither column says nothing about turnover, and a
+    // contract the catalogue never loaded has no cell to write to. Publishing
+    // a zero for either would read as a market that stopped trading.
+    WireDetail silent = *wire;
+    silent.amount = {};
+    silent.trade_turnover = {};
+    EXPECT_FALSE(map_ticker_stats(silent, table, UnixNanos{1}).has_value());
+    WireDetail unknown = *wire;
+    unknown.contract_code = "NOSUCH-USDT";
+    EXPECT_FALSE(map_ticker_stats(unknown, table, UnixNanos{1}).has_value());
 }
 
 // ----------------------------------------------------------------- ws ----

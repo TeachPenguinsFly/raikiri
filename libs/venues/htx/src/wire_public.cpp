@@ -49,6 +49,11 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (suffix == "depth.step0") {
         return EventKind::Depth;
     }
+    // "detail" only: the trade channel's suffix is "trade.detail" and reaches
+    // the compare above it.
+    if (suffix == "detail") {
+        return EventKind::Detail;
+    }
     if (suffix == "funding_rate") {
         return EventKind::Funding;
     }
@@ -417,6 +422,41 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         out.version = *version;
         out.bids = {storage.bids.data(), *bids};
         out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
+
+std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireDetail, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto ch = detail::req_str(*root, "ch");
+        if (!ch.has_value()) {
+            return std::unexpected(ch.error());
+        }
+        const auto ts = detail::opt_u64(*root, "ts");
+        if (!ts.has_value()) {
+            return std::unexpected(ts.error());
+        }
+        auto tick = detail::req_object(*root, "tick");
+        if (!tick.has_value()) {
+            return std::unexpected(tick.error());
+        }
+        WireDetail out{};
+        out.contract_code = detail::code_of(*ch);
+        out.ts_ms = *ts;
+        // Both columns OPTIONAL: opt_raw answers an empty token for a field
+        // the tick omits, and this frame's job is the turnover — there is
+        // nothing else on it worth refusing the whole push over.
+        const auto amount = detail::opt_raw(*tick, "amount");
+        const auto turnover = detail::opt_raw(*tick, "trade_turnover");
+        if (!amount.has_value() || !turnover.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.amount = *amount;
+        out.trade_turnover = *turnover;
         return out;
     });
 }

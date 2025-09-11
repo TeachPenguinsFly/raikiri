@@ -47,6 +47,12 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The rolling 24-hour window off the `ticker` channel. Returns nullopt when
+// the frame restated neither column, and on futures fills the QUOTE column
+// only: XT's futures quantity is a contract count, which compares with nothing.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything not tradable through the API, anything that is

@@ -84,6 +84,12 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same frame. QUOTE ONLY: the base column is left
+// at zero because MEXC's `volume24` counts CONTRACTS, and a contract count put
+// in a base-volume cell is a figure no other venue can be compared against.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything not enabled, for any market this endpoint does

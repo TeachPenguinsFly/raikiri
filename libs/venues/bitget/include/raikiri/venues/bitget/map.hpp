@@ -29,6 +29,12 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same frame. Bitget's `usdtVolume` is a third
+// figure that agrees with quoteVolume only on a USDT-margined contract, so it
+// is not read: base and quote come from baseVolume and quoteVolume by name.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

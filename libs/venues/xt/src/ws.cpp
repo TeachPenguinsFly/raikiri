@@ -58,6 +58,10 @@ Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
     return {};
 }
 
+Topic ticker_topic() noexcept {
+    return {.channel = "ticker", .params = {}};
+}
+
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::method_frame(std::string_view method, std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {

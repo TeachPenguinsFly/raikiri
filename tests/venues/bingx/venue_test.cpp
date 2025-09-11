@@ -270,7 +270,10 @@ TEST(BingxWire, ClassifiesEveryChannelAndItsSymbol) {
     for (const auto& row : {Row{"ws_book_ticker.json", EventKind::BookTicker},
                             Row{"ws_trade.json", EventKind::Trade},
                             Row{"ws_depth100.json", EventKind::Depth},
-                            Row{"ws_mark_price.json", EventKind::MarkPrice}}) {
+                            Row{"ws_mark_price.json", EventKind::MarkPrice},
+                            // "ticker" and "bookTicker" are two channels one
+                            // suffix compare apart.
+                            Row{"ws_ticker.json", EventKind::Ticker}}) {
         const auto frame = load(row.fixture);
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << row.fixture;
@@ -392,6 +395,52 @@ TEST(BingxWire, ParsesMarkPrice) {
     EXPECT_EQ(wire->symbol, "BTC-USDT");
     EXPECT_EQ(wire->mark_price, "64124.8");
     EXPECT_EQ(wire->event_ms, 1786394757701ULL);
+}
+
+TEST(BingxWire, TickerCarriesBothTurnoverColumns) {
+    const auto frame = load("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "BTC-USDT");
+    // `v` is BASE and `q` is QUOTE: their quotient, 80703.8, sits between this
+    // frame's low (78949.9) and high (82264.7). Quoted here and bare on spot,
+    // which is why both are read as scalars.
+    EXPECT_EQ(wire->volume, "21355.7400");
+    EXPECT_EQ(wire->quote_volume, "1723468750.41");
+    EXPECT_EQ(wire->event_ms, 1788532398984ULL);
+
+    // BingX pushes a whole snapshot every second, but a frame that stated
+    // neither column would still have to parse: nothing else on it depends on
+    // the turnover, and empty is what the mapper reads as "said nothing".
+    const auto empty = parse_ticker(R"({"code":0,"dataType":"BTC-USDT@ticker",)"
+                                    R"("data":{"e":"24hTicker","E":1788532398984,)"
+                                    R"("s":"BTC-USDT","c":"79343.2"}})");
+    ASSERT_TRUE(empty.has_value());
+    EXPECT_TRUE(empty->volume.empty());
+    EXPECT_TRUE(empty->quote_volume.empty());
+}
+
+TEST(BingxMap, TurnoverResolvesAgainstTheSocketsOwnMarket) {
+    const auto table = catalogue();
+    const auto frame = load("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+
+    const auto stats = map_ticker_stats(*wire, table, MarketType::Perp, UnixNanos{99});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);        // 21355.7400 BTC
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'723'468'750'410'000'000LL); // 1723468750.41 USDT
+    EXPECT_EQ(stats->ts_event.ns, 1788532398984ULL * 1'000'000ULL);
+    EXPECT_EQ(stats->ts_init.ns, 99U);
+
+    // Same spelling on both trees: a swap frame resolved against the spot
+    // market must yield nothing rather than the wrong instrument's turnover.
+    EXPECT_FALSE(map_ticker_stats(*wire, table, MarketType::Spot, UnixNanos{99}).has_value());
+
+    WireTicker silent = *wire;
+    silent.volume = {};
+    silent.quote_volume = {};
+    EXPECT_FALSE(map_ticker_stats(silent, table, MarketType::Perp, UnixNanos{1}).has_value());
 }
 
 // ---------------------------------------------------------- rest wire ----
@@ -874,6 +923,26 @@ TEST(BingxSpotWire, TheSpotQuoteCarriesNoSequenceAndSaysSo) {
     EXPECT_EQ(quote->update_id, 0U);
     EXPECT_EQ(quote->transaction_ms, 0U);
     EXPECT_NE(quote->event_ms, 0U);
+}
+
+TEST(BingxSpotWire, TheSpotTickerSendsTheSameColumnsUnquoted) {
+    // The perpetual tree quotes `v` and `q`; spot sends them as bare JSON
+    // numbers. One scalar reader covers both, and a string-only read would
+    // drop every spot turnover while the swap kept working.
+    const auto frame = load("ws_spot_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "BTC-USDT");
+    EXPECT_EQ(wire->volume, "3150.99");
+    EXPECT_EQ(wire->quote_volume, "254483206.58");
+
+    const auto table = spot_catalogue();
+    const auto stats = map_ticker_stats(*wire, table, MarketType::Spot, UnixNanos{5});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument.market(), MarketType::Spot);
+    // 254483206.58 / 3150.99 = 80762, inside the frame's 79000-82280.99 band.
+    EXPECT_EQ(stats->volume_24h_base.raw, 3'150'990'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 254'483'206'580'000'000LL);
 }
 
 TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {

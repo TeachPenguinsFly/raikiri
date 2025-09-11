@@ -77,6 +77,15 @@ struct WireTicker {
     std::string_view fair_price;
     std::string_view index_price;
     std::string_view funding_rate;
+    // The rolling 24-hour window. MEXC restates the whole ticker on every
+    // push — there are no deltas on this channel — so an empty view here is a
+    // field MEXC did not send, never a window that traded nothing.
+    //
+    // ONE COLUMN, NOT TWO. `amount24` is turnover in the QUOTE currency; the
+    // `volume24` sitting beside it counts CONTRACTS rather than base units and
+    // is deliberately not carried, because a contract count compares with no
+    // other venue.
+    std::string_view volume_24h_quote; // `amount24`
     std::uint64_t ts_ms{0};
 };
 

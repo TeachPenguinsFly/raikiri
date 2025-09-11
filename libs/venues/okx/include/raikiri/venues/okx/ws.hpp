@@ -57,6 +57,12 @@ struct Subscription {
 // The private order channel, per instrument type.
 inline constexpr std::string_view k_orders_channel = "orders";
 
+// The only public channel stating a 24-hour turnover. It has no SubKind of
+// its own: OKX splits across three channels what bybit and gate put on one
+// ticker frame, so this rides along with the funding subscription rather than
+// letting the turnover column stay blank on every OKX row.
+inline constexpr std::string_view k_tickers_channel = "tickers";
+
 // A connection's subscription ceiling is generous; the op-message budget is
 // the real constraint, so frames carry as many args as fit.
 inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;

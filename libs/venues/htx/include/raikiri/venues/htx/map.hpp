@@ -22,10 +22,11 @@ namespace raikiri::venues::htx {
 // every later price conversion a division by zero.
 [[nodiscard]] std::optional<FixedE9> exact_e9(std::string_view token);
 
-// The same reader, truncating below 1e-9 instead of refusing. Rates only: HTX
-// pads every funding rate to eighteen fractional digits with a tail that is
-// not always zero, so an exact read would present a running venue as silence.
-// What remains is eight significant figures of a rate no order divides by.
+// The same reader, truncating below 1e-9 instead of refusing. Rates and
+// turnover, never prices or sizes: HTX pads every funding rate to eighteen
+// fractional digits with a tail that is not always zero, so an exact read
+// would present a running venue as silence. What remains is eight significant
+// figures of a number no order divides by.
 [[nodiscard]] std::optional<FixedE9> rate_e9(std::string_view token);
 
 // Public market data ------------------------------------------------------
@@ -42,6 +43,12 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 // instrument, which is where the catalogue put it.
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+// The 24-hour turnover off market.{code}.detail. nullopt when the tick states
+// neither column and when the contract is not in the table. `vol` on the same
+// tick is in CONTRACTS and is not read: see wire.hpp.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // step0 is a whole book every frame, so no state is carried between them and
 // there is no chain to break: the newest frame simply replaces what shm holds.

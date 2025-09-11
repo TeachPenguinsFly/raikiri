@@ -99,6 +99,7 @@ public:
         case EventKind::Trade:
         case EventKind::FundingRate:
         case EventKind::MarkPrice:
+        case EventKind::Tickers:
         case EventKind::Books:
         case EventKind::SubscribeAck:
         case EventKind::Unknown:
