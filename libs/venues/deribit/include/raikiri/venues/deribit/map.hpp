@@ -46,6 +46,12 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 [[nodiscard]] std::optional<OptionGreeks>
 map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same ticker's `stats`. Every kind on this
+// channel carries it, options included, where `volume_usd` is the PREMIUM
+// traded rather than the underlying's notional.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for anything inactive, linear, of another market, or whose

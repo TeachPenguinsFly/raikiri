@@ -33,6 +33,13 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
+// A 24-hour aggregate is an AMOUNT, not a size on the instrument's grid: it
+// is a sum of fills at the venue's own resolution and no lot size divides it.
+// Truncation below 1e-9 errs downward rather than refusing the whole figure.
+std::optional<FixedE9> to_amount_e9(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // ---------------------------------------------------------------- time ----
 //
 // Coinbase stamps everything with an ISO-8601 string and never an epoch
@@ -158,6 +165,28 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
+    out.ts_event = iso_to_unix(wire.time, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    const auto volume = to_amount_e9(wire.volume_24h);
+    if (!volume.has_value()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.product_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = *volume;
+    // NOT DERIVED. The channel states no turnover, and `price` times volume
+    // would be this process's own estimate standing in a column every other
+    // venue fills from what the venue itself said.
+    out.volume_24h_quote = FixedE9::from_raw(0);
     out.ts_event = iso_to_unix(wire.time, ts_init);
     out.ts_init = ts_init;
     return out;

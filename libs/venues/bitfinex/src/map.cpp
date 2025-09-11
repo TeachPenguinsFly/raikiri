@@ -173,6 +173,13 @@ std::optional<FixedE9> to_rate_e9(std::string_view text) noexcept {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
 }
 
+// A 24-hour turnover, which is an AMOUNT and not a price: it is reported at
+// the venue's own resolution and an exact read would refuse the whole figure
+// rather than its tail, leaving a traded market showing nothing at all.
+std::optional<FixedE9> to_amount_e9(std::string_view text) noexcept {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // A trade's AMOUNT and a book level's AMOUNT are both signed, and in neither
 // case is the sign part of the quantity. Splitting it here keeps a negative
 // number from ever reaching QtyLots.
@@ -282,6 +289,31 @@ std::optional<Bbo> map_bbo(const WireTicker& wire,
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
+    out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
+                                            std::string_view symbol,
+                                            const exec::InstrumentTable& table,
+                                            UnixNanos ts_event,
+                                            UnixNanos ts_init) {
+    const auto volume = to_amount_e9(wire.volume);
+    if (!volume.has_value()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = *volume;
+    // NOT DERIVED. The channel states no quote-side figure, and last_price
+    // times volume would be an average this process invented, published beside
+    // a column every other venue takes from the venue itself.
+    out.volume_24h_quote = FixedE9::from_raw(0);
     out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
     out.ts_init = ts_init;
     return out;

@@ -620,6 +620,63 @@ TEST(BitmexInstrumentState, PrimedStateStillIgnoresANonFundingUpdate) {
     EXPECT_FALSE(state.apply(*tick, *base, k_ingest).has_value());
 }
 
+TEST(BitmexMap, TheDaysTurnoverIsTheTwoNotionalsAndNotTheContractCount) {
+    const auto body = fixture("rest_instruments.json");
+    const auto* row = find_row(catalogue_rows(body), "XBTUSD");
+    ASSERT_NE(row, nullptr);
+    const auto instrument = map_instrument(*row, MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    exec::InstrumentTable table;
+    ASSERT_TRUE(table.add(*instrument).has_value());
+
+    const auto frame = fixture("ws_instrument_partial.json");
+    const auto tick = parse_instrument_tick(frame);
+    ASSERT_TRUE(tick.has_value());
+    EXPECT_EQ(tick->home_notional_24h, "326.2999094300004");
+    EXPECT_EQ(tick->foreign_notional_24h, "2.10905E7");
+
+    const auto stats = map_ticker_stats(*tick, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->instrument.packed, base_of(*instrument).id.packed);
+    // Truncated at 1e-9, not refused: BitMEX writes four more fractional
+    // digits than the domain carries, and dropping the figure over its tail
+    // would leave a contract that traded 326 XBT showing nothing.
+    EXPECT_EQ(stats->volume_24h_base.raw, 326'299'909'430);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 21'090'500'000'000'000);
+    // WHICH COLUMN IS WHICH, arithmetically rather than by name. Both raws are
+    // e9, so their ratio is a price: 64635, inside this row's own
+    // 63713.7..65407.0 day range. Swap the two and the same division says one
+    // XBT costs 1.5e-5 USD.
+    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'635);
+    // volume24h is 21090500 CONTRACTS on this inverse row — numerically equal
+    // to the USD notional at 1 USD a contract, and equal to nothing at all on
+    // XBTUSDT. It is deliberately not the source of either column.
+    EXPECT_EQ(stats->ts_event.ns, 1'786'395'210'026'000'000ULL);
+    EXPECT_EQ(stats->ts_init.ns, k_ingest.ns);
+}
+
+TEST(BitmexMap, AnUpdateThatMovedNoNotionalPublishesNoVolume) {
+    // ABSENT IS NOT ZERO. Mark-price ticks dominate this table and carry
+    // neither notional; publishing a zero would erase the day's turnover in
+    // shm until the next partial.
+    const auto body = fixture("rest_instruments.json");
+    const auto* row = find_row(catalogue_rows(body), "XBTUSD");
+    ASSERT_NE(row, nullptr);
+    const auto instrument = map_instrument(*row, MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    exec::InstrumentTable table;
+    ASSERT_TRUE(table.add(*instrument).has_value());
+
+    for (const auto* name : {"ws_instrument_update_mark.json", "ws_instrument_update_quote.json"}) {
+        const auto frame = fixture(name);
+        const auto tick = parse_instrument_tick(frame);
+        ASSERT_TRUE(tick.has_value()) << name;
+        EXPECT_TRUE(tick->home_notional_24h.empty()) << name;
+        EXPECT_TRUE(tick->foreign_notional_24h.empty()) << name;
+        EXPECT_FALSE(map_ticker_stats(*tick, table, k_ingest).has_value()) << name;
+    }
+}
+
 TEST(BitmexMap, TradeConvertsAgainstTheInstrumentsOwnSteps) {
     const auto body = fixture("rest_instruments.json");
     const auto* row = find_row(catalogue_rows(body), "XBTUSD");

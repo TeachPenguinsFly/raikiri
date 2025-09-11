@@ -99,6 +99,7 @@ inline constexpr std::size_t k_ticker_bid_size = 1;
 inline constexpr std::size_t k_ticker_ask = 2;
 inline constexpr std::size_t k_ticker_ask_size = 3;
 inline constexpr std::size_t k_ticker_last_price = 6;
+inline constexpr std::size_t k_ticker_volume = 7;
 
 // No timestamp anywhere in the payload, so the mapper has only ingest time.
 struct WireTicker {
@@ -107,6 +108,14 @@ struct WireTicker {
     std::string_view ask;
     std::string_view ask_size;
     std::string_view last_price;
+    // The 24-hour VOLUME slot, in the BASE asset. There is no quote column on
+    // this channel at all — no turnover, no notional, nothing to pair it with
+    // — so the quote side of TickerStats stays a hard zero rather than being
+    // manufactured by multiplying this by a price.
+    //
+    // Positional, and never absent: read_row refuses a short array outright,
+    // so a frame either states all ten slots or is not a ticker.
+    std::string_view volume;
 };
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);

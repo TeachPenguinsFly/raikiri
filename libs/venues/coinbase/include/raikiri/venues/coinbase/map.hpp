@@ -34,6 +34,13 @@ map_bbo(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same ticker frame, in the BASE asset. THE QUOTE
+// COLUMN IS LEFT AT ZERO: Coinbase Exchange publishes no quote-side figure on
+// this channel, and the ticker is trade-driven, so this republishes once per
+// match rather than on a schedule.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Returns nullopt for any market other than Spot, anything not "online",

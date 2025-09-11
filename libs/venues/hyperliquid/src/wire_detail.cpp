@@ -8,7 +8,9 @@ std::expected<void, WireError> read_ctx_fields(ondemand::object& ctx, WireAssetC
                                      std::pair{"midPx", &out.mid_price},
                                      std::pair{"oraclePx", &out.oracle_price},
                                      std::pair{"prevDayPx", &out.prev_day_price},
-                                     std::pair{"openInterest", &out.open_interest}}) {
+                                     std::pair{"openInterest", &out.open_interest},
+                                     std::pair{"dayBaseVlm", &out.day_base_volume},
+                                     std::pair{"dayNtlVlm", &out.day_notional_volume}}) {
         const auto value = opt_str(ctx, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());

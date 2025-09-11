@@ -85,6 +85,15 @@ private:
     std::uint32_t interval_s_{0};
 };
 
+// The 24-hour turnover off the same `instrument` row. Separate from
+// InstrumentState because it needs no merge: the two notionals move together
+// and a frame restating neither must publish neither. BitMEX's own volume24h
+// is in CONTRACTS and is deliberately not read — it compares with no other
+// venue, and on an inverse row not even with itself in the base asset.
+[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireInstrumentTick& wire,
+                                                          const exec::InstrumentTable& table,
+                                                          UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // nullopt for anything not Open, not the requested market, quanto, or whose

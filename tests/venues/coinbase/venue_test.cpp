@@ -488,6 +488,36 @@ TEST(CoinbaseMap, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->instrument.market(), MarketType::Spot);
 }
 
+TEST(CoinbaseMap, TheDaysVolumeIsBaseOnlyOnThisChannel) {
+    const auto table = table_with_btc();
+    const auto frame = fixture("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->volume_24h, "6221.27614325");
+
+    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 6'221'276'143'250); // 6221.27614325 BTC
+    // ZERO BECAUSE COINBASE SAID NOTHING, not because nothing traded. The
+    // Exchange ticker has no turnover column at all; `price` times volume
+    // would be ~399M USD of this process's own arithmetic in a cell every
+    // other venue fills from the venue itself.
+    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
+    // The triggering match's time, which is the only time the frame states.
+    EXPECT_EQ(stats->ts_event.ns, 1'786'395'150'757'921'000ULL);
+    EXPECT_EQ(stats->ts_init.ns, k_ingest.ns);
+}
+
+TEST(CoinbaseMap, ATickerWithoutAVolumeColumnPublishesNoStats) {
+    // Absent is not zero even on a channel that has never omitted it: a frame
+    // stating no volume states nothing about the day.
+    const auto table = table_with_btc();
+    WireTicker wire{};
+    wire.product_id = "BTC-USD";
+    wire.time = "2026-08-10T20:52:30.757921Z";
+    EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
+}
+
 TEST(CoinbaseMap, MatchBecomesATradeWithTheAggressorFlipped) {
     const auto table = table_with_btc();
     const auto sell_frame = fixture("ws_match.json");

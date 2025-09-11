@@ -137,6 +137,16 @@ struct WireInstrumentTick {
     std::string_view indicative_funding_rate;
     std::string_view funding_ts;
     std::string_view funding_interval;
+    // EMPTY ON AN UPDATE, and empty is not zero: the `partial` states the whole
+    // row and every frame after it carries only the columns that moved, so the
+    // mark-price ticks that dominate this table carry neither.
+    //
+    // WHICH IS WHICH IS NOT THE NAMES. On XBTUSD homeNotional24h is the XBT
+    // side and foreignNotional24h the USD side — verified by ratio against
+    // volume24h in map.cpp, which is what an inverse contract makes worth
+    // checking. volume24h itself is in CONTRACTS and compares with nothing.
+    std::string_view home_notional_24h;    // base units
+    std::string_view foreign_notional_24h; // quote units
     std::string_view ts;
 };
 

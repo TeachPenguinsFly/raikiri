@@ -74,6 +74,15 @@ struct WireTicker {
     std::string_view best_ask;
     std::string_view best_ask_size;
     std::string_view time; // ISO-8601
+    // The rolling 24-hour volume, in the BASE asset. This is the EXCHANGE
+    // API's spelling; Advanced Trade calls the same figure `volume_24_h` on a
+    // different host and this adapter does not speak to it.
+    //
+    // There is no quote-side column on this channel — `volume_30d` is another
+    // window in the same base units, not a turnover — so the quote side of
+    // TickerStats stays a hard zero. Every frame is a full snapshot, not a
+    // delta, so an empty value here means a schema change, not "unchanged".
+    std::string_view volume_24h;
     std::int64_t sequence{0};
     std::int64_t trade_id{0};
 };

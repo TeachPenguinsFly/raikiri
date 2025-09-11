@@ -53,6 +53,13 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
+// A 24-hour aggregate is an AMOUNT: the venue writes dayNtlVlm to ten
+// fractional digits, which the exact reader above refuses outright. Truncating
+// below 1e-9 errs downward rather than dropping the whole figure.
+std::optional<FixedE9> to_amount_e9(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -140,6 +147,27 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
     }
     out.interval_s = k_funding_interval_s;
     // No timestamp on this payload at all, so ingest is the only honest one.
+    out.ts_event = ts_init;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. The REST rows this struct also carries name no coin
+    // at all, and a context stating neither figure says nothing about volume.
+    if (wire.day_base_volume.empty() && wire.day_notional_volume.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.coin);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_amount_e9(wire.day_base_volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_amount_e9(wire.day_notional_volume).value_or(FixedE9::from_raw(0));
+    // No timestamp on either transport, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;

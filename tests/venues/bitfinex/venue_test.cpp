@@ -318,6 +318,37 @@ TEST(BitfinexWire, TickerBecomesTopOfBook) {
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
+TEST(BitfinexMap, TheVolumeSlotIsBaseAndNothingHereStatesTheQuoteSide) {
+    const auto table = table_with_btc();
+    // Named, not a temporary: the parser hands back views into this frame.
+    const auto frame = fixture("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    // Slot 7, between LAST_PRICE and HIGH. Positional, so an off-by-one here
+    // would read the daily HIGH as a day's volume and nothing would error.
+    EXPECT_EQ(wire->volume, "411.13963496");
+
+    const auto stats = map_ticker_stats(*wire, "tBTCUSD", table, UnixNanos{0}, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 411'139'634'960);
+    // ZERO BECAUSE THE VENUE SAID NOTHING, not because nothing traded. No
+    // channel Bitfinex opens here states a turnover — the `status` channel
+    // that carries funding has none either — and 411.13963496 against the
+    // 63953 last would be ~26.3M USD this process made up.
+    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
+    // No time in the payload and none on the envelope for this capture.
+    EXPECT_EQ(stats->ts_event.ns, k_ingest.ns);
+    EXPECT_EQ(stats->ts_init.ns, k_ingest.ns);
+}
+
+TEST(BitfinexMap, VolumeForAnUnboundSymbolPublishesNothing) {
+    const auto table = table_with_btc();
+    const auto frame = fixture("ws_ticker.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_FALSE(map_ticker_stats(*wire, "tDOGE:USD", table, UnixNanos{0}, k_ingest).has_value());
+}
+
 TEST(BitfinexMap, OneSlotShiftInTheTickerIsRefused) {
     // The whole reason the mapper asserts an invariant the parser cannot. A
     // reader off by one slot puts BID_SIZE where ASK belongs; every token is

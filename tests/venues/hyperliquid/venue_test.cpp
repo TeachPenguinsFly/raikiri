@@ -573,6 +573,50 @@ TEST(HyperliquidMap, FundingIsHourlyAndCarriesMarkButNoSettlementTime) {
     EXPECT_EQ(funding->ts_init.ns, 11U);
 }
 
+TEST(HyperliquidMap, TheDaysVolumeRidesTheSameContextAsFunding) {
+    const auto table = loaded_table();
+    const auto frame = fixture("ws_active_asset_ctx.json");
+    const auto wire = parse_asset_ctx(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->day_base_volume, "27652.04587");
+    EXPECT_EQ(wire->day_notional_volume, "1786723009.1462507248");
+
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{11});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 27'652'045'870'000);
+    // Truncated at 1e-9, not refused: the venue writes ten fractional digits
+    // and an exact read would report a $1.7bn day as no volume at all.
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'786'723'009'146'250'724);
+    // Both raws are e9, so their ratio is a price: 64614, between this
+    // context's own markPx 64143 and prevDayPx 65105. The names do not say
+    // which of Ntl and Base is the coin; this does.
+    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'614);
+    // No timestamp on either transport, so ingest is the only honest one.
+    EXPECT_EQ(stats->ts_event.ns, 11U);
+    EXPECT_EQ(stats->ts_init.ns, 11U);
+}
+
+TEST(HyperliquidMap, ARestContextNamesNoCoinAndPublishesNoVolume) {
+    // The REST rows pair POSITIONALLY against meta.universe and carry no coin,
+    // so there is nothing to attribute their volume to until a loader has done
+    // that pairing.
+    const auto table = loaded_table();
+    auto ctx_storage = std::make_unique<AssetCtxBuffer>();
+    const auto body = fixture("rest_meta_and_asset_ctxs.json");
+    const auto ctxs = parse_asset_ctxs(body, *ctx_storage);
+    ASSERT_TRUE(ctxs.has_value());
+    ASSERT_FALSE(ctxs->empty());
+    EXPECT_EQ((*ctxs)[0].day_base_volume, "27654.4941000001");
+    EXPECT_FALSE(map_ticker_stats((*ctxs)[0], table, UnixNanos{1}).has_value());
+
+    // Named, it maps — the same row the funding test pairs by hand.
+    auto btc = (*ctxs)[0];
+    btc.coin = "BTC";
+    const auto stats = map_ticker_stats(btc, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'614);
+}
+
 TEST(HyperliquidMap, ContractWithoutFundingIsNotReportedAsZero) {
     const auto table = loaded_table();
     WireAssetCtx wire{};

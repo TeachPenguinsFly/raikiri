@@ -387,6 +387,15 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.funding_8h = *eight_hour;
         out.ts_ms = *ts;
 
+        // Read before the option scalars so the cursor walks `stats` and then
+        // `greeks` in the order the frame writes them. Absent is tolerated:
+        // this must never cost the frame its funding rate.
+        if (auto stats = detail::req_object(*data, "stats"); stats.has_value()) {
+            out.stats_volume = detail::opt_num(*stats, "volume").value_or(std::string_view{});
+            out.stats_volume_usd =
+                detail::opt_num(*stats, "volume_usd").value_or(std::string_view{});
+        }
+
         // Options only, and every one of these is absent on a perpetual. The
         // scalars are read before the nested object so the cursor never has to
         // climb back out of `greeks` to reach a sibling.

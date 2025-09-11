@@ -73,6 +73,16 @@ inline constexpr std::uint32_t k_funding_interval_s = 28800;
                                                  const exec::InstrumentTable& table,
                                                  UnixNanos ts_init);
 
+// The 24-hour turnover off the ticker's VOLUME slot, which Bitfinex states in
+// the BASE asset. THE QUOTE COLUMN IS LEFT AT ZERO: this channel publishes no
+// turnover, and the `status` channel that carries funding publishes none
+// either, so there is nothing to fill it with that the venue actually said.
+[[nodiscard]] std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
+                                                          std::string_view symbol,
+                                                          const exec::InstrumentTable& table,
+                                                          UnixNanos ts_event,
+                                                          UnixNanos ts_init);
+
 // Returns nullopt when the frame quotes no rate at all — a contract without
 // funding must not be reported as one funding at zero.
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireDerivStatus& wire,

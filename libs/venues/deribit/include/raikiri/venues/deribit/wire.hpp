@@ -98,6 +98,16 @@ struct WireTicker {
     std::string_view bid_iv;
     std::string_view ask_iv;
     std::string_view underlying_price;
+    // The `stats` sub-object's rolling 24-hour turnover. `volume` is the BASE
+    // asset — BTC on every BTC-quoted contract, option contracts included —
+    // and `volume_usd` the same window in USD, which is the quote currency of
+    // every instrument this adapter loads. Being coin-margined does NOT swap
+    // them: verified by ratio in map.cpp.
+    //
+    // Optional because a ticker without `stats` must still yield its funding
+    // rate; every live frame has carried it.
+    std::string_view stats_volume;     // base units
+    std::string_view stats_volume_usd; // quote units
     std::uint64_t ts_ms{0};
 };
 

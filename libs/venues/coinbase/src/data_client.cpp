@@ -58,6 +58,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
         break;
     }
     case EventKind::Match: {

@@ -64,6 +64,11 @@ void handle_data(VenueState& state,
             bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
+        if (const auto stats = map_ticker_stats(
+                *wire, binding->symbol.view(), state.instruments, ts_event, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
         break;
     }
     case ChannelKind::Trades: {

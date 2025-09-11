@@ -531,6 +531,69 @@ TEST(DeribitMap, NonPerpetualTickersQuoteNoFundingAtAll) {
     EXPECT_TRUE(map_greeks(*option_wire, options, UnixNanos{1}).has_value());
 }
 
+TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
+    const auto catalogue = fixture("rest_get_instruments.json");
+
+    exec::InstrumentTable perps;
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 1U);
+    // Named, not a temporary: every view the parser returns points into the
+    // caller's buffer, so the frame has to outlive what was read out of it.
+    const auto perp_frame = fixture("ws_ticker_perpetual.json");
+    const auto perp = parse_ticker(perp_frame);
+    ASSERT_TRUE(perp.has_value());
+    EXPECT_EQ(perp->stats_volume, "2934.85682569");
+    EXPECT_EQ(perp->stats_volume_usd, "189879910.0");
+    const auto stats = map_ticker_stats(*perp, perps, UnixNanos{11});
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 2'934'856'825'690);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 189'879'910'000'000'000);
+    // COIN-MARGINED DOES NOT SWAP THEM. Both raws are e9, so their ratio is a
+    // price: 64698, inside this contract's own 63764..65436 day range. Reading
+    // `volume` as the USD side would price BTC at 1.5e-5.
+    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'698);
+    EXPECT_EQ(stats->ts_event.ns, 1'786'395'070'130'000'000ULL);
+    EXPECT_EQ(stats->ts_init.ns, 11U);
+
+    exec::InstrumentTable futures;
+    ASSERT_EQ(load_catalogue(futures, MarketType::Future, catalogue), 1U);
+    const auto future_frame = fixture("ws_ticker_future.json");
+    const auto future = parse_ticker(future_frame);
+    ASSERT_TRUE(future.has_value());
+    const auto future_stats = map_ticker_stats(*future, futures, UnixNanos{11});
+    ASSERT_TRUE(future_stats.has_value());
+    EXPECT_EQ(future_stats->volume_24h_base.raw, 155'337'460'510);
+    EXPECT_EQ(future_stats->volume_24h_quote.raw, 10'129'490'000'000'000);
+    EXPECT_EQ(future_stats->volume_24h_quote.raw / future_stats->volume_24h_base.raw, 65'209);
+
+    exec::InstrumentTable options;
+    ASSERT_EQ(load_catalogue(options, MarketType::Option, catalogue), 2U);
+    const auto option_frame = fixture("ws_ticker_option.json");
+    const auto option = parse_ticker(option_frame);
+    ASSERT_TRUE(option.has_value());
+    const auto option_stats = map_ticker_stats(*option, options, UnixNanos{11});
+    ASSERT_TRUE(option_stats.has_value());
+    // An option's quote side is the PREMIUM traded, not the underlying's
+    // notional: 4521.24 over 15.6 is 289 USD a contract, which is the 0.0044
+    // BTC mark at a 64107 underlying. The ratio is still quote over base.
+    EXPECT_EQ(option_stats->volume_24h_base.raw, 15'600'000'000);
+    EXPECT_EQ(option_stats->volume_24h_quote.raw, 4'521'240'000'000);
+    EXPECT_EQ(option_stats->volume_24h_quote.raw / option_stats->volume_24h_base.raw, 289);
+}
+
+TEST(DeribitMap, ATickerWithoutStatsStillYieldsItsFunding) {
+    const auto catalogue = fixture("rest_get_instruments.json");
+    exec::InstrumentTable perps;
+    ASSERT_EQ(load_catalogue(perps, MarketType::Perp, catalogue), 1U);
+    const auto frame = fixture("ws_ticker_perpetual.json");
+    auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    wire->stats_volume = {};
+    wire->stats_volume_usd = {};
+    // Absent is not zero, and the frame's real business is the funding rate.
+    EXPECT_FALSE(map_ticker_stats(*wire, perps, UnixNanos{11}).has_value());
+    EXPECT_TRUE(map_funding(*wire, perps, UnixNanos{11}).has_value());
+}
+
 TEST(DeribitMap, TheVenuesGreeksRideTheTickerAndAreTakenAsGiven) {
     const auto catalogue = fixture("rest_get_instruments.json");
     exec::InstrumentTable options;

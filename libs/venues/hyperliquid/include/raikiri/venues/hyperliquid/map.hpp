@@ -40,6 +40,11 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same activeAssetCtx payload. No REST poll is
+// involved: the channel that carries funding carries both volume columns.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Depth is a full snapshot on this venue, so the mapper needs no book state:
 // the newest frame simply replaces what shm holds.
 [[nodiscard]] std::optional<BookSnapshot>

@@ -262,6 +262,13 @@ std::expected<WireInstrumentTick, WireError> parse_instrument_tick(std::string_v
                 out.mark_price = *mark;
                 out.funding_rate = *rate;
                 out.indicative_funding_rate = *indicative;
+                // OPTIONAL, unlike the rest: an update frame carries these two
+                // only when the day's turnover moved, and refusing the frame
+                // over an absent column would drop its funding rate too.
+                out.home_notional_24h =
+                    detail::opt_num(obj, "homeNotional24h").value_or(std::string_view{});
+                out.foreign_notional_24h =
+                    detail::opt_num(obj, "foreignNotional24h").value_or(std::string_view{});
                 return out;
             });
     });

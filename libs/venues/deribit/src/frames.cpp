@@ -144,6 +144,10 @@ void handle_frame(VenueState& state,
             greeks.has_value()) {
             state.sink->on_option_greeks(*greeks);
         }
+        if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
+            stats.has_value()) {
+            state.sink->on_ticker_stats(*stats);
+        }
         break;
     }
     case EventKind::Book:

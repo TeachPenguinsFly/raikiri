@@ -98,6 +98,13 @@ struct WireAssetCtx {
     std::string_view oracle_price;
     std::string_view prev_day_price;
     std::string_view open_interest;
+    // The rolling 24-hour turnover, on the SAME payload as funding: there is
+    // no separate ticker to poll and no /info call in the path. dayBaseVlm is
+    // the coin, dayNtlVlm the USDC notional — verified by ratio in map.cpp,
+    // which is the check worth keeping because the names do not say which is
+    // which. A delisted asset states "0.0" for both, which is a real zero.
+    std::string_view day_base_volume;     // base units
+    std::string_view day_notional_volume; // quote units
 };
 
 [[nodiscard]] std::expected<WireAssetCtx, WireError> parse_asset_ctx(std::string_view frame);

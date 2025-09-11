@@ -194,7 +194,12 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
               std::pair{"last", &out.last},
               std::pair{"relative_funding_rate", &out.relative_funding_rate},
               std::pair{"relative_funding_rate_prediction", &out.relative_funding_rate_prediction},
-              std::pair{"openInterest", &out.open_interest}}) {
+              std::pair{"openInterest", &out.open_interest},
+              // Optional like the rest of this list: opt_num answers an empty
+              // view for a field the frame omits, so a ticker_lite push still
+              // yields its touch instead of failing the whole parse.
+              std::pair{"volume", &out.volume},
+              std::pair{"volumeQuote", &out.volume_quote}}) {
             const auto value = detail::opt_num(*root, key);
             if (!value.has_value()) {
                 return std::unexpected(value.error());

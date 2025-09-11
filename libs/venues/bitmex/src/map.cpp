@@ -84,6 +84,13 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_number_e9(text);
 }
 
+// A 24-hour aggregate, which is an AMOUNT and not a price: BitMEX writes
+// homeNotional24h to thirteen fractional digits, so the exact reader above
+// refuses every frame the venue has ever sent. Truncation errs downward.
+std::optional<FixedE9> to_amount_e9(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // `execInst` is a comma-separated LIST, so this looks for members rather than
 // comparing the whole field: "ParticipateDoNotInitiate,ReduceOnly" is one value
 // carrying both flags, and an equality test would see neither.
@@ -497,6 +504,28 @@ std::optional<FundingUpdate> InstrumentState::apply(const WireInstrumentTick& wi
     out.predicted_rate = predicted_;
     out.next_funding_time = next_funding_;
     out.interval_s = interval_s_;
+    out.ts_event = iso8601_to_unix(wire.ts, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats> map_ticker_stats(const WireInstrumentTick& wire,
+                                            const exec::InstrumentTable& table,
+                                            UnixNanos ts_init) {
+    // ABSENT IS NOT ZERO. An update frame states only what moved, and the
+    // mark-price ticks that dominate this table state neither notional;
+    // publishing a zero would erase the day's turnover until the next partial.
+    if (wire.home_notional_24h.empty() && wire.foreign_notional_24h.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    out.volume_24h_base = to_amount_e9(wire.home_notional_24h).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_amount_e9(wire.foreign_notional_24h).value_or(FixedE9::from_raw(0));
     out.ts_event = iso8601_to_unix(wire.ts, ts_init);
     out.ts_init = ts_init;
     return out;

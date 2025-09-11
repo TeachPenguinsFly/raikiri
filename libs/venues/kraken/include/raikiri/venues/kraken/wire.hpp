@@ -73,6 +73,17 @@ struct WireTicker {
     std::string_view relative_funding_rate;            // dimensionless; use this
     std::string_view relative_funding_rate_prediction; // next interval forecast
     std::string_view open_interest;
+    // The rolling 24-hour window, under Kraken's websocket spellings — the
+    // REST ticker calls the first one `vol24h` and the two must not be
+    // confused when reading a capture. `volume` counts the BASE asset only on
+    // the PF_ family; on PI_ it counts CONTRACTS, each of which is a unit of
+    // QUOTE, and Kraken then repeats it verbatim in volume_quote (VERIFIED
+    // live: PI_XBTUSD 432254 in both, against PF_XBTUSD 12052.0267 and
+    // 971669776.3224). map.cpp is where that split is applied.
+    //
+    // Empty when absent — ticker_lite carries neither — and empty is not zero.
+    std::string_view volume;       // `volume`
+    std::string_view volume_quote; // `volumeQuote`
     std::uint64_t next_funding_rate_time_ms{0};
     std::uint64_t time_ms{0};
     bool suspended{false};

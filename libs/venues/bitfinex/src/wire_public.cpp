@@ -222,6 +222,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                                 out.ask = row->at<k_ticker_ask>();
                                 out.ask_size = row->at<k_ticker_ask_size>();
                                 out.last_price = row->at<k_ticker_last_price>();
+                                out.volume = row->at<k_ticker_volume>();
                                 return out;
                             });
     });

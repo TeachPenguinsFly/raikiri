@@ -121,13 +121,14 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
     return FixedE9::from_raw(static_cast<std::int64_t>(value));
 }
 
-// Rates and fees, never prices or sizes. Both are full-precision quotients
-// Kraken prints with more digits than 1e9 holds — relative_funding_rate
-// 1.477885e-5 is eleven decimals, a maker rebate -0.00009142857 BTC is eleven
-// more — so an exact read would refuse every funding frame the venue has ever
-// sent and report every fill as free. Truncating here discards less than the
-// settlement currency's own smallest unit (1e-9 BTC is one satoshi) and
-// nothing divides an order by either number; prices and quantities stay exact.
+// Rates, fees and turnover, never prices or sizes. All three are
+// full-precision figures Kraken prints with more digits than 1e9 holds —
+// relative_funding_rate 1.477885e-5 is eleven decimals, a maker rebate
+// -0.00009142857 BTC is eleven more — so an exact read would refuse every
+// funding frame the venue has ever sent and report every fill as free.
+// Truncating here discards less than the settlement currency's own smallest
+// unit (1e-9 BTC is one satoshi) and nothing divides an order by any of these
+// numbers; prices and quantities stay exact.
 std::optional<FixedE9> to_truncated_e9(std::string_view text) noexcept {
     if (text.empty()) {
         return std::nullopt;
@@ -314,6 +315,33 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
         out.mark_price = *mark;
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_rate_time_ms, UnixNanos{0});
+    out.ts_event = ms_to_unix(wire.time_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.volume.empty() && wire.volume_quote.empty()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.product_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto& base = base_of(*instrument);
+
+    TickerStats out{};
+    out.instrument = base.id;
+    // `volume` is the base asset on PF_ and CONTRACTS OF QUOTE on PI_, where
+    // Kraken repeats it in volumeQuote unchanged. The base column is left at
+    // zero on the inverse family rather than filled from a number measured in
+    // dollars — Kraken states no base figure for those contracts at all.
+    out.volume_24h_base =
+        base.kind == ContractKind::Inverse
+            ? FixedE9::from_raw(0)
+            : to_truncated_e9(wire.volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_truncated_e9(wire.volume_quote).value_or(FixedE9::from_raw(0));
     out.ts_event = ms_to_unix(wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;

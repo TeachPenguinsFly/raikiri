@@ -49,6 +49,16 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
+// The 24-hour turnover off the same frame. nullopt when the frame states
+// neither column and when the product is not in the table.
+//
+// The base column is left at zero on the INVERSE family: Kraken's `volume`
+// counts contracts there, and a contract of PI_ is one USD of notional, not a
+// coin. Reading it as base ranks an inverse book against a linear one by a
+// number measured in another unit.
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
 // Catalogue ---------------------------------------------------------------
 
 // Nullopt for anything not tradeable, not the requested market, or whose steps

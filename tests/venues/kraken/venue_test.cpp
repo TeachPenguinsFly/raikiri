@@ -210,6 +210,12 @@ TEST(KrakenWire, TickerCarriesTouchAndFundingInOneFrame) {
     // The token is handed over untouched; map.cpp owns every interpretation.
     EXPECT_EQ(wire->relative_funding_rate, "0.00001477885");
     EXPECT_EQ(wire->mark_price, "64113.93588534861");
+    // The 24-hour window, under the websocket's own spellings — REST calls the
+    // first `vol24h`. Their quotient, 64609.06, sits between this frame's low
+    // (63735) and high (65432), which is what says one is the base asset and
+    // the other the same window priced in quote.
+    EXPECT_EQ(wire->volume, "5279.6877");
+    EXPECT_EQ(wire->volume_quote, "341115306.3365");
 }
 
 TEST(KrakenWire, InverseTickerSpellsItsRateWithAnExponent) {
@@ -224,6 +230,12 @@ TEST(KrakenWire, InverseTickerSpellsItsRateWithAnExponent) {
     EXPECT_EQ(wire->product_id, "PI_XBTUSD");
     EXPECT_EQ(wire->relative_funding_rate, "8.907125e-6");
     EXPECT_EQ(wire->bid, "63903.0");
+    // The two turnover columns are the SAME NUMBER on an inverse contract:
+    // `volume` counts contracts of one USD, so it is already the quote figure
+    // and Kraken states no base one at all. The linear frame off the same
+    // socket differs by the price.
+    EXPECT_EQ(wire->volume, "36162.0");
+    EXPECT_EQ(wire->volume_quote, "36162.0");
 }
 
 TEST(KrakenWire, SnapshotAndLiveTradeShareOneParser) {
@@ -473,6 +485,42 @@ TEST(KrakenMap, InverseTickerMapsAgainstItsOwnSteps) {
     const auto funding = map_funding(*wire, table, UnixNanos{1});
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 8907); // 8.907125e-6, exponent spelling
+}
+
+TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
+    const auto table = catalogue();
+    const UnixNanos now{11};
+
+    const auto linear_frame = fixture("ws_ticker_pf.json");
+    const auto linear = parse_ticker(linear_frame);
+    ASSERT_TRUE(linear.has_value());
+    const auto linear_stats = map_ticker_stats(*linear, table, now);
+    ASSERT_TRUE(linear_stats.has_value());
+    EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);          // 5279.6877 XBT
+    EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500'000LL);   // 341115306.3365 USD
+    EXPECT_EQ(linear_stats->ts_event.ns, 1786395177000ULL * 1'000'000ULL);
+    EXPECT_EQ(linear_stats->ts_init.ns, now.ns);
+
+    // PI_XBTUSD sends 36162.0 in BOTH columns because its `volume` is a count
+    // of one-dollar contracts. Copying it into the base column would file
+    // 36162 USD of notional as 36162 bitcoin.
+    const auto inverse_frame = fixture("ws_ticker_pi.json");
+    const auto inverse = parse_ticker(inverse_frame);
+    ASSERT_TRUE(inverse.has_value());
+    const auto inverse_stats = map_ticker_stats(*inverse, table, now);
+    ASSERT_TRUE(inverse_stats.has_value());
+    EXPECT_EQ(inverse_stats->volume_24h_base.raw, 0);
+    EXPECT_EQ(inverse_stats->volume_24h_quote.raw, 36'162'000'000'000LL);
+
+    // A ticker_lite push states neither column, and an unknown product has no
+    // cell at all. Neither is a market that traded nothing.
+    auto lite = *linear;
+    lite.volume = {};
+    lite.volume_quote = {};
+    EXPECT_FALSE(map_ticker_stats(lite, table, now).has_value());
+    auto unknown = *linear;
+    unknown.product_id = "PF_NOSUCHUSD";
+    EXPECT_FALSE(map_ticker_stats(unknown, table, now).has_value());
 }
 
 TEST(KrakenMap, TradeKeepsTheAggressorSideAsSent) {
