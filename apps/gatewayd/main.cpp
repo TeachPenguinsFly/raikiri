@@ -26,6 +26,7 @@
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/schema/codec.hpp>
@@ -56,6 +57,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -592,6 +595,33 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// What the venue said about our budget, kept as the LAST value seen per header
+// so a run ends able to state the venue's own numbers.
+//
+// Guarded, because the account poller runs its REST calls on its own thread
+// while the gateway loop runs the rest.
+class RateWitness {
+public:
+    void observe(std::string_view host, const raikiri::net::RateHeader& header) {
+        const std::lock_guard lock{mu_};
+        seen_[std::string{host} + " " + header.name] = header.value;
+    }
+
+    void report(std::string_view account) const {
+        const std::lock_guard lock{mu_};
+        if (seen_.empty()) {
+            return; // a venue that states nothing must not be reported as zero
+        }
+        for (const auto& [key, value] : seen_) {
+            RLOG_INFO("gatewayd[{}]: venue's own metering — {} = {}", account, key, value);
+        }
+    }
+
+private:
+    mutable std::mutex mu_;
+    std::map<std::string, std::string> seen_;
+};
+
 int main(int argc, char** argv) {
     // NOTHING HERE WRITES TO STDOUT. Every line this process emits goes to
     // stderr, which is unbuffered; a print added to stdout would need the line
@@ -918,6 +948,12 @@ int main(int argc, char** argv) {
     }
     RLOG_INFO("gatewayd[{}]: subscribed to {} instrument(s)", account_name, subscribed);
     owner->publish();
+    RateWitness rates;
+    raikiri::net::set_rate_observer(
+        [&rates](std::string_view host, const raikiri::net::RateHeader& header) {
+            rates.observe(host, header);
+        });
+
     RLOG_INFO("gatewayd[{}]: up, segment {}", account_name, seg_path);
 
     shm::SpscConsumer creates{channels->cmd_create};
@@ -1101,6 +1137,7 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
+    rates.report(account_name);
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
               "ticker={} order-events={} refusals={}",
               account_name,

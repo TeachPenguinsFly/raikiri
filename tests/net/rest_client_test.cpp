@@ -64,6 +64,7 @@ struct ServerState {
     // Fixed before the listener thread starts.
     int status{200};
     std::string error_body;
+    std::vector<std::pair<std::string, std::string>> extra_headers;
 
     mutable std::mutex mu;
     std::vector<ObservedRequest> requests;
@@ -129,6 +130,9 @@ private:
         res->set(http::field::server, "raikiri-test");
         res->set(http::field::content_type, "application/json");
         res->keep_alive(true);
+        for (const auto& [name, value] : state_.extra_headers) {
+            res->insert(name, value);
+        }
         // The echo proves the body and the caller's header both crossed the
         // wire; a status-only assertion would pass even if either was dropped.
         res->body() =
@@ -265,6 +269,59 @@ TEST(RestClient, ErrorStatusIsSurfacedNotTreatedAsTransportFailure) {
     EXPECT_GT(got.sent.ns, 0U);
     EXPECT_GE(got.received.ns, got.sent.ns);
 
+    client.stop();
+}
+
+TEST(RestClient, TheVenuesOwnMeteringIsKeptAndTheRestOfTheHeadersAreNot) {
+    ServerState state;
+    // The three spellings that actually occur, plus one that must NOT be kept:
+    // a budget read off the wrong header is worse than no budget at all.
+    state.extra_headers = {{"X-MBX-USED-WEIGHT-1M", "17"},
+                           {"X-Bapi-Limit-Status", "48"},
+                           {"x-gate-ratelimit-requests-remain", "199"},
+                           {"X-Request-Id", "not-a-budget"}};
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(std::move(socket), tls, state)->run();
+    }};
+
+    IoContext io;
+    RestClient client{io, loopback_config(listener.port())};
+    client.start();
+
+    std::vector<std::pair<std::string, std::string>> witnessed;
+    set_rate_observer([&witnessed](std::string_view host, const RateHeader& header) {
+        EXPECT_EQ(host, "127.0.0.1");
+        witnessed.emplace_back(header.name, header.value);
+    });
+
+    RestResponse got;
+    bool done = false;
+    RestRequest request;
+    request.method = HttpMethod::Get;
+    request.target = "/v5/account/wallet-balance";
+    ASSERT_TRUE(client.send(request, [&got, &done](RestResponse&& response) {
+        got = std::move(response);
+        done = true;
+    }));
+    ASSERT_TRUE(poll_until(io, [&done] { return done; })) << "completion callback never fired";
+
+    ASSERT_EQ(got.rate_headers.size(), 3U) << "the request id is not metering";
+    const auto value_of = [&got](std::string_view name) -> std::string {
+        for (const auto& header : got.rate_headers) {
+            if (header.name == name) {
+                return header.value;
+            }
+        }
+        return {};
+    };
+    // Matched case-insensitively by prefix: the venues disagree on the casing
+    // of their own header names between endpoints.
+    EXPECT_EQ(value_of("X-MBX-USED-WEIGHT-1M"), "17");
+    EXPECT_EQ(value_of("X-Bapi-Limit-Status"), "48");
+    EXPECT_EQ(value_of("x-gate-ratelimit-requests-remain"), "199");
+    EXPECT_EQ(witnessed.size(), 3U) << "the observer sees what the response kept";
+
+    set_rate_observer(nullptr);
     client.stop();
 }
 

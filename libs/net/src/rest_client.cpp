@@ -42,6 +42,52 @@ using TlsStream = beast::ssl_stream<beast::tcp_stream>;
 
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
+// Header names a venue states its metering under. Matched by PREFIX and
+// case-insensitively, because the spellings differ by venue and by endpoint
+// family within one venue: binance uses `X-MBX-USED-WEIGHT-1M` and
+// `X-MBX-ORDER-COUNT-10S`, bybit `X-Bapi-Limit`, `X-Bapi-Limit-Status` and
+// `X-Bapi-Limit-Reset-Timestamp`, gate `x-gate-ratelimit-*`, bitmex and bingx
+// the conventional `x-ratelimit-*`, kucoin `gw-ratelimit-*`.
+//
+// A prefix list rather than an exact list: a venue that adds a fourth field to
+// its family should be seen, not silently dropped.
+constexpr std::string_view k_rate_header_prefixes[] = {
+    "x-mbx-", "x-bapi-limit", "x-gate-ratelimit", "x-ratelimit",
+    "gw-ratelimit", "ratelimit", "retry-after",
+};
+
+[[nodiscard]] bool is_rate_header(std::string_view name) noexcept {
+    std::string lowered;
+    lowered.reserve(name.size());
+    for (const char c : name) {
+        lowered.push_back(static_cast<char>(
+            c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c));
+    }
+    for (const auto prefix : k_rate_header_prefixes) {
+        if (lowered.starts_with(prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Set once at startup, read on the reactor thread that owns every REST
+// completion. Not atomic because there is only ever the one writer and it runs
+// before any client exists; a second writer would be a bug this cannot hide.
+RateObserver g_rate_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+template <typename Response>
+void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
+    for (const auto& field : res) {
+        const auto name = std::string_view{field.name_string().data(), field.name_string().size()};
+        if (!is_rate_header(name)) {
+            continue;
+        }
+        out.push_back({std::string{name},
+                       std::string{field.value().data(), field.value().size()}});
+    }
+}
+
 // Venues reap sockets that have been silent for a minute or so without ever
 // saying that they did. Finding out on an order costs a full connect plus TLS
 // at precisely the moment latency matters, so idle sockets get replaced on
@@ -390,6 +436,12 @@ private:
         response.body = std::move(conn->res.body());
         response.sent = conn->sent;
         response.received = clock_.wall();
+        collect_rate_headers(conn->res, response.rate_headers);
+        if (g_rate_observer) {
+            for (const auto& header : response.rate_headers) {
+                g_rate_observer(cfg_.host, header);
+            }
+        }
 
         const bool reusable = conn->res.keep_alive();
         conn->busy = false;
@@ -498,6 +550,10 @@ struct RestClient::Impl {
 
     std::shared_ptr<detail::RestPool> pool;
 };
+
+void set_rate_observer(RateObserver observer) {
+    g_rate_observer = std::move(observer);
+}
 
 RestClient::RestClient(IoContext& io, RestConfig config)
     : impl_{std::make_unique<Impl>(*static_cast<asio::io_context*>(io.native()),

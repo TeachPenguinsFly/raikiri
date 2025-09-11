@@ -52,17 +52,48 @@ struct RestRequest {
 // A transport-level failure (no HTTP status) reports status == 0 and a
 // non-empty error; adapters map that to ErrorClass::Connectivity and
 // synthesize a Rejected order event rather than leaving the order in doubt.
+// What the venue said about OUR budget on this response.
+//
+// Every venue that meters us states the remaining allowance on every signed
+// answer, and until now the transport threw it away and the budget was a
+// number somebody typed into a yaml file from a documentation page. The
+// venue's own word is the only figure that cannot go stale.
+//
+// Name and value verbatim: `X-MBX-USED-WEIGHT-1M`, `X-Bapi-Limit-Status`,
+// `x-gate-ratelimit-requests-remain` all mean the same thing and none of them
+// mean it the same way, so the transport carries the pair and whoever knows
+// the venue is what reads it.
+struct RateHeader {
+    std::string name;
+    std::string value;
+};
+
 struct RestResponse {
     int status{0};
     std::string body;
     std::string error;
     UnixNanos sent{};
     UnixNanos received{};
+    std::vector<RateHeader> rate_headers;
 
     [[nodiscard]] bool transport_failed() const noexcept { return status == 0; }
 };
 
 using RestCallback = std::function<void(RestResponse&&)>;
+
+// Every rate header this process saw, as the venue spelled it.
+//
+// PROCESS-WIDE ON PURPOSE: a gateway process is one venue, so every REST
+// answer it receives is that venue talking about our budget with it. Threading
+// a callback through sixteen adapters that have no opinion about metering
+// would be ceremony for a fact the topology already settles.
+//
+// Diagnostic only — nothing throttles on this. It exists so a budget in
+// `config/venues.yaml` can be measured from what the venue said rather than
+// copied off a documentation page.
+using RateObserver = std::function<void(std::string_view host, const RateHeader& header)>;
+
+void set_rate_observer(RateObserver observer);
 
 class RestClient {
 public:
