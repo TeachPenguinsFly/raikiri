@@ -36,6 +36,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .order_pull = true,
         .balance_pull = true,
         .funding_charge = true,
+        // NOT on a stream: /fapi/v1/ticker/24hr, polled beside the funding
+        // read, because binance states no turnover on the mark-price frame.
+        .ticker_stats = true, // volume (base) / quoteVolume
         .fill_pull = true,
         .user_stream = UserStreamModel::ListenKey,
         .max_client_order_id_len = 36,
@@ -77,6 +80,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        // volCcy24h off the `tickers` channel, BASE only: a swap states no
+        // quote turnover at all, and its vol24h is a CONTRACT count. SPOT
+        // rows carry both, with the two names meaning the other thing.
+        .ticker_stats = true,
         .needs_passphrase = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 32,
@@ -122,6 +129,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .order_pull = true,
         .balance_pull = true,
         .fill_pull = true,
+        // FUTURES ONLY, and off the catalogue rather than a stream:
+        // volumeOf24h / turnoverOf24h on /api/v1/contracts/active. A spot
+        // instrument gets no volume at all, which is not a zero.
+        .ticker_stats = true,
         .needs_passphrase = true,
         .user_stream = UserStreamModel::ListenKey, // bullet-token handshake
         .max_client_order_id_len = 40,
@@ -147,6 +158,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // without an exec_id cannot be deduplicated and one without a side
         // cannot be netted. Live fills carry both; the pull does not.
         .fill_pull = false,
+        // {sym}@ticker: `v` (base) / `q` (quote), on the swap and spot trees
+        // alike. Funding, on the same SubKind, stays a REST poll.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::ListenKey,
         .max_client_order_id_len = 40, // VERIFIED: ^[a-zA-Z0-9]{1,40}$
         .headline_order_rate_per_s = 10,
@@ -168,6 +182,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .order_pull = true,
         .balance_pull = true,
         .fill_pull = true,
+        // Futures fills only the quote column: `v` is quote turnover and `a`
+        // is a CONTRACT count, which compares with no other venue. Spot
+        // fills both, `q` base and `v` quote.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::ListenKey,
         // XT's field is 4..22 chars, so a 26-char ULID does not fit as text.
         // The adapter re-encodes its 128 bits as 22 base62 characters, a
@@ -199,6 +217,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // BEFORE calling, so a spot gateway pulls and always fails. One
         // market per process (see gatewayd --market) is what settles it.
         .fill_pull = true,
+        // push.ticker's `amount24`, in the QUOTE currency. The base column
+        // stays ZERO: the `volume24` beside it counts CONTRACTS, which
+        // compares with nothing.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // VERIFIED: futures externalOid max 32 (error 2030 beyond).
         .max_client_order_id_len = 32,
@@ -244,6 +266,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        .ticker_stats = true, // stats.volume (base) / stats.volume_usd (quote)
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64, // `label`
         .headline_order_rate_per_s = 20,
@@ -260,6 +283,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        .ticker_stats = true, // activeAssetCtx dayBaseVlm / dayNtlVlm
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 34, // `cloid`: 0x + 32 hex, exactly 128 bits
         .headline_order_rate_per_s = 10,
@@ -277,6 +301,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // answers only the second: it serves spot, where there is no position
         // to report and orders very much rest.
         .order_pull = true,
+        // volume_24h, in the BASE asset. The quote column stays ZERO: this
+        // venue publishes no turnover on the ticker channel at all.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // UUIDv4 and ONLY a UUIDv4: anything else is accepted by REST and
         // then silently never processed. The ULID is converted, not sent.
@@ -298,6 +325,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        // `volume` / `volumeQuote` on the ticker feed. The base column stays
+        // zero on the PI_ family, where `volume` counts USD contracts.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 100, // `cliOrdId`
         .headline_order_rate_per_s = 20,
@@ -314,6 +344,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        // homeNotional24h (base) / foreignNotional24h (quote), NOT volume24h,
+        // which counts contracts. Snapshot and volume-moving updates only.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36, // clOrdID
         .headline_order_rate_per_s = 10,
@@ -334,6 +367,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        .ticker_stats = true, // baseVolume / quoteVolume, on the ticker channel
         .needs_passphrase = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64,
@@ -353,6 +387,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // market; a sweep over every instrument is a different call the
         // reconciler does not make. Positions answer, fills do not.
         .fill_pull = false,
+        // market.{code}.detail: `amount` (base) / `trade_turnover` (quote).
+        // NOT `vol` on the same tick, which counts contracts.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 64,
         .headline_order_rate_per_s = 10,
@@ -370,6 +407,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        // The ticker's VOLUME slot, in the BASE asset. The quote column stays
+        // ZERO: no channel here states a turnover, funding's included.
+        .ticker_stats = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 10,
