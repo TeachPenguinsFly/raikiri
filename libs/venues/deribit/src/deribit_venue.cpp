@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -56,20 +56,13 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
 
     // Deribit's client_id is the api key and its client_secret the secret; the
     // signer holds both under the names every other adapter uses.
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state->signer.set_api_key(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state->signer.secret());
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        .key([&](std::string_view value) { state->signer.set_api_key(value); })
+        .secret(state->signer.secret())
+        .resolve();
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Deribit);

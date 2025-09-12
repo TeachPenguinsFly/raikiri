@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -11,14 +11,14 @@
 #include <raikiri/venues/bybit/rest.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
-#include "clients.hpp"
-
 #include <array>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "clients.hpp"
 
 namespace raikiri::venues::bybit {
 
@@ -57,20 +57,13 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state->signer.set_api_key(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state->signer.secret());
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        .key([&](std::string_view value) { state->signer.set_api_key(value); })
+        .secret(state->signer.secret())
+        .resolve();
 
     const auto market = config.market;
     exec::VenueAdapter adapter;

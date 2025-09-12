@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -35,22 +35,15 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state->signer.set_api_key(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            // Stored in its PRINTABLE base64 form: sign.hpp decodes it at every
-            // signature, because the decoded bytes are the HMAC key.
-            (void)provider.resolve(*ref, state->signer.secret());
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    // The secret is kept in its PRINTABLE base64 form: sign.hpp decodes it at
+    // every signature, because the decoded bytes are the HMAC key.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        .key([&](std::string_view value) { state->signer.set_api_key(value); })
+        .secret(state->signer.secret())
+        .resolve();
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Kraken);
     adapter.data = make_data_client(state);

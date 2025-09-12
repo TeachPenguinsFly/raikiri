@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -36,20 +36,13 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state->api_key.assign(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state->api_secret);
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        .key([&](std::string_view value) { state->api_key.assign(value); })
+        .secret(state->api_secret)
+        .resolve();
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Bitfinex);

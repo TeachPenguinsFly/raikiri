@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -37,29 +37,22 @@ namespace {
 // signs it with the api secret, so sealing before the secret is loaded would
 // produce a digest keyed by nothing.
 void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    config::DefaultSecretProvider provider;
-    const auto resolve = [&provider](std::string_view spec, config::Secret& into) {
-        if (spec.empty()) {
-            return false;
-        }
-        const auto ref = config::SecretRef::parse(spec);
-        return ref.has_value() && provider.resolve(*ref, into).has_value();
-    };
-
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state.credentials.signer().set_api_key(key.view());
-            }
-        }
-    }
-    if (!resolve(config.api_secret_env, state.credentials.signer().secret())) {
-        return;
-    }
-    config::Secret passphrase;
-    if (resolve(config.passphrase_env, passphrase)) {
-        (void)state.credentials.seal_passphrase(passphrase.view());
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        .key([&](std::string_view value) { state.credentials.signer().set_api_key(value); })
+        .secret(state.credentials.signer().secret())
+        .resolve();
+    // THE PASSPHRASE IS SEALED WITH THE SECRET, so an unresolved secret leaves
+    // nothing to seal it with: kucoin's header carries the passphrase encrypted
+    // under the api secret, and sealing against an empty one produces a value
+    // the venue rejects rather than an absent header it tolerates.
+    if (!state.credentials.signer().secret().view().empty()) {
+        (void)config::Credentials{{}, {}, config.passphrase_env}
+            .passphrase(
+                [&](std::string_view value) { (void)state.credentials.seal_passphrase(value); })
+            .resolve();
     }
 }
 

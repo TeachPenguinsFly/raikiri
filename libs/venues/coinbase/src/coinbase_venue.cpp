@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -58,38 +58,23 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state->signer.set_api_key(key.view());
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+        .key([&](std::string_view value) { state->signer.set_api_key(value); })
+        // Decoded ONCE, here. Coinbase keys the HMAC with the raw bytes behind
+        // the printable secret, and a signer holding the printable form
+        // produces a well-formed digest the venue answers 401 to —
+        // indistinguishable from a revoked key.
+        .secret([&](std::string_view encoded) {
+            std::array<char, k_max_secret_bytes> raw{};
+            if (const auto len = decode_secret(encoded, raw); len.has_value()) {
+                (void)state->signer.secret().assign(std::string_view{raw.data(), *len});
             }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            config::Secret encoded;
-            if (provider.resolve(*ref, encoded).has_value()) {
-                // Decoded ONCE, here. Coinbase keys the HMAC with the raw
-                // bytes behind the printable secret, and a signer holding the
-                // printable form produces a well-formed digest the venue
-                // answers 401 to — indistinguishable from a revoked key.
-                std::array<char, k_max_secret_bytes> raw{};
-                if (const auto len = decode_secret(encoded.view(), raw); len.has_value()) {
-                    (void)state->signer.secret().assign(std::string_view{raw.data(), *len});
-                }
-            }
-        }
-    }
-    if (!config.passphrase_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.passphrase_env); ref.has_value()) {
-            config::Secret phrase;
-            if (provider.resolve(*ref, phrase).has_value()) {
-                state->passphrase = std::string{phrase.view()};
-            }
-        }
-    }
+        })
+        .passphrase([&](std::string_view value) { state->passphrase = std::string{value}; })
+        .resolve();
 
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Coinbase);

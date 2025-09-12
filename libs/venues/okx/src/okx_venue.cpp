@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -53,27 +53,16 @@ namespace {
 // resolve leaves the field empty, and the adapter then runs market-data only
 // rather than signing with half a key.
 void load_credentials(VenueState& state, const exec::VenueConfig& config) {
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state.signer.set_api_key(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state.signer.secret());
-        }
-    }
-    // OKX is the venue VenueConfig::passphrase_env exists for: without it
-    // every signed request comes back 50104, which reads like a bad secret.
-    if (!config.passphrase_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.passphrase_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state.passphrase);
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    // OKX is the venue VenueConfig::passphrase_env exists for: without it every
+    // signed request comes back 50104, which reads like a bad secret.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+        .key([&](std::string_view value) { state.signer.set_api_key(value); })
+        .secret(state.signer.secret())
+        .passphrase([&](std::string_view value) { (void)state.passphrase.assign(value); })
+        .resolve();
 }
 
 exec::VenueAdapter

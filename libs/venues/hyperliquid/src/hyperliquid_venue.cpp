@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -34,29 +34,18 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    // The address rides `api_key_env` for want of a better field, and resolves
-    // through the secret provider for its schemes rather than for secrecy: an
-    // Ethereum address is public by construction.
-    if (!config.api_key_env.empty()) {
-        config::DefaultSecretProvider provider;
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret address;
-            if (provider.resolve(*ref, address).has_value()) {
-                state->address = std::string{address.view()};
-            }
-        }
-    }
-    // Not an HMAC secret: a secp256k1 private key, and it IS the account. A
-    // gateway without it reads the account fine and can place nothing.
-    if (!config.api_secret_env.empty()) {
-        config::DefaultSecretProvider provider;
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                (void)state->wallet.load(key.view());
-            }
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env}
+        // The address rides `api_key_env` for want of a better field, and goes
+        // through the provider for its schemes rather than for secrecy: an
+        // Ethereum address is public by construction.
+        .key([&](std::string_view value) { state->address = std::string{value}; })
+        // Not an HMAC secret: a secp256k1 private key, and it IS the account. A
+        // gateway without it reads the account fine and can place nothing.
+        .secret([&](std::string_view value) { (void)state->wallet.load(value); })
+        .resolve();
     exec::VenueAdapter adapter{};
     adapter.caps = exec::caps_of(VenueId::Hyperliquid);
     adapter.data = make_data_client(state);

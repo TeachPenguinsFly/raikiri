@@ -1,4 +1,4 @@
-#include <raikiri/config/secret.hpp>
+#include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/order_gate.hpp>
@@ -51,25 +51,14 @@ namespace {
 // will not resolve leaves the adapter unsigned, and every signed builder then
 // refuses rather than sending an unauthenticated order.
 void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    config::DefaultSecretProvider provider;
-    if (!config.api_key_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_key_env); ref.has_value()) {
-            config::Secret key;
-            if (provider.resolve(*ref, key).has_value()) {
-                state.signer.set_api_key(key.view());
-            }
-        }
-    }
-    if (!config.api_secret_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.api_secret_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state.signer.secret());
-        }
-    }
-    if (!config.passphrase_env.empty()) {
-        if (const auto ref = config::SecretRef::parse(config.passphrase_env); ref.has_value()) {
-            (void)provider.resolve(*ref, state.passphrase);
-        }
-    }
+    // Dropped on the floor, as before: a venue factory has nowhere to report a
+    // misconfigured reference to, so a typo still reads downstream as a revoked
+    // key. Worth fixing, and not in the same change that moves the code.
+    (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
+        .key([&](std::string_view value) { state.signer.set_api_key(value); })
+        .secret(state.signer.secret())
+        .passphrase([&](std::string_view value) { (void)state.passphrase.assign(value); })
+        .resolve();
 }
 
 exec::VenueAdapter
