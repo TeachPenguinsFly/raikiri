@@ -40,8 +40,27 @@ set -a; source "$ENV_FILE"; set +a
 # desktop app over Apple Events, so the terminal's parent is asked for
 # permission two dozen times. `op run` resolves the whole env file in one
 # process. Re-execs itself and returns here with the values in the environment.
+# The account pin and the service-account token, if this machine has them.
+# WITHOUT THIS the run falls back to the desktop app: macOS then asks this
+# terminal for permission on every invocation, and a non-interactive run just
+# produces an empty table with no explanation. tools/op.env exists to prevent
+# exactly that, and for a while nothing read it.
+TOKEN_FILE="$(dirname "$0")/op.env"
+if [[ -f "$TOKEN_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$TOKEN_FILE"
+fi
+
 if [[ -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_]*=op://" "$ENV_FILE"; then
     if command -v op >/dev/null 2>&1; then
+        if [[ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]] && ! op whoami >/dev/null 2>&1; then
+            # Said before the dialog appears, not after: otherwise the reader is
+            # looking at a macOS prompt with no idea what asked for it.
+            echo "op: no CLI session and no service-account token." >&2
+            echo "    1Password will authenticate through the desktop app, and macOS" >&2
+            echo "    will ask this terminal for permission — every run." >&2
+            echo "    See tools/dev_up.sh for how to mint a service-account token." >&2
+        fi
         export RAIKIRI_SECRETS_RESOLVED=1
         exec op run --env-file="$ENV_FILE" -- "$0" "$@"
     fi
