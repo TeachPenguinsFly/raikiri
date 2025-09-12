@@ -524,6 +524,29 @@ RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
     return signed_get(ep::k_fills, query.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError>
+RequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos now) {
+    std::array<char, 24> since_text{};
+    std::string_view begin;
+    if (since.ns != 0) {
+        const auto ms = since.ns / 1'000'000ULL;
+        if (const auto [stop, ec] =
+                std::to_chars(since_text.data(), since_text.data() + since_text.size(), ms);
+            ec == std::errc{}) {
+            begin = {since_text.data(), static_cast<std::size_t>(stop - since_text.data())};
+        }
+    }
+    Appender query{body_};
+    query << "instType=" << inst_type_of(market);
+    if (!begin.empty()) {
+        query << "&begin=" << begin;
+    }
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return signed_get(ep::k_bills, query.view(), now);
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
                                                                       UnixNanos now) {
     Appender query{body_};

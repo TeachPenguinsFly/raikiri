@@ -331,6 +331,68 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<LedgerEntry>, exec::VenueError>
+    funding_charges(MarketType market, UnixNanos since) override {
+        if (const auto refusal = order_entry_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        const auto body = pull(builder_.funding_book(market, since, state_->venue_now()));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local BillBuffer storage;
+        const auto bills = parse_bills(*body, storage);
+        if (!bills.has_value()) {
+            // A book we cannot read is NOT an empty one. Saying "no charges"
+            // here books zero funding against a position that paid some.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
+        }
+        std::vector<LedgerEntry> charges;
+        charges.reserve(bills->size());
+        for (const auto& wire : *bills) {
+            // `8` is funding, `2` a trade. Everything else on this book —
+            // transfers, interest, conversions — is not trading money, and a
+            // row that names no instrument cannot be attributed at all.
+            LedgerKind kind{};
+            if (wire.type == "8") {
+                kind = LedgerKind::Funding;
+            } else if (wire.type == "2") {
+                kind = LedgerKind::Fee;
+            } else {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(wire.inst_id);
+            if (instrument == nullptr) {
+                continue;
+            }
+            // THE COLUMN DEPENDS ON THE ROW: funding states its money in
+            // balChg and leaves fee at zero, a trade the reverse.
+            const auto text = kind == LedgerKind::Funding ? wire.bal_chg : wire.fee;
+            const auto amount = parse_decimal_e9(text);
+            if (!amount.has_value() || amount->raw == 0) {
+                continue; // an unreadable or absent figure is not a zero charge
+            }
+            LedgerEntry charge{};
+            charge.instrument = base_of(*instrument).id;
+            // Both columns are already signed the way the account moved, so
+            // neither is flipped — unlike bybit, which states a fee as a cost.
+            charge.amount = *amount;
+            charge.kind = kind;
+            charge.settled_at = UnixNanos{wire.ts_ms * 1'000'000ULL};
+            // A fee names the trade it was charged on, which is what the
+            // comparison keys on; the book's own row id is the fallback.
+            const auto reference =
+                kind == LedgerKind::Fee && !wire.trade_id.empty() ? wire.trade_id : wire.bill_id;
+            if (auto id = ExecId::from(reference); id.has_value()) {
+                charge.reference = *id;
+            }
+            charge.ts_init = state_->clock->wall();
+            charges.push_back(charge);
+        }
+        return charges;
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         switch (market) {

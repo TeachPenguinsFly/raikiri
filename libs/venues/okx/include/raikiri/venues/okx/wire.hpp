@@ -252,6 +252,31 @@ struct FillBuffer {
 [[nodiscard]] std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
                                                                               FillBuffer& storage);
 
+// One row of GET /api/v5/account/bills.
+//
+// `type` says what the row IS — "8" funding, "2" a trade — and the two put
+// their money in DIFFERENT COLUMNS: a funding row states it in `balChg` and
+// leaves `fee` at zero, a trade row the reverse. Reading the wrong column
+// books a zero over a real charge, which is the whole reason both are carried.
+struct WireBill {
+    std::string_view bill_id;
+    std::string_view inst_id;
+    std::string_view type;
+    std::string_view bal_chg;
+    std::string_view fee;
+    std::string_view trade_id;
+    std::uint64_t ts_ms{0};
+};
+
+inline constexpr std::size_t k_max_bills = 256;
+
+struct BillBuffer {
+    std::array<WireBill, k_max_bills> bills{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBill>, WireError>
+parse_bills(std::string_view body, BillBuffer& storage);
+
 // One element of GET /api/v5/account/positions. `pos` is signed in net mode
 // and unsigned-per-side in long/short mode, so pos_side has to be read: a
 // short read as a long is a position error of twice the size.

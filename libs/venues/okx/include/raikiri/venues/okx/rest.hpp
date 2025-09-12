@@ -130,6 +130,11 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
+    // The account book. No `type` filter: one call returns funding and fees
+    // together, and asking twice would read the two halves at two instants.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_book(MarketType market, UnixNanos since, UnixNanos now);
+
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 

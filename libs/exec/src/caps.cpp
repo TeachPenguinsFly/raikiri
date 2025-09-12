@@ -80,6 +80,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = true,
         .order_pull = true,
         .fill_pull = true,
+        .funding_charge = true, // /api/v5/account/bills: type 8 funding, 2 fees
         // volCcy24h off the `tickers` channel, BASE only: a swap states no
         // quote turnover at all, and its vol24h is a CONTRACT count. SPOT
         // rows carry both, with the two names meaning the other thing.

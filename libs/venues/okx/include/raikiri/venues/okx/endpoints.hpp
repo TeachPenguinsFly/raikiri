@@ -45,6 +45,11 @@ inline constexpr std::string_view k_order_cancel_batch = "/api/v5/trade/cancel-b
 inline constexpr std::string_view k_orders_pending = "/api/v5/trade/orders-pending";
 inline constexpr std::string_view k_fills = "/api/v5/trade/fills";
 inline constexpr std::string_view k_positions = "/api/v5/account/positions";
+// The account's own book, seven days deep. Funding and trading fees are
+// rows on it, distinguished by `type`; `bills-archive` reaches further back
+// and is not used, because a gap longer than a week is a restore, not a
+// reconciliation.
+inline constexpr std::string_view k_bills = "/api/v5/account/bills";
 
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";
