@@ -1,4 +1,5 @@
 add_library(raikiri_config STATIC
+  src/credentials.cpp
   src/one_password.cpp
   src/secret.cpp
   src/settings.cpp
