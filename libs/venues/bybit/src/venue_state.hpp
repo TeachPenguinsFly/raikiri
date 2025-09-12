@@ -17,7 +17,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
-#include <raikiri/venues/bybit/book_sync.hpp>
+#include <raikiri/venues/bybit/book.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <cstdint>
@@ -87,16 +87,15 @@ struct VenueState {
     }
 };
 
-
 // A desk with more than this many orders awaiting an answer at once has a
 // problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
 // than one that takes an extra second to boot.
 inline std::optional<net::RestResponse> await_response(VenueState& state,
-                                                net::RestClient& rest,
-                                                const net::RestRequest& request,
-                                                std::uint64_t timeout_ms = 10'000) {
+                                                       net::RestClient& rest,
+                                                       const net::RestRequest& request,
+                                                       std::uint64_t timeout_ms = 10'000) {
     std::optional<net::RestResponse> result;
     if (!rest.send(request,
                    [&result](net::RestResponse&& response) { result = std::move(response); })) {
@@ -110,7 +109,6 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     }
     return result;
 }
-
 
 // Defined beside the catalogue loader it shares a transport with.
 void sync_clock(VenueState& state, net::RestClient& rest);

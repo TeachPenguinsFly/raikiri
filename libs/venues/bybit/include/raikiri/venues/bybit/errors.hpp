@@ -14,10 +14,16 @@
 // reconciliation while a retry storm is not.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 
 namespace raikiri::venues::bybit {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// retCode vocabulary because both answer one question: what did the venue
+// say went wrong.
+using WireError = wire::Error;
 
 // Codes that matter enough to name. Everything else falls through to the
 // classifier's default.

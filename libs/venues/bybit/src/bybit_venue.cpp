@@ -3,9 +3,9 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
-#include <raikiri/venues/bybit/book_sync.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
+#include <raikiri/venues/bybit/envelope.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/map.hpp>
 #include <raikiri/venues/bybit/rest.hpp>

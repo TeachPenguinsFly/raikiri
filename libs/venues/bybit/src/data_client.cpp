@@ -1,11 +1,13 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/bybit/book.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
+#include <raikiri/venues/bybit/envelope.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/map.hpp>
+#include <raikiri/venues/bybit/market_data.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
-#include <raikiri/venues/bybit/wire.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <array>

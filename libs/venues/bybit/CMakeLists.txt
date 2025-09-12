@@ -1,6 +1,12 @@
 add_library(raikiri_venue_bybit STATIC
   src/bybit_venue.cpp
-  src/book_sync.cpp
+  src/account.cpp
+  src/book.cpp
+  src/catalogue.cpp
+  src/envelope.cpp
+  src/market_data.cpp
+  src/orders.cpp
+  src/positions.cpp
   src/data_client.cpp
   src/errors.cpp
   src/exec_client.cpp
@@ -8,9 +14,6 @@ add_library(raikiri_venue_bybit STATIC
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
-  src/wire_private.cpp
-  src/wire_public.cpp
-  src/wire_rest.cpp
 )
 add_library(raikiri::venue_bybit ALIAS raikiri_venue_bybit)
 

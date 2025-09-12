@@ -7,7 +7,11 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/bybit/wire.hpp>
+#include <raikiri/venues/bybit/account.hpp>
+#include <raikiri/venues/bybit/catalogue.hpp>
+#include <raikiri/venues/bybit/market_data.hpp>
+#include <raikiri/venues/bybit/orders.hpp>
+#include <raikiri/venues/bybit/positions.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -37,7 +41,6 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 // publish neither.
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
-
 
 // Private stream ----------------------------------------------------------
 

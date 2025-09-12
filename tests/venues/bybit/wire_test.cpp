@@ -1,7 +1,12 @@
-#include <raikiri/venues/bybit/book_sync.hpp>
+#include <raikiri/venues/bybit/account.hpp>
+#include <raikiri/venues/bybit/book.hpp>
+#include <raikiri/venues/bybit/catalogue.hpp>
+#include <raikiri/venues/bybit/envelope.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/map.hpp>
-#include <raikiri/venues/bybit/wire.hpp>
+#include <raikiri/venues/bybit/market_data.hpp>
+#include <raikiri/venues/bybit/orders.hpp>
+#include <raikiri/venues/bybit/positions.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <gtest/gtest.h>

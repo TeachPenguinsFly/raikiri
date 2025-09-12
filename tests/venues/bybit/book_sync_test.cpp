@@ -1,4 +1,5 @@
-#include <raikiri/venues/bybit/book_sync.hpp>
+
+#include <raikiri/venues/bybit/book.hpp>
 
 #include <gtest/gtest.h>
 

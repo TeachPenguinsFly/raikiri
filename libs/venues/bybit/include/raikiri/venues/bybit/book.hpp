@@ -1,23 +1,57 @@
 #pragma once
 
-// Order book synchronisation for bybit v5.
+// The order book: what a frame says about it, and what a reader must hold to
+// keep one in step.
 //
-// Deliberately NOT here: checksum validation. OKX has one (deprecated as of
-// 2026-06), bybit never did — the update-id chain is the guarantee, and
-// inventing a checksum over a book the venue never checksummed would only
-// produce false alarms.
+// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
+// rule that decides whether a delta may be applied at all, and the rule means
+// nothing without the field it reads.
 
 #include <raikiri/book/ladder.hpp>
-#include <raikiri/common/fixed_point.hpp>
-#include <raikiri/domain/identifiers.hpp>
+#include <raikiri/common/time.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/bybit/wire.hpp>
+#include <raikiri/venues/bybit/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::bybit {
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view size; // "0" means delete this level
+};
+
+// orderbook.N.SYMBOL. `is_snapshot` distinguishes a full book from a delta;
+// `update_id` and `seq` are bybit's ordering guarantees — a gap in update_id
+// means the book must be resynchronised, which is why they are surfaced
+// rather than swallowed.
+struct WireOrderbook {
+    std::string_view symbol;
+    bool is_snapshot{false};
+    std::uint64_t update_id{0};
+    std::uint64_t seq{0};
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+inline constexpr std::size_t k_max_levels = 512;
+
+// Storage the caller owns and reuses across frames — parsing must not
+// allocate on the market-data path.
+struct OrderbookBuffer {
+    WireLevel bids[k_max_levels];
+    WireLevel asks[k_max_levels];
+};
+
+[[nodiscard]] std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
+                                                                      OrderbookBuffer& storage);
 
 enum class SyncResult : std::uint8_t {
     Applied,     // book updated and coherent

@@ -1,11 +1,12 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/bybit/catalogue.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
+#include <raikiri/venues/bybit/envelope.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/venues/bybit/map.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
-#include <raikiri/venues/bybit/wire.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <array>
@@ -24,9 +25,8 @@ public:
     explicit BybitInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
           rest_{state_->io,
-                net::RestConfig{
-                    .host = std::string{ep::rest_host(state_->testnet)},
-                    .port = "443"}} {}
+                net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
+                                .port = "443"}} {}
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
