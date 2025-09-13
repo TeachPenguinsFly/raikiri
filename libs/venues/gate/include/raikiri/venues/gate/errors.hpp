@@ -11,11 +11,17 @@
 // spuriously terminal order is recoverable by reconciliation.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::gate {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// label vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 inline constexpr std::string_view k_invalid_param_value = "INVALID_PARAM_VALUE"; // VERIFIED live
 inline constexpr std::string_view k_invalid_argument = "INVALID_ARGUMENT";

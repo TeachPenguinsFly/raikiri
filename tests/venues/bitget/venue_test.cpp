@@ -1,6 +1,12 @@
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/bitget/book.hpp>
+#include <raikiri/venues/bitget/catalogue.hpp>
+#include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/errors.hpp>
 #include <raikiri/venues/bitget/map.hpp>
+#include <raikiri/venues/bitget/market_data.hpp>
+#include <raikiri/venues/bitget/orders.hpp>
+#include <raikiri/venues/bitget/positions.hpp>
 #include <raikiri/venues/bitget/rest.hpp>
 #include <raikiri/venues/bitget/ws.hpp>
 

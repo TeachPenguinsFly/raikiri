@@ -1,8 +1,14 @@
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/gate/account.hpp>
 #include <raikiri/venues/gate/book.hpp>
+#include <raikiri/venues/gate/catalogue.hpp>
+#include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
 #include <raikiri/venues/gate/map.hpp>
+#include <raikiri/venues/gate/market_data.hpp>
+#include <raikiri/venues/gate/orders.hpp>
+#include <raikiri/venues/gate/positions.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 

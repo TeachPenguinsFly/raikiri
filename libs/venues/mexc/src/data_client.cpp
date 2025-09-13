@@ -7,10 +7,12 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/mexc/book.hpp>
+#include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
+#include <raikiri/venues/mexc/market_data.hpp>
 #include <raikiri/venues/mexc/rest.hpp>
-#include <raikiri/venues/mexc/spot_wire.hpp>
 #include <raikiri/venues/mexc/ws.hpp>
 
 #include <algorithm>

@@ -1,7 +1,13 @@
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/mexc/book.hpp>
+#include <raikiri/venues/mexc/catalogue.hpp>
+#include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
+#include <raikiri/venues/mexc/market_data.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
+#include <raikiri/venues/mexc/orders.hpp>
+#include <raikiri/venues/mexc/positions.hpp>
 #include <raikiri/venues/mexc/rest.hpp>
 #include <raikiri/venues/mexc/ws.hpp>
 

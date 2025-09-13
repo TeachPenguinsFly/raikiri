@@ -8,6 +8,8 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/gate/book.hpp>
+#include <raikiri/venues/gate/catalogue.hpp>
+#include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
 #include <raikiri/venues/gate/map.hpp>
 #include <raikiri/venues/gate/rest.hpp>

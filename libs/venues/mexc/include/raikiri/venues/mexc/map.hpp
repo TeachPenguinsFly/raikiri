@@ -17,8 +17,11 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/mexc/spot_wire.hpp>
-#include <raikiri/venues/mexc/wire.hpp>
+#include <raikiri/venues/mexc/book.hpp>
+#include <raikiri/venues/mexc/catalogue.hpp>
+#include <raikiri/venues/mexc/market_data.hpp>
+#include <raikiri/venues/mexc/orders.hpp>
+#include <raikiri/venues/mexc/positions.hpp>
 
 #include <cstdint>
 #include <optional>

@@ -1,66 +1,18 @@
-// Private-stream frames and the signed REST reads that mirror them.
-//
-// One row reader serves the socket and both REST lists on purpose: Bitget
-// ships the same order under three field spellings (instId vs symbol, status
-// vs state, accBaseVolume vs baseVolume) and three envelopes (`data`,
-// `data.entrustedList`, `data.fillList`). Three readers would drift apart on
-// the fields they agree about.
-
-#include "wire_detail.hpp"
+#include <raikiri/venues/bitget/envelope.hpp>
+#include <raikiri/venues/bitget/orders.hpp>
 
 namespace raikiri::venues::bitget {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
+// a venue that reimplements opt_str or req_array is one that will disagree
+// with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
 using detail::guarded;
 using detail::session;
 namespace ondemand = detail::ondemand;
-
-// Walks either `data` or `data.<nested>` and reads every element.
-template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_rows(std::string_view text, std::string_view nested, std::span<Entry> storage, Read&& read) {
-    auto root = session().open_object(text);
-    if (!root.has_value()) {
-        return std::unexpected(root.error());
-    }
-    ondemand::array rows;
-    if (nested.empty()) {
-        auto direct = detail::req_array(*root, "data");
-        if (!direct.has_value()) {
-            return std::unexpected(direct.error());
-        }
-        rows = *direct;
-    } else {
-        auto data = detail::req_object(*root, "data");
-        if (!data.has_value()) {
-            return std::unexpected(data.error());
-        }
-        auto inner = detail::req_array(*data, nested);
-        if (!inner.has_value()) {
-            return std::unexpected(inner.error());
-        }
-        rows = *inner;
-    }
-
-    std::size_t count = 0;
-    for (auto item : rows) {
-        if (count == storage.size()) {
-            return std::unexpected(WireError::TooManyEntries);
-        }
-        ondemand::object obj;
-        if (item.get_object().get(obj) != simdjson::SUCCESS) {
-            return std::unexpected(WireError::WrongType);
-        }
-        Entry entry{};
-        if (const auto ok = read(obj, entry); !ok.has_value()) {
-            return std::unexpected(ok.error());
-        }
-        storage[count] = entry;
-        ++count;
-    }
-    return std::span<const Entry>{storage.data(), count};
-}
 
 // feeDetail has three shapes across the endpoints that carry it: an object on
 // spot fills, an ARRAY of the same object on mix fills, and a JSON-encoded
@@ -104,47 +56,43 @@ std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj)
 }
 
 std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate& out) {
-    const auto field = [&](std::string_view key) {
-        obj.reset();
-        return detail::opt_str(obj, key).value_or(std::string_view{});
-    };
     // The socket names the instrument instId; both REST lists name it symbol.
-    out.inst_id = field("instId");
+    out.inst_id = field(obj, "instId");
     if (out.inst_id.empty()) {
-        out.inst_id = field("symbol");
+        out.inst_id = field(obj, "symbol");
     }
     if (out.inst_id.empty()) {
         return std::unexpected(WireError::MissingField);
     }
-    out.order_id = field("orderId");
-    out.client_oid = field("clientOid");
-    out.side = field("side");
-    out.order_type = field("orderType");
-    out.force = field("force");
-    out.price = field("price");
+    out.order_id = field(obj, "orderId");
+    out.client_oid = field(obj, "clientOid");
+    out.side = field(obj, "side");
+    out.order_type = field(obj, "orderType");
+    out.force = field(obj, "force");
+    out.price = field(obj, "price");
     if (out.price.empty()) {
         // Spot's pending list carries no `price` at all: while an order is
         // live its limit price arrives under priceAvg.
-        out.price = field("priceAvg");
+        out.price = field(obj, "priceAvg");
     }
-    out.size = field("size");
-    out.new_size = field("newSize");
-    out.acc_base_volume = field("accBaseVolume");
+    out.size = field(obj, "size");
+    out.new_size = field(obj, "newSize");
+    out.acc_base_volume = field(obj, "accBaseVolume");
     if (out.acc_base_volume.empty()) {
         // The REST lists report the running total under the name the socket
         // reserves for the latest fill alone. Reading one as the other makes
         // a reconciliation pull look like a stream of one-lot fills.
-        out.acc_base_volume = field("baseVolume");
+        out.acc_base_volume = field(obj, "baseVolume");
     } else {
-        out.base_volume = field("baseVolume");
+        out.base_volume = field(obj, "baseVolume");
     }
-    out.fill_price = field("fillPrice");
-    out.fill_fee = field("fillFee");
-    out.trade_id = field("tradeId");
-    out.trade_scope = field("tradeScope");
-    auto status = field("status");
+    out.fill_price = field(obj, "fillPrice");
+    out.fill_fee = field(obj, "fillFee");
+    out.trade_id = field(obj, "tradeId");
+    out.trade_scope = field(obj, "tradeScope");
+    auto status = field(obj, "status");
     if (status.empty()) {
-        status = field("state"); // mix order/detail alone spells it this way
+        status = field(obj, "state"); // mix order/detail alone spells it this way
     }
     out.status = order_status_from(status);
     obj.reset();
@@ -155,28 +103,24 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
 }
 
 std::expected<void, WireError> read_fill(ondemand::object& obj, WireFill& out) {
-    const auto field = [&](std::string_view key) {
-        obj.reset();
-        return detail::opt_str(obj, key).value_or(std::string_view{});
-    };
-    out.symbol = field("symbol");
+    out.symbol = field(obj, "symbol");
     if (out.symbol.empty()) {
         return std::unexpected(WireError::MissingField);
     }
-    out.order_id = field("orderId");
-    out.trade_id = field("tradeId");
-    out.side = field("side");
+    out.order_id = field(obj, "orderId");
+    out.trade_id = field(obj, "tradeId");
+    out.side = field(obj, "side");
     // Mix reports the trade price as `price`; spot reports the same single
     // trade under `priceAvg`, which on that endpoint averages one fill.
-    out.price = field("price");
+    out.price = field(obj, "price");
     if (out.price.empty()) {
-        out.price = field("priceAvg");
+        out.price = field(obj, "priceAvg");
     }
-    out.size = field("baseVolume");
+    out.size = field(obj, "baseVolume");
     if (out.size.empty()) {
-        out.size = field("size");
+        out.size = field(obj, "size");
     }
-    out.trade_scope = field("tradeScope");
+    out.trade_scope = field(obj, "tradeScope");
     const auto fee = read_total_fee(obj);
     if (!fee.has_value()) {
         return std::unexpected(fee.error());
@@ -187,23 +131,11 @@ std::expected<void, WireError> read_fill(ondemand::object& obj, WireFill& out) {
     return {};
 }
 
-std::expected<void, WireError> read_position(ondemand::object& obj, WirePosition& out) {
-    const auto field = [&](std::string_view key) {
-        obj.reset();
-        return detail::opt_str(obj, key).value_or(std::string_view{});
-    };
-    out.symbol = field("instId");
-    if (out.symbol.empty()) {
-        out.symbol = field("symbol");
-    }
-    if (out.symbol.empty()) {
-        return std::unexpected(WireError::MissingField);
-    }
-    out.hold_side = field("holdSide");
-    out.total = field("total");
-    out.open_price_avg = field("openPriceAvg");
-    obj.reset();
-    out.update_ms = detail::opt_ms(obj, "uTime").value_or(0);
+std::expected<void, WireError> read_batch_failure(ondemand::object& obj, WireBatchFailure& out) {
+    out.order_id = field(obj, "orderId");
+    out.client_oid = field(obj, "clientOid");
+    out.code = field(obj, "errorCode");
+    out.msg = field(obj, "errorMsg");
     return {};
 }
 
@@ -256,12 +188,6 @@ std::expected<std::span<const WireFill>, WireError> parse_mix_fills(std::string_
     return guarded([&] { return read_rows<WireFill>(body, "fillList", storage.fills, read_fill); });
 }
 
-std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                        PositionBuffer& storage) {
-    return guarded(
-        [&] { return read_rows<WirePosition>(body, {}, storage.positions, read_position); });
-}
-
 std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body) {
     return guarded([&]() -> std::expected<WireOrderAck, WireError> {
         auto root = session().open_object(body);
@@ -294,20 +220,7 @@ std::expected<std::span<const WireBatchFailure>, WireError>
 parse_batch_failures(std::string_view body, BatchFailureBuffer& storage) {
     return guarded([&] {
         return read_rows<WireBatchFailure>(
-            body,
-            "failureList",
-            storage.failures,
-            [](ondemand::object& obj, WireBatchFailure& out) -> std::expected<void, WireError> {
-                const auto field = [&](std::string_view key) {
-                    obj.reset();
-                    return detail::opt_str(obj, key).value_or(std::string_view{});
-                };
-                out.order_id = field("orderId");
-                out.client_oid = field("clientOid");
-                out.code = field("errorCode");
-                out.msg = field("errorMsg");
-                return {};
-            });
+            body, "failureList", storage.failures, read_batch_failure);
     });
 }
 

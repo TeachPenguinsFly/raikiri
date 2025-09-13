@@ -1,6 +1,11 @@
 #pragma once
 
-// Order book maintenance for Gate futures.
+// The order book: what a frame says about it, and what a reader must hold to
+// keep one in step.
+//
+// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
+// rule that decides whether a delta may be applied at all, and the rule means
+// nothing without the ids it reads.
 //
 // futures.order_book_update publishes deltas and never a snapshot, so the
 // GET /futures/{settle}/order_book read is not an optimisation, it is the only
@@ -22,14 +27,82 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/gate/wire.hpp>
+#include <raikiri/venues/gate/errors.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace raikiri::venues::gate {
+
+// Sizes are integer CONTRACT counts, so bid_qty/ask_qty are digit tokens with
+// no decimal point. `ts_ms` is milliseconds here even though most other Gate
+// epoch fields are seconds.
+struct WireBookTicker {
+    std::string_view contract;
+    std::string_view bid_price;
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::uint64_t update_id{0}; // `u`, exceeds 2^32 in practice
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view frame);
+
+// A level is {"p":"64156.4","s":35680} on both the websocket and the REST
+// snapshot — same object either way, unlike okx's positional arrays.
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty; // "0" means delete this level
+};
+
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Continuity is the [first_update_id, last_update_id] chain: a delta applies
+// when its first_update_id is one past the previous message's last_update_id.
+// Gate publishes no snapshot on this channel, so seeding it requires the REST
+// order_book read that rest.hpp builds.
+struct WireBookUpdate {
+    std::string_view contract;
+    std::uint64_t first_update_id{0}; // `U`
+    std::uint64_t last_update_id{0};  // `u`
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
+                                                                         LevelBuffer& storage);
+
+// spot.order_book: a whole book, not a delta. Reported through the same type
+// with both ids set to `lastUpdateId`, because nothing downstream chains it —
+// the point of the snapshot channel is that there is no chain to break.
+[[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
+                                                                           LevelBuffer& storage);
+
+// From GET /futures/{settle}/order_book, and only usable as a seed when that
+// request carried `with_id=true`: without it the body has no `id`, and levels
+// with no id are a picture of no particular point in the update chain.
+// `update_s` is FRACTIONAL seconds (1786394534.46), truncated on the way in.
+struct WireOrderBook {
+    std::uint64_t update_id{0}; // `id`
+    std::uint64_t update_s{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
+                                                                       LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

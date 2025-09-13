@@ -6,6 +6,8 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/bitget/catalogue.hpp>
+#include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/errors.hpp>
 #include <raikiri/venues/bitget/map.hpp>
 #include <raikiri/venues/bitget/rest.hpp>

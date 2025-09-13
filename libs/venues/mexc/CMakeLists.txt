@@ -3,15 +3,16 @@ add_library(raikiri_venue_mexc STATIC
   src/data_client.cpp
   src/exec_client.cpp
   src/instruments.cpp
+  src/book.cpp
+  src/catalogue.cpp
+  src/envelope.cpp
   src/errors.cpp
   src/map.cpp
+  src/market_data.cpp
+  src/orders.cpp
+  src/positions.cpp
   src/rest.cpp
-  src/spot_wire.cpp
   src/ws.cpp
-  src/wire_detail.cpp
-  src/wire_private.cpp
-  src/wire_public.cpp
-  src/wire_rest.cpp
 )
 add_library(raikiri::venue_mexc ALIAS raikiri_venue_mexc)
 

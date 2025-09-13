@@ -13,7 +13,12 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/gate/wire.hpp>
+#include <raikiri/venues/gate/account.hpp>
+#include <raikiri/venues/gate/book.hpp>
+#include <raikiri/venues/gate/catalogue.hpp>
+#include <raikiri/venues/gate/market_data.hpp>
+#include <raikiri/venues/gate/orders.hpp>
+#include <raikiri/venues/gate/positions.hpp>
 
 #include <cstdint>
 #include <optional>

@@ -12,11 +12,17 @@
 // channel it names whatever the code says.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::bitget {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // The first four VERIFIED live on 2026-08-11; the rest from the v2 reference.
 inline constexpr std::string_view k_invalid_access_key = "40006";

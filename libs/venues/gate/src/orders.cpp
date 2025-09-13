@@ -1,16 +1,12 @@
-// Private frames and order bodies: orders, user trades, positions.
-//
-// Spot and futures are two APIs wearing one brand. The same order is `amount`
-// on one and `size` on the other, a decimal string here and a signed integer
-// there, `status` on one transport and `event` on another. The normalisation
-// happens here so the mapper sees one shape, and the two readers stay apart so
-// neither one's quirks leak into the other.
-
-#include <cstdlib>
-
-#include "wire_detail.hpp"
+#include <raikiri/venues/gate/envelope.hpp>
+#include <raikiri/venues/gate/orders.hpp>
 
 namespace raikiri::venues::gate {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
+// a venue that reimplements opt_str or req_array is one that will disagree
+// with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
@@ -18,44 +14,18 @@ using detail::guarded;
 using detail::session;
 namespace ondemand = detail::ondemand;
 
-// Gate signs the futures size instead of naming a side. The magnitude is the
-// quantity and the sign is the direction, so both come out of one token; the
-// stripped view still points into the caller's buffer.
-struct Signed {
-    std::string_view magnitude;
-    bool negative{false};
-};
-
-[[nodiscard]] Signed split_sign(std::string_view token) noexcept {
-    const bool negative = token.starts_with('-');
-    if (negative || token.starts_with('+')) {
-        token.remove_prefix(1);
-    }
-    return {.magnitude = token, .negative = negative};
-}
-
-[[nodiscard]] std::string_view field(ondemand::object& obj, std::string_view key) {
-    obj.reset();
-    return detail::opt_num(obj, key).value_or(std::string_view{});
-}
-
-[[nodiscard]] std::string_view text_field(ondemand::object& obj, std::string_view key) {
-    obj.reset();
-    return detail::opt_str(obj, key).value_or(std::string_view{});
-}
-
 // Venue milliseconds from whichever of Gate's six timestamp spellings this
 // object carries. The `_ms` fields are milliseconds; the bare ones are
 // seconds, sometimes with a fractional tail. Reading one as the other puts the
 // event in 1970 or 30 millennia out, and both are silent.
 [[nodiscard]] std::uint64_t timestamp_ms(ondemand::object& obj) {
     for (const auto key : {"update_time_ms", "finish_time_ms", "create_time_ms"}) {
-        if (const auto ms = detail::whole_u64(field(obj, key)); ms != 0) {
+        if (const auto ms = whole_u64(field(obj, key)); ms != 0) {
             return ms;
         }
     }
     for (const auto key : {"update_time", "finish_time", "create_time"}) {
-        if (const auto s = detail::whole_u64(field(obj, key)); s != 0) {
+        if (const auto s = whole_u64(field(obj, key)); s != 0) {
             return s * 1'000ULL;
         }
     }
@@ -261,30 +231,6 @@ read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
     return {};
 }
 
-// Walks an array of objects into caller storage. `open` decides whether the
-// array is the document root (REST) or hangs off `result` (websocket).
-template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_array(ondemand::array items, std::span<Entry> storage, Read&& read) {
-    std::size_t count = 0;
-    for (auto item : items) {
-        if (count == storage.size()) {
-            return std::unexpected{WireError::TooManyEntries};
-        }
-        ondemand::object obj;
-        if (item.get_object().get(obj) != simdjson::SUCCESS) {
-            return std::unexpected{WireError::WrongType};
-        }
-        Entry entry{};
-        if (auto ok = read(obj, entry); !ok.has_value()) {
-            return std::unexpected{ok.error()};
-        }
-        storage[count] = entry;
-        ++count;
-    }
-    return std::span<const Entry>{storage.data(), count};
-}
-
 } // namespace
 
 std::expected<std::span<const WireOrder>, WireError>
@@ -398,122 +344,6 @@ parse_rest_user_trades(std::string_view body, UserTradeBuffer& storage, MarketTy
         return read_array<WireUserTrade>(
             *root, storage.trades, [market](ondemand::object& obj, WireUserTrade& out) {
                 return read_user_trade(obj, out, market);
-            });
-    });
-}
-
-std::expected<std::span<const WireAccountBookRow>, WireError>
-parse_account_book(std::string_view body, AccountBookBuffer& storage) {
-    return guarded([&]() -> std::expected<std::span<const WireAccountBookRow>, WireError> {
-        auto root = session().open_array(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return read_array<WireAccountBookRow>(
-            *root,
-            storage.rows,
-            [](ondemand::object& obj, WireAccountBookRow& out) -> std::expected<void, WireError> {
-                out.contract = field(obj, "contract");
-                out.type = field(obj, "type");
-                out.change = field(obj, "change");
-                out.text = field(obj, "text");
-                // A STRING on this endpoint, though `time` beside it is a
-                // number. Verified against a live row: gate quotes the ledger's
-                // own id as "991", and reading it as a number yields nothing.
-                out.id = field(obj, "id");
-                out.trade_id = field(obj, "trade_id");
-                obj.reset();
-                out.time_s = detail::opt_u64(obj, "time").value_or(0);
-                return {};
-            });
-    });
-}
-
-std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                        PositionBuffer& storage) {
-    return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
-        auto root = session().open_array(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return read_array<WirePosition>(
-            *root,
-            storage.positions,
-            [](ondemand::object& obj, WirePosition& out) -> std::expected<void, WireError> {
-                const auto contract = detail::req_str(obj, "contract");
-                if (!contract.has_value()) {
-                    return std::unexpected{contract.error()};
-                }
-                out.contract = *contract;
-                out.size = field(obj, "size");
-                out.entry_price = field(obj, "entry_price");
-                out.update_s = detail::whole_u64(field(obj, "update_time"));
-                return {};
-            });
-    });
-}
-
-std::expected<std::uint64_t, WireError> parse_account_user_id(std::string_view body) {
-    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto user = detail::opt_u64(*root, "user");
-        if (!user.has_value()) {
-            return std::unexpected(user.error());
-        }
-        if (*user == 0) {
-            return std::unexpected(WireError::MissingField);
-        }
-        return *user;
-    });
-}
-
-std::expected<WireFuturesAccount, WireError> parse_futures_account(std::string_view body) {
-    return guarded([&]() -> std::expected<WireFuturesAccount, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto currency = detail::req_str(*root, "currency");
-        if (!currency.has_value()) {
-            return std::unexpected(currency.error());
-        }
-        WireFuturesAccount out{};
-        out.currency = *currency;
-        out.total = field(*root, "total");
-        out.available = field(*root, "available");
-        out.unrealised_pnl = field(*root, "unrealised_pnl");
-        out.update_s = detail::whole_u64(field(*root, "update_time"));
-        return out;
-    });
-}
-
-std::expected<std::span<const WireCurrencyPair>, WireError>
-parse_currency_pairs(std::string_view body, CurrencyPairBuffer& storage) {
-    return guarded([&]() -> std::expected<std::span<const WireCurrencyPair>, WireError> {
-        auto root = session().open_array(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return read_array<WireCurrencyPair>(
-            *root,
-            storage.pairs,
-            [](ondemand::object& obj, WireCurrencyPair& out) -> std::expected<void, WireError> {
-                const auto id = detail::req_str(obj, "id");
-                if (!id.has_value()) {
-                    return std::unexpected{id.error()};
-                }
-                out.id = *id;
-                out.trade_status = text_field(obj, "trade_status");
-                out.min_base_amount = field(obj, "min_base_amount");
-                out.min_quote_amount = field(obj, "min_quote_amount");
-                out.precision =
-                    static_cast<std::uint32_t>(detail::whole_u64(field(obj, "precision")));
-                out.amount_precision =
-                    static_cast<std::uint32_t>(detail::whole_u64(field(obj, "amount_precision")));
-                return {};
             });
     });
 }
