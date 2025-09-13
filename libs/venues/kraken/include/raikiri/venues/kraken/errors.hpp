@@ -11,10 +11,16 @@
 // HTTP 200 with "authenticationError" (verified), so the body is the truth.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <string_view>
 
 namespace raikiri::venues::kraken {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // Classifies a Kraken Futures error name, with or without its ": field"
 // suffix. An empty name is Terminal: a failure we cannot name is not one to

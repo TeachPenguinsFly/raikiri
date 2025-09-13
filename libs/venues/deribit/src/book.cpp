@@ -1,9 +1,115 @@
 #include <raikiri/venues/deribit/book.hpp>
+#include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 
 namespace raikiri::venues::deribit {
 
+namespace detail = raikiri::wire;
+
 namespace {
+
+using detail::guarded;
+using detail::session;
+
+LevelAction action_from(std::string_view text) noexcept {
+    if (text == "delete") {
+        return LevelAction::Delete;
+    }
+    return text == "change" ? LevelAction::Change : LevelAction::New;
+}
+
+// Grouped books ship [price, amount], the incremental feed [action, price,
+// amount]; `expect_action` says which, so a shape change is a refusal rather
+// than a price read out of the action slot.
+std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry, bool expect_action) {
+    detail::ondemand::array tuple;
+    if (const auto ec = entry.get_array().get(tuple); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
+    }
+    WireLevel level{};
+    const std::size_t want = expect_action ? 3U : 2U;
+    std::size_t field = 0;
+    for (auto element : tuple) {
+        detail::ondemand::value value;
+        if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (field >= want) {
+            break;
+        }
+        if (expect_action && field == 0) {
+            const auto text = detail::str_of(value);
+            if (!text.has_value()) {
+                return std::unexpected(text.error());
+            }
+            level.action = action_from(*text);
+        } else {
+            const auto token = num_of(value);
+            if (!token.has_value()) {
+                return std::unexpected(token.error());
+            }
+            (field == want - 2 ? level.price : level.qty) = *token;
+        }
+        ++field;
+    }
+    if (field < want) {
+        return std::unexpected(WireError::MissingField);
+    }
+    return level;
+}
+
+std::expected<std::size_t, WireError> read_levels(detail::ondemand::object& obj,
+                                                  std::string_view key,
+                                                  bool expect_action,
+                                                  std::span<WireLevel> into) {
+    auto array = detail::req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == into.size()) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::value value;
+        if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        const auto level = read_level(value, expect_action);
+        if (!level.has_value()) {
+            return std::unexpected(level.error());
+        }
+        into[count] = *level;
+        ++count;
+    }
+    return count;
+}
+
+// An empty side is a real state on an illiquid option, so it yields empty
+// views rather than an error; the mapper drops those.
+std::expected<void, WireError> read_top(detail::ondemand::object& obj,
+                                        std::string_view key,
+                                        std::string_view& price,
+                                        std::string_view& qty) {
+    auto array = detail::req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    for (auto entry : *array) {
+        detail::ondemand::value value;
+        if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        const auto level = read_level(value, /*expect_action=*/false);
+        if (!level.has_value()) {
+            return std::unexpected(level.error());
+        }
+        price = level->price;
+        qty = level->qty;
+        break;
+    }
+    return {};
+}
 
 // The same exactness rule the mappers apply, through the same reader:
 // Deribit writes sizes as "6.6e3" as readily as "6600.0", so the exponent
@@ -22,6 +128,81 @@ std::optional<std::int64_t> exact_steps(std::string_view token, FixedE9 step) {
 }
 
 } // namespace
+
+std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireBbo, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = push_data(*root);
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        WireBbo out{};
+        const auto instrument = detail::req_str(*data, "instrument_name");
+        if (!instrument.has_value()) {
+            return std::unexpected(instrument.error());
+        }
+        out.instrument = *instrument;
+        if (const auto ok = read_top(*data, "bids", out.bid_price, out.bid_qty); !ok.has_value()) {
+            return std::unexpected(ok.error());
+        }
+        if (const auto ok = read_top(*data, "asks", out.ask_price, out.ask_qty); !ok.has_value()) {
+            return std::unexpected(ok.error());
+        }
+        const auto ts = opt_ms(*data, "timestamp");
+        const auto change = detail::opt_i64(*data, "change_id");
+        if (!ts.has_value() || !change.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.ts_ms = *ts;
+        out.change_id = *change;
+        return out;
+    });
+}
+
+std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireBook, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = push_data(*root);
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        WireBook out{};
+        const auto instrument = detail::req_str(*data, "instrument_name");
+        const auto type = detail::req_str(*data, "type");
+        if (!instrument.has_value() || !type.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        out.instrument = *instrument;
+        out.snapshot = *type == "snapshot";
+        const auto bids = read_levels(*data, "bids", /*expect_action=*/true, storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        const auto asks = read_levels(*data, "asks", /*expect_action=*/true, storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        const auto ts = opt_ms(*data, "timestamp");
+        const auto change = detail::opt_i64(*data, "change_id");
+        // Absent on a snapshot rather than a sentinel: 0 means "chain starts".
+        const auto prev = detail::opt_i64(*data, "prev_change_id");
+        if (!ts.has_value() || !change.has_value() || !prev.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.ts_ms = *ts;
+        out.change_id = *change;
+        out.prev_change_id = *prev;
+        out.bids = {storage.bids.data(), *bids};
+        out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
 
 Book::Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}

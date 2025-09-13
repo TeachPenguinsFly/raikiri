@@ -15,11 +15,17 @@
 // fixed by resyncing, not by halting a venue whose keys are fine.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::htx {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // The whole signature/key family: a missing SignatureMethod and a bogus
 // AccessKeyId both answer 403, differing only in message.

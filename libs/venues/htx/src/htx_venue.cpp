@@ -7,6 +7,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/htx/envelope.hpp>
 #include <raikiri/venues/htx/errors.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
 #include <raikiri/venues/htx/map.hpp>

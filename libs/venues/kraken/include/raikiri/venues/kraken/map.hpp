@@ -10,7 +10,10 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/kraken/wire.hpp>
+#include <raikiri/venues/kraken/catalogue.hpp>
+#include <raikiri/venues/kraken/market_data.hpp>
+#include <raikiri/venues/kraken/orders.hpp>
+#include <raikiri/venues/kraken/positions.hpp>
 
 #include <cstdint>
 #include <optional>

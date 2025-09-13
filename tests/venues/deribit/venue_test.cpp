@@ -2,11 +2,11 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
+#include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
 #include <raikiri/venues/deribit/sign.hpp>
-#include <raikiri/venues/deribit/wire.hpp>
 #include <raikiri/venues/deribit/ws.hpp>
 
 #include <gtest/gtest.h>

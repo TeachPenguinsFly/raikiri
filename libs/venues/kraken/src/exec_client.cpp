@@ -8,6 +8,7 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kraken/book.hpp>
+#include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/map.hpp>
 #include <raikiri/venues/kraken/rest.hpp>

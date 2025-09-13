@@ -15,7 +15,11 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/bingx/wire.hpp>
+#include <raikiri/venues/bingx/book.hpp>
+#include <raikiri/venues/bingx/catalogue.hpp>
+#include <raikiri/venues/bingx/market_data.hpp>
+#include <raikiri/venues/bingx/orders.hpp>
+#include <raikiri/venues/bingx/positions.hpp>
 
 #include <cstdint>
 #include <optional>

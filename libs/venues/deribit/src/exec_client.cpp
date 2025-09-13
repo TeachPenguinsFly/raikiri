@@ -7,6 +7,7 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/deribit/book.hpp>
+#include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 #include <raikiri/venues/deribit/rest.hpp>

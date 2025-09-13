@@ -6,7 +6,11 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/htx/wire.hpp>
+#include <raikiri/venues/htx/book.hpp>
+#include <raikiri/venues/htx/catalogue.hpp>
+#include <raikiri/venues/htx/market_data.hpp>
+#include <raikiri/venues/htx/orders.hpp>
+#include <raikiri/venues/htx/positions.hpp>
 
 #include <cstdint>
 #include <optional>

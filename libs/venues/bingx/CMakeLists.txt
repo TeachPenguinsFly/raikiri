@@ -8,10 +8,13 @@ add_library(raikiri_venue_bingx STATIC
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
-  src/wire_detail.cpp
-  src/wire_private.cpp
-  src/wire_public.cpp
-  src/wire_rest.cpp
+  src/account.cpp
+  src/book.cpp
+  src/catalogue.cpp
+  src/envelope.cpp
+  src/market_data.cpp
+  src/orders.cpp
+  src/positions.cpp
 )
 add_library(raikiri::venue_bingx ALIAS raikiri_venue_bingx)
 

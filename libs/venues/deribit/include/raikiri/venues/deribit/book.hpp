@@ -27,13 +27,67 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/deribit/wire.hpp>
+#include <raikiri/venues/deribit/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::deribit {
+
+struct WireBbo {
+    std::string_view instrument;
+    std::string_view bid_price; // raw JSON number tokens, exponents included
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::int64_t change_id{0};
+    std::uint64_t ts_ms{0};
+};
+
+// Grouped, depth-limited books are always full snapshots — no type field, no
+// prev_change_id — which is what makes this a BBO stream.
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
+
+// Deribit states the ACTION per level instead of leaving a removal to be
+// inferred from its quantity. MEASURED 2026-08-17 across 904 deletes on three
+// perpetuals: every one ALSO carried 0.0, so the two readings happen to agree
+// — but the action is what the venue defines, so it is what the book keys on.
+enum class LevelAction : std::uint8_t { New, Change, Delete };
+
+struct WireLevel {
+    LevelAction action{LevelAction::New};
+    std::string_view price;
+    std::string_view qty;
+};
+
+// A live BTC-PERPETUAL snapshot ran 897 bids / 1080 asks. Past this a frame is
+// REFUSED, not truncated — half a book is worse than no book.
+inline constexpr std::size_t k_max_levels = 4096;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Continuity is the change_id chain: a delta applies when its prev_change_id
+// equals the previous message's change_id. A snapshot carries none at all.
+struct WireBook {
+    std::string_view instrument;
+    bool snapshot{false};
+    std::int64_t change_id{0};
+    std::int64_t prev_change_id{0}; // 0 on a snapshot: the field is absent
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
+                                                            LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,     // delta chained onto the book we hold

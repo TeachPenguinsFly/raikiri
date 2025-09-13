@@ -25,10 +25,16 @@
 // how a restricted key becomes a banned IP.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 
 namespace raikiri::venues::bingx {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // A websocket subscription refusal. An unlisted symbol and an unknown dataType
 // share this code, so a refusal cannot be diagnosed more precisely than "that

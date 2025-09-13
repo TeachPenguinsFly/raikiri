@@ -23,13 +23,46 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/kraken/wire.hpp>
+#include <raikiri/venues/kraken/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::kraken {
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty; // 0 means delete this level
+};
+
+// A live PF_XBTUSD `book_snapshot` carried 1751 bids and 1360 asks: Kraken
+// pushes the WHOLE book, not a fixed depth, hence far above okx's 512.
+inline constexpr std::size_t k_max_levels = 4096;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Snapshot and delta are different SHAPES, not one shape with a flag:
+// `book_snapshot` carries bids/asks arrays of {price,qty}, a `book` delta is
+// a single level at the root with its own `side` and fills exactly one span.
+struct WireBook {
+    std::string_view product_id;
+    bool snapshot{false};
+    std::uint64_t seq{0};
+    std::uint64_t timestamp_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
+                                                            LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,     // delta chained onto the book we hold

@@ -1,5 +1,6 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/kraken/book.hpp>
+#include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kraken/map.hpp>
@@ -496,8 +497,8 @@ TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
     ASSERT_TRUE(linear.has_value());
     const auto linear_stats = map_ticker_stats(*linear, table, now);
     ASSERT_TRUE(linear_stats.has_value());
-    EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);          // 5279.6877 XBT
-    EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500'000LL);   // 341115306.3365 USD
+    EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);        // 5279.6877 XBT
+    EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500'000LL); // 341115306.3365 USD
     EXPECT_EQ(linear_stats->ts_event.ns, 1786395177000ULL * 1'000'000ULL);
     EXPECT_EQ(linear_stats->ts_init.ns, now.ns);
 

@@ -12,10 +12,16 @@
 // code on neither side, which is why WireResponse uses a sentinel instead.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 
 namespace raikiri::venues::deribit {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // JSON-RPC 2.0 transport errors.
 inline constexpr std::int64_t k_parse_error = -32700;

@@ -9,6 +9,7 @@
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bingx/client_id.hpp>
+#include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/errors.hpp>
 #include <raikiri/venues/bingx/map.hpp>
 #include <raikiri/venues/bingx/rest.hpp>

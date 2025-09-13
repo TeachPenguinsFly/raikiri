@@ -1,6 +1,8 @@
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/bingx/account.hpp>
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bingx/client_id.hpp>
+#include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/errors.hpp>
 #include <raikiri/venues/bingx/map.hpp>
 #include <raikiri/venues/bingx/rest.hpp>
@@ -428,7 +430,7 @@ TEST(BingxMap, TurnoverResolvesAgainstTheSocketsOwnMarket) {
 
     const auto stats = map_ticker_stats(*wire, table, MarketType::Perp, UnixNanos{99});
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);        // 21355.7400 BTC
+    EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);         // 21355.7400 BTC
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'723'468'750'410'000'000LL); // 1723468750.41 USDT
     EXPECT_EQ(stats->ts_event.ns, 1788532398984ULL * 1'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 99U);
