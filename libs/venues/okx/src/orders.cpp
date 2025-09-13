@@ -1,62 +1,17 @@
-// Private frames: the orders channel, and the REST reads that reconcile it.
-
-#include "wire_detail.hpp"
+#include <raikiri/venues/okx/envelope.hpp>
+#include <raikiri/venues/okx/orders.hpp>
 
 namespace raikiri::venues::okx {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
 using detail::guarded;
 using detail::session;
-
-// Both transports wrap their payload in a top-level `data` array — the
-// websocket channel beside an `arg`, the REST endpoints beside `code`/`msg` —
-// so one walker reads either.
-template <typename Entry, typename Read>
-std::expected<std::span<const Entry>, WireError>
-read_data(std::string_view body, std::span<Entry> into, Read&& read) {
-    auto root = session().open_object(body);
-    if (!root.has_value()) {
-        return std::unexpected(root.error());
-    }
-    auto array = detail::req_array(*root, "data");
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
-    }
-    std::size_t count = 0;
-    for (auto element : *array) {
-        if (count == into.size()) {
-            return std::unexpected(WireError::TooManyEntries);
-        }
-        detail::ondemand::object obj;
-        if (const auto ec = element.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
-        }
-        Entry entry{};
-        if (const auto ok = read(obj, entry); !ok.has_value()) {
-            return std::unexpected(ok.error());
-        }
-        into[count] = entry;
-        ++count;
-    }
-    return std::span<const Entry>{into.data(), count};
-}
-
-// Optional fields only: OKX ships every absent value as "" rather than
-// omitting it, so a missing key is a schema change, and a hard failure on one
-// unread field would drop a fill we can still account for.
-std::expected<void, WireError>
-read_strings(detail::ondemand::object& obj,
-             std::initializer_list<std::pair<std::string_view, std::string_view*>> fields) {
-    for (const auto& [key, out] : fields) {
-        const auto value = detail::opt_str(obj, key);
-        if (!value.has_value()) {
-            return std::unexpected(value.error());
-        }
-        *out = *value;
-    }
-    return {};
-}
 
 std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrder& out) {
     const auto inst_id = detail::req_str(obj, "instId");
@@ -101,28 +56,6 @@ std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrd
     return {};
 }
 
-std::expected<void, WireError> read_bill(detail::ondemand::object& obj, WireBill& out) {
-    // instId is OPTIONAL here and on purpose: a transfer or an interest row
-    // names no instrument, and refusing the whole book over one would lose
-    // every funding charge beside it.
-    if (const auto ok = read_strings(obj,
-                                     {{"billId", &out.bill_id},
-                                      {"instId", &out.inst_id},
-                                      {"type", &out.type},
-                                      {"balChg", &out.bal_chg},
-                                      {"fee", &out.fee},
-                                      {"tradeId", &out.trade_id}});
-        !ok.has_value()) {
-        return std::unexpected(ok.error());
-    }
-    const auto ts_ms = detail::opt_ms(obj, "ts");
-    if (!ts_ms.has_value()) {
-        return std::unexpected(WireError::WrongType);
-    }
-    out.ts_ms = *ts_ms;
-    return {};
-}
-
 std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill& out) {
     const auto inst_id = detail::req_str(obj, "instId");
     if (!inst_id.has_value()) {
@@ -146,25 +79,6 @@ std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill
         return std::unexpected(WireError::WrongType);
     }
     out.fill_ms = *fill_ms;
-    return {};
-}
-
-std::expected<void, WireError> read_position(detail::ondemand::object& obj, WirePosition& out) {
-    const auto inst_id = detail::req_str(obj, "instId");
-    if (!inst_id.has_value()) {
-        return std::unexpected(inst_id.error());
-    }
-    out.inst_id = *inst_id;
-    if (const auto ok = read_strings(
-            obj, {{"pos", &out.pos}, {"posSide", &out.pos_side}, {"avgPx", &out.avg_px}});
-        !ok.has_value()) {
-        return std::unexpected(ok.error());
-    }
-    const auto u_ms = detail::opt_ms(obj, "uTime");
-    if (!u_ms.has_value()) {
-        return std::unexpected(WireError::WrongType);
-    }
-    out.u_ms = *u_ms;
     return {};
 }
 
@@ -214,19 +128,9 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
     return guarded([&] { return read_data<WireOrder>(body, storage.orders, read_order); });
 }
 
-std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
-                                                                BillBuffer& storage) {
-    return guarded([&] { return read_data<WireBill>(body, storage.bills, read_bill); });
-}
-
 std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view body,
                                                                 FillBuffer& storage) {
     return guarded([&] { return read_data<WireFill>(body, storage.fills, read_fill); });
-}
-
-std::expected<std::span<const WirePosition>, WireError> parse_positions(std::string_view body,
-                                                                        PositionBuffer& storage) {
-    return guarded([&] { return read_data<WirePosition>(body, storage.positions, read_position); });
 }
 
 std::expected<std::span<const WireOrderAck>, WireError> parse_order_acks(std::string_view body,

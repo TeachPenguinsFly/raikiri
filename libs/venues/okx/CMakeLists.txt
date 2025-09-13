@@ -1,5 +1,11 @@
 add_library(raikiri_venue_okx STATIC
   src/okx_venue.cpp
+  src/account.cpp
+  src/catalogue.cpp
+  src/envelope.cpp
+  src/market_data.cpp
+  src/orders.cpp
+  src/positions.cpp
   src/data_client.cpp
   src/exec_client.cpp
   src/instruments.cpp
@@ -8,9 +14,6 @@ add_library(raikiri_venue_okx STATIC
   src/map.cpp
   src/rest.cpp
   src/ws.cpp
-  src/wire_private.cpp
-  src/wire_public.cpp
-  src/wire_rest.cpp
 )
 add_library(raikiri::venue_okx ALIAS raikiri_venue_okx)
 

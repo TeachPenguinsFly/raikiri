@@ -15,13 +15,56 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/okx/wire.hpp>
+#include <raikiri/venues/okx/errors.hpp>
 
 #include <cstdint>
 #include <optional>
 #include <span>
 
 namespace raikiri::venues::okx {
+
+struct WireBbo {
+    std::string_view inst_id;
+    std::string_view bid_price;
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::int64_t seq_id{0};
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty; // "0" means delete this level
+};
+
+// `books` pushes 400 levels a side on the snapshot; the ceiling leaves room
+// without letting a hostile frame make us allocate.
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// Continuity is the seqId chain: a delta applies when its prev_seq_id equals
+// the previous message's seq_id. The checksum field OKX still pushes was
+// DEPRECATED on 2026-06-23 and is now pinned to 0 — validating it would
+// resync forever against a constant, which is why it is not surfaced at all.
+struct WireBooks {
+    std::string_view inst_id;
+    bool snapshot{false}; // action: "snapshot" vs "update"
+    std::int64_t seq_id{0};
+    std::int64_t prev_seq_id{0}; // -1 on a snapshot
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
+                                                              LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,     // delta chained onto the book we hold

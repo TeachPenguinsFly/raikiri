@@ -7,8 +7,10 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/okx/book.hpp>
+#include <raikiri/venues/okx/envelope.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/venues/okx/map.hpp>
+#include <raikiri/venues/okx/market_data.hpp>
 #include <raikiri/venues/okx/rest.hpp>
 #include <raikiri/venues/okx/ws.hpp>
 

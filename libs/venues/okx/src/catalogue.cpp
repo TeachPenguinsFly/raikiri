@@ -1,6 +1,11 @@
-#include "wire_detail.hpp"
+#include <raikiri/venues/okx/catalogue.hpp>
 
 namespace raikiri::venues::okx {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
@@ -8,25 +13,6 @@ using detail::guarded;
 using detail::session;
 
 } // namespace
-
-std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body) {
-    return guarded([&]() -> std::expected<RestEnvelope, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto code = detail::req_str(*root, "code");
-        const auto msg = detail::opt_str(*root, "msg");
-        if (!code.has_value() || !msg.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        const auto value = detail::digits_to_u64(*code);
-        if (value == 0 && *code != "0") {
-            return std::unexpected(WireError::WrongType);
-        }
-        return RestEnvelope{.code = static_cast<std::int64_t>(value), .msg = *msg};
-    });
-}
 
 std::expected<std::span<const WireInstrument>, WireError>
 parse_instruments(std::string_view body, InstrumentBuffer& storage) {
@@ -75,26 +61,6 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             ++count;
         }
         return std::span<const WireInstrument>{storage.instruments.data(), count};
-    });
-}
-
-std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
-    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return detail::with_first_data(
-            *root, [](detail::ondemand::object& obj) -> std::expected<std::uint64_t, WireError> {
-                const auto ts = detail::opt_ms(obj, "ts");
-                if (!ts.has_value()) {
-                    return std::unexpected(ts.error());
-                }
-                if (*ts == 0) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                return *ts;
-            });
     });
 }
 
