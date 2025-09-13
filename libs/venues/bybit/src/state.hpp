@@ -91,6 +91,11 @@ struct VenueState {
 // problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
+// Cold-path request/response. Every caller of this is a startup or
+// reconciliation path, never the hot loop, so pumping the reactor until the
+// answer arrives is exactly right: the alternative — an asynchronous
+// catalogue load — would force every venue to invent its own half-started
+// state, and a gateway that trades before it knows its tick sizes is worse
 // than one that takes an extra second to boot.
 inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
