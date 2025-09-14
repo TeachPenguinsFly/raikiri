@@ -11,10 +11,16 @@
 // terminal order is recoverable by reconciliation.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 
 namespace raikiri::venues::bitfinex {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 inline constexpr std::int64_t k_unknown_event = 10000;
 inline constexpr std::int64_t k_unknown_pair = 10001;

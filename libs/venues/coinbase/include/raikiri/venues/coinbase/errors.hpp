@@ -11,10 +11,16 @@
 // terminal request is recoverable by asking again deliberately.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <string_view>
 
 namespace raikiri::venues::coinbase {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// status vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // 200 and 404 were observed live (404 on GET /products/NOPE-XYZ, body
 // {"message":"NotFound"}); the rest are the documented contract. 429 could

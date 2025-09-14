@@ -1,8 +1,13 @@
+#include <raikiri/venues/coinbase/orders.hpp>
+
 #include <utility>
 
-#include "wire_detail.hpp"
-
 namespace raikiri::venues::coinbase {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 

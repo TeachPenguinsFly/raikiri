@@ -7,9 +7,11 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
-#include <raikiri/venues/bitmex/book.hpp>
+#include <raikiri/venues/bitmex/envelope.hpp>
 #include <raikiri/venues/bitmex/errors.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
+#include <raikiri/venues/bitmex/orders.hpp>
+#include <raikiri/venues/bitmex/positions.hpp>
 #include <raikiri/venues/bitmex/rest.hpp>
 #include <raikiri/venues/bitmex/ws.hpp>
 

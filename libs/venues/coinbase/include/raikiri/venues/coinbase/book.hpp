@@ -7,7 +7,7 @@
 //
 //   * the opening snapshot is the WHOLE book — 18,427 bids and 27,378 asks in
 //     one 1,203,894-byte frame — which is why the venue raises the transport's
-//     max_message_bytes and why the parser stops at wire.hpp's k_max_levels.
+//     max_message_bytes and why the parser stops at k_max_levels below.
 //     What is kept is a band, and a later change outside it is dropped rather
 //     than believed: nothing confirms a level the snapshot never showed, and
 //     carrying it would make the book look deeper than it is known to be.
@@ -29,13 +29,77 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/coinbase/wire.hpp>
+#include <raikiri/venues/coinbase/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::coinbase {
+
+// level2_batch levels are ["price","size"] pairs of decimal STRINGS. A size of
+// zero deletes the level; it appears only on the updates.
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty;
+};
+
+// THE OPENING SNAPSHOT IS THE WHOLE BOOK. Measured on BTC-USD 2026-08-17:
+// 18,427 bids and 27,378 asks in one 1,203,894-byte frame, which is why this
+// venue raises the transport's max_message_bytes.
+//
+// Both arrays arrive sorted best-first, so reading stops at k_max_levels
+// rather than failing: what is dropped is the far tail of a book nothing
+// downstream carries. The book class bands itself at the last level kept, so
+// a later change out there is dropped rather than believed.
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+struct WireL2Snapshot {
+    std::string_view product_id;
+    std::string_view time; // ISO-8601; absent on the snapshot in some captures
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view frame,
+                                                                         LevelBuffer& storage);
+
+// A change is ["buy"|"sell","price","size"] — the SIDE is a word here, not the
+// sign of the size the way bitfinex writes it, and the size is absolute.
+struct WireChange {
+    std::string_view price;
+    std::string_view qty;
+    bool bid{false};
+};
+
+// The largest observed batch is a few dozen; the ceiling leaves room without
+// letting a frame make us allocate.
+inline constexpr std::size_t k_max_changes = 4096;
+
+struct ChangeBuffer {
+    std::array<WireChange, k_max_changes> changes{};
+};
+
+// There is NO sequence on this channel — a frame carries type, product_id,
+// changes and time, and nothing else.
+struct WireL2Update {
+    std::string_view product_id;
+    std::string_view time; // ISO-8601
+    std::span<const WireChange> changes;
+};
+
+[[nodiscard]] std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
+                                                                     ChangeBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // changes applied onto the book we hold

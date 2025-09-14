@@ -5,7 +5,15 @@
 
 namespace raikiri::venues::bitmex {
 
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
+
 namespace {
+
+using detail::guarded;
+using detail::session;
 
 // The venue's own reader: BitMEX writes one field as "0.0001" on REST and
 // "1.0E-4" on the socket, so the exponent form has to survive. The
@@ -16,6 +24,52 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 }
 
 } // namespace
+
+std::expected<std::span<const WireLevel>, WireError> parse_book(std::string_view frame,
+                                                                LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireLevel>, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = detail::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_levels) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireLevel out{};
+            const auto symbol = detail::req_str(obj, "symbol");
+            const auto side = detail::req_str(obj, "side");
+            const auto id = detail::opt_i64(obj, "id");
+            const auto price = opt_num(obj, "price");
+            const auto qty = opt_num(obj, "size");
+            const auto ts = detail::opt_str(obj, "timestamp");
+            if (!symbol.has_value() || !side.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            if (!id.has_value() || !price.has_value() || !qty.has_value() || !ts.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.symbol = *symbol;
+            out.id = *id;
+            out.bid = *side == "Buy";
+            out.price = *price;
+            out.qty = *qty;
+            out.ts = *ts;
+            storage.levels[count] = out;
+            ++count;
+        }
+        return std::span<const WireLevel>{storage.levels.data(), count};
+    });
+}
 
 Book::Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}

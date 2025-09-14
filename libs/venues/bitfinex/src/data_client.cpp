@@ -7,8 +7,10 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitfinex/book.hpp>
+#include <raikiri/venues/bitfinex/envelope.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
+#include <raikiri/venues/bitfinex/market_data.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
 #include <raikiri/venues/bitfinex/sign.hpp>
 #include <raikiri/venues/bitfinex/ws.hpp>

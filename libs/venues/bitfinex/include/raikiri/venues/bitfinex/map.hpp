@@ -10,7 +10,10 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/bitfinex/wire.hpp>
+#include <raikiri/venues/bitfinex/catalogue.hpp>
+#include <raikiri/venues/bitfinex/market_data.hpp>
+#include <raikiri/venues/bitfinex/orders.hpp>
+#include <raikiri/venues/bitfinex/positions.hpp>
 
 #include <cstdint>
 #include <optional>

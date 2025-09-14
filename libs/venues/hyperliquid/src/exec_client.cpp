@@ -8,6 +8,8 @@
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
+#include <raikiri/venues/hyperliquid/orders.hpp>
+#include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/rest.hpp>
 #include <raikiri/venues/hyperliquid/ws.hpp>
 

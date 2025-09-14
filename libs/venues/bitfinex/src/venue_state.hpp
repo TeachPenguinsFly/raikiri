@@ -14,6 +14,7 @@
 #include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
+#include <raikiri/venues/bitfinex/orders.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
 #include <raikiri/venues/bitfinex/sign.hpp>
 #include <raikiri/venues/bitfinex/ws.hpp>

@@ -5,6 +5,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>

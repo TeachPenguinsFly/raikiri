@@ -5,9 +5,12 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/hyperliquid/book.hpp>
+#include <raikiri/venues/hyperliquid/envelope.hpp>
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
+#include <raikiri/venues/hyperliquid/market_data.hpp>
 #include <raikiri/venues/hyperliquid/rest.hpp>
 #include <raikiri/venues/hyperliquid/ws.hpp>
 

@@ -30,14 +30,46 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/bitmex/wire.hpp>
+#include <raikiri/venues/bitmex/envelope.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace raikiri::venues::bitmex {
+
+// `id` is the venue's level handle and the key a `delete` names — BitMEX
+// declares the row key as ["symbol","id","side"] in the partial's own `keys`
+// field. A delete carries no size, hence qty optional like everything else.
+// MEASURED 2026-08-17 on XBTUSD: a delete DOES also carry `price` today, but
+// the id is what the venue defines and so what the book keys on.
+//
+// There is no sequence anywhere on this table: a delta frame carries only
+// `table`, `action` and `data`, and the timestamp is per ROW.
+struct WireLevel {
+    std::string_view symbol;
+    std::int64_t id{0};
+    bool bid{false};
+    std::string_view price;
+    std::string_view qty;
+    std::string_view ts;
+};
+
+// The snapshot is 25 a side; the ceiling leaves room without letting a hostile
+// frame make us allocate.
+inline constexpr std::size_t k_max_levels = 128;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> levels{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireLevel>, WireError>
+parse_book(std::string_view frame, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // rows applied onto the book we hold

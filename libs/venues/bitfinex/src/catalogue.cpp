@@ -1,53 +1,23 @@
-#include "wire_detail.hpp"
+#include <raikiri/venues/bitfinex/catalogue.hpp>
+#include <raikiri/venues/bitfinex/envelope.hpp>
 
 namespace raikiri::venues::bitfinex {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
 using detail::guarded;
 using detail::session;
 
-constexpr std::string_view k_error_tag = "error";
-
-// Matched against the raw body, quotes included, so the sniff below never has
-// to index into a buffer whose length it has not already checked.
-constexpr std::string_view k_quoted_error_tag = R"("error")";
-
 // The /conf endpoints take a list of keys and answer one result per key, so a
 // single-key request still arrives wrapped one level deeper than its payload.
 constexpr std::size_t k_conf_results = 1;
 
 } // namespace
-
-bool is_rest_error(std::string_view body) noexcept {
-    auto text = detail::trim(body);
-    if (text.empty() || text.front() != '[') {
-        return false;
-    }
-    text.remove_prefix(1);
-    return detail::trim(text).starts_with(k_quoted_error_tag);
-}
-
-std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
-    return guarded([&]() -> std::expected<RestError, WireError> {
-        auto root = session().open_array(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto row = detail::read_row<k_rest_error_arity>(*root);
-        if (!row.has_value()) {
-            return std::unexpected(row.error());
-        }
-        if (row->at<k_rest_error_tag>() != k_error_tag) {
-            return std::unexpected(WireError::WrongType);
-        }
-        std::int64_t code = 0;
-        if (!detail::token_to_i64(row->at<k_rest_error_code>(), code)) {
-            return std::unexpected(WireError::WrongType);
-        }
-        return RestError{.code = code, .msg = row->at<k_rest_error_msg>()};
-    });
-}
 
 std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::string_view body,
                                                                         PairBuffer& storage) {
@@ -83,7 +53,7 @@ std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::str
                         return std::unexpected(detail::map_error(ec));
                     }
                     if (index == 0) {
-                        const auto token = detail::token_of(value);
+                        const auto token = token_of(value);
                         if (!token.has_value()) {
                             return std::unexpected(token.error());
                         }
@@ -91,7 +61,7 @@ std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::str
                         ++index;
                         continue;
                     }
-                    const auto row = detail::read_row<k_pair_row_arity>(value);
+                    const auto row = read_row<k_pair_row_arity>(value);
                     if (!row.has_value()) {
                         return std::unexpected(row.error());
                     }
@@ -111,24 +81,6 @@ std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::str
             return std::unexpected(WireError::MissingField);
         }
         return std::span<const WirePairInfo>{storage.pairs.data(), count};
-    });
-}
-
-std::expected<std::int64_t, WireError> parse_platform_status(std::string_view body) {
-    return guarded([&]() -> std::expected<std::int64_t, WireError> {
-        auto root = session().open_array(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto row = detail::read_row<1>(*root);
-        if (!row.has_value()) {
-            return std::unexpected(row.error());
-        }
-        std::int64_t status = 0;
-        if (!detail::token_to_i64(row->at<0>(), status)) {
-            return std::unexpected(WireError::WrongType);
-        }
-        return status;
     });
 }
 

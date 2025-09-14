@@ -1,11 +1,14 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/coinbase/book.hpp>
+#include <raikiri/venues/coinbase/catalogue.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
+#include <raikiri/venues/coinbase/envelope.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
+#include <raikiri/venues/coinbase/market_data.hpp>
+#include <raikiri/venues/coinbase/orders.hpp>
 #include <raikiri/venues/coinbase/rest.hpp>
 #include <raikiri/venues/coinbase/sign.hpp>
-#include <raikiri/venues/coinbase/wire.hpp>
 #include <raikiri/venues/coinbase/ws.hpp>
 
 #include <gtest/gtest.h>

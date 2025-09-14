@@ -2,8 +2,13 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitfinex/book.hpp>
+#include <raikiri/venues/bitfinex/catalogue.hpp>
+#include <raikiri/venues/bitfinex/envelope.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
+#include <raikiri/venues/bitfinex/market_data.hpp>
+#include <raikiri/venues/bitfinex/orders.hpp>
+#include <raikiri/venues/bitfinex/positions.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
 #include <raikiri/venues/bitfinex/sign.hpp>
 #include <raikiri/venues/bitfinex/ws.hpp>

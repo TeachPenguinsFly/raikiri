@@ -1,10 +1,14 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/bitmex/bitmex_venue.hpp>
 #include <raikiri/venues/bitmex/book.hpp>
+#include <raikiri/venues/bitmex/catalogue.hpp>
+#include <raikiri/venues/bitmex/envelope.hpp>
 #include <raikiri/venues/bitmex/errors.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
+#include <raikiri/venues/bitmex/market_data.hpp>
+#include <raikiri/venues/bitmex/orders.hpp>
+#include <raikiri/venues/bitmex/positions.hpp>
 #include <raikiri/venues/bitmex/rest.hpp>
-#include <raikiri/venues/bitmex/wire.hpp>
 #include <raikiri/venues/bitmex/ws.hpp>
 
 #include <gtest/gtest.h>

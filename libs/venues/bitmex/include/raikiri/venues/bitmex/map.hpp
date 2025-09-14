@@ -17,7 +17,10 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/bitmex/wire.hpp>
+#include <raikiri/venues/bitmex/catalogue.hpp>
+#include <raikiri/venues/bitmex/market_data.hpp>
+#include <raikiri/venues/bitmex/orders.hpp>
+#include <raikiri/venues/bitmex/positions.hpp>
 
 #include <array>
 #include <cstdint>

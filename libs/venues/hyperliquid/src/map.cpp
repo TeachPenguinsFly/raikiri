@@ -1,6 +1,11 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/venues/hyperliquid/book.hpp>
+#include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
+#include <raikiri/venues/hyperliquid/market_data.hpp>
+#include <raikiri/venues/hyperliquid/orders.hpp>
+#include <raikiri/venues/hyperliquid/positions.hpp>
 
 #include <array>
 #include <charconv>

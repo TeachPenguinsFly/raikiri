@@ -21,11 +21,17 @@
 // generic RateLimited policy — recorded rather than pretended.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::bitmex {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// status vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 inline constexpr std::int64_t k_ok = 200;
 inline constexpr std::int64_t k_bad_request = 400; // ValidationError, VERIFIED live

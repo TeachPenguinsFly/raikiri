@@ -1,8 +1,14 @@
+#include <raikiri/venues/bitmex/catalogue.hpp>
+#include <raikiri/venues/bitmex/envelope.hpp>
+
 #include <utility>
 
-#include "wire_detail.hpp"
-
 namespace raikiri::venues::bitmex {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
@@ -10,25 +16,6 @@ using detail::guarded;
 using detail::session;
 
 } // namespace
-
-std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
-    return guarded([&]() -> std::expected<RestError, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        auto error = detail::req_object(*root, "error");
-        if (!error.has_value()) {
-            return std::unexpected(error.error());
-        }
-        const auto message = detail::opt_str(*error, "message");
-        const auto name = detail::opt_str(*error, "name");
-        if (!message.has_value() || !name.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        return RestError{.message = *message, .name = *name};
-    });
-}
 
 std::expected<std::span<const WireInstrument>, WireError>
 parse_instruments(std::string_view body, InstrumentBuffer& storage) {
@@ -65,7 +52,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                   std::pair{"underlyingToPositionMultiplier", &out.underlying_to_position},
                   std::pair{"makerFee", &out.maker_fee},
                   std::pair{"takerFee", &out.taker_fee}}) {
-                const auto value = detail::opt_num(obj, key);
+                const auto value = opt_num(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());
                 }

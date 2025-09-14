@@ -5,7 +5,11 @@
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/hyperliquid/wire.hpp>
+#include <raikiri/venues/hyperliquid/book.hpp>
+#include <raikiri/venues/hyperliquid/catalogue.hpp>
+#include <raikiri/venues/hyperliquid/market_data.hpp>
+#include <raikiri/venues/hyperliquid/orders.hpp>
+#include <raikiri/venues/hyperliquid/positions.hpp>
 
 #include <cstdint>
 #include <optional>

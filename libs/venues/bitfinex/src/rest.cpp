@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/net/json_writer.hpp>
+#include <raikiri/venues/bitfinex/orders.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
 
 #include <charconv>

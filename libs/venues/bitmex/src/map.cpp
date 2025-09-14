@@ -1,7 +1,11 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
 #include <raikiri/portfolio/pnl.hpp>
+#include <raikiri/venues/bitmex/catalogue.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
+#include <raikiri/venues/bitmex/market_data.hpp>
+#include <raikiri/venues/bitmex/orders.hpp>
+#include <raikiri/venues/bitmex/positions.hpp>
 
 #include <charconv>
 #include <limits>

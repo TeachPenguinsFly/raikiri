@@ -16,7 +16,6 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/bitfinex/sign.hpp>
-#include <raikiri/venues/bitfinex/wire.hpp>
 
 #include <array>
 #include <cstdint>

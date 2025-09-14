@@ -1,8 +1,13 @@
+#include <raikiri/venues/coinbase/catalogue.hpp>
+
 #include <utility>
 
-#include "wire_detail.hpp"
-
 namespace raikiri::venues::coinbase {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
@@ -77,26 +82,6 @@ std::expected<WireProduct, WireError> parse_product(std::string_view body) {
             return std::unexpected(root.error());
         }
         return read_product(*root);
-    });
-}
-
-std::expected<std::string_view, WireError> parse_server_time(std::string_view body) {
-    return guarded([&]() -> std::expected<std::string_view, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return detail::req_str(*root, "iso");
-    });
-}
-
-std::expected<std::string_view, WireError> parse_rest_error(std::string_view body) {
-    return guarded([&]() -> std::expected<std::string_view, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        return detail::req_str(*root, "message");
     });
 }
 

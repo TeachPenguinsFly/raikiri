@@ -6,7 +6,8 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
-#include <raikiri/venues/coinbase/book.hpp>
+#include <raikiri/venues/coinbase/catalogue.hpp>
+#include <raikiri/venues/coinbase/envelope.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
 #include <raikiri/venues/coinbase/rest.hpp>

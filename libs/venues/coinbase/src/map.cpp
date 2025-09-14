@@ -1,5 +1,8 @@
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/venues/coinbase/catalogue.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
+#include <raikiri/venues/coinbase/market_data.hpp>
+#include <raikiri/venues/coinbase/orders.hpp>
 
 #include <cstdint>
 #include <optional>

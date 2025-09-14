@@ -6,7 +6,9 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/coinbase/wire.hpp>
+#include <raikiri/venues/coinbase/catalogue.hpp>
+#include <raikiri/venues/coinbase/market_data.hpp>
+#include <raikiri/venues/coinbase/orders.hpp>
 
 #include <optional>
 

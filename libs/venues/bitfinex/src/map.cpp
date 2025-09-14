@@ -1,5 +1,9 @@
 #include <raikiri/common/int128.hpp>
+#include <raikiri/venues/bitfinex/catalogue.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
+#include <raikiri/venues/bitfinex/market_data.hpp>
+#include <raikiri/venues/bitfinex/orders.hpp>
+#include <raikiri/venues/bitfinex/positions.hpp>
 
 #include <limits>
 #include <optional>

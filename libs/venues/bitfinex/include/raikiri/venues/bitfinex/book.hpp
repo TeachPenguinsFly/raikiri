@@ -35,13 +35,48 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/bitfinex/wire.hpp>
+#include <raikiri/venues/bitfinex/envelope.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::bitfinex {
+
+// book level: [PRICE,COUNT,AMOUNT]
+//
+// COUNT == 0 removes the level. AMOUNT's SIGN IS THE SIDE here — positive is
+// a bid, negative an ask — which is a different meaning from the same field
+// on the trades channel, where the sign is the aggressor. On a delete the
+// amount degenerates to +1/-1 and carries only the side.
+inline constexpr std::size_t k_level_arity = 3;
+inline constexpr std::size_t k_level_price = 0;
+inline constexpr std::size_t k_level_count = 1;
+inline constexpr std::size_t k_level_amount = 2;
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view amount;
+    std::int64_t count{0};
+};
+
+inline constexpr std::size_t k_max_levels = 512;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> levels{};
+};
+
+struct WireBook {
+    bool snapshot{false};
+    std::span<const WireLevel> levels;
+};
+
+[[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
+                                                            LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // levels applied onto the book we hold

@@ -13,10 +13,16 @@
 // (verified live), so nothing but the body separates it from a real read.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <string_view>
 
 namespace raikiri::venues::hyperliquid {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// classifier because both answer one question: what did the venue say went
+// wrong.
+using WireError = wire::Error;
 
 // A body carrying no answer, spelled as the JSON literal `null`.
 [[nodiscard]] bool is_null_body(std::string_view body) noexcept;
