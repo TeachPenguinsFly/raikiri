@@ -1,20 +1,20 @@
 add_library(raikiri_venue_xt STATIC
-  src/xt_venue.cpp
-  src/account.cpp
-  src/book.cpp
-  src/catalogue.cpp
-  src/client_id.cpp
-  src/data_client.cpp
-  src/envelope.cpp
-  src/errors.cpp
+  src/venue.cpp
   src/exec_client.cpp
   src/instruments.cpp
-  src/map.cpp
-  src/market_data.cpp
-  src/orders.cpp
-  src/positions.cpp
-  src/rest.cpp
-  src/ws.cpp
+  src/types/account.cpp
+  src/types/book.cpp
+  src/types/catalogue.cpp
+  src/types/client_id.cpp
+  src/types/envelope.cpp
+  src/types/errors.cpp
+  src/types/map.cpp
+  src/types/market_data.cpp
+  src/types/orders.cpp
+  src/types/positions.cpp
+  src/types/ws.cpp
+  src/marketdata/client.cpp
+  src/rest/builder.cpp
 )
 add_library(raikiri::venue_xt ALIAS raikiri_venue_xt)
 
