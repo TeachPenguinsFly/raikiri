@@ -317,9 +317,10 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     channels += out.ticker.empty() ? 0 : 1;
     channels += out.events.empty() ? 0 : 1;
     if (channels == 0) {
-        return std::unexpected(Problem{.title = "subscribe named no channel",
-                                       .status = 400,
-                                       .detail = "one of quotes, book, greeks, funding, ticker, events"});
+        return std::unexpected(
+            Problem{.title = "subscribe named no channel",
+                    .status = 400,
+                    .detail = "one of quotes, book, greeks, funding, ticker, events"});
     }
     if (channels > 1) {
         // The ack states ONE cadence, so a handle covers one channel. Nothing

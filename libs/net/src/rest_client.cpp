@@ -52,16 +52,20 @@ constexpr std::string_view k_user_agent = "raikiri/0.1";
 // A prefix list rather than an exact list: a venue that adds a fourth field to
 // its family should be seen, not silently dropped.
 constexpr std::string_view k_rate_header_prefixes[] = {
-    "x-mbx-", "x-bapi-limit", "x-gate-ratelimit", "x-ratelimit",
-    "gw-ratelimit", "ratelimit", "retry-after",
+    "x-mbx-",
+    "x-bapi-limit",
+    "x-gate-ratelimit",
+    "x-ratelimit",
+    "gw-ratelimit",
+    "ratelimit",
+    "retry-after",
 };
 
 [[nodiscard]] bool is_rate_header(std::string_view name) noexcept {
     std::string lowered;
     lowered.reserve(name.size());
     for (const char c : name) {
-        lowered.push_back(static_cast<char>(
-            c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c));
+        lowered.push_back(static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c));
     }
     for (const auto prefix : k_rate_header_prefixes) {
         if (lowered.starts_with(prefix)) {
@@ -83,8 +87,7 @@ void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
         if (!is_rate_header(name)) {
             continue;
         }
-        out.push_back({std::string{name},
-                       std::string{field.value().data(), field.value().size()}});
+        out.push_back({std::string{name}, std::string{field.value().data(), field.value().size()}});
     }
 }
 

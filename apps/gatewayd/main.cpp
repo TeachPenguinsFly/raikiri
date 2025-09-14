@@ -26,9 +26,9 @@
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
-#include <raikiri/net/rest_client.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
