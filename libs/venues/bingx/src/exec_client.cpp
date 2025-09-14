@@ -1,28 +1,18 @@
-#include <raikiri/config/secret.hpp>
 #include <raikiri/exec/caps.hpp>
-#include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/exec/rate_budget.hpp>
-#include <raikiri/net/io_context.hpp>
-#include <raikiri/net/rest_client.hpp>
-#include <raikiri/net/signer.hpp>
-#include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bingx/account.hpp>
-#include <raikiri/venues/bingx/client_id.hpp>
 #include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/errors.hpp>
-#include <raikiri/venues/bingx/map.hpp>
-#include <raikiri/venues/bingx/rest.hpp>
-#include <raikiri/venues/bingx/ws.hpp>
+#include <raikiri/venues/bingx/orders.hpp>
 
-#include <functional>
+#include <cstdint>
 #include <memory>
-#include <optional>
+#include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "clients.hpp"
+#include "rest/api.hpp"
+#include "userstream/stream.hpp"
 
 namespace raikiri::venues::bingx::detail {
 
@@ -34,196 +24,37 @@ namespace {
 // push with orders working.
 constexpr std::uint64_t k_listen_key_interval_ns = 20ULL * 60 * 1'000'000'000ULL;
 
-constexpr std::uint32_t k_perp_stream_id = 1;
-
-constexpr std::uint32_t k_spot_stream_id = 2;
-
-// The spot user stream is the one that needs asking; the perpetual one pushes
-// everything as soon as the listenKey connects.
-constexpr std::string_view k_spot_user_channel = "spot.executionReport";
-
-// One account event. `market` is the socket's, not the frame's: BingX spells a
-// spot pair and a perpetual identically and neither push says which tree it
-// came from, so the connection is the only thing that knows.
-void handle_private_frame(VenueState& state,
-                          MarketType market,
-                          std::string_view frame,
-                          UnixNanos received) {
-    const auto kind = parse_private_event(frame);
-    if (!kind.has_value()) {
-        return;
-    }
-    const auto stream_id = market == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id;
-    switch (*kind) {
-    case PrivateKind::OrderUpdate: {
-        const auto wire = parse_order_update(frame);
-        if (!wire.has_value()) {
-            return;
-        }
-        const auto fallback = state.remembered(wire->order_id);
-        const auto event = map_order_update(*wire, state.instruments, market, fallback, received);
-        if (!event.has_value()) {
-            return;
-        }
-        if (!event->exchange_client_order_id.empty()) {
-            state.remember(wire->order_id, event->exchange_client_order_id);
-        }
-        state.sink->on_order_event(*event);
-        // Nothing more will arrive for an order the venue has closed, so the
-        // memo entry goes with it rather than outliving the order forever.
-        if (event->type == OrderEventType::Canceled || event->type == OrderEventType::Expired ||
-            (event->type == OrderEventType::Filled && event->leaves_qty.raw == 0)) {
-            state.forget(wire->order_id);
-        }
-        return;
-    }
-    case PrivateKind::ListenKeyExpired:
-        state.key_stale = true;
-        state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
-        return;
-    case PrivateKind::Error:
-        if (const auto control = parse_control(frame); control.has_value()) {
-            state.last_error_code = control->code;
-        }
-        state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
-        return;
-    case PrivateKind::Ack:
-        state.sink->on_connectivity({.state = exec::ConnState::Connected,
-                                     .stream_id = stream_id,
-                                     .ts = state.clock->wall()});
-        return;
-    case PrivateKind::Ignorable:
-    case PrivateKind::Unknown:
-        return;
-    }
-}
-
-// The user stream. Same gzip framing and same "Ping" keepalive as the public
-// socket — the authentication is the listenKey on the URL, which is why this
-// handler carries no login frame.
-class PrivateHandler final : public net::WsHandler {
-public:
-    PrivateHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
-
-    void on_open() override {
-        const auto stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id;
-        if (market_ == MarketType::Spot && client_ != nullptr) {
-            // Perpetual pushes everything unbidden; a silent SPOT socket is a
-            // missing subscribe and not a quiet account.
-            const auto frame = protocol_.subscribe_channel(k_spot_user_channel);
-            if (!frame.has_value() || !client_->send(frame->text)) {
-                state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
-                                               .stream_id = stream_id,
-                                               .ts = state_->clock->wall()});
-                return;
-            }
-        }
-        state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
-                                       .stream_id = stream_id,
-                                       .ts = state_->clock->wall()});
-    }
-
-    void on_message(std::string_view payload, UnixNanos received) noexcept override {
-        try {
-            const auto frame = inflater_.inflate(payload);
-            if (!frame.has_value()) {
-                ++state_->inflate_failures;
-                return;
-            }
-            // Same keepalive as the public socket: four bytes, not JSON.
-            if (is_ping(*frame)) {
-                if (client_ != nullptr) {
-                    (void)client_->send(Protocol::pong_frame());
-                }
-                return;
-            }
-            handle_private_frame(*state_, market_, *frame, received);
-        } catch (...) {
-            ++state_->inflate_failures;
-        }
-    }
-
-    void on_close(net::WsCloseReason) override {
-        state_->sink->on_connectivity(
-            {.state = exec::ConnState::Disconnected,
-             .stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id,
-             .ts = state_->clock->wall()});
-    }
-
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
-private:
-    VenueState* state_;
-    MarketType market_;
-    Protocol protocol_;
-    net::WsClient* client_{nullptr};
-    net::Inflater inflater_;
-};
-
-// One private connection. The key is baked into the target, so a fresh key
-// means a fresh stream object rather than a fresh subscribe frame.
-struct PrivateStream {
-    PrivateStream(VenueState& state, MarketType market, const std::string& key)
-        : handler{state, market},
-          client{state.io,
-                 net::WsConfig{.host = std::string{private_stream_host(market)},
-                               .port = "443",
-                               .target = private_stream_target(market, key)},
-                 handler} {
-        handler.attach(client);
-    }
-
-    PrivateHandler handler;
-    net::WsClient client;
-};
-
-// A build that failed for want of credentials is an AuthFailure, not a
-// Terminal one: the gateway must halt and say so rather than retry a request
-// that will fail identically forever.
-exec::VenueError build_failure(BuildError err) noexcept {
-    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                               : exec::ErrorClass::Terminal,
-                                  0,
-                                  to_string(err));
-}
-
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. Answered BEFORE the instrument table is read.
-std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
-    const auto refusal = market_refusal(market);
-    if (!refusal.has_value()) {
-        return std::nullopt;
-    }
-    return exec::not_implemented(to_string(*refusal));
-}
-
-// Order entry over REST on both trees, with the lifecycle arriving on the
-// matching user stream. A successful create emits nothing: it only seeds the
-// memo a later fill reads its own id out of.
 // A desk with more than this many orders awaiting an answer at once has a
 // problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
+// Where the socket meets the REST call.
+//
+// An order goes OUT over REST and comes BACK on the user stream, and nothing
+// on either side can tell whether the other happened. This class is the only
+// thing that knows both: it holds the table of orders handed over and not yet
+// answered, ages them out, and synthesises the gap event that stops an
+// unanswered order sitting open forever in the strategy's book.
+//
+// It also owns the listen key, because the key is what the private socket
+// authenticates with and REST is the only place to mint one: neither half can
+// hold it alone.
+//
+// Order entry over REST on both trees, with the lifecycle arriving on the
+// matching user stream. A successful create emits nothing: it only seeds the
+// memo a later fill reads its own id out of.
 class BingxExec final : public exec::ExecutionClient {
 public:
     BingxExec(std::shared_ptr<VenueState> state, MarketType market)
-        : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          builder_{state_->signer}, spot_{market == MarketType::Spot},
+        : state_{std::move(state)}, api_{*state_}, spot_{market == MarketType::Spot},
           perp_{market == MarketType::Perp} {}
 
     ~BingxExec() override { state_->private_poll = nullptr; }
 
     std::expected<void, exec::VenueError> start() override {
-        rest_.start();
-        sync_clock(*state_, rest_, unsigned_builder_);
+        api_.start();
         if (perp_) {
-            read_position_mode();
+            api_.read_position_mode();
         }
         if (mint_listen_key()) {
             open_streams();
@@ -238,16 +69,16 @@ public:
         // Best effort, and before the pool closes: a key left open keeps a
         // socket slot alive on BingX's side for an hour after we are gone.
         if (started_ && !key_.empty()) {
-            if (const auto request = builder_.listen_key_close(key_, state_->venue_now());
+            if (const auto request = api_.builder().listen_key_close(key_, state_->venue_now());
                 request.has_value()) {
-                (void)rest_.send(*request, [](net::RestResponse&&) {});
+                (void)api_.send(*request, [](net::RestResponse&&) {});
                 state_->io.poll();
             }
         }
         perp_stream_.reset();
         spot_stream_.reset();
         key_.clear();
-        rest_.stop();
+        api_.stop();
         started_ = false;
     }
 
@@ -255,10 +86,10 @@ public:
         if (!started_ || !(spot_ || perp_)) {
             return false;
         }
-        if (perp_ && (perp_stream_ == nullptr || !perp_stream_->client.connected())) {
+        if (perp_ && (perp_stream_ == nullptr || !perp_stream_->connected())) {
             return false;
         }
-        if (spot_ && (spot_stream_ == nullptr || !spot_stream_->client.connected())) {
+        if (spot_ && (spot_stream_ == nullptr || !spot_stream_->connected())) {
             return false;
         }
         return true;
@@ -269,7 +100,7 @@ public:
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
     void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
+        api_.keepalive(now);
         sweep_unanswered();
     }
 
@@ -318,145 +149,40 @@ public:
         }
     }
 
+    // Forwarded, not reimplemented. These are reconciliation reads and belong
+    // to the REST api; ExecutionClient names them because the gateway's
+    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        const auto request = builder_.open_orders(market, state_->venue_now());
-        if (!request.has_value()) {
-            return std::unexpected{build_failure(request.error())};
-        }
-        const auto body = fetch(*request);
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        static thread_local OrderBuffer storage;
-        const auto orders = parse_orders(*body, storage);
-        if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
-        }
-        std::vector<exec::OrderStatusReport> reports;
-        reports.reserve(orders->size());
-        for (const auto& wire : *orders) {
-            auto report = map_open_order(wire, state_->instruments, market);
-            if (!report.has_value()) {
-                continue; // another market's pair, or an instrument we never loaded
-            }
-            state_->remember(wire.order_id, report->exchange_client_order_id);
-            reports.push_back(*report);
-        }
-        return reports;
+        return api_.open_order_reports(market);
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        // Both single-order reads demand a SYMBOL and this call carries none,
-        // so the open-order sweep answers the same question rather than an
-        // endpoint that cannot hear it.
-        const auto reports = open_order_reports(market);
-        if (!reports.has_value()) {
-            return std::unexpected{reports.error()};
-        }
-        for (const auto& report : *reports) {
-            if (report.exchange_client_order_id.view() == id.view()) {
-                return report;
-            }
-        }
-        return std::unexpected{
-            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not open")};
+        return api_.query_order(id, market);
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
-    fill_reports(MarketType market, UnixNanos) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        if (market == MarketType::Spot) {
-            // /openApi/spot/v1/trade/myTrades demands a symbol and BingX
-            // offers no account-wide form; sweeping the pairs we happen to
-            // have touched would answer "these are all of them" about a set
-            // that is empty on every restart.
-            return std::unexpected{
-                exec::not_implemented("bingx spot fill pull (myTrades is per-symbol)")};
-        }
-        // /allFillOrders is account-wide but states no trade id and no side:
-        // a FillReport without an exec id cannot be deduplicated and one
-        // without a side cannot be netted. Live fills are unaffected —
-        // ORDER_TRADE_UPDATE carries both.
-        return std::unexpected{exec::not_implemented(
-            "bingx perpetual fill pull (allFillOrders states no trade id and no side)")};
+    fill_reports(MarketType market, UnixNanos since) override {
+        return api_.fill_reports(market, since);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        const auto request = builder_.positions(market, state_->venue_now());
-        if (!request.has_value()) {
-            return std::unexpected{build_failure(request.error())};
-        }
-        const auto body = fetch(*request);
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        static thread_local PositionBuffer storage;
-        const auto positions = parse_positions(*body, storage);
-        if (!positions.has_value()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, to_string(positions.error()))};
-        }
-        std::vector<exec::PositionReport> reports;
-        reports.reserve(positions->size());
-        for (const auto& wire : *positions) {
-            if (auto report = map_position(wire, state_->instruments); report.has_value()) {
-                reports.push_back(*report);
-            }
-        }
-        return reports;
+        return api_.position_reports(market);
     }
 
 private:
+    // What a command is asking the venue to do. The three share one path
+    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
-
-    // A refusal arrives at HTTP 200 with the verdict in the body, so the status
-    // is checked for transport health and the ENVELOPE decides the outcome.
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    fetch(const net::RestRequest& request) {
-        const auto response = await_response(*state_, rest_, request);
-        if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
-        }
-        if (response->status < 200 || response->status >= 300) {
-            return std::unexpected{exec::VenueError::make(
-                classify_http(response->status), response->status, "http error")};
-        }
-        const auto envelope = parse_rest_envelope(response->body);
-        if (!envelope.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable envelope")};
-        }
-        if (envelope->code != k_ok) {
-            return std::unexpected{
-                exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
-        }
-        return response->body;
-    }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
         const auto request =
-            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
-                                   : builder_.amend_order(cmd, state_->instruments, now);
+            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                   : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(
                 cmd,
@@ -464,7 +190,7 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
-        if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+        if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
             emit_reject(cmd,
@@ -558,33 +284,16 @@ private:
         state_->sink->on_order_event(event);
     }
 
-    // Hedge and one-way need different parameters and BingX refuses the wrong
-    // pair with 109400, so this is read once at start rather than guessed per
-    // order. A read that fails leaves one-way, which is BingX's own default.
-    void read_position_mode() {
-        const auto request = builder_.position_mode(state_->venue_now());
-        if (!request.has_value()) {
-            return;
-        }
-        const auto body = fetch(*request);
-        if (!body.has_value()) {
-            return;
-        }
-        if (const auto hedge = parse_position_mode(*body); hedge.has_value()) {
-            builder_.set_hedge_mode(*hedge);
-        }
-    }
-
     // Blocking, and only at start(): the sockets cannot connect without a key
     // and a cold start is the one place a round trip costs nothing. ONE key
     // serves both trees — the endpoint is account-level, not per-market.
     [[nodiscard]] bool mint_listen_key() {
-        const auto request = builder_.listen_key_create(state_->venue_now());
+        const auto request = api_.builder().listen_key_create(state_->venue_now());
         if (!request.has_value()) {
             state_->key_stale = true;
             return false;
         }
-        const auto response = await_response(*state_, rest_, *request);
+        const auto response = api_.fetch_raw(*request);
         // This endpoint answers in HTTP statuses and no envelope at all, so
         // fetch() cannot read it: 404 here is a key BingX does not know, not a
         // path that moved (VERIFIED against production with a made-up key).
@@ -609,11 +318,11 @@ private:
         }
         if (perp_) {
             perp_stream_ = std::make_unique<PrivateStream>(*state_, MarketType::Perp, key_);
-            perp_stream_->client.start();
+            perp_stream_->start();
         }
         if (spot_) {
             spot_stream_ = std::make_unique<PrivateStream>(*state_, MarketType::Spot, key_);
-            spot_stream_->client.start();
+            spot_stream_->start();
         }
     }
 
@@ -623,13 +332,13 @@ private:
         if (key_in_flight_) {
             return;
         }
-        const auto request = builder_.listen_key_create(state_->venue_now());
+        const auto request = api_.builder().listen_key_create(state_->venue_now());
         if (!request.has_value()) {
             return; // no credentials: nothing to retry with
         }
         key_in_flight_ = true;
-        if (!rest_.send(*request,
-                        [this](net::RestResponse&& response) { on_key(std::move(response)); })) {
+        if (!api_.send(*request,
+                       [this](net::RestResponse&& response) { on_key(std::move(response)); })) {
             key_in_flight_ = false;
         }
     }
@@ -671,12 +380,12 @@ private:
             return;
         }
         key_due_ns_ = state_->clock->mono().ns + k_listen_key_interval_ns;
-        const auto request = builder_.listen_key_keepalive(key_, state_->venue_now());
+        const auto request = api_.builder().listen_key_keepalive(key_, state_->venue_now());
         if (!request.has_value()) {
             return;
         }
         keepalive_in_flight_ = true;
-        if (!rest_.send(*request, [this](net::RestResponse&& response) {
+        if (!api_.send(*request, [this](net::RestResponse&& response) {
                 keepalive_in_flight_ = false;
                 // 404 is BingX saying the key is gone. Anything else, including
                 // a transport failure, is a tick to retry rather than a reason
@@ -692,9 +401,7 @@ private:
     std::shared_ptr<VenueState> state_;
     std::unique_ptr<PrivateStream> perp_stream_;
     std::unique_ptr<PrivateStream> spot_stream_;
-    net::RestClient rest_;
-    RequestBuilder unsigned_builder_;
-    SignedRequestBuilder builder_;
+    RestApi api_;
     std::string key_;
     std::uint64_t key_due_ns_{0};
     bool key_in_flight_{false};
