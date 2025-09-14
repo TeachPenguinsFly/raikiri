@@ -46,7 +46,7 @@ struct Topic {
 // BBO subscription because that is the one kind asked for on every instrument
 // and on both trees — XT streams no funding at all, so hanging it off
 // SubKind::Funding would leave spot with no turnover. Same channel name on
-// both deployments; only the payload's base column differs (see wire.hpp).
+// both deployments; only the payload's base column differs (see market_data.hpp).
 [[nodiscard]] Topic ticker_topic() noexcept;
 
 struct Subscription {

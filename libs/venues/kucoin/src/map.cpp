@@ -271,8 +271,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 }
 
 std::optional<TickerStats>
-map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table,
-                 UnixNanos ts_init) {
+map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.volume_24h.empty() && wire.turnover_24h.empty()) {
         return std::nullopt;
     }

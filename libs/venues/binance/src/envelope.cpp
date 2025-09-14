@@ -1,0 +1,173 @@
+#include <raikiri/venues/binance/envelope.hpp>
+
+namespace raikiri::venues::binance {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
+
+namespace {
+
+using detail::guarded;
+using detail::session;
+
+EventKind kind_from_event(std::string_view e) noexcept {
+    if (e == "bookTicker") {
+        return EventKind::BookTicker;
+    }
+    // Both spellings, one shape. The adapter asks for @trade — the aggregate
+    // stream is acknowledged on this venue and then never sends a frame, while
+    // @trade floods — but a frame from either is readable here, and @trade is
+    // strictly the finer of the two: one print per fill instead of one per
+    // run of fills at a price.
+    if (e == "trade" || e == "aggTrade") {
+        return EventKind::Trade;
+    }
+    if (e == "markPriceUpdate") {
+        return EventKind::MarkPrice;
+    }
+    if (e == "depthUpdate") {
+        return EventKind::DepthUpdate;
+    }
+    if (e == "ORDER_TRADE_UPDATE") {
+        return EventKind::OrderUpdate;
+    }
+    if (e == "ACCOUNT_UPDATE") {
+        return EventKind::AccountUpdate;
+    }
+    if (e == "listenKeyExpired") {
+        return EventKind::ListenKeyExpired;
+    }
+    return EventKind::Unknown;
+}
+
+} // namespace
+
+std::expected<std::string_view, WireError> unwrap(std::string_view frame) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = detail::opt_raw(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        // No wrapper: a single-stream socket delivers the payload bare.
+        return data->empty() ? frame : *data;
+    });
+}
+
+std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
+    auto inner = unwrap(frame);
+    if (!inner.has_value()) {
+        return std::unexpected(inner.error());
+    }
+    return guarded([&]() -> std::expected<EventInfo, WireError> {
+        auto root = session().open_object(*inner);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto event = detail::opt_str(*root, "e");
+        if (!event.has_value()) {
+            return std::unexpected(event.error());
+        }
+        EventInfo info{};
+        if (event->empty()) {
+            const auto err = detail::opt_raw(*root, "error");
+            if (!err.has_value()) {
+                return std::unexpected(err.error());
+            }
+            info.kind = err->empty() ? EventKind::SubscribeAck : EventKind::Error;
+            return info;
+        }
+        info.kind = kind_from_event(*event);
+        auto symbol = detail::opt_str(*root, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        info.symbol = *symbol;
+        return info;
+    });
+}
+
+std::expected<StreamError, WireError> parse_stream_error(std::string_view frame) {
+    return guarded([&]() -> std::expected<StreamError, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto id = detail::opt_u64(*root, "id");
+        if (!id.has_value()) {
+            return std::unexpected(id.error());
+        }
+        auto error = detail::req_object(*root, "error");
+        if (!error.has_value()) {
+            return std::unexpected(error.error());
+        }
+        const auto code = detail::opt_i64(*error, "code");
+        const auto msg = detail::opt_str(*error, "msg");
+        if (!code.has_value() || !msg.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        return StreamError{.code = *code, .msg = *msg, .id = *id};
+    });
+}
+
+std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
+    return guarded([&]() -> std::expected<RestError, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return RestError{};
+        }
+        const auto code = detail::opt_i64(*root, "code");
+        if (!code.has_value()) {
+            return std::unexpected(code.error());
+        }
+        if (*code >= 0) {
+            return RestError{};
+        }
+        const auto msg = detail::opt_str(*root, "msg");
+        if (!msg.has_value()) {
+            return std::unexpected(msg.error());
+        }
+        return RestError{.code = *code, .msg = *msg};
+    });
+}
+
+std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
+    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto time = detail::opt_u64(*root, "serverTime");
+        if (!time.has_value()) {
+            return std::unexpected(time.error());
+        }
+        if (*time == 0) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return *time;
+    });
+}
+
+std::expected<std::string_view, WireError> parse_listen_key(std::string_view body) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto key = detail::opt_str(*root, "listenKey");
+        if (!key.has_value()) {
+            return std::unexpected(key.error());
+        }
+        if (key->empty()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        return *key;
+    });
+}
+
+} // namespace raikiri::venues::binance

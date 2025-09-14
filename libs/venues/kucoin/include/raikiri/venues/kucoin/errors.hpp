@@ -11,13 +11,19 @@
 // terminal order is recoverable by reconciliation.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::kucoin {
 
-// REST. 200000 is success; k_ok in wire.hpp is the same value.
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
+
+// REST. 200000 is success; k_ok in envelope.hpp is the same value.
 inline constexpr std::int64_t k_missing_credential_header = 400001;
 inline constexpr std::int64_t k_timestamp_invalid = 400002; // >5 s from server time
 inline constexpr std::int64_t k_api_key_not_found = 400003;

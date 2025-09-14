@@ -7,7 +7,12 @@
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
-#include <raikiri/venues/binance/wire.hpp>
+#include <raikiri/venues/binance/account.hpp>
+#include <raikiri/venues/binance/book.hpp>
+#include <raikiri/venues/binance/catalogue.hpp>
+#include <raikiri/venues/binance/market_data.hpp>
+#include <raikiri/venues/binance/orders.hpp>
+#include <raikiri/venues/binance/positions.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -35,8 +40,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 // The 24-hour window off /fapi/v1/ticker/24hr. A separate read from the one
 // funding comes from: binance states no turnover on the mark-price frame.
 [[nodiscard]] std::optional<TickerStats>
-map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table,
-                 UnixNanos ts_init);
+map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // Private stream ----------------------------------------------------------
 

@@ -270,8 +270,7 @@ namespace {
 } // namespace
 
 std::optional<TickerStats>
-map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table,
-                 UnixNanos ts_init) {
+map_ticker_stats(const WireTicker24h& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.volume.empty() && wire.quote_volume.empty()) {
         return std::nullopt;
     }

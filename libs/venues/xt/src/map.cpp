@@ -376,9 +376,9 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     }
     TickerStats out{};
     out.instrument = base->id;
-    // Empty on futures by construction — see wire.hpp. A zero there says the
-    // column is unfilled, which the caps row names; it is not a claim that no
-    // coins changed hands.
+    // Empty on futures by construction — see market_data.hpp. A zero there
+    // says the column is unfilled, which the caps row names; it is not a claim
+    // that no coins changed hands.
     out.volume_24h_base = to_amount(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = to_amount(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);

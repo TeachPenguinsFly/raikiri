@@ -1,10 +1,16 @@
 #pragma once
 
-// Order book maintenance for /contractMarket/level2.
+// The order book: what a frame says about it, and what a reader must hold to
+// keep one in step.
 //
-// KuCoin sends no snapshot on this topic at all, so GET /api/v1/level2/snapshot
-// is not an optimisation, it is the only way to start. Four things measured off
-// the live socket on XBTUSDTM, none of them taken from the docs:
+// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
+// rule that decides whether a change may be applied at all, and the rule means
+// nothing without the field it reads.
+//
+// KuCoin sends no snapshot on /contractMarket/level2 at all, so
+// GET /api/v1/level2/snapshot is not an optimisation, it is the only way to
+// start. Four things measured off the live socket on XBTUSDTM, none of them
+// taken from the docs:
 //
 //   * one frame is ONE level, packed as "64070.1,buy,154" — price, side, size.
 //     There is no array anywhere on this topic, so a delta is a single upsert
@@ -29,14 +35,92 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/kucoin/wire.hpp>
+#include <raikiri/venues/kucoin/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace raikiri::venues::kucoin {
+
+// Sizes are CONTRACTS and arrive as bare integers; they still travel as text so
+// the mapper divides by the instrument's lot step rather than assuming the
+// lotSize of 1 that KuCoin happens to list on every contract today.
+struct WireBbo {
+    std::string_view symbol;
+    std::string_view bid_price;
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::int64_t sequence{0};
+    std::uint64_t ts_ns{0};
+};
+
+[[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame,
+                                                          MarketType market);
+
+// One level2 frame is ONE level packed into a comma-joined string:
+// "62234.6,buy,1" is price, side, size, and a size of 0 deletes the level. The
+// stream carries no snapshot; a book must start from GET /api/v1/level2/snapshot
+// and replay from `sequence`.
+struct WireBookChange {
+    std::string_view symbol;
+    std::string_view price;
+    std::string_view qty;
+    bool bid{false};
+    std::int64_t sequence{0};
+    std::uint64_t ts_ms{0};
+};
+
+[[nodiscard]] std::expected<WireBookChange, WireError> parse_book_change(std::string_view frame);
+
+// GET /api/v1/level2/snapshot. The only place a KuCoin futures book can start.
+// Levels are [price, size] pairs of JSON NUMBERS, so the comma-joined string of
+// the stream has no counterpart here. `sequence` is the last change already
+// inside these levels, so the frame that carries them forward is the one
+// holding sequence + 1.
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty;
+};
+
+// 1000 a side measured on XBTUSDTM; the ceiling leaves room without letting a
+// body make us allocate.
+inline constexpr std::size_t k_max_levels = 2048;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// The spot depth channel republishes a whole book instead of packing one level
+// change into a string. Both sides arrive best-first.
+struct WireBookSnapshot {
+    std::string_view symbol;
+    std::uint64_t ts_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
+                                                                             LevelBuffer& storage);
+
+// `ts` here is NANOSECONDS, where every other KuCoin timestamp is milliseconds.
+struct WireOrderBook {
+    std::string_view symbol;
+    std::int64_t sequence{0};
+    std::uint64_t ts_ns{0};
+    std::span<const WireLevel> bids; // descending
+    std::span<const WireLevel> asks; // ascending
+};
+
+[[nodiscard]] std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
+                                                                            LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

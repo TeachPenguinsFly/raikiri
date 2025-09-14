@@ -6,10 +6,13 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/venues/xt/book.hpp>
 #include <raikiri/venues/xt/client_id.hpp>
 #include <raikiri/venues/xt/endpoints.hpp>
+#include <raikiri/venues/xt/envelope.hpp>
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/venues/xt/map.hpp>
+#include <raikiri/venues/xt/market_data.hpp>
 #include <raikiri/venues/xt/rest.hpp>
 #include <raikiri/venues/xt/ws.hpp>
 

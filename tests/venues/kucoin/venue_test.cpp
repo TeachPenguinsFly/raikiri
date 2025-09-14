@@ -1,9 +1,14 @@
+#include <raikiri/venues/kucoin/account.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
+#include <raikiri/venues/kucoin/catalogue.hpp>
+#include <raikiri/venues/kucoin/envelope.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
+#include <raikiri/venues/kucoin/market_data.hpp>
+#include <raikiri/venues/kucoin/orders.hpp>
+#include <raikiri/venues/kucoin/positions.hpp>
 #include <raikiri/venues/kucoin/rest.hpp>
-#include <raikiri/venues/kucoin/wire.hpp>
 #include <raikiri/venues/kucoin/ws.hpp>
 
 #include <gtest/gtest.h>

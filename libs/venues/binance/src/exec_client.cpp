@@ -7,10 +7,13 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
-#include <raikiri/venues/binance/book.hpp>
+#include <raikiri/venues/binance/account.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
+#include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
+#include <raikiri/venues/binance/orders.hpp>
+#include <raikiri/venues/binance/positions.hpp>
 #include <raikiri/venues/binance/rest.hpp>
 #include <raikiri/venues/binance/ws.hpp>
 

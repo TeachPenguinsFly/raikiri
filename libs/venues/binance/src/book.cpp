@@ -5,7 +5,59 @@
 
 namespace raikiri::venues::binance {
 
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
+
 namespace {
+
+using detail::guarded;
+using detail::session;
+
+// A level is a two-element array of strings, ["64488.50","5.560"], on the
+// depth stream and in the REST snapshot alike.
+std::expected<std::size_t, WireError>
+read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
+    auto array = detail::req_array(root, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::array pair;
+        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        WireLevel level{};
+        std::size_t field = 0;
+        for (auto element : pair) {
+            detail::ondemand::value value;
+            if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            const auto text = detail::str_of(value);
+            if (!text.has_value()) {
+                return std::unexpected(text.error());
+            }
+            if (field == 0) {
+                level.price = *text;
+            } else if (field == 1) {
+                level.qty = *text;
+            }
+            ++field;
+        }
+        if (field < 2) {
+            return std::unexpected(WireError::MissingField);
+        }
+        into[count] = level;
+        ++count;
+    }
+    return count;
+}
 
 // The venue's own reader: binance writes plain decimals. The exact-or-refuse
 // rule itself is book::exact_steps.
@@ -15,6 +67,115 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 }
 
 } // namespace
+
+std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data) {
+    return guarded([&]() -> std::expected<WireBookTicker, WireError> {
+        auto root = session().open_object(data);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireBookTicker out{};
+        const auto symbol = detail::req_str(*root, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        out.symbol = *symbol;
+        for (const auto& [key, field] : {std::pair{"b", &out.bid_price},
+                                         std::pair{"B", &out.bid_qty},
+                                         std::pair{"a", &out.ask_price},
+                                         std::pair{"A", &out.ask_qty}}) {
+            const auto value = detail::req_str(*root, key);
+            if (!value.has_value()) {
+                return std::unexpected(value.error());
+            }
+            *field = *value;
+        }
+        const auto update_id = detail::opt_u64(*root, "u");
+        const auto transaction = detail::opt_u64(*root, "T");
+        const auto event = detail::opt_u64(*root, "E");
+        if (!update_id.has_value() || !transaction.has_value() || !event.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.update_id = *update_id;
+        out.transaction_ms = *transaction;
+        out.event_ms = *event;
+        return out;
+    });
+}
+
+std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
+                                                             LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireDepthUpdate, WireError> {
+        auto root = session().open_object(data);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireDepthUpdate out{};
+        const auto symbol = detail::req_str(*root, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        out.symbol = *symbol;
+        const auto first = detail::opt_u64(*root, "U");
+        const auto last = detail::opt_u64(*root, "u");
+        const auto prev = detail::opt_u64(*root, "pu");
+        const auto event = detail::opt_u64(*root, "E");
+        if (!first.has_value() || !last.has_value() || !prev.has_value() || !event.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        out.first_id = *first;
+        out.last_id = *last;
+        out.prev_id = *prev;
+        out.event_ms = *event;
+
+        const auto bids = read_levels(*root, "b", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        const auto asks = read_levels(*root, "a", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        out.bids = {storage.bids.data(), *bids};
+        out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
+
+std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
+                                                                 LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireDepthSnapshot, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        WireDepthSnapshot out{};
+        const auto last = detail::opt_u64(*root, "lastUpdateId");
+        const auto transaction = detail::opt_u64(*root, "T");
+        const auto event = detail::opt_u64(*root, "E");
+        if (!last.has_value() || !transaction.has_value() || !event.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        if (*last == 0) {
+            return std::unexpected(WireError::MissingField); // a seed with no id seeds nothing
+        }
+        out.last_update_id = *last;
+        out.transaction_ms = *transaction;
+        out.event_ms = *event;
+
+        const auto bids = read_levels(*root, "bids", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        const auto asks = read_levels(*root, "asks", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        out.bids = {storage.bids.data(), *bids};
+        out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
 
 DepthBook::DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {

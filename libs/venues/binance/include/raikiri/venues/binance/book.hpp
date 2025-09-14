@@ -1,6 +1,11 @@
 #pragma once
 
-// Order book maintenance for binance USD-M futures.
+// The order book: what a frame says about it, and what a reader must hold to
+// keep one in step.
+//
+// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
+// rule that decides whether a delta may be applied at all, and the rule means
+// nothing without the field it reads.
 //
 // <sym>@depth@100ms carries deltas and no snapshot, so the book is seeded from
 // GET /fapi/v1/depth and then chained. Three rules, all verified against the
@@ -21,14 +26,74 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/venues/binance/wire.hpp>
+#include <raikiri/venues/binance/errors.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace raikiri::venues::binance {
+
+// <sym>@bookTicker: the top of book alone, pushed on every change rather than
+// on a cadence, which is why it is the quote source and @depth is the ladder.
+struct WireBookTicker {
+    std::string_view symbol;
+    std::string_view bid_price;
+    std::string_view bid_qty;
+    std::string_view ask_price;
+    std::string_view ask_qty;
+    std::uint64_t update_id{0};
+    std::uint64_t transaction_ms{0}; // T: when the book changed
+    std::uint64_t event_ms{0};       // E: when binance sent it
+};
+
+[[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
+
+struct WireLevel {
+    std::string_view price;
+    std::string_view qty; // "0" means delete this level
+};
+
+inline constexpr std::size_t k_max_levels = 1000;
+
+struct LevelBuffer {
+    std::array<WireLevel, k_max_levels> bids{};
+    std::array<WireLevel, k_max_levels> asks{};
+};
+
+// first_id/last_id are binance's [U, u]; prev_id is `pu`. The chaining rule
+// on futures is prev_id == the previous event's last_id — NOT last_id + 1,
+// which is the spot rule and would reject every valid futures delta.
+struct WireDepthUpdate {
+    std::string_view symbol;
+    std::uint64_t first_id{0};
+    std::uint64_t last_id{0};
+    std::uint64_t prev_id{0};
+    std::uint64_t event_ms{0};
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
+                                                                           LevelBuffer& storage);
+
+// GET /fapi/v1/depth. `last_update_id` is the book state these levels
+// describe, and the seed is usable only while a delta still straddles it.
+struct WireDepthSnapshot {
+    std::uint64_t last_update_id{0};
+    std::uint64_t transaction_ms{0}; // T: when the book was that
+    std::uint64_t event_ms{0};       // E: when binance answered
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireDepthSnapshot, WireError>
+parse_depth_snapshot(std::string_view body, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
     Applied,  // book advanced and is publishable

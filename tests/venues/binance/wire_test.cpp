@@ -1,4 +1,8 @@
-#include <raikiri/venues/binance/wire.hpp>
+#include <raikiri/venues/binance/account.hpp>
+#include <raikiri/venues/binance/book.hpp>
+#include <raikiri/venues/binance/catalogue.hpp>
+#include <raikiri/venues/binance/envelope.hpp>
+#include <raikiri/venues/binance/market_data.hpp>
 
 #include <gtest/gtest.h>
 

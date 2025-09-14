@@ -1,8 +1,13 @@
+#include <raikiri/venues/binance/catalogue.hpp>
+
 #include <array>
 
-#include "wire_detail.hpp"
-
 namespace raikiri::venues::binance {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
 
 namespace {
 
@@ -17,62 +22,6 @@ struct FilterWanted {
 };
 
 } // namespace
-
-std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_view body,
-                                                                 LevelBuffer& storage) {
-    return guarded([&]() -> std::expected<WireDepthSnapshot, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        WireDepthSnapshot out{};
-        const auto last = detail::opt_u64(*root, "lastUpdateId");
-        const auto transaction = detail::opt_u64(*root, "T");
-        const auto event = detail::opt_u64(*root, "E");
-        if (!last.has_value() || !transaction.has_value() || !event.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        if (*last == 0) {
-            return std::unexpected(WireError::MissingField); // a seed with no id seeds nothing
-        }
-        out.last_update_id = *last;
-        out.transaction_ms = *transaction;
-        out.event_ms = *event;
-
-        const auto bids = detail::read_levels(*root, "bids", storage.bids);
-        if (!bids.has_value()) {
-            return std::unexpected(bids.error());
-        }
-        const auto asks = detail::read_levels(*root, "asks", storage.asks);
-        if (!asks.has_value()) {
-            return std::unexpected(asks.error());
-        }
-        out.bids = {storage.bids.data(), *bids};
-        out.asks = {storage.asks.data(), *asks};
-        return out;
-    });
-}
-
-std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
-    return guarded([&]() -> std::expected<RestError, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return RestError{};
-        }
-        const auto code = detail::opt_i64(*root, "code");
-        if (!code.has_value()) {
-            return std::unexpected(code.error());
-        }
-        if (*code >= 0) {
-            return RestError{};
-        }
-        const auto msg = detail::opt_str(*root, "msg");
-        if (!msg.has_value()) {
-            return std::unexpected(msg.error());
-        }
-        return RestError{.code = *code, .msg = *msg};
-    });
-}
 
 std::expected<std::span<const WireInstrument>, WireError>
 parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
@@ -153,23 +102,6 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             ++count;
         }
         return std::span<const WireInstrument>{storage.instruments.data(), count};
-    });
-}
-
-std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
-    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
-        auto root = session().open_object(body);
-        if (!root.has_value()) {
-            return std::unexpected(root.error());
-        }
-        const auto time = detail::opt_u64(*root, "serverTime");
-        if (!time.has_value()) {
-            return std::unexpected(time.error());
-        }
-        if (*time == 0) {
-            return std::unexpected(WireError::MissingField);
-        }
-        return *time;
     });
 }
 

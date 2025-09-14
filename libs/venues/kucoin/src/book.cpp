@@ -1,11 +1,137 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
+#include <raikiri/venues/kucoin/envelope.hpp>
 
 #include <utility>
 
 namespace raikiri::venues::kucoin {
 
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
+// layer; a venue that reimplements opt_str or req_array is one that will
+// disagree with its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
+
 namespace {
+
+using detail::guarded;
+using detail::session;
+
+// "62234.6,buy,1" -> price, side, size. A partly-formed change would apply a
+// real price at an invented size, so anything short of three fields fails.
+std::expected<void, WireError> split_change(std::string_view change, WireBookChange& out) {
+    const auto first = change.find(',');
+    if (first == std::string_view::npos) {
+        return std::unexpected(WireError::WrongType);
+    }
+    const auto second = change.find(',', first + 1);
+    if (second == std::string_view::npos) {
+        return std::unexpected(WireError::WrongType);
+    }
+    out.price = change.substr(0, first);
+    const auto side = change.substr(first + 1, second - first - 1);
+    if (side != "buy" && side != "sell") {
+        return std::unexpected(WireError::WrongType);
+    }
+    out.bid = side == "buy";
+    out.qty = change.substr(second + 1);
+    if (out.price.empty() || out.qty.empty()) {
+        return std::unexpected(WireError::MissingField);
+    }
+    return {};
+}
+
+// The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
+// where the futures stream packs one into a comma-joined string. Same numbers,
+// nothing shared.
+std::expected<std::size_t, WireError>
+read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = detail::req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == into.size()) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::array pair;
+        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        std::string_view fields[2];
+        std::size_t seen = 0;
+        for (auto field : pair) {
+            if (seen == 2) {
+                return std::unexpected(WireError::WrongType);
+            }
+            std::string_view text;
+            if (const auto ec = field.value().raw_json().get(text); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
+                text = text.substr(1, text.size() - 2);
+            }
+            fields[seen++] = session().rebase(text);
+        }
+        if (seen != 2) {
+            return std::unexpected(WireError::MissingField);
+        }
+        into[count] = WireLevel{.price = fields[0], .qty = fields[1]};
+        ++count;
+    }
+    return count;
+}
+
+// A level is [price, size] with both members written as JSON numbers.
+std::expected<void, WireError>
+read_pair(detail::ondemand::value entry, std::string_view& price, std::string_view& qty) {
+    detail::ondemand::array pair;
+    if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
+    }
+    std::size_t field = 0;
+    for (auto element : pair) {
+        detail::ondemand::value value;
+        if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (field < 2) {
+            const auto raw = raw_of(value);
+            if (!raw.has_value()) {
+                return std::unexpected(raw.error());
+            }
+            (field == 0 ? price : qty) = *raw;
+        }
+        ++field;
+    }
+    if (field < 2) {
+        return std::unexpected(WireError::MissingField);
+    }
+    return {};
+}
+
+std::expected<std::size_t, WireError>
+read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = detail::req_array(obj, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::value value;
+        if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (const auto ok = read_pair(value, into[count].price, into[count].qty); !ok.has_value()) {
+            return std::unexpected(ok.error());
+        }
+        ++count;
+    }
+    return count;
+}
 
 // The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
@@ -14,6 +140,164 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
 }
 
 } // namespace
+
+std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType market) {
+    const bool spot = market == MarketType::Spot;
+    return guarded([&]() -> std::expected<WireBbo, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = topic_symbol(*root);
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        return with_data(*root,
+                         [&](detail::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
+                             WireBbo out{};
+                             out.symbol = *symbol;
+                             // Futures: bestBidPrice/bestBidSize and a NANOSECOND `ts`.
+                             // Spot:    bestBid/bestBidSize and a MILLISECOND `time`, with
+                             // the sequence as a digit string rather than a number.
+                             const auto bid = req_decimal(obj, spot ? "bestBid" : "bestBidPrice");
+                             const auto bid_qty = req_decimal(obj, "bestBidSize");
+                             const auto ask = req_decimal(obj, spot ? "bestAsk" : "bestAskPrice");
+                             const auto ask_qty = req_decimal(obj, "bestAskSize");
+                             if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() ||
+                                 !ask_qty.has_value()) {
+                                 return std::unexpected(WireError::MissingField);
+                             }
+                             out.bid_price = *bid;
+                             out.bid_qty = *bid_qty;
+                             out.ask_price = *ask;
+                             out.ask_qty = *ask_qty;
+                             if (spot) {
+                                 const auto ms = opt_u64(obj, "time");
+                                 if (!ms.has_value()) {
+                                     return std::unexpected(WireError::WrongType);
+                                 }
+                                 out.ts_ns = *ms * 1'000'000ULL;
+                                 out.sequence = 0; // a digit string here; nothing reads it
+                                 return out;
+                             }
+                             const auto ts = opt_u64(obj, "ts");
+                             const auto sequence = opt_i64(obj, "sequence");
+                             if (!ts.has_value() || !sequence.has_value()) {
+                                 return std::unexpected(WireError::WrongType);
+                             }
+                             out.ts_ns = *ts;
+                             out.sequence = *sequence;
+                             return out;
+                         });
+    });
+}
+
+std::expected<WireBookChange, WireError> parse_book_change(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireBookChange, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = topic_symbol(*root);
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        return with_data(
+            *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
+                WireBookChange out{};
+                out.symbol = *symbol;
+                const auto change = detail::req_str(obj, "change");
+                if (!change.has_value()) {
+                    return std::unexpected(change.error());
+                }
+                if (const auto ok = split_change(*change, out); !ok.has_value()) {
+                    return std::unexpected(ok.error());
+                }
+                const auto ts = opt_u64(obj, "timestamp");
+                const auto sequence = opt_i64(obj, "sequence");
+                if (!ts.has_value() || !sequence.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                out.ts_ms = *ts;
+                out.sequence = *sequence;
+                return out;
+            });
+    });
+}
+
+// /spotMarket/level2Depth50: a whole book, levels as ["price","size"] pairs.
+// Nothing to seed and nothing to chain — the opposite of the futures level2
+// stream, which sends one packed level at a time and cannot start on its own.
+std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
+                                                               LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireBookSnapshot, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = topic_symbol(*root);
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        return with_data(
+            *root,
+            [&](detail::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
+                WireBookSnapshot out{};
+                out.symbol = *symbol;
+                const auto asks = read_pair_levels(obj, "asks", storage.asks);
+                if (!asks.has_value()) {
+                    return std::unexpected(asks.error());
+                }
+                const auto bids = read_pair_levels(obj, "bids", storage.bids);
+                if (!bids.has_value()) {
+                    return std::unexpected(bids.error());
+                }
+                out.asks = {storage.asks.data(), *asks};
+                out.bids = {storage.bids.data(), *bids};
+                out.ts_ms = opt_u64(obj, "timestamp").value_or(0);
+                return out;
+            });
+    });
+}
+
+std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
+                                                              LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireOrderBook, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        return with_data(
+            *root, [&](detail::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
+                WireOrderBook out{};
+                const auto symbol = detail::req_str(obj, "symbol");
+                const auto sequence = opt_i64(obj, "sequence");
+                const auto ts = opt_u64(obj, "ts");
+                if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {
+                    return std::unexpected(WireError::WrongType);
+                }
+                // Without a sequence the levels cannot be placed in the change
+                // chain, and a book that cannot be continued is not a seed.
+                if (*sequence <= 0) {
+                    return std::unexpected(WireError::MissingField);
+                }
+                out.symbol = *symbol;
+                out.sequence = *sequence;
+                out.ts_ns = *ts;
+                const auto bids = read_levels(obj, "bids", storage.bids);
+                if (!bids.has_value()) {
+                    return std::unexpected(bids.error());
+                }
+                const auto asks = read_levels(obj, "asks", storage.asks);
+                if (!asks.has_value()) {
+                    return std::unexpected(asks.error());
+                }
+                out.bids = {storage.bids.data(), *bids};
+                out.asks = {storage.asks.data(), *asks};
+                return out;
+            });
+    });
+}
 
 DepthBook::DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}

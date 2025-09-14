@@ -12,6 +12,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
+#include <raikiri/venues/kucoin/envelope.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/venues/kucoin/map.hpp>
 #include <raikiri/venues/kucoin/rest.hpp>

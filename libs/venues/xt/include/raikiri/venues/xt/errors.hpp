@@ -26,11 +26,17 @@
 // errorCode.mdx).
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <cstdint>
 #include <string_view>
 
 namespace raikiri::venues::xt {
+
+// Every parser in this venue reports failure with this. It lives beside the
+// code vocabulary because both answer one question: what did the venue say
+// went wrong.
+using WireError = wire::Error;
 
 // VERIFIED: returned for an unknown symbol, and for an empty or absent one.
 inline constexpr std::string_view k_invalid_symbol = "invalid_symbol";

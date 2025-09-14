@@ -1,4 +1,5 @@
 #include <raikiri/venues/binance/book.hpp>
+#include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
 
