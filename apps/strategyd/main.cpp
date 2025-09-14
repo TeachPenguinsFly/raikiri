@@ -24,6 +24,8 @@
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/observ/histogram.hpp>
+#include <raikiri/oms/attribution.hpp>
+#include <raikiri/oms/fee_ledger.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
 #include <raikiri/oms/risk.hpp>
@@ -316,11 +318,6 @@ public:
     // --- kernel-side state the main loop reads ---
     // A fee this process wrote, kept only long enough for the venue's ledger to
     // quote it back.
-    struct FeeMemo {
-        FixedE9 amount{};
-        UnixNanos booked_at{};
-    };
-
     struct Timer {
         std::uint32_t id{0};
         std::uint64_t deadline_ns{0};
@@ -346,7 +343,7 @@ public:
     // execution that incurred it — which is what the venue's ledger quotes back
     // when it states the same fee. Bounded and pruned: a desk that never
     // reconciles must not grow a map for the life of the process.
-    std::unordered_map<std::string, FeeMemo> booked_fees;
+    oms::FeeLedger fees;
     std::uint64_t fees_agreed{0};
     std::uint64_t fees_disagreed{0};
     std::uint64_t fees_unmatched{0};
@@ -357,41 +354,34 @@ public:
     // agree, and a disagreement is a fact for a human rather than a correction
     // to apply automatically — the venue's number and ours are both evidence,
     // and silently overwriting one with the other loses the disagreement.
+    // The verdict comes from the ledger; the saying-out-loud stays here,
+    // because a thing that decides is testable and a thing that prints is not.
     void reconcile_fee(const LedgerEntry& charge, const InstrumentBase& base) {
-        const std::string key{charge.reference.view()};
-        const auto it = booked_fees.find(key);
-        if (it == booked_fees.end()) {
+        const auto checked = fees.reconcile(charge);
+        switch (checked.verdict) {
+        case oms::FeeVerdict::Agreed:
+            ++fees_agreed;
+            return;
+        case oms::FeeVerdict::Disagreed:
+            ++fees_disagreed;
+            RLOG_ERROR("strategyd: FEE BREAK {} on {} — we booked {} e9, venue says {} e9",
+                       charge.reference.view(),
+                       base.exchange_symbol.view(),
+                       checked.booked.raw,
+                       charge.amount.raw);
+            return;
+        case oms::FeeVerdict::Unmatched:
             ++fees_unmatched;
             // Either a fill this process never saw, or the venue quotes a
             // different id here than on the execution — both worth a line,
             // because one is lost money and the other is a wrong join.
             RLOG_WARN("strategyd: FEE {} on {} — venue charged {}.{:09} against no fill we hold",
-                      key,
+                      charge.reference.view(),
                       base.exchange_symbol.view(),
                       charge.amount.raw / 1'000'000'000,
                       std::abs(charge.amount.raw) % 1'000'000'000);
             return;
         }
-        if (it->second.amount.raw == charge.amount.raw) {
-            ++fees_agreed;
-            return;
-        }
-        ++fees_disagreed;
-        RLOG_ERROR("strategyd: FEE BREAK {} on {} — we booked {} e9, venue says {} e9",
-                   key,
-                   base.exchange_symbol.view(),
-                   it->second.amount.raw,
-                   charge.amount.raw);
-    }
-
-    // Dropped once older than the window a venue's ledger still reaches back
-    // over: past that the venue will never quote the fee again, so keeping the
-    // memo only grows the map.
-    void prune_booked_fees(UnixNanos now, std::uint64_t max_age_ns) {
-        std::erase_if(booked_fees, [&](const auto& entry) {
-            return now.ns > entry.second.booked_at.ns &&
-                   now.ns - entry.second.booked_at.ns > max_age_ns;
-        });
     }
 
     // The order book, for the reconciliation that compares it against what the
@@ -1227,51 +1217,26 @@ int main(int argc, char** argv) {
                     ++exec_overruns; // policy: halt+reconcile; demo just counts
                     continue;
                 }
-                // A COPY, because the id has to be restored onto it. A venue
-                // event names the order by OUR exchange id and leaves
-                // client_order_id at zero; everything downstream — the position
-                // book's attribution, the ledger's strategy column, the fill's
-                // dedup key, the round-trip clock — reads the strategy out of
-                // that id. Left at zero they all quietly say "strategy 0".
+                // A COPY: oms::attribute restores our own id onto it, and the
+                // ring's record is not ours to write.
                 OrderEvent event = rec.event;
                 if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
                     it != ctx.inflight_.end()) {
                     rt_hist.record(clock.mono().ns - it->second);
                     ctx.inflight_.erase(it);
                 }
-                // Read leaves BEFORE the FSM moves it: the fill quantity is the
-                // drop in leaves, never the event's own qty. A venue that resends
-                // a fill notification then derives zero and moves no money.
-                //
-                // FOUND THE WAY apply_event ROUTES, which is not by our own id.
-                // A venue knows an order only by the id we sent it, so every
-                // fill off a private stream carries client_order_id ZERO and a
-                // lookup by it finds nothing — leaving prev_leaves at zero, a
-                // delta of zero, and the whole booking below skipped in
-                // silence. The order store already resolves either id; this has
-                // to resolve the same one or the book never learns what the
-                // store just did.
-                QtyLots prev_leaves = QtyLots::from_raw(0);
-                const auto* order =
-                    event.client_order_id.raw != 0 ? store.find(event.client_order_id) : nullptr;
-                if (order == nullptr && !event.exchange_client_order_id.empty()) {
-                    order = store.find(event.exchange_client_order_id);
-                }
-                if (order != nullptr) {
-                    prev_leaves = order->leaves();
-                    // Restored BEFORE anything reads it. The store knows which
-                    // order this is; without this line the book, the ledger and
-                    // the latency histogram each answer a question about it
-                    // with a zero.
-                    event.client_order_id = order->client_order_id();
-                }
+                // BEFORE apply_event, which is what moves the leaves this reads.
+                // Why it is the drop in leaves and not the event's own qty, and
+                // why our id has to be restored first, are stated where they
+                // are enforced — see oms/attribution.hpp.
+                const auto who = oms::attribute(event, store);
                 if (const auto applied = store.apply_event(event);
                     !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
                     ++bad_transitions;
                 }
                 if (event.type == OrderEventType::Filled) {
                     ++fills;
-                    if (order == nullptr) {
+                    if (who.order == nullptr) {
                         // A fill for an order this process never had. Counted
                         // and said out loud: it is money that moved on an
                         // account we hold, and a silent one is the difference
@@ -1280,7 +1245,7 @@ int main(int argc, char** argv) {
                         RLOG_ERROR("strategyd: FILL {} matched no order here",
                                    event.exchange_client_order_id.view());
                     }
-                    const auto delta = QtyLots::from_raw(prev_leaves.raw - event.leaves_qty.raw);
+                    const auto delta = oms::filled_delta(who, event);
                     const auto* listed = ctx.instrument(event.instrument);
                     if (listed != nullptr && delta.raw > 0) {
                         const auto& base = base_of(*listed);
@@ -1314,12 +1279,7 @@ int main(int argc, char** argv) {
                             // Remembered under the venue's own id for this
                             // execution, because that is what its ledger quotes
                             // back when it states the same fee.
-                            if (booked_fee.raw != 0 && !event.exec_id.empty()) {
-                                ctx.booked_fees.insert_or_assign(
-                                    std::string{event.exec_id.view()},
-                                    KernelContext::FeeMemo{.amount = booked_fee,
-                                                           .booked_at = clock.wall()});
-                            }
+                            ctx.fees.book(event.exec_id.view(), booked_fee, clock.wall());
                             // After the increments, because the row is the
                             // state those increments produced.
                             if (const auto* held = ctx.positions.find(
@@ -1393,7 +1353,7 @@ int main(int argc, char** argv) {
             if (now_ns >= gw.recon_due) {
                 // Seven days is the widest window any venue's ledger reaches
                 // back over, so a memo older than that will never be quoted.
-                ctx.prune_booked_fees(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
+                ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 reconcile_against_venue(ctx,
