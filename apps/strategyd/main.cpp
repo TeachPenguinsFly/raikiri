@@ -28,6 +28,7 @@
 #include <raikiri/oms/fee_ledger.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
+#include <raikiri/oms/recon.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
@@ -167,7 +168,7 @@ public:
             // unreachable, and both mean the order never gets to the wire.
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        oms::Exposure exposure{.reconciliation_break = halted.contains(order.instrument.packed),
+        oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument),
                                .open_orders = store_->open_count()};
         if (const auto* held = position(order.instrument); held != nullptr) {
             exposure.position_lots = held->qty();
@@ -328,7 +329,7 @@ public:
     // Instruments this process has stopped opening on. Cleared only by a
     // restart, never by one agreeing pull: an automatic clear on a single
     // agreement re-opens the window the break was reporting.
-    std::unordered_set<std::uint64_t> halted;
+    oms::ReconGate recon_gate;
     // Last verdict per instrument, so a standing condition is reported once
     // rather than every read. A break that persists is not new information,
     // and a line repeated every five seconds trains an operator to skip it.
@@ -397,18 +398,9 @@ public:
     // snapshot describes an instant; the book has moved since. Comparing the
     // two directly reports a break on every instrument that traded, which is
     // an alarm that fires whenever the system is working.
-    struct FillDelta {
-        std::uint64_t ts_ns{0};
-        std::int64_t lots{0};
-    };
-
-    std::unordered_map<std::uint64_t, std::vector<FillDelta>> fills_after;
-    // Which snapshot first disagreed about an instrument. A fill that lands in
-    // the round trip around the venue's own timestamp falls on the wrong side
-    // of the rewind boundary and disagrees exactly once; a real break survives
-    // the next independent pull. Halting on the first would mean a busy
-    // instrument freezes itself on network jitter, and the halt does not clear.
-    std::unordered_map<std::uint64_t, std::uint64_t> break_since;
+    // Fills kept only long enough to rewind them out of a comparison against a
+    // snapshot the venue took before it saw them — see oms/recon.hpp.
+    std::unordered_map<std::uint64_t, std::vector<oms::BookedFill>> fills_after;
 
     void record_fill(InstrumentId instrument, Side side, QtyLots delta, UnixNanos ts) {
         fills_after[instrument.packed].push_back(
@@ -643,8 +635,7 @@ void reconcile_against_venue(KernelContext& ctx,
     // Fills older than any snapshot we would still compare against can never
     // be rewound past again.
     for (auto& [packed, deltas] : ctx.fills_after) {
-        const auto cutoff = now.ns > k_snapshot_max_age_ns ? now.ns - k_snapshot_max_age_ns : 0;
-        std::erase_if(deltas, [cutoff](const auto& d) { return d.ts_ns < cutoff; });
+        oms::prune_fills(deltas, now, k_snapshot_max_age_ns);
     }
 
     for (const auto& listed : catalogue.all()) {
@@ -664,11 +655,7 @@ void reconcile_against_venue(KernelContext& ctx,
             cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
         auto local_raw = book.contains(id.packed) ? book[id.packed] : 0;
         if (const auto it = ctx.fills_after.find(id.packed); it != ctx.fills_after.end()) {
-            for (const auto& delta : it->second) {
-                if (delta.ts_ns > boundary) {
-                    local_raw -= delta.lots;
-                }
-            }
+            local_raw = oms::book_as_of(local_raw, it->second, boundary);
         }
         const auto local = QtyLots::from_raw(local_raw);
         // Never written, or written and gone stale: the venue has said nothing
@@ -699,15 +686,9 @@ void reconcile_against_venue(KernelContext& ctx,
         }
         bool confirmed = false;
         if (result.verdict == portfolio::ReconVerdict::Break) {
-            const auto first = ctx.break_since.find(id.packed);
-            if (first == ctx.break_since.end()) {
-                ctx.break_since.emplace(id.packed, boundary);
-            } else if (first->second != boundary) {
-                confirmed = true;
-                ctx.halted.insert(id.packed);
-            }
+            confirmed = ctx.recon_gate.on_break(id, boundary);
         } else if (result.verdict == portfolio::ReconVerdict::Agree) {
-            ctx.break_since.erase(id.packed);
+            ctx.recon_gate.on_agree(id);
         }
         const auto seen = ctx.recon_seen.find(id.packed);
         const bool changed = seen == ctx.recon_seen.end() || seen->second != result.verdict;
@@ -1427,7 +1408,7 @@ int main(int argc, char** argv) {
                ctx.recon_agreed,
                ctx.recon_unknown,
                ctx.recon_broken,
-               ctx.halted.size());
+               ctx.recon_gate.halted_count());
 
     if (ctx.positions.size() > 0) {
         fmt::print("\n{:<16}{:>12}{:>16}{:>16}{:>16}\n",
