@@ -50,12 +50,14 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <ranges>
 #include <set>
 #include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -835,7 +837,13 @@ Restoration restore_book(portfolio::PositionBook& book,
         portfolio::Position::Restored state{};
     };
 
-    std::unordered_map<std::uint64_t, Row> latest;
+    // KEYED ON THE PAIR, not on the two folded into one integer. This was
+    // `(strategy_id << 48) ^ instrument.packed`, and a strategy id shifted by
+    // 48 lands exactly on the venue and market bits — so strategy 1 holding
+    // bybit PERP and the manual book holding bybit SPOT under the same symbol
+    // slot produced ONE key, and whichever the journal replayed second erased
+    // the other. A pair cannot collide.
+    std::map<std::pair<std::uint16_t, std::uint64_t>, Row> latest;
     journal::FrameView frame{};
     while (reader->next(frame) == journal::ReadResult::Item) {
         if (frame.schema_id != schema::message_id<msgs::PositionMsg>()) {
@@ -854,7 +862,7 @@ Restoration restore_book(portfolio::PositionBook& book,
                      .ts_opened = UnixNanos{m.tsOpened().value()},
                      .ts_updated = UnixNanos{m.tsUpdated().value()}};
         // Last write wins, which is what "the book as it stands" means.
-        latest[(static_cast<std::uint64_t>(row.strategy_id) << 48) ^ id.packed] = row;
+        latest[{row.strategy_id, id.packed}] = row;
     }
 
     Restoration out{};
