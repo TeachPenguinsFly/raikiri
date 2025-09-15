@@ -1,26 +1,15 @@
-#include <raikiri/config/secret.hpp>
 #include <raikiri/exec/caps.hpp>
-#include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/net/io_context.hpp>
-#include <raikiri/net/rest_client.hpp>
-#include <raikiri/net/signer.hpp>
-#include <raikiri/net/ws_client.hpp>
-#include <raikiri/venues/coinbase/envelope.hpp>
-#include <raikiri/venues/coinbase/errors.hpp>
 #include <raikiri/venues/coinbase/map.hpp>
 #include <raikiri/venues/coinbase/orders.hpp>
 #include <raikiri/venues/coinbase/rest.hpp>
-#include <raikiri/venues/coinbase/ws.hpp>
 
-#include <array>
+#include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "clients.hpp"
+#include "rest/api.hpp"
 
 namespace raikiri::venues::coinbase::detail {
 
@@ -29,43 +18,25 @@ namespace {
 // A cancel naming an order Coinbase has already finished.
 constexpr int k_http_not_found = 404;
 
-// A refusal to build is terminal by construction: the same command built again
-// produces the same refusal. NotSigned is the exception, and it points at the
-// config rather than at the venue.
-// The body may not parse; the status classifies either way.
-exec::VenueError http_failure(const net::RestResponse& response) noexcept {
-    const auto message = parse_rest_error(response.body);
-    return exec::VenueError::make(classify_http(response.status),
-                                  response.status,
-                                  message.has_value() ? *message : std::string_view{"http error"});
-}
-
-exec::VenueError build_failure(BuildError err) noexcept {
-    return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
-                                                               : exec::ErrorClass::Terminal,
-                                  0,
-                                  to_string(err));
-}
-
 // A desk with more than this many orders awaiting an answer at once has a
 // problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Live order entry over REST.
+// Live order entry over REST, and the table of what it has not answered yet.
 //
 // There is no private socket here, and the omission is named rather than
 // implied: Coinbase Exchange's real-time private feed is the per-product
 // `user` channel, and an ExecutionClient is never told which products to
-// watch. What that costs is EXECUTIONS — every other lifecycle step is
-// answered synchronously, because POST /orders returns the whole order object
-// and DELETE /orders answers only when the cancel took. fill_reports says the
-// same thing in the same words rather than answering with an empty vector.
+// watch. That is why this venue has no userstream/ beside its rest/ — there
+// is nothing to put in one. What it costs is EXECUTIONS — every other
+// lifecycle step is answered synchronously, because POST /orders returns the
+// whole order object and DELETE /orders answers only when the cancel took.
+// fill_reports says the same thing in the same words rather than answering
+// with an empty vector.
 class CoinbaseExec final : public exec::ExecutionClient {
 public:
     explicit CoinbaseExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}},
-          builder_{state_->signer, state_->passphrase} {}
+        : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         if (!state_->signer.has_credentials() || state_->passphrase.empty()) {
@@ -75,17 +46,18 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::AuthFailure, 0, "coinbase: key, secret and passphrase required")};
         }
-        rest_.start();
-        sync_clock(*state_, rest_);
+        api_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        rest_.stop();
+        api_.stop();
         started_ = false;
     }
 
+    // No socket to be up or down, so this answers from whether start() got past
+    // the credential check and brought the REST pool up.
     [[nodiscard]] bool connected() const noexcept override { return started_; }
 
     // The order path's heartbeat. The REST pool drops a connection the venue
@@ -93,7 +65,7 @@ public:
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
     void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
+        api_.keepalive(now);
         sweep_unanswered();
     }
 
@@ -133,118 +105,40 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
+    // Forwarded, not reimplemented. These are reconciliation reads and belong
+    // to the REST api; ExecutionClient names them because the gateway's
+    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
-        if (const auto refusal = market_refusal(market); refusal.has_value()) {
-            return std::unexpected{build_failure(*refusal)};
-        }
-        const auto request = builder_.open_orders(market, state_->venue_now());
-        if (!request.has_value()) {
-            return std::unexpected{build_failure(request.error())};
-        }
-        const auto body = fetch(*request);
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-        static thread_local OrderBuffer storage;
-        const auto orders = parse_orders(*body, storage);
-        if (!orders.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(orders.error()))};
-        }
-        std::vector<exec::OrderStatusReport> reports;
-        reports.reserve(orders->size());
-        for (const auto& wire : *orders) {
-            if (auto report =
-                    map_open_order(wire, state_->instruments, state_->recall(wire.client_oid));
-                report.has_value()) {
-                reports.push_back(*report);
-            }
-        }
-        return reports;
+        return api_.open_order_reports(market);
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) override {
-        if (const auto refusal = market_refusal(market); refusal.has_value()) {
-            return std::unexpected{build_failure(*refusal)};
-        }
-        const auto request = builder_.query_order(id, market, state_->venue_now());
-        if (!request.has_value()) {
-            return std::unexpected{build_failure(request.error())};
-        }
-        const auto body = fetch(*request);
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-        const auto order = parse_order(*body);
-        if (!order.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(order.error()))};
-        }
-        // The id asked about is the one reported back: the UUID that travelled
-        // cannot be turned into a ULID, and the caller already holds the one
-        // it wanted.
-        auto report = map_open_order(*order, state_->instruments, id);
-        if (!report.has_value()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
-        }
-        return *report;
+        return api_.query_order(id, market);
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType market, UnixNanos since) override {
-        (void)since;
-        if (const auto refusal = market_refusal(market); refusal.has_value()) {
-            return std::unexpected{build_failure(*refusal)};
-        }
-        // GET /fills requires order_id OR product_id — "Either `order_id` or
-        // `product_id` is required" — and this call names only a market.
-        // Sweeping the 800-odd listed products would be a guess at which ones
-        // matter, and an empty vector reads as "no fills", the one answer a
-        // reconciler must not be handed wrongly.
-        return std::unexpected{exec::not_implemented("coinbase fill pull is per-product")};
+        return api_.fill_reports(market, since);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
-        if (const auto refusal = market_refusal(market); refusal.has_value()) {
-            return std::unexpected{build_failure(*refusal)};
-        }
-        // A coin balance is not a position: one BTC balance backs BTC-USD,
-        // BTC-EUR and BTC-USDT alike, and there is no InstrumentId to report
-        // it against. Answering "flat" would be a claim about a concept this
-        // API does not have.
-        return std::unexpected{exec::not_implemented("coinbase spot position pull")};
+        return api_.position_reports(market);
     }
 
 private:
+    // What a command is asking the venue to do. The three share one path
+    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
-
-    [[nodiscard]] std::expected<std::string, exec::VenueError>
-    fetch(const net::RestRequest& request) {
-        const auto response = await_response(*state_, rest_, request);
-        if (!response.has_value() || response->transport_failed()) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
-        }
-        if (response->status < 200 || response->status >= 300) {
-            const auto message = parse_rest_error(response->body);
-            return std::unexpected{exec::VenueError::make(
-                classify_http(response->status),
-                response->status,
-                message.has_value() ? *message : std::string_view{"http error"})};
-        }
-        return response->body;
-    }
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
         const auto now = state_->venue_now();
         const auto request =
-            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, now)
-            : kind == Kind::Cancel ? builder_.cancel_order(cmd, state_->instruments, now)
-                                   : builder_.amend_order(cmd, state_->instruments, now);
+            kind == Kind::Create   ? api_.builder().create_order(cmd, state_->instruments, now)
+            : kind == Kind::Cancel ? api_.builder().cancel_order(cmd, state_->instruments, now)
+                                   : api_.builder().amend_order(cmd, state_->instruments, now);
         if (!request.has_value()) {
             emit_reject(cmd, kind, build_failure(request.error()));
             return;
@@ -254,7 +148,7 @@ private:
             // same poll, and a sweep that raced it would find no id to map.
             state_->remember(cmd.exchange_client_order_id);
         }
-        if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+        if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
             // Never left this process, so nothing is in doubt.
@@ -381,8 +275,7 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
-    net::RestClient rest_;
-    SignedRequestBuilder builder_;
+    RestApi api_;
     bool started_{false};
     // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};

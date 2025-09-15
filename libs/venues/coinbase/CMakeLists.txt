@@ -1,18 +1,18 @@
 add_library(raikiri_venue_coinbase STATIC
-  src/coinbase_venue.cpp
-  src/data_client.cpp
+  src/venue.cpp
   src/exec_client.cpp
   src/instruments.cpp
-  src/book.cpp
-  src/catalogue.cpp
-  src/envelope.cpp
-  src/errors.cpp
-  src/map.cpp
-  src/market_data.cpp
-  src/orders.cpp
-  src/rest.cpp
   src/sign.cpp
-  src/ws.cpp
+  src/types/book.cpp
+  src/types/catalogue.cpp
+  src/types/envelope.cpp
+  src/types/errors.cpp
+  src/types/map.cpp
+  src/types/market_data.cpp
+  src/types/orders.cpp
+  src/types/ws.cpp
+  src/marketdata/client.cpp
+  src/rest/builder.cpp
 )
 add_library(raikiri::venue_coinbase ALIAS raikiri_venue_coinbase)
 

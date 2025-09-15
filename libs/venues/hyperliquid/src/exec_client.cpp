@@ -1,29 +1,20 @@
-#include <raikiri/config/secret.hpp>
 #include <raikiri/exec/caps.hpp>
-#include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/net/io_context.hpp>
-#include <raikiri/net/rest_client.hpp>
-#include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
 #include <raikiri/venues/hyperliquid/orders.hpp>
-#include <raikiri/venues/hyperliquid/positions.hpp>
 #include <raikiri/venues/hyperliquid/rest.hpp>
-#include <raikiri/venues/hyperliquid/ws.hpp>
+#include <raikiri/venues/hyperliquid/sign.hpp>
 
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "clients.hpp"
+#include "rest/api.hpp"
 
 namespace raikiri::venues::hyperliquid::detail {
 
@@ -33,45 +24,23 @@ namespace {
 // the signing path is distinguishable from a market-data disconnect.
 constexpr std::uint32_t k_exchange_stream_id = 1;
 
-// Asked BEFORE the instrument table is read: find() compares the WHOLE id, so
-// an id for a market never loaded here resolves to nothing and would answer
-// UnknownInstrument, blaming the catalogue for a market never served. Option is
-// a named case so the compiler forces a decision rather than a default arm.
-std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
-    switch (market) {
-    case MarketType::Spot:
-    case MarketType::Perp:
-        return std::nullopt;
-    case MarketType::Future:
-        // The venue lists nothing dated: there are two catalogues, and they
-        // are `meta.universe` (perpetuals) and `spotMeta.universe` (pairs).
-        return exec::not_implemented("hyperliquid dated futures order entry");
-    case MarketType::Option:
-        return exec::not_implemented("hyperliquid options order entry");
-    }
-    return exec::not_implemented("hyperliquid: unknown market");
-}
-
-// The account is asked for explicitly and never defaulted to the signing key's
-// own address: an approved API wallet signs for a DIFFERENT account by design,
-// so guessing would reconcile a wallet holding nothing while trading the one
-// that holds everything.
-exec::VenueError no_address() noexcept {
-    return exec::VenueError::make(
-        exec::ErrorClass::AuthFailure, 0, "hyperliquid: no account address configured");
-}
-
 // A desk with more than this many orders awaiting an answer at once has a
 // problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
+// Live order entry, and the table of what it has not answered yet.
+//
+// There is no private socket here, and the omission is named rather than
+// implied: every write is one signed POST to /exchange, and that POST's own
+// reply is the whole verdict — it states resting, filled, or refused. There is
+// no lifecycle push to join it to, which is why this venue has no userstream/
+// beside its rest/. What remains joint is the silence: a POST whose reply never
+// arrives leaves an order whose outcome nothing here can know, and that table
+// lives with the sender.
 class HyperliquidExec final : public exec::ExecutionClient {
 public:
     explicit HyperliquidExec(std::shared_ptr<VenueState> state)
-        : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}},
-          builder_{state_->wallet, !state_->testnet} {}
+        : state_{std::move(state)}, api_{*state_} {}
 
     std::expected<void, exec::VenueError> start() override {
         if (state_->address.empty()) {
@@ -94,16 +63,18 @@ public:
                                            .stream_id = k_exchange_stream_id,
                                            .ts = state_->clock->wall()});
         }
-        rest_.start();
+        api_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        rest_.stop();
+        api_.stop();
         started_ = false;
     }
 
+    // No socket to be up or down, so this answers from whether start() got past
+    // the address checks and brought the REST pool up.
     [[nodiscard]] bool connected() const noexcept override { return started_; }
 
     // The order path's heartbeat. The REST pool drops a connection the venue
@@ -111,7 +82,7 @@ public:
     // gateway wrote its next order into a dead socket and read back an end of
     // stream — after the venue had filled it.
     void poll(UnixNanos now) noexcept override {
-        rest_.keepalive(now);
+        api_.keepalive(now);
         sweep_unanswered();
     }
 
@@ -150,151 +121,32 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
+    // Forwarded, not reimplemented. These are reconciliation reads and belong
+    // to the REST api; ExecutionClient names them because the gateway's
+    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        if (state_->address.empty()) {
-            return std::unexpected{no_address()};
-        }
-        // frontendOpenOrders, not openOrders: the plain form omits `isTrigger`,
-        // so a dormant conditional reads there as a limit at its trigger price.
-        const auto body =
-            read_info(*state_, rest_, requests_.frontend_open_orders(state_->address));
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        static thread_local OpenOrderBuffer storage;
-        const auto orders = parse_open_orders(*body, storage);
-        if (!orders.has_value()) {
-            return std::unexpected{unreadable(orders.error())};
-        }
-        std::vector<exec::OrderStatusReport> reports;
-        reports.reserve(orders->size());
-        for (const auto& wire : *orders) {
-            // One answer carries both markets — "BTC" beside "@107" — so the
-            // filter is the instrument's own market, not a second request.
-            auto report = map_open_order(wire, state_->instruments);
-            if (report.has_value() && report->instrument.market() == market) {
-                reports.push_back(*report);
-            }
-        }
-        return reports;
+        return api_.open_order_reports(market);
     }
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        if (state_->address.empty()) {
-            return std::unexpected{no_address()};
-        }
-        std::array<char, k_cloid_chars> buf{};
-        const auto cloid = cloid_text(id, buf);
-        if (cloid.empty()) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "hyperliquid: client order id is not a ULID")};
-        }
-        const auto body = read_info(*state_, rest_, requests_.order_status(state_->address, cloid));
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        const auto status = parse_order_status(*body);
-        if (!status.has_value()) {
-            return std::unexpected{unreadable(status.error())};
-        }
-        if (!status->found) {
-            // "unknownOid" is not an error and not a status: an id the venue
-            // has forgotten and one it never minted answer identically.
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "hyperliquid: order unknown to the venue")};
-        }
-        const auto report = map_order_status(*status, state_->instruments);
-        if (!report.has_value() || report->instrument.market() != market) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "order not mappable")};
-        }
-        return *report;
+        return api_.query_order(id, market);
     }
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError>
     fill_reports(MarketType market, UnixNanos since) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        if (state_->address.empty()) {
-            return std::unexpected{no_address()};
-        }
-        // `startTime` is inclusive milliseconds, and zero is a different
-        // request rather than "from the beginning".
-        const auto since_ms = since.ns / 1'000'000ULL;
-        const auto request = since_ms == 0
-                                 ? requests_.user_fills(state_->address)
-                                 : requests_.user_fills_by_time(state_->address, since_ms);
-        const auto body = read_info(*state_, rest_, request);
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        static thread_local FillBuffer storage;
-        const auto fills = parse_fills(*body, storage);
-        if (!fills.has_value()) {
-            return std::unexpected{unreadable(fills.error())};
-        }
-        std::vector<exec::FillReport> reports;
-        reports.reserve(fills->size());
-        for (const auto& wire : *fills) {
-            auto report = map_fill(wire, state_->instruments);
-            if (report.has_value() && report->instrument.market() == market) {
-                reports.push_back(*report);
-            }
-        }
-        return reports;
+        return api_.fill_reports(market, since);
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
-        if (const auto refusal = refuse_market(market); refusal.has_value()) {
-            return std::unexpected{*refusal};
-        }
-        if (market == MarketType::Spot) {
-            // Before the address check: this is a fact about the VENUE, true
-            // however the gateway is configured. spotClearinghouseState answers
-            // BALANCES, and a balance is not a position — one HYPE holding
-            // backs @107 and every other pair quoting it, with no entry price
-            // anywhere in the response.
-            return std::unexpected{exec::not_implemented("hyperliquid spot position pull")};
-        }
-        if (state_->address.empty()) {
-            return std::unexpected{no_address()};
-        }
-        const auto body = read_info(*state_, rest_, requests_.clearinghouse_state(state_->address));
-        if (!body.has_value()) {
-            return std::unexpected{body.error()};
-        }
-
-        static thread_local PositionBuffer storage;
-        const auto positions = parse_positions(*body, storage);
-        if (!positions.has_value()) {
-            return std::unexpected{unreadable(positions.error())};
-        }
-        // One `time` for the whole snapshot; there is no per-row timestamp.
-        const auto ts = ms_to_unix(storage.ts_ms, state_->clock->wall());
-        std::vector<exec::PositionReport> reports;
-        reports.reserve(positions->size());
-        for (const auto& wire : *positions) {
-            if (auto report = map_position(wire, state_->instruments, ts); report.has_value()) {
-                reports.push_back(*report);
-            }
-        }
-        return reports;
+        return api_.position_reports(market);
     }
 
 private:
+    // What a command is asking the venue to do. The three share one path
+    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
     // -1 when this gateway never loaded the market. Not derivable from the
@@ -309,14 +161,16 @@ private:
         const auto asset = asset_of(cmd.instrument);
         const auto nonce = state_->nonces.next(state_->clock->wall());
         const auto request =
-            kind == Kind::Create   ? builder_.create_order(cmd, state_->instruments, asset, nonce)
-            : kind == Kind::Cancel ? builder_.cancel_order(cmd, asset, nonce)
-                                   : builder_.modify_order(cmd, state_->instruments, asset, nonce);
+            kind == Kind::Create
+                ? api_.builder().create_order(cmd, state_->instruments, asset, nonce)
+            : kind == Kind::Cancel
+                ? api_.builder().cancel_order(cmd, asset, nonce)
+                : api_.builder().modify_order(cmd, state_->instruments, asset, nonce);
         if (!request.has_value()) {
             refuse(cmd, kind, to_string(request.error()));
             return;
         }
-        if (!rest_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
+        if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
             refuse(cmd, kind, "request not queued");
@@ -530,9 +384,7 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
-    net::RestClient rest_;
-    UserRequestBuilder requests_;
-    ExchangeBuilder builder_;
+    RestApi api_;
     bool started_{false};
     // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};
