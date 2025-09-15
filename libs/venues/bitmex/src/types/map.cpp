@@ -539,6 +539,11 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.state != "Open") {
         return std::nullopt;
     }
+    // REFUSED, not unsupported by accident. A quanto settles in a currency
+    // that is neither side of its pair — ETHUSD is an ETH price, quoted in USD,
+    // paid in BITCOIN at a fixed multiplier — so its PnL is neither Linear nor
+    // Inverse and `ContractKind` cannot say what it is. Carrying it under
+    // either label would price it wrongly the moment BTC moved.
     if (wire.quanto) {
         return std::nullopt;
     }
