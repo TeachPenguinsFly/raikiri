@@ -26,6 +26,7 @@
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/attribution.hpp>
 #include <raikiri/oms/fee_ledger.hpp>
+#include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
 #include <raikiri/oms/recon.hpp>
@@ -797,49 +798,24 @@ void write_funding_row(journal::JournalWriter& writer,
     });
 }
 
-// A funding charge, split across whoever was carrying the instrument.
+// A funding charge, booked onto whoever was carrying the instrument.
 //
-// THE VENUE CHARGES THE NETTED INSTRUMENT; the book is keyed by (strategy,
-// instrument). Where two strategies share one instrument the charge is
-// pro-rated by the size each carries — an approximation, and named as one: the
-// split uses the size held NOW, not at the settlement stamp, because a
-// per-strategy history at the venue's settlement resolution does not exist.
-//
-// A charge nobody is holding is still money that moved, so it lands on the
-// manual book rather than being dropped. Dropping it would put the ledger
-// permanently at odds with the venue's balance.
+// The split itself — the pro-rating, the exact-sum remainder, and where a
+// charge nobody holds lands — is oms::split_funding, and the reasoning is
+// stated there. This walks the book to name the holders and writes the rows.
 void journal_funding(journal::JournalWriter& writer,
                      const portfolio::PositionBook& book,
                      const LedgerEntry& charge,
                      const InstrumentBase& base) noexcept {
-    if (charge.amount.raw == 0 || charge.amount.is_undef()) {
-        return;
-    }
-    std::int64_t total_lots = 0;
-    const portfolio::Position* last = nullptr;
+    std::vector<oms::FundingHolder> holders;
     for (const auto& position : book.all()) {
-        if (position.key().instrument != charge.instrument || position.qty().raw == 0) {
-            continue;
+        if (position.key().instrument == charge.instrument) {
+            holders.push_back(
+                {.strategy_id = position.key().strategy_id, .lots = position.qty().raw});
         }
-        total_lots += std::abs(position.qty().raw);
-        last = &position;
     }
-    if (total_lots == 0) {
-        write_funding_row(writer, charge, base, k_manual_strategy_id, charge.amount);
-        return;
-    }
-    // The remainder goes to the last holder so the parts sum to the charge
-    // exactly; rounding each share on its own loses cents into nobody's book.
-    std::int64_t paid = 0;
-    for (const auto& position : book.all()) {
-        if (position.key().instrument != charge.instrument || position.qty().raw == 0) {
-            continue;
-        }
-        const auto share = &position == last
-                               ? charge.amount.raw - paid
-                               : charge.amount.raw * std::abs(position.qty().raw) / total_lots;
-        paid += share;
-        write_funding_row(writer, charge, base, position.key().strategy_id, FixedE9{share});
+    for (const auto& share : oms::split_funding(holders, charge.amount, k_manual_strategy_id)) {
+        write_funding_row(writer, charge, base, share.strategy_id, share.amount);
     }
 }
 

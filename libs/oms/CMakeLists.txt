@@ -1,6 +1,7 @@
 add_library(raikiri_oms STATIC
   src/attribution.cpp
   src/fee_ledger.cpp
+  src/funding_split.cpp
   src/order_store.cpp
   src/recon.cpp
 )
