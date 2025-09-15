@@ -43,6 +43,16 @@ struct OwnedSubscription {
     std::string symbol;
 };
 
+// What a private socket needs to open. KuCoin puts a one-shot token in the
+// stream URL and states the ping cadence beside it, and only a signed REST
+// call mints one — which is why the socket cannot open before the REST pool
+// has, and why this vocabulary is shared by both halves rather than owned by
+// either.
+struct PrivateTicket {
+    StreamEndpoint endpoint;
+    std::uint64_t ping_interval_ms{0};
+};
+
 // gatewayd pumps DataClient::poll and nothing else, so anything with a timer
 // of its own registers here. The private sockets need one: KuCoin closes a
 // connection whose application-level ping stops arriving, and the websocket
