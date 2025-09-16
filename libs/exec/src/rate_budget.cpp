@@ -1,3 +1,4 @@
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 
 namespace raikiri::exec {

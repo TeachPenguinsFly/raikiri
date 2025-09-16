@@ -12,6 +12,7 @@
 
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 

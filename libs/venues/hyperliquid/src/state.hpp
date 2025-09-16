@@ -4,9 +4,7 @@
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>

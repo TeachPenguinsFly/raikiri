@@ -10,6 +10,7 @@
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/domain/position_report.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/error.hpp>
 
 #include <expected>

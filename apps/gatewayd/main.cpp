@@ -24,6 +24,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/config/settings.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>

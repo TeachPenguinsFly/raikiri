@@ -7,7 +7,6 @@
 // poller's schedule and pump the reactor until the answer arrives, which an
 // order may never do.
 
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/coinbase/envelope.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>

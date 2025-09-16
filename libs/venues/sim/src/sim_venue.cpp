@@ -1,4 +1,5 @@
 #include <raikiri/domain/demo_instruments.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/simcore/engine.hpp>
 #include <raikiri/simcore/mdgen.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>

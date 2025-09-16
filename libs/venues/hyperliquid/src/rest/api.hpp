@@ -9,7 +9,6 @@
 // poller's schedule and pump the reactor until the answer arrives, which an
 // order may never do.
 
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>

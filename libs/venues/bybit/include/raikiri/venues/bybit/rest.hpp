@@ -9,6 +9,7 @@
 // pin the exact bytes that go into the digest.
 
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>

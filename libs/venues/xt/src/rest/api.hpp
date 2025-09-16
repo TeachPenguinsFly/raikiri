@@ -6,7 +6,6 @@
 // what is held, what the account is long. None of them belongs to the order
 // path — they run on a poller's schedule.
 
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/xt/account.hpp>
 #include <raikiri/venues/xt/endpoints.hpp>

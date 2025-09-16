@@ -1,5 +1,4 @@
 #include <raikiri/config/secret.hpp>
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bybit/book.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>

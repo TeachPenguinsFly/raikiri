@@ -22,6 +22,7 @@
 // answering), not a header the way okx does it.
 
 #include <raikiri/domain/order_cmd.hpp>
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>

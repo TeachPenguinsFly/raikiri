@@ -7,7 +7,6 @@
 // they run on a poller's schedule and may not spend the allowance a cancel is
 // about to need, which is what the Poll rate class is for.
 
-#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/bybit/account.hpp>

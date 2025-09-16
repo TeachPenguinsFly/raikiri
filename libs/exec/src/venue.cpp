@@ -1,3 +1,4 @@
+#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/venue.hpp>
 

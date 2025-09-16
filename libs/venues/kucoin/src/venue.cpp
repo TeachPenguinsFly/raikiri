@@ -1,8 +1,6 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
