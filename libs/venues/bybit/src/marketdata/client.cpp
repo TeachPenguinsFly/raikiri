@@ -71,7 +71,14 @@ void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos re
         if (!ticker.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*ticker, state.instruments, received);
+        // The memo is per instrument, so an unknown symbol has nowhere to
+        // accumulate into — and nothing to publish either.
+        const auto* listed = state.instruments.find(ticker->symbol);
+        if (listed == nullptr) {
+            break;
+        }
+        auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
+        if (const auto funding = map_funding(*ticker, state.instruments, memo, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }

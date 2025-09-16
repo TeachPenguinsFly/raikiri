@@ -178,7 +178,8 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     wire.mark_price = "17217.30";
     wire.ts_ms = 1'673'272'861'686ULL;
 
-    const auto funding = map_funding(wire, table, k_ingest);
+    FundingMemo memo{};
+    const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, -212'000); // -0.000212 * 1e9
     EXPECT_EQ(funding->mark_price.raw, 172'173);
@@ -191,7 +192,67 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     WireTicker delta{};
     delta.symbol = "BTCUSDT";
     delta.bid1_price = "17215.00";
-    EXPECT_FALSE(map_funding(delta, table, k_ingest).has_value());
+    EXPECT_FALSE(map_funding(delta, table, memo, k_ingest).has_value());
+}
+
+TEST(BybitMapFunding, AMarkOnlyFrameStillPublishes) {
+    // Measured on BTCUSDT over fifty seconds: one frame carried both the rate
+    // and the mark, FORTY-THREE carried only the mark, none carried only the
+    // rate. Refusing a mark-only frame threw away every one of the forty-three.
+    const auto table = make_table();
+    FundingMemo memo{};
+
+    WireTicker snapshot{};
+    snapshot.symbol = "BTCUSDT";
+    snapshot.is_snapshot = true;
+    snapshot.funding_rate = "-0.000212";
+    snapshot.mark_price = "17217.30";
+    ASSERT_TRUE(map_funding(snapshot, table, memo, k_ingest).has_value());
+
+    WireTicker mark_only{};
+    mark_only.symbol = "BTCUSDT";
+    mark_only.mark_price = "17220.10";
+    const auto merged = map_funding(mark_only, table, memo, k_ingest);
+    ASSERT_TRUE(merged.has_value()) << "a new mark is news even with no rate beside it";
+    EXPECT_EQ(merged->mark_price.raw, 172'201);
+    EXPECT_EQ(merged->rate.raw, -212'000) << "the rate the snapshot stated is carried forward";
+}
+
+TEST(BybitMapFunding, ARateOnlyFrameDoesNotEraseTheMark) {
+    // The other half of the same fault: publishing straight from a frame that
+    // states a rate and no mark writes UNDEF over the last known mark, and the
+    // shm cell is written whole.
+    const auto table = make_table();
+    FundingMemo memo{};
+
+    WireTicker snapshot{};
+    snapshot.symbol = "BTCUSDT";
+    snapshot.is_snapshot = true;
+    snapshot.funding_rate = "-0.000212";
+    snapshot.mark_price = "17217.30";
+    ASSERT_TRUE(map_funding(snapshot, table, memo, k_ingest).has_value());
+
+    WireTicker rate_only{};
+    rate_only.symbol = "BTCUSDT";
+    rate_only.funding_rate = "-0.000100";
+    const auto merged = map_funding(rate_only, table, memo, k_ingest);
+    ASSERT_TRUE(merged.has_value());
+    EXPECT_EQ(merged->rate.raw, -100'000);
+    EXPECT_EQ(merged->mark_price.raw, 172'173) << "the mark survives a frame that omitted it";
+}
+
+TEST(BybitMapFunding, AFieldNeverSeenStaysUndefRatherThanZero) {
+    const auto table = make_table();
+    FundingMemo memo{};
+
+    WireTicker mark_only{};
+    mark_only.symbol = "BTCUSDT";
+    mark_only.mark_price = "17217.30";
+    const auto first = map_funding(mark_only, table, memo, k_ingest);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(first->rate.is_undef())
+        << "no rate has ever been stated; zero would be a rate we invented";
+    EXPECT_EQ(first->next_funding_time.ns, 0U);
 }
 
 TEST(BybitMapTickerStats, TurnoverPublishesAndAnAbsentColumnDoesNot) {

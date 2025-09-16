@@ -49,6 +49,10 @@ struct VenueState {
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
+    // What each instrument's ticker frames have said so far. A frame is a
+    // partial and `FundingUpdate` is written whole — see market_data.hpp.
+    std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
+
     net::IoContext io;
     net::Signer signer;
     exec::InstrumentTable instruments;

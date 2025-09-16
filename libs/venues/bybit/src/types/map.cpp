@@ -122,30 +122,45 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate>
-map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    if (wire.funding_rate.empty() && wire.next_funding_ms.empty()) {
-        return std::nullopt;
-    }
+std::optional<FundingUpdate> map_funding(const WireTicker& wire,
+                                         const exec::InstrumentTable& table,
+                                         FundingMemo& memo,
+                                         UnixNanos ts_init) {
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
 
-    FundingUpdate out{};
-    out.instrument = base.id;
-    out.rate = to_e9(wire.funding_rate);
-    out.predicted_rate = FixedE9::from_raw(0); // bybit publishes no forecast here
+    // EACH FIELD ONLY WHERE THE FRAME STATED IT. An absent field means the
+    // venue said nothing about it on this frame, never that it became zero.
+    bool told = false;
+    if (!wire.funding_rate.empty()) {
+        memo.rate = to_e9(wire.funding_rate);
+        told = true;
+    }
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
-        out.mark_price = *mark;
+        memo.mark = *mark;
+        told = true;
     }
     if (const auto ms = digits_to_ms(wire.next_funding_ms); ms != 0) {
-        out.next_funding_time = UnixNanos{ms * 1'000'000ULL};
+        memo.next_funding = UnixNanos{ms * 1'000'000ULL};
+        told = true;
     }
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
-        out.interval_s = perp->funding_interval_s;
+        memo.interval_s = perp->funding_interval_s;
     }
+    if (!told) {
+        return std::nullopt; // the frame was about the touch, not about funding
+    }
+
+    FundingUpdate out{};
+    out.instrument = base.id;
+    out.rate = memo.rate;
+    out.predicted_rate = FixedE9::from_raw(0); // bybit publishes no forecast here
+    out.mark_price = memo.mark;
+    out.next_funding_time = memo.next_funding;
+    out.interval_s = memo.interval_s;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

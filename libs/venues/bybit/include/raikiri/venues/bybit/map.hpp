@@ -33,8 +33,10 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 // tickers frames carry funding on linear perps. Returns nullopt when the
 // frame is a delta that did not touch any funding field — an update that
 // changes nothing must not overwrite what the strategy already has.
-[[nodiscard]] std::optional<FundingUpdate>
-map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireTicker& wire,
+                                                       const exec::InstrumentTable& table,
+                                                       FundingMemo& memo,
+                                                       UnixNanos ts_init);
 
 // The 24-hour turnover off the same frame. Separate from map_funding because
 // spot has one and no funding, and because a delta that restates neither must

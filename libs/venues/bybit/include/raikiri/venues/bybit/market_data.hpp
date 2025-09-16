@@ -3,7 +3,9 @@
 // What the public feed says a market did: its prints, and the ticker's running
 // picture of it.
 
+#include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/wire/json.hpp>
 
@@ -58,5 +60,24 @@ struct WireTicker {
 };
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
+
+// What a ticker frame has said SO FAR about one instrument's funding.
+//
+// A TICKER FRAME IS A PARTIAL. Measured on BTCUSDT over fifty seconds: one
+// snapshot carrying both the rate and the mark, forty-three frames carrying
+// only the mark, and none carrying only the rate. `FundingUpdate` is one
+// record and the shm cell is written whole, so publishing straight from a
+// frame does one of two wrong things — drops all forty-three mark updates
+// because the frame states no rate, or publishes an UNDEF mark over the last
+// known one when a frame states a rate and no mark.
+//
+// So the venue keeps what it has been told and publishes the merge. A field
+// never seen stays UNDEF, which is not the same as zero.
+struct FundingMemo {
+    FixedE9 rate{};
+    PriceTicks mark{};
+    UnixNanos next_funding{};
+    std::uint32_t interval_s{0};
+};
 
 } // namespace raikiri::venues::bybit
