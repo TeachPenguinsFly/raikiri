@@ -1,4 +1,4 @@
-#include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
 #include <raikiri/venues/bitfinex/orders.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
@@ -38,6 +38,13 @@ public:
     BitfinexExec(std::shared_ptr<VenueState> state, MarketType market);
 
     ~BitfinexExec() override { state_->private_poll = nullptr; }
+
+    // This object registers itself in state the DATA client also holds, so a
+    // copy would leave two registrations and one of them dangling.
+    BitfinexExec(const BitfinexExec&) = delete;
+    BitfinexExec& operator=(const BitfinexExec&) = delete;
+    BitfinexExec(BitfinexExec&&) = delete;
+    BitfinexExec& operator=(BitfinexExec&&) = delete;
 
     std::expected<void, exec::VenueError> start() override;
 

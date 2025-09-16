@@ -1,4 +1,4 @@
-#include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
 #include <raikiri/venues/mexc/map.hpp>
@@ -52,6 +52,13 @@ public:
             state_->private_client = nullptr;
         }
     }
+
+    // This object registers itself in state the DATA client also holds, so a
+    // copy would leave two registrations and one of them dangling.
+    MexcExec(const MexcExec&) = delete;
+    MexcExec& operator=(const MexcExec&) = delete;
+    MexcExec(MexcExec&&) = delete;
+    MexcExec& operator=(MexcExec&&) = delete;
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();

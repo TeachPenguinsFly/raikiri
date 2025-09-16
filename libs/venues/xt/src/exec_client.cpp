@@ -1,4 +1,4 @@
-#include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/venues/xt/envelope.hpp>
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/venues/xt/orders.hpp>
@@ -39,6 +39,13 @@ public:
           perp_{market == MarketType::Perp} {}
 
     ~XtExec() override { state_->private_poll = nullptr; }
+
+    // This object registers itself in state the DATA client also holds, so a
+    // copy would leave two registrations and one of them dangling.
+    XtExec(const XtExec&) = delete;
+    XtExec& operator=(const XtExec&) = delete;
+    XtExec(XtExec&&) = delete;
+    XtExec& operator=(XtExec&&) = delete;
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();

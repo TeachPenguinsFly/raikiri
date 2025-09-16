@@ -1,4 +1,4 @@
-#include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/venues/bingx/account.hpp>
 #include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/errors.hpp>
@@ -50,6 +50,13 @@ public:
           perp_{market == MarketType::Perp} {}
 
     ~BingxExec() override { state_->private_poll = nullptr; }
+
+    // This object registers itself in state the DATA client also holds, so a
+    // copy would leave two registrations and one of them dangling.
+    BingxExec(const BingxExec&) = delete;
+    BingxExec& operator=(const BingxExec&) = delete;
+    BingxExec(BingxExec&&) = delete;
+    BingxExec& operator=(BingxExec&&) = delete;
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();

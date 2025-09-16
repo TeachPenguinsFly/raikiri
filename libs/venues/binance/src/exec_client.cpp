@@ -1,4 +1,4 @@
-#include <raikiri/exec/caps.hpp>
+#include <raikiri/exec/order_gate.hpp>
 #include <raikiri/venues/binance/account.hpp>
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/venues/binance/map.hpp>
@@ -41,6 +41,16 @@ public:
         : state_{std::move(state)}, api_{*state_} {
         state_->tick_hook = [this](UnixNanos now) { tick(now); };
     }
+
+    // The hook captures `this` and lives in state the DATA client also holds.
+    // Left standing past this object, the next public poll calls a lambda over
+    // a destroyed one — and the two clients are not destroyed in a fixed order.
+    ~BinanceExec() override { state_->tick_hook = nullptr; }
+
+    BinanceExec(const BinanceExec&) = delete;
+    BinanceExec& operator=(const BinanceExec&) = delete;
+    BinanceExec(BinanceExec&&) = delete;
+    BinanceExec& operator=(BinanceExec&&) = delete;
 
     std::expected<void, exec::VenueError> start() override {
         api_.start();
