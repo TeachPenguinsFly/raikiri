@@ -289,9 +289,29 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     return out;
 }
 
+// One record out of everything both subjects have said. Fields nobody has
+// stated yet stay UNDEF: the reader checks for that, and a zero would be a
+// number this process invented.
+[[nodiscard]] FundingUpdate merged(const Instrument& instrument,
+                                   const FundingMemo& memo,
+                                   UnixNanos ts_event,
+                                   UnixNanos ts_init) {
+    FundingUpdate out{};
+    out.instrument = base_of(instrument).id;
+    out.rate = memo.rate;
+    out.predicted_rate = memo.predicted;
+    out.mark_price = memo.mark;
+    out.next_funding_time = memo.next_funding;
+    out.interval_s = memo.interval_s;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
 std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                          std::string_view symbol,
                                          const exec::InstrumentTable& table,
+                                         FundingMemo& memo,
                                          UnixNanos ts_init) {
     const auto* instrument = table.find(symbol);
     if (instrument == nullptr) {
@@ -302,25 +322,43 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
         return std::nullopt; // contract quotes no funding: not the same as zero
     }
 
-    FundingUpdate out{};
-    out.instrument = base_of(*instrument).id;
-    out.rate = *rate;
+    memo.rate = *rate;
     if (const auto predicted = to_e9(wire.predicted_rate); predicted.has_value()) {
-        out.predicted_rate = *predicted;
+        memo.predicted = *predicted;
     }
     const auto* perp = std::get_if<PerpInstrument>(instrument);
     const std::uint64_t interval_ms =
         perp == nullptr ? 0 : static_cast<std::uint64_t>(perp->funding_interval_s) * 1000ULL;
-    out.interval_s = perp == nullptr ? 0 : perp->funding_interval_s;
+    memo.interval_s = perp == nullptr ? 0 : perp->funding_interval_s;
     // Only the REST form states the next settlement.
-    out.next_funding_time =
-        wire.next_funding_ms != 0 ? ms_to_unix(wire.next_funding_ms, UnixNanos{0})
-        : (interval_ms != 0 && wire.ts_ms != 0)
-            ? ms_to_unix((wire.ts_ms / interval_ms + 1) * interval_ms, UnixNanos{0})
-            : UnixNanos{0};
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
-    out.ts_init = ts_init;
-    return out;
+    memo.next_funding = wire.next_funding_ms != 0 ? ms_to_unix(wire.next_funding_ms, UnixNanos{0})
+                        : (interval_ms != 0 && wire.ts_ms != 0)
+                            ? ms_to_unix((wire.ts_ms / interval_ms + 1) * interval_ms, UnixNanos{0})
+                            : UnixNanos{0};
+    return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+}
+
+std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
+                                            const exec::InstrumentTable& table,
+                                            FundingMemo& memo,
+                                            UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    // NOT the exact reader every other price goes through. KuCoin quotes the
+    // mark on indexPriceTickSize (0.01 on XBTUSDTM) while the contract trades
+    // on 0.1, so the exact reader refuses every live mark and the column stays
+    // empty forever. A mark is a reference figure and is never sent back as an
+    // order price, so the tail below the contract's tick is dropped rather
+    // than the whole number.
+    const auto& base = base_of(*instrument);
+    const auto mark = parse_number_e9(wire.mark_price);
+    if (!mark.has_value() || base.tick_size.raw <= 0) {
+        return std::nullopt;
+    }
+    memo.mark = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
+    return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {

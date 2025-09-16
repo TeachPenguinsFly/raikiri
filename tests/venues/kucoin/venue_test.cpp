@@ -337,7 +337,8 @@ TEST(KucoinWire, MarkPriceKeepsNumberTokensVerbatim) {
     EXPECT_EQ(wire->ts_ms, 1786394632000ULL);
     // Mark is quoted on indexPriceTickSize (0.01), not the contract's 0.1
     // tick, so it does not divide by the instrument's price step at all —
-    // which is why FundingUpdate::mark_price is left undefined.
+    // which is why the mapper reads it with the tolerant reader instead of the
+    // exact one every order price goes through.
     const auto table = loaded_table();
     const auto* instrument = table.find(std::string_view{"XBTUSDTM"});
     ASSERT_NE(instrument, nullptr);
@@ -573,23 +574,26 @@ TEST(KucoinMap, TradeKeepsTheAggressorDirectionAsSent) {
 
 TEST(KucoinMap, FundingFromRestCarriesTheSettlementTheStreamOmits) {
     const auto table = loaded_table();
+    FundingMemo memo{};
     const auto body = fixture("rest_funding_rate_current.json");
     const auto wire = parse_funding_current(body);
     ASSERT_TRUE(wire.has_value());
-    const auto funding = map_funding(*wire, "XBTUSDTM", table, UnixNanos{11});
+    const auto funding = map_funding(*wire, "XBTUSDTM", table, memo, UnixNanos{11});
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 1.0E-4
     EXPECT_EQ(funding->interval_s, 28800U);
     EXPECT_EQ(funding->next_funding_time.ns, 1786406400000ULL * 1'000'000ULL);
     EXPECT_EQ(funding->ts_event.ns, 1786377600000ULL * 1'000'000ULL);
-    // mark_price stays undefined: a zero would read as a real price of zero.
+    // Undefined until the mark subject says otherwise: a zero would read as a
+    // real price of zero.
     EXPECT_TRUE(funding->mark_price.is_undef());
     // The symbol argument wins, because the body names the funding index.
-    EXPECT_FALSE(map_funding(*wire, "NOSUCHSYM", table, UnixNanos{11}).has_value());
+    EXPECT_FALSE(map_funding(*wire, "NOSUCHSYM", table, memo, UnixNanos{11}).has_value());
 }
 
 TEST(KucoinMap, FundingFromTheStreamIgnoresItsOwnGranularity) {
     const auto table = loaded_table();
+    FundingMemo memo{};
     const auto frame = fixture("ws_funding_rate.json");
     auto wire = parse_funding_rate(frame);
     ASSERT_TRUE(wire.has_value());
@@ -599,7 +603,7 @@ TEST(KucoinMap, FundingFromTheStreamIgnoresItsOwnGranularity) {
     EXPECT_EQ(wire->granularity_ms, 60'000ULL);
     EXPECT_EQ(wire->next_funding_ms, 0ULL);
 
-    const auto funding = map_funding(*wire, wire->symbol, table, UnixNanos{5});
+    const auto funding = map_funding(*wire, wire->symbol, table, memo, UnixNanos{5});
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000);
     // Taken from the catalogue: trusting the frame would report an 8 h
@@ -612,7 +616,52 @@ TEST(KucoinMap, FundingFromTheStreamIgnoresItsOwnGranularity) {
     // A contract that quotes no funding must not be reported as one funding
     // at zero.
     wire->rate = {};
-    EXPECT_FALSE(map_funding(*wire, wire->symbol, table, UnixNanos{5}).has_value());
+    EXPECT_FALSE(map_funding(*wire, wire->symbol, table, memo, UnixNanos{5}).has_value());
+}
+
+TEST(KucoinMapFunding, TheMarkArrivesUnderItsOwnSubjectAndJoinsTheSameRecord) {
+    // KuCoin splits what FundingUpdate fuses: funding.rate and
+    // mark.index.price share one topic and arrive as separate frames. The shm
+    // cell is written whole, so publishing straight from either frame writes
+    // UNDEF over what the other one said.
+    const auto table = loaded_table();
+    FundingMemo memo{};
+
+    const auto rate_frame = fixture("ws_funding_rate.json");
+    const auto rate = parse_funding_rate(rate_frame);
+    ASSERT_TRUE(rate.has_value());
+    const auto first = map_funding(*rate, rate->symbol, table, memo, UnixNanos{5});
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(first->mark_price.is_undef()) << "no mark has been stated yet";
+
+    const auto mark_frame = fixture("ws_mark_index_price.json");
+    const auto mark = parse_mark_price(mark_frame);
+    ASSERT_TRUE(mark.has_value());
+    const auto both = map_mark_price(*mark, table, memo, UnixNanos{6});
+    ASSERT_TRUE(both.has_value());
+    // 64175.21 dropped to the contract's 0.1 tick: the mark is quoted on a
+    // finer grid than the contract trades on.
+    EXPECT_EQ(both->mark_price.raw, 641'752);
+    EXPECT_EQ(both->rate.raw, 100'000) << "the rate the other subject stated is carried forward";
+    EXPECT_EQ(both->interval_s, 28800U);
+}
+
+TEST(KucoinMapFunding, ARateFrameDoesNotEraseAMarkAlreadyStated) {
+    const auto table = loaded_table();
+    FundingMemo memo{};
+
+    const auto mark_frame = fixture("ws_mark_index_price.json");
+    const auto mark = parse_mark_price(mark_frame);
+    ASSERT_TRUE(mark.has_value());
+    ASSERT_TRUE(map_mark_price(*mark, table, memo, UnixNanos{5}).has_value());
+    const auto held = memo.mark;
+
+    const auto rate_frame = fixture("ws_funding_rate.json");
+    const auto rate = parse_funding_rate(rate_frame);
+    ASSERT_TRUE(rate.has_value());
+    const auto after = map_funding(*rate, rate->symbol, table, memo, UnixNanos{6});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->mark_price.raw, held.raw) << "the mark survives a frame that omitted it";
 }
 
 // --------------------------------------------------------------- ws ----

@@ -87,7 +87,21 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     case EventKind::DepthUpdate:
         break;
-    case EventKind::MarkPrice:
+    case EventKind::MarkPrice: {
+        const auto wire = parse_mark_price(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        auto* memo = state.memo_for(wire->symbol);
+        if (memo == nullptr) {
+            break; // nothing to accumulate into, and nothing to publish
+        }
+        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received);
+            funding.has_value()) {
+            state.sink->on_funding(*funding);
+        }
+        break;
+    }
     case EventKind::Ack:
     case EventKind::Unknown:
         break;
@@ -185,6 +199,10 @@ public:
                 // with the PERPETUAL's rate under a spot instrument id.
                 return std::unexpected{exec::not_implemented("xt: spot pays no funding")};
             }
+            // The mark rides with it: XT streams it on a channel of its own,
+            // `FundingUpdate` carries both, and nothing else opens that
+            // channel.
+            want(topic_for(exec::SubKind::MarkPrice, state_->market), symbol);
             return watch_funding(symbol);
         }
         const auto topic = topic_for(kind, state_->market);
@@ -277,7 +295,11 @@ private:
             return;
         }
         const auto received = state.clock->wall();
-        if (const auto funding = map_funding(*wire, state.instruments, received);
+        auto* memo = state.memo_for(wire->symbol);
+        if (memo == nullptr) {
+            return;
+        }
+        if (const auto funding = map_funding(*wire, state.instruments, *memo, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }

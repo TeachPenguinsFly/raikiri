@@ -3,7 +3,9 @@
 // What the public feed says a market did: its prints, the funding it quotes,
 // and the ticker's running picture of both.
 
+#include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/wire/json.hpp>
 
@@ -92,5 +94,20 @@ struct WireMarkPrice {
 };
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
+
+// What the two channels have said SO FAR about one instrument's funding.
+//
+// OKX SPLITS WHAT `FundingUpdate` FUSES: the rate arrives on `funding-rate`
+// and the mark on `mark-price`, and the shm cell is written whole. Publishing
+// straight from either frame writes UNDEF over whatever the other one said, so
+// the venue keeps both and publishes the merge. A field never stated stays
+// UNDEF, which is not zero.
+struct FundingMemo {
+    FixedE9 rate{};
+    FixedE9 predicted{};
+    PriceTicks mark{};
+    UnixNanos next_funding{};
+    std::uint32_t interval_s{0};
+};
 
 } // namespace raikiri::venues::okx

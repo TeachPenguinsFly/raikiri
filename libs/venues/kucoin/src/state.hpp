@@ -95,6 +95,11 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
     std::vector<Pumped*> pumps;
 
+    // What each contract's two funding subjects have said so far. KuCoin
+    // splits the rate and the mark across them and the record is written
+    // whole — see market_data.hpp.
+    std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
+
     // The seed rides its own pool so a book resynchronising never queues
     // behind the bullet token or the catalogue.
     net::RestClient depth_rest{io,
@@ -138,6 +143,16 @@ struct VenueState {
 
     [[nodiscard]] std::string next_connect_id() {
         return "raikiri" + std::to_string(clock->wall().ns + connect_seq++);
+    }
+
+    // Null when the symbol is not one this gateway listed: there is nothing to
+    // accumulate into and nothing the mapper could publish anyway.
+    FundingMemo* memo_for(std::string_view symbol) {
+        const auto* listed = instruments.find(symbol);
+        if (listed == nullptr) {
+            return nullptr;
+        }
+        return &funding_memo[base_of(*listed).id.symbol().raw];
     }
 
     DepthBook& book_for(const InstrumentBase& base) {

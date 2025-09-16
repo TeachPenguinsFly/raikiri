@@ -68,6 +68,21 @@ struct VenueState {
     std::uint64_t next_funding_poll_ns{0};
     bool funding_in_flight{false};
 
+    // What each contract's poll and mark channel have said so far. XT splits
+    // the rate and the mark between them and the record is written whole —
+    // see market_data.hpp.
+    std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
+
+    // Null when the symbol is not one this gateway listed: there is nothing to
+    // accumulate into and nothing the mapper could publish anyway.
+    FundingMemo* memo_for(std::string_view symbol) {
+        const auto* listed = instruments.find(symbol);
+        if (listed == nullptr) {
+            return nullptr;
+        }
+        return &funding_memo[base_of(*listed).id.symbol().raw];
+    }
+
     net::Signer signer;
 
     // Venue clock offsets, measured separately per tree: fapi and sapi answer

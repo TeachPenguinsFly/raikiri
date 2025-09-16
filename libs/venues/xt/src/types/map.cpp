@@ -340,8 +340,26 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate>
-map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+// One record out of everything both sources have said. Fields nobody has
+// stated yet stay UNDEF: the reader checks for that, and a zero would be a
+// number this process invented.
+[[nodiscard]] FundingUpdate
+merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
+    FundingUpdate out{};
+    out.instrument = base.id;
+    out.rate = memo.rate;
+    out.mark_price = memo.mark;
+    out.next_funding_time = memo.next_funding;
+    out.interval_s = memo.interval_s;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
+                                         const exec::InstrumentTable& table,
+                                         FundingMemo& memo,
+                                         UnixNanos ts_init) {
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
@@ -351,16 +369,29 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
         return std::nullopt; // contract quotes no funding: not the same as zero
     }
 
-    FundingUpdate out{};
-    out.instrument = base->id;
-    out.rate = *rate;
-    out.next_funding_time = ms_to_unix(wire.next_collection_ms, UnixNanos{0});
+    memo.rate = *rate;
+    memo.next_funding = ms_to_unix(wire.next_collection_ms, UnixNanos{0});
     if (wire.interval_h > 0 && wire.interval_h <= 24) {
-        out.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
+        memo.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
     }
-    out.ts_event = ts_init;
-    out.ts_init = ts_init;
-    return out;
+    // XT states no publish time on this endpoint.
+    return merged(*base, memo, ts_init, ts_init);
+}
+
+std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
+                                            const exec::InstrumentTable& table,
+                                            FundingMemo& memo,
+                                            UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto mark = to_ticks(wire.mark_price, *base);
+    if (!mark.has_value()) {
+        return std::nullopt; // a mark this contract's tick cannot express is no mark
+    }
+    memo.mark = *mark;
+    return merged(*base, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
 std::optional<TickerStats>

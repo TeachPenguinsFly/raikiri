@@ -141,7 +141,12 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, wire->symbol, state.instruments, received);
+        auto* memo = state.memo_for(wire->symbol);
+        if (memo == nullptr) {
+            break; // nothing to accumulate into, and nothing to publish
+        }
+        if (const auto funding =
+                map_funding(*wire, wire->symbol, state.instruments, *memo, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }
@@ -165,7 +170,21 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::MarkPrice:
+    case EventKind::MarkPrice: {
+        const auto wire = parse_mark_price(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        auto* memo = state.memo_for(wire->symbol);
+        if (memo == nullptr) {
+            break;
+        }
+        if (const auto funding = map_mark_price(*wire, state.instruments, *memo, received);
+            funding.has_value()) {
+            state.sink->on_funding(*funding);
+        }
+        break;
+    }
     case EventKind::OrderChange: // private topic; never reaches this socket
     case EventKind::Welcome:
     case EventKind::Ack:
@@ -420,8 +439,12 @@ private:
                                  return;
                              }
                              const auto now = state_->clock->wall();
+                             auto* memo = state_->memo_for(owned);
+                             if (memo == nullptr) {
+                                 return;
+                             }
                              if (const auto funding =
-                                     map_funding(*wire, owned, state_->instruments, now);
+                                     map_funding(*wire, owned, state_->instruments, *memo, now);
                                  funding.has_value()) {
                                  state_->sink->on_funding(*funding);
                              }

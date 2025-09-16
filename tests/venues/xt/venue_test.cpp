@@ -847,15 +847,61 @@ TEST(XtMap, FundingCarriesTheIntervalInSeconds) {
     ASSERT_TRUE(wire.has_value());
 
     const UnixNanos received{555ULL};
-    const auto funding = map_funding(*wire, table, received);
+    FundingMemo memo{};
+    const auto funding = map_funding(*wire, table, memo, received);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 88'660); // 0.00008866 in 1e9 fixed point
     EXPECT_EQ(funding->interval_s, 8U * 3600U);
     EXPECT_GT(funding->next_funding_time.ns, 0ULL);
-    // XT states no publish time on this endpoint, and mark arrives elsewhere.
+    // XT states no publish time on this endpoint, and the mark arrives on a
+    // channel of its own — undefined until it does.
     EXPECT_EQ(funding->ts_event, received);
     EXPECT_TRUE(funding->mark_price.is_undef());
     EXPECT_TRUE(funding->predicted_rate.is_undef());
+}
+
+TEST(XtMap, TheMarkArrivesOnItsOwnChannelAndJoinsTheSameRecord) {
+    // XT splits what FundingUpdate fuses: the rate is polled over REST and the
+    // mark streams. The shm cell is written whole, so publishing straight from
+    // either source writes UNDEF over what the other one said.
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    FundingMemo memo{};
+
+    const auto rate_body = fixture("rest_funding_rate.json");
+    const auto rate = parse_funding_rate(rate_body);
+    ASSERT_TRUE(rate.has_value());
+    const auto first = map_funding(*rate, table, memo, UnixNanos{1});
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(first->mark_price.is_undef()) << "no mark has been stated yet";
+
+    const auto mark_frame = fixture("ws_mark_price.json");
+    const auto mark = parse_mark_price(mark_frame);
+    ASSERT_TRUE(mark.has_value());
+    const auto both = map_mark_price(*mark, table, memo, UnixNanos{2});
+    ASSERT_TRUE(both.has_value());
+    EXPECT_EQ(both->mark_price.raw, 640'747); // 64074.7 on a 0.1 tick
+    EXPECT_EQ(both->rate.raw, 88'660) << "the rate the poll stated is carried forward";
+    EXPECT_EQ(both->interval_s, 8U * 3600U);
+}
+
+TEST(XtMap, AFundingPollDoesNotEraseAMarkAlreadyStated) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    FundingMemo memo{};
+
+    const auto mark_frame = fixture("ws_mark_price.json");
+    const auto mark = parse_mark_price(mark_frame);
+    ASSERT_TRUE(mark.has_value());
+    ASSERT_TRUE(map_mark_price(*mark, table, memo, UnixNanos{1}).has_value());
+    const auto held = memo.mark;
+
+    const auto rate_body = fixture("rest_funding_rate.json");
+    const auto rate = parse_funding_rate(rate_body);
+    ASSERT_TRUE(rate.has_value());
+    const auto after = map_funding(*rate, table, memo, UnixNanos{2});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->mark_price.raw, held.raw) << "the mark survives a poll that omitted it";
 }
 
 TEST(XtMap, NegativeAndPaddedFundingRatesParse) {
@@ -865,9 +911,10 @@ TEST(XtMap, NegativeAndPaddedFundingRatesParse) {
     auto wire = parse_funding_rate(body);
     ASSERT_TRUE(wire.has_value());
     // XT pads to a fixed scale: 18 fractional digits, trailing zeros.
+    FundingMemo memo{};
     auto padded = *wire;
     padded.rate_token = "-0.000002000000000000";
-    const auto funding = map_funding(padded, table, UnixNanos{1});
+    const auto funding = map_funding(padded, table, memo, UnixNanos{1});
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, -2'000);
 
@@ -875,7 +922,7 @@ TEST(XtMap, NegativeAndPaddedFundingRatesParse) {
     // contract pays no funding.
     auto too_fine = *wire;
     too_fine.rate_token = "0.0000000000123";
-    EXPECT_FALSE(map_funding(too_fine, table, UnixNanos{1}).has_value());
+    EXPECT_FALSE(map_funding(too_fine, table, memo, UnixNanos{1}).has_value());
 }
 
 TEST(XtMap, VenueTimestampBeatsIngestTimeButZeroDoesNot) {

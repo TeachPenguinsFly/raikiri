@@ -30,11 +30,19 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // Returns nullopt when the frame quotes no rate at all — a contract without
-// funding must not be reported as one funding at zero. mark_price is left
-// undefined because OKX ships mark on a separate channel; a zero there would
-// read as a real price of zero.
-[[nodiscard]] std::optional<FundingUpdate>
-map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+// funding must not be reported as one funding at zero. The memo carries what
+// the mark-price channel has already said, because the record is written whole.
+[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
+                                                       const exec::InstrumentTable& table,
+                                                       FundingMemo& memo,
+                                                       UnixNanos ts_init);
+
+// The mark arrives on its own channel. Published as the same record, merged
+// with whatever the funding-rate channel has already said.
+[[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
+                                                          const exec::InstrumentTable& table,
+                                                          FundingMemo& memo,
+                                                          UnixNanos ts_init);
 
 // The 24-hour turnover off the `tickers` channel, which is a different frame
 // from the funding rate on this venue.

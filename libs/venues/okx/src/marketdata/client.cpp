@@ -66,7 +66,12 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return;
         }
-        if (const auto funding = map_funding(*wire, state.instruments, received);
+        const auto* listed = state.instruments.find(wire->inst_id);
+        if (listed == nullptr) {
+            break; // nothing to accumulate into, and nothing to publish
+        }
+        auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
+        if (const auto funding = map_funding(*wire, state.instruments, memo, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
         }
@@ -111,7 +116,22 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         break;
     }
-    case EventKind::MarkPrice:
+    case EventKind::MarkPrice: {
+        const auto wire = parse_mark_price(frame);
+        if (!wire.has_value()) {
+            return;
+        }
+        const auto* listed = state.instruments.find(wire->inst_id);
+        if (listed == nullptr) {
+            break;
+        }
+        auto& memo = state.funding_memo[base_of(*listed).id.symbol().raw];
+        if (const auto funding = map_mark_price(*wire, state.instruments, memo, received);
+            funding.has_value()) {
+            state.sink->on_funding(*funding);
+        }
+        break;
+    }
     case EventKind::SubscribeAck:
     case EventKind::LoginAck:
     case EventKind::Orders:
@@ -214,6 +234,9 @@ public:
         // every OKX row on the board keeps an empty volume cell.
         if (kind == exec::SubKind::Funding) {
             open(k_tickers_channel, symbol);
+            // And the mark, for the same reason: OKX states it on a channel of
+            // its own, `FundingUpdate` carries both, and nothing else opens it.
+            open(channel_for(exec::SubKind::MarkPrice), symbol);
         }
         return {};
     }

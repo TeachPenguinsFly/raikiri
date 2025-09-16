@@ -224,8 +224,29 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-std::optional<FundingUpdate>
-map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+// One record out of everything both channels have said. Fields nobody has
+// stated yet stay UNDEF: the reader checks for that, and a zero would be a
+// number this process invented.
+[[nodiscard]] FundingUpdate merged(const Instrument& instrument,
+                                   const FundingMemo& memo,
+                                   UnixNanos ts_event,
+                                   UnixNanos ts_init) {
+    FundingUpdate out{};
+    out.instrument = base_of(instrument).id;
+    out.rate = memo.rate;
+    out.predicted_rate = memo.predicted;
+    out.mark_price = memo.mark;
+    out.next_funding_time = memo.next_funding;
+    out.interval_s = memo.interval_s;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
+                                         const exec::InstrumentTable& table,
+                                         FundingMemo& memo,
+                                         UnixNanos ts_init) {
     const auto* instrument = table.find(wire.inst_id);
     if (instrument == nullptr) {
         return std::nullopt;
@@ -235,20 +256,32 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
         return std::nullopt; // contract quotes no funding: not the same as zero
     }
 
-    FundingUpdate out{};
-    out.instrument = base_of(*instrument).id;
-    out.rate = *rate;
+    memo.rate = *rate;
     if (const auto predicted = rate_of(wire.next_funding_rate); predicted.has_value()) {
-        out.predicted_rate = *predicted;
+        memo.predicted = *predicted;
     }
-    out.next_funding_time = ms_to_unix(wire.funding_ms, UnixNanos{0});
+    memo.next_funding = ms_to_unix(wire.funding_ms, UnixNanos{0});
     if (wire.next_funding_ms > wire.funding_ms && wire.funding_ms != 0) {
-        out.interval_s =
+        memo.interval_s =
             static_cast<std::uint32_t>((wire.next_funding_ms - wire.funding_ms) / 1000);
     }
-    out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
-    out.ts_init = ts_init;
-    return out;
+    return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
+}
+
+std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
+                                            const exec::InstrumentTable& table,
+                                            FundingMemo& memo,
+                                            UnixNanos ts_init) {
+    const auto* instrument = table.find(wire.inst_id);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    const auto mark = to_ticks(wire.mark_price, base_of(*instrument));
+    if (!mark.has_value()) {
+        return std::nullopt; // a mark this venue's tick cannot express is no mark
+    }
+    memo.mark = *mark;
+    return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
 std::optional<TickerStats>

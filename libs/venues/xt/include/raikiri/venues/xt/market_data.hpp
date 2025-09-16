@@ -3,6 +3,8 @@
 // What the public feed says a market did: its prints, the mark it quotes, the
 // rolling 24-hour window, and the funding — which arrives by poll alone.
 
+#include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/wire/json.hpp>
@@ -80,5 +82,19 @@ struct WireFundingRate {
 };
 
 [[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view body);
+
+// What the two sources have said SO FAR about one contract's funding.
+//
+// XT SPLITS WHAT `FundingUpdate` FUSES: the rate is polled over REST and the
+// mark streams on its own channel, and the shm cell is written whole.
+// Publishing straight from either writes UNDEF over whatever the other one
+// said, so the venue keeps both and publishes the merge. A field never stated
+// stays UNDEF, which is not zero.
+struct FundingMemo {
+    FixedE9 rate{};
+    PriceTicks mark{};
+    UnixNanos next_funding{};
+    std::uint32_t interval_s{0};
+};
 
 } // namespace raikiri::venues::xt

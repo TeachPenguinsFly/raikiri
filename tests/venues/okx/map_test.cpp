@@ -170,6 +170,7 @@ TEST(OkxMap, MissingVenueTimeFallsBackToIngest) {
 }
 
 TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {
+    FundingMemo memo{};
     const auto table = table_with_btc();
     WireFundingRate wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -178,7 +179,7 @@ TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {
     wire.next_funding_ms = 1'786'435'200'000ULL;
     wire.ts_ms = 1'786'392'377'160ULL;
 
-    const auto funding = map_funding(wire, table, k_ingest);
+    const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001 * 1e9
     // fundingTime, not nextFundingTime: the latter is one settlement further
@@ -193,6 +194,7 @@ TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {
 }
 
 TEST(OkxMap, ARateWithMorePrecisionThanWeCarryStillArrives) {
+    FundingMemo memo{};
     // OKX pads the rate to sixteen fractional digits. Read with the exact
     // decimal parser — as this was, for as long as the fixture happened to
     // hold a round number — every live rate was refused and the funding
@@ -203,30 +205,32 @@ TEST(OkxMap, ARateWithMorePrecisionThanWeCarryStillArrives) {
     wire.funding_rate = "0.0000439269860429";
     wire.funding_ms = 1'786'406'400'000ULL;
 
-    const auto funding = map_funding(wire, table, k_ingest);
+    const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
     // Exact through 1e-9, and the dust below it is dropped toward zero.
     EXPECT_EQ(funding->rate.raw, 43'926);
 }
 
 TEST(OkxMap, EmptyForecastIsNotAPredictionOfZero) {
+    FundingMemo memo{};
     const auto table = table_with_btc();
     WireFundingRate wire{};
     wire.inst_id = "BTC-USDT-SWAP";
     wire.funding_rate = "0.0001";
     wire.next_funding_rate = {}; // observed live: shipped empty, not omitted
     wire.funding_ms = 1'786'406'400'000ULL;
-    const auto funding = map_funding(wire, table, k_ingest);
+    const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 }
 
 TEST(OkxMap, ContractWithoutFundingIsNotReportedAsZero) {
+    FundingMemo memo{};
     const auto table = table_with_btc();
     WireFundingRate wire{};
     wire.inst_id = "BTC-USDT-SWAP";
     wire.funding_rate = {}; // absent, not "0"
-    EXPECT_FALSE(map_funding(wire, table, k_ingest).has_value());
+    EXPECT_FALSE(map_funding(wire, table, memo, k_ingest).has_value());
 }
 
 TEST(OkxMap, SwapTurnoverIsTheBaseAssetAndNeverTheContractCount) {
@@ -747,6 +751,48 @@ TEST(OkxErrors, OrderEntryRefusalsAreTerminalNotRetried) {
                             k_operation_failed}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::Terminal) << code;
     }
+}
+
+TEST(OkxMapFunding, TheMarkArrivesOnItsOwnChannelAndJoinsTheSameRecord) {
+    // OKX splits what FundingUpdate fuses: the rate on `funding-rate`, the mark
+    // on `mark-price`. The shm cell is written whole, so publishing straight
+    // from either frame writes UNDEF over what the other one said.
+    const auto table = table_with_btc();
+    FundingMemo memo{};
+
+    WireFundingRate rate{};
+    rate.inst_id = "BTC-USDT-SWAP";
+    rate.funding_rate = "0.0001";
+    rate.funding_ms = 1'786'406'400'000ULL;
+    const auto first = map_funding(rate, table, memo, k_ingest);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_TRUE(first->mark_price.is_undef()) << "no mark has been stated yet";
+
+    WireMarkPrice mark{};
+    mark.inst_id = "BTC-USDT-SWAP";
+    mark.mark_price = "64163.2";
+    const auto merged = map_mark_price(mark, table, memo, k_ingest);
+    ASSERT_TRUE(merged.has_value());
+    EXPECT_FALSE(merged->mark_price.is_undef());
+    EXPECT_EQ(merged->rate.raw, 100'000) << "the rate the other channel stated is carried forward";
+}
+
+TEST(OkxMapFunding, ARateFrameDoesNotEraseAMarkAlreadyStated) {
+    const auto table = table_with_btc();
+    FundingMemo memo{};
+
+    WireMarkPrice mark{};
+    mark.inst_id = "BTC-USDT-SWAP";
+    mark.mark_price = "64163.2";
+    ASSERT_TRUE(map_mark_price(mark, table, memo, k_ingest).has_value());
+    const auto held = memo.mark;
+
+    WireFundingRate rate{};
+    rate.inst_id = "BTC-USDT-SWAP";
+    rate.funding_rate = "0.0001";
+    const auto after = map_funding(rate, table, memo, k_ingest);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->mark_price.raw, held.raw) << "the mark survives a frame that omitted it";
 }
 
 } // namespace

@@ -6,6 +6,8 @@
 // The 24-hour window is NOT here. KuCoin states no turnover on any stream this
 // adapter subscribes to; it rides the catalogue row instead, on WireContract.
 
+#include <raikiri/common/fixed_point.hpp>
+#include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/wire/json.hpp>
@@ -63,5 +65,21 @@ struct WireFundingRate {
 // is the only source that states the venue's own next settlement.
 [[nodiscard]] std::expected<WireFundingRate, WireError>
 parse_funding_current(std::string_view body);
+
+// What the two subjects have said SO FAR about one contract's funding.
+//
+// KUCOIN SPLITS WHAT `FundingUpdate` FUSES: `funding.rate` and
+// `mark.index.price` share the /contract/instrument topic and arrive as
+// separate frames, and the shm cell is written whole. Publishing straight from
+// either frame writes UNDEF over whatever the other one said, so the venue
+// keeps both and publishes the merge. A field never stated stays UNDEF, which
+// is not zero.
+struct FundingMemo {
+    FixedE9 rate{};
+    FixedE9 predicted{};
+    PriceTicks mark{};
+    UnixNanos next_funding{};
+    std::uint32_t interval_s{0};
+};
 
 } // namespace raikiri::venues::kucoin

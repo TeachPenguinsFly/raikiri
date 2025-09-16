@@ -83,11 +83,15 @@ void print_frame(const FrameView& frame) {
                    static_cast<int>(sbepp::to_underlying(m.settleSide())));
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::FundingMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::FundingMsg>(frame.payload);
-        fmt::print("{}FUND  {} rate={} pred={} next={}\n",
+        // The mark is printed because it is the field that goes missing: a
+        // venue splitting the rate and the mark across two frames publishes
+        // half a record, and nothing downstream says so.
+        fmt::print("{}FUND  {} rate={} pred={} mark={} next={}\n",
                    head,
                    instrument_str(m.instrument().value()),
                    m.rate().value(),
                    m.predictedRate().value(),
+                   m.markPrice().value(),
                    m.nextFundingTime().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::ConnectivityMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::ConnectivityMsg>(frame.payload);

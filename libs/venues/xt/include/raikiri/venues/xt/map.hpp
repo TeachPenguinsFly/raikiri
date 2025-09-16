@@ -46,11 +46,20 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// mark_price is left undefined: XT ships mark on its own channel and funding
-// by REST, so the two never arrive together and a zero here would read as a
-// real price of zero.
-[[nodiscard]] std::optional<FundingUpdate>
-map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+// The rate off the REST poll. The memo carries what the mark channel has
+// already said, because the record is written whole and the two sources never
+// arrive together.
+[[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
+                                                       const exec::InstrumentTable& table,
+                                                       FundingMemo& memo,
+                                                       UnixNanos ts_init);
+
+// The mark off its own channel. Published as the same record, merged with
+// whatever the poll has already said.
+[[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
+                                                          const exec::InstrumentTable& table,
+                                                          FundingMemo& memo,
+                                                          UnixNanos ts_init);
 
 // The rolling 24-hour window off the `ticker` channel. Returns nullopt when
 // the frame restated neither column, and on futures fills the QUOTE column
