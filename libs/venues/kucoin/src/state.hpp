@@ -4,10 +4,7 @@
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -53,10 +50,14 @@ struct PrivateTicket {
     std::uint64_t ping_interval_ms{0};
 };
 
-// gatewayd pumps DataClient::poll and nothing else, so anything with a timer
-// of its own registers here. The private sockets need one: KuCoin closes a
-// connection whose application-level ping stops arriving, and the websocket
-// control frame does not count as one.
+// Anything with a timer of its own registers here and is driven from the DATA
+// client's poll. The private socket needs one: KuCoin closes a connection
+// whose application-level ping stops arriving, and the websocket control frame
+// does not count as one.
+//
+// gatewayd also polls the execution client, so this registry is not the only
+// way to get a tick — it is the way that keeps every timer in this adapter on
+// one clock.
 class Pumped {
 public:
     Pumped() = default;

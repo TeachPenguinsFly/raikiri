@@ -4,10 +4,7 @@
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -76,8 +73,13 @@ struct VenueState {
 
     std::uint64_t inflate_failures{0};
 
-    // The execution client's per-tick work: ExecutionClient has no poll hook
-    // of its own, and a listen key expires whether or not anyone is looking.
+    // The execution client's per-tick work, run from the DATA client's poll.
+    //
+    // REDUNDANT, and left alone rather than removed: gatewayd polls the
+    // execution client too (main.cpp, right after data->poll), so this could
+    // ride its own poll instead. Moving it changes WHEN the key is refreshed
+    // within one loop pass, which is not a change to make while claiming to
+    // move code.
     std::function<void(UnixNanos)> private_poll;
 
     // Set when BingX says the key is dead. The socket cannot recover without a

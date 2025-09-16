@@ -4,10 +4,7 @@
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
-#include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
-#include <raikiri/exec/order_gate.hpp>
-#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -67,10 +64,13 @@ struct VenueState {
 
     std::uint64_t next_app_ping_ns{0};
 
-    // The execution client's socket, registered so the data client's poll can
-    // keep it alive too. ExecutionClient has no poll hook and MEXC's 60 s idle
-    // timer counts only CLIENT messages — a socket that only receives is
-    // closed — so the one timer this adapter has drives both connections.
+    // The execution client's socket, registered so ONE timer pings both.
+    //
+    // MEXC's 60 s idle timer counts only CLIENT messages, so a socket that
+    // merely receives is closed. The data client owns the ping cadence and
+    // sends on both connections from it. The execution client has a poll of
+    // its own that gatewayd calls, so a second timer there would work too —
+    // one is kept because two would drift apart.
     net::WsClient* private_client{nullptr};
 
     // Venue clock offsets, measured separately per tree: /api/v1 and /api/v3
