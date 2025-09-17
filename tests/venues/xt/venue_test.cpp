@@ -566,7 +566,8 @@ TEST(XtWs, TopicsMatchWhatTheVenueAccepts) {
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).channel, "depth");
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp).params, ",50,100ms");
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp).channel, "trade");
-    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp).channel, "depth_update");
+    // The book comes off the SNAPSHOT, not off a delta chain nothing applies.
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp).channel, "depth");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp).channel, "mark_price");
     // No funding topic exists on this venue at all.
     EXPECT_TRUE(topic_for(exec::SubKind::Funding, MarketType::Perp).channel.empty());

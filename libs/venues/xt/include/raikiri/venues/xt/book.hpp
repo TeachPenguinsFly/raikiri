@@ -4,9 +4,12 @@
 //
 // `depth` is a self-contained top-N snapshot on a fixed cadence, so a BBO is
 // available without maintaining a book at all, and that is the only thing the
-// adapter publishes from. There is no sequencing class here because nothing
-// chains: `depth_update` is parsed and tested but the data client has no
-// reader for it, so the u/pu rule below is documented and unenforced.
+// adapter publishes from — both SubKind::Bbo and SubKind::Depth resolve to it.
+//
+// There is no sequencing class here because nothing chains. `depth_update` is
+// parsed and tested and NOT SUBSCRIBED: the u/pu rule below is what an
+// incremental book would have to enforce, kept because it was measured, and it
+// has no caller until that book exists.
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/xt/errors.hpp>

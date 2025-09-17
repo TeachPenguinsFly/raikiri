@@ -86,6 +86,9 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::DepthUpdate:
+        // Not subscribed: the book comes off the `depth` snapshot. Named here
+        // rather than folded into Unknown so a frame arriving anyway is a
+        // recognised one and not a mystery.
         break;
     case EventKind::MarkPrice: {
         const auto wire = parse_mark_price(frame);

@@ -38,15 +38,19 @@ Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Also the book: `depth_update` is subscribed but not applied, so this
-        // snapshot is the only thing that reaches shm. 50 is XT's ceiling on
-        // both trees — 60, 80, 99, 100 and 200 are each refused with `levels
-        // error`. Spot takes no interval: ",50,100ms" there is `args error`.
+    case exec::SubKind::Depth:
+        // ONE CHANNEL ANSWERS BOTH. `depth` is a self-contained top-N snapshot
+        // and the mapper publishes a BBO and a whole book from each frame, so
+        // asking for the book asks for this. It used to name `depth_update`
+        // instead, which chains deltas nothing here applies: the frames were
+        // subscribed, arrived, and fell into the ignore arm.
+        //
+        // 50 is XT's ceiling on both trees — 60, 80, 99, 100 and 200 are each
+        // refused with `levels error`. Spot takes no interval: ",50,100ms"
+        // there is `args error`.
         return {.channel = "depth", .params = spot ? ",50" : ",50,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
-    case exec::SubKind::Depth:
-        return {.channel = "depth_update", .params = {}};
     case exec::SubKind::MarkPrice:
         // A spot pair has no mark price, and the spot tree refuses the topic.
         return spot ? Topic{} : Topic{.channel = "mark_price", .params = {}};
