@@ -59,15 +59,39 @@ TEST(Settings, TheCommittedVenueFileLoads) {
 }
 
 // A venue nobody has measured must read as unlimited rather than as a guess.
+// bingx and bitget state a REMAINDER and no ceiling, so the ceiling could only
+// be inferred — which is the thing this file exists not to do.
 TEST(Settings, AnUnmeasuredVenueDisablesItsBucketsRatherThanInventingThem) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    ASSERT_TRUE(file->venues.contains("gate"));
-    const auto& gate = file->venues.at("gate").rate;
-    EXPECT_EQ(gate.shared.capacity, 0U);
-    EXPECT_EQ(gate.order_entry.capacity, 0U);
-    EXPECT_EQ(gate.account.capacity, 0U);
-    EXPECT_EQ(gate.ledger.capacity, 0U);
+    for (const auto& name : {"bingx", "bitget"}) {
+        ASSERT_TRUE(file->venues.contains(name)) << name;
+        const auto& rate = file->venues.at(name).rate;
+        EXPECT_EQ(rate.shared.capacity, 0U) << name;
+        EXPECT_EQ(rate.order_entry.capacity, 0U) << name;
+        EXPECT_EQ(rate.account.capacity, 0U) << name;
+        EXPECT_EQ(rate.ledger.capacity, 0U) << name;
+    }
+}
+
+// The other half of the same rule: a ceiling with no window is not a budget,
+// it is a number that would throttle on the first request and never refill.
+TEST(Settings, EveryBucketThatNamesACeilingAlsoNamesTheWindowItRefillsIn) {
+    const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    for (const auto& [name, settings] : file->venues) {
+        for (const auto* bucket : {&settings.rate.shared,
+                                   &settings.rate.order_entry,
+                                   &settings.rate.account,
+                                   &settings.rate.ledger}) {
+            if (bucket->capacity == 0) {
+                continue; // disabled, which is the honest state for an unmeasured venue
+            }
+            EXPECT_GT(bucket->window_ms, 0U) << name;
+            EXPECT_LT(bucket->reserve, bucket->capacity)
+                << name << ": a reserve that is the whole bucket leaves nothing for anything else";
+        }
+    }
 }
 
 // The DSN carries a password, and this file is committed: it must name where

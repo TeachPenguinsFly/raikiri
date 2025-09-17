@@ -603,9 +603,10 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
 // while the gateway loop runs the rest.
 class RateWitness {
 public:
-    void observe(std::string_view host, const raikiri::net::RateHeader& header) {
+    void
+    observe(std::string_view host, const raikiri::net::RateHeader& header, raikiri::UnixNanos at) {
         const std::lock_guard lock{mu_};
-        seen_[std::string{host} + " " + header.name] = header.value;
+        seen_[std::string{host} + " " + header.name] = Seen{.value = header.value, .at = at};
     }
 
     void report(std::string_view account) const {
@@ -613,14 +614,28 @@ public:
         if (seen_.empty()) {
             return; // a venue that states nothing must not be reported as zero
         }
-        for (const auto& [key, value] : seen_) {
-            RLOG_INFO("gatewayd[{}]: venue's own metering — {} = {}", account, key, value);
+        for (const auto& [key, seen] : seen_) {
+            // WITH THE INSTANT IT WAS READ AT. Half these venues state their
+            // window as a reset stamp or a millisecond countdown, and a
+            // countdown without the moment it was counted from establishes no
+            // window at all — which is how a budget gets read off a
+            // documentation page instead.
+            RLOG_INFO("gatewayd[{}]: venue's own metering — {} = {} (read at {})",
+                      account,
+                      key,
+                      seen.value,
+                      seen.at.ns);
         }
     }
 
 private:
+    struct Seen {
+        std::string value;
+        raikiri::UnixNanos at{};
+    };
+
     mutable std::mutex mu_;
-    std::map<std::string, std::string> seen_;
+    std::map<std::string, Seen> seen_;
 };
 
 int main(int argc, char** argv) {
@@ -956,8 +971,8 @@ int main(int argc, char** argv) {
     owner->publish();
     RateWitness rates;
     raikiri::net::set_rate_observer(
-        [&rates](std::string_view host, const raikiri::net::RateHeader& header) {
-            rates.observe(host, header);
+        [&rates, &clock](std::string_view host, const raikiri::net::RateHeader& header) {
+            rates.observe(host, header, clock.wall());
         });
 
     RLOG_INFO("gatewayd[{}]: up, segment {}", account_name, seg_path);

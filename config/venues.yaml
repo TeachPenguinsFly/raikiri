@@ -17,6 +17,14 @@
 # a reconciliation sweep can never consume the allowance a cancel is about to
 # need: a cancel that cannot be sent is an open position the strategy believes
 # is closed.
+#
+# A VENUE NOT LISTED HERE IS UNLIMITED, and eight of the sixteen are not
+# listed because they state no metering header at all on the traffic this
+# gateway makes — okx, mexc, deribit, hyperliquid, coinbase, kraken, bitmex and
+# bitfinex. Two more are listed with zeroes because what they do state is a
+# remainder without a ceiling. Not listing them is the honest reading; the
+# order-answer timeout does not depend on it and applies at its default either
+# way.
 
 venues:
   binance:
@@ -50,9 +58,73 @@ venues:
 
   gate:
     order_answer_timeout_ms: 15000
-    # NOT MEASURED YET. Every bucket is zero, so nothing is limited here and
-    # nothing is pretended: fill this in from gate's own headers, not from a
-    # neighbouring venue's numbers.
+    rate:
+      # Measured 2026-09-06 from X-Gate-RateLimit-Limit and
+      # X-Gate-RateLimit-Reset-Timestamp on api.gateio.ws: 200, and the reset
+      # named the very second the response was read in, so the window is one
+      # second and not the ten a longer reset would have meant.
+      shared: { capacity: 200, window_ms: 1000, reserve: 20 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      # Gate counts requests, not weight.
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  kucoin:
+    order_answer_timeout_ms: 15000
+    rate:
+      # Measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset on
+      # api-futures.kucoin.com: 2000 across the pool, and the reset counted
+      # 27.7 s down from a full one, which is the 30 s window.
+      shared: { capacity: 2000, window_ms: 30000, reserve: 200 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      # KuCoin counts requests, not weight.
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  xt:
+    order_answer_timeout_ms: 15000
+    rate:
+      # Measured 2026-09-06 from X-RateLimit-Burst-Capacity and
+      # X-RateLimit-Replenish-Rate on fapi.xt.com: a token bucket holding 1000
+      # and refilling 1000 a second, which is a 1000-per-second allowance.
+      shared: { capacity: 1000, window_ms: 1000, reserve: 100 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      # X-RateLimit-Requested-Tokens was 1 on every call observed.
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  htx:
+    order_answer_timeout_ms: 15000
+    rate:
+      # Measured 2026-09-06 from ratelimit-limit and ratelimit-interval on
+      # api.hbdm.com, which states both outright: 240 in a 3 s window.
+      shared: { capacity: 240, window_ms: 3000, reserve: 24 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  bingx:
+    order_answer_timeout_ms: 15000
+    # NOT MEASURED. open-api.bingx.com states X-RateLimit-Requests-Remain and
+    # X-RateLimit-Requests-Expire and NO capacity, so the ceiling would have to
+    # be inferred from where the countdown started — an inference, not a
+    # measurement, and this file holds the second kind. Unlimited until bingx
+    # states a limit or one is established by driving the counter to zero.
+    rate:
+      shared: { capacity: 0, window_ms: 0, reserve: 0 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  bitget:
+    order_answer_timeout_ms: 15000
+    # NOT MEASURED, for bingx's reason: api.bitget.com states only
+    # x-mbx-used-remain-limit — a remainder with neither a ceiling nor a window.
     rate:
       shared: { capacity: 0, window_ms: 0, reserve: 0 }
       order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
