@@ -1076,6 +1076,11 @@ int main(int argc, char** argv) {
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
+            // SET, not just broken out of. The account poller below exits on
+            // this flag and nothing else, and the join at the bottom waits for
+            // it — so a deadline that only broke the loop hung the process
+            // forever on every venue whose poller started.
+            g_stop.store(true, std::memory_order_relaxed);
             break;
         }
         // Cancels first: the escape hatch never queues behind new risk.
