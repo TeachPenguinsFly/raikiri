@@ -225,6 +225,12 @@ TEST(SecretRef, AnOnePasswordReferenceThatIsOnlySlashesIsRefused) {
 TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
     // The probe reads no secret, so it is safe to run anywhere — including a
     // box with no 1Password at all, which is the case this asserts.
+    //
+    // THAT IT RETURNS AT ALL IS THE FIRST ASSERTION. `op whoami` blocks
+    // forever when the desktop app is waiting on a prompt nobody will answer,
+    // and this test used to hang the entire suite on exactly that; every op
+    // call now runs under a deadline, so an unanswerable prompt becomes a
+    // diagnostic instead of a process that never comes back.
     const auto status = probe_one_password();
     if (!status.installed) {
         EXPECT_FALSE(status.diagnostic.empty()) << "an unusable state must say why";
