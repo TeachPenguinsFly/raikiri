@@ -817,9 +817,14 @@ int main(int argc, char** argv) {
     // UNLIMITED here — that is the honest reading of a budget nobody has
     // measured, and inventing one would refuse traffic the venue accepts.
     std::optional<exec::RateBudget> budget;
-    // Zero until the file says otherwise: an adapter that sweeps on a timeout
-    // nobody configured would invent the very policy this file exists to hold.
-    std::uint64_t answer_timeout_ns = 0;
+    // THE TWO SETTINGS PART COMPANY WHEN THE VENUE IS ABSENT. A rate budget
+    // nobody measured must stay unset — inventing one refuses traffic the
+    // venue would have taken. The answer timeout is the opposite: zero means
+    // an unanswered order is never reported at all, and thirteen of sixteen
+    // venues are not in that file, so an absent venue took the setting the
+    // struct already documents as the right default rather than none.
+    std::uint64_t answer_timeout_ns =
+        config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name});
