@@ -30,8 +30,16 @@ if [[ ! -f "$ENV_FILE" ]]; then
     echo "no $ENV_FILE — copy tools/credentials.env.example and fill it in"
     exit 1
 fi
-# shellcheck disable=SC1090
-set -a; source "$ENV_FILE"; set +a
+# ONLY BEFORE `op run` HAS RESOLVED THEM. This script re-execs itself through
+# `op run`, which returns here with the secrets already in the environment —
+# and sourcing the file again on that second pass put the raw `op://...`
+# reference strings back over them. gatewayd then sent a vault path to the
+# venue as an API key, and all seven answered "the key does not exist", which
+# reads exactly like seven expired keys.
+if [[ -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]]; then
+    # shellcheck disable=SC1090
+    set -a; source "$ENV_FILE"; set +a
+fi
 
 # ONE call to 1Password for the whole run, not one per credential.
 #
