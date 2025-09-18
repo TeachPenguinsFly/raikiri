@@ -326,6 +326,45 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // A spot pair pays no funding and this ledger is the FUTURES
+            // wallet's. Answering with it would book a perpetual's charges
+            // against a spot gateway.
+            return std::unexpected{exec::not_implemented("xt spot funding charges")};
+        }
+        const auto request = builder_.bills(since, state_->venue_now(market));
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request, market);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local BillBuffer storage;
+        const auto bills = parse_bills(*body, storage);
+        if (!bills.has_value()) {
+            // A ledger we cannot read is NOT an empty one. Saying "no charges"
+            // here books zero funding against a position that paid some.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
+        }
+        const auto received = state_->clock->wall();
+        std::vector<LedgerEntry> charges;
+        charges.reserve(bills->size());
+        for (const auto& wire : *bills) {
+            if (const auto charge = map_bill(wire, state_->instruments, received);
+                charge.has_value()) {
+                charges.push_back(*charge);
+            }
+        }
+        return charges;
+    }
+
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) {
         if (const auto refusal = refuse_market(market); refusal.has_value()) {

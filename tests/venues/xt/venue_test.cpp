@@ -861,6 +861,88 @@ TEST(XtMap, FundingCarriesTheIntervalInSeconds) {
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 }
 
+// The ledger rows come from a live capture against the account that actually
+// pays this funding, so the symbol is the one that traded rather than the
+// catalogue fixture's. Built here for that reason.
+exec::InstrumentTable table_with_flock() {
+    exec::InstrumentTable table;
+    WireInstrument wire{};
+    wire.symbol = "flock_usdt";
+    wire.product_type = "perpetual";
+    wire.tick_size = "0.0001";
+    wire.contract_size = "1";
+    wire.state = 0;
+    wire.qty_precision = 0;
+    wire.trade_switch = true;
+    wire.open_api = true;
+    const auto instrument = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(instrument.has_value());
+    if (instrument.has_value()) {
+        EXPECT_TRUE(table.add(*instrument).has_value());
+    }
+    return table;
+}
+
+TEST(XtLedger, FundingAndFeesAreBookedAndRealisedPnlIsNot) {
+    const auto table = table_with_flock();
+    const auto body = fixture("rest_futures_bills.json");
+    BillBuffer storage;
+    const auto bills = parse_bills(body, storage);
+    ASSERT_TRUE(bills.has_value());
+    ASSERT_EQ(bills->size(), 4U) << "the capture holds FUND x2, FEE and CLOSE_POSITION";
+
+    std::vector<LedgerEntry> booked;
+    for (const auto& wire : *bills) {
+        if (const auto charge = map_bill(wire, table, UnixNanos{7}); charge.has_value()) {
+            booked.push_back(*charge);
+        }
+    }
+    // CLOSE_POSITION is realised PnL: the fill that closed the position already
+    // booked it, and booking it again would count the same money twice.
+    ASSERT_EQ(booked.size(), 3U);
+    EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[1].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[2].kind, LedgerKind::Fee);
+}
+
+TEST(XtLedger, TheAmountIsTakenVerbatimBecauseXtAlreadySignedIt) {
+    // THE BUG THIS EXISTS FOR: `side` restates the sign that is already on
+    // `amount`. Applying it would flip every SUB row — over 100 live rows every
+    // ADD carried a positive amount and every SUB a negative one, and against
+    // the running balance the "signed by side" rule matched 4 of 19 consecutive
+    // pairs where taking the amount verbatim matched 10.
+    const auto table = table_with_flock();
+    const auto body = fixture("rest_futures_bills.json");
+    BillBuffer storage;
+    const auto bills = parse_bills(body, storage);
+    ASSERT_TRUE(bills.has_value());
+
+    const auto received = map_bill((*bills)[0], table, UnixNanos{7});
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ((*bills)[0].side, "ADD");
+    EXPECT_EQ(received->amount.raw, 2'100'000) << "0.0021 received, positive";
+
+    const auto paid = map_bill((*bills)[1], table, UnixNanos{7});
+    ASSERT_TRUE(paid.has_value());
+    EXPECT_EQ((*bills)[1].side, "SUB");
+    EXPECT_EQ(paid->amount.raw, -13'700'000) << "0.0137 paid away, and NOT flipped back";
+    EXPECT_EQ(paid->settled_at.ns, 1788652805992ULL * 1'000'000ULL);
+    // The venue's own row id: two settlements on one instrument are told apart
+    // by this and not by the stamp.
+    EXPECT_EQ(paid->reference.view(), "666688001376165376");
+}
+
+TEST(XtLedger, ARowNamingAnInstrumentWeDoNotHoldIsDroppedRatherThanGuessed) {
+    exec::InstrumentTable empty;
+    const auto body = fixture("rest_futures_bills.json");
+    BillBuffer storage;
+    const auto bills = parse_bills(body, storage);
+    ASSERT_TRUE(bills.has_value());
+    for (const auto& wire : *bills) {
+        EXPECT_FALSE(map_bill(wire, empty, UnixNanos{7}).has_value());
+    }
+}
+
 TEST(XtMap, TheMarkArrivesOnItsOwnChannelAndJoinsTheSameRecord) {
     // XT splits what FundingUpdate fuses: the rate is polled over REST and the
     // mark streams. The shm cell is written whole, so publishing straight from

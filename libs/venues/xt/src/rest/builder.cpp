@@ -715,6 +715,22 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_balanc
     return sign_futures(net::HttpMethod::Get, ep::k_futures_balances, {}, {}, now);
 }
 
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::bills(UnixNanos since,
+                                                                        UnixNanos now) {
+    Appender query{body_};
+    // Newest first, one page. A ledger this process has fallen far behind on
+    // is a reconciliation problem and not something to paper over by walking
+    // pages inside a call the poller makes on a timer.
+    query << "direction=NEXT&limit=100";
+    if (since.ns != 0) {
+        query << "&startTime=" << static_cast<std::int64_t>(since.ns / 1'000'000ULL);
+    }
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign_futures(net::HttpMethod::Get, ep::k_futures_bills, query.view(), {}, now);
+}
+
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key(UnixNanos now) {
     return sign_futures(net::HttpMethod::Get, ep::k_futures_listen_key, {}, {}, now);
 }

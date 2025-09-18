@@ -6,6 +6,7 @@
 // worth and cannot be pinned to 1.
 
 #include <raikiri/domain/balance.hpp>
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
@@ -146,5 +147,15 @@ map_spot_open_order(const WireSpotOrder& wire, const exec::InstrumentTable& tabl
                                                        const exec::InstrumentTable& table,
                                                        const OrderContext& context,
                                                        UnixNanos ts_init);
+
+// One ledger row into the domain. Nullopt for a row this process must not
+// book: a type that is neither funding nor a fee — CLOSE_POSITION is realised
+// PnL the fill already accounted for — an instrument not in the table, an
+// unreadable amount, or a zero, which is not a charge.
+//
+// The amount is taken VERBATIM because XT already signs it; see account.hpp
+// for what that was measured against.
+[[nodiscard]] std::optional<LedgerEntry>
+map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 } // namespace raikiri::venues::xt

@@ -30,6 +30,7 @@ anywhere in this adapter.
 | `rest_depth.json` | `GET /future/market/v1/public/q/depth?symbol=btc_usdt&level=5`. |
 | `rest_funding_rate.json` | `GET /future/market/v1/public/q/funding-rate?symbol=btc_usdt`. `fundingRate` is a JSON **number**. |
 | `rest_funding_rate_plain.json` | Same endpoint, `eth_usdt`. Kept as a second sample of the number field. |
+| `rest_futures_bills.json` | **SIGNED, live**: `GET /future/user/v1/balance/bills`. Four rows chosen from a 100-row capture — a FUND that was received, a FUND that was paid, a FEE, and a CLOSE_POSITION the mapper must refuse. `accountId` is replaced with a placeholder; no parser reads it. |
 | `rest_error_invalid_symbol.json` | Same endpoint with `symbol=nope_usdt`. |
 | `rest_error_invalid_param.json` | `.../q/depth?symbol=btc_usdt&level=abc`. |
 | `rest_symbol_list.json` | **EDITED**: `GET /future/market/v1/public/symbol/list` returned 1067 rows (2.2 MiB); five untouched rows were kept and the envelope rebuilt around them. Field contents are verbatim. |

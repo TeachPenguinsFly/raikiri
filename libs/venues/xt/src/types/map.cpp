@@ -639,6 +639,43 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
     return out;
 }
 
+std::optional<LedgerEntry>
+map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    LedgerKind kind{};
+    if (wire.type == "FUND") {
+        kind = LedgerKind::Funding;
+    } else if (wire.type == "FEE") {
+        kind = LedgerKind::Fee;
+    } else {
+        // CLOSE_POSITION is realised PnL, which the fill that closed the
+        // position already booked; anything else is not trading money.
+        return std::nullopt;
+    }
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    // VERBATIM. XT signs the amount itself and `side` restates that sign, so
+    // applying `side` here would flip every SUB row — see account.hpp.
+    const auto amount = to_amount(wire.amount);
+    if (!amount.has_value() || amount->raw == 0) {
+        return std::nullopt; // an unreadable or absent figure is not a zero charge
+    }
+
+    LedgerEntry charge{};
+    charge.instrument = base->id;
+    charge.amount = *amount;
+    charge.kind = kind;
+    charge.settled_at = ms_to_unix(wire.created_ms, UnixNanos{0});
+    // XT mints an id per row, which is what tells two settlements on one
+    // instrument apart when the stamps collide.
+    if (const auto id = ExecId::from(wire.id); id.has_value()) {
+        charge.reference = *id;
+    }
+    charge.ts_init = ts_init;
+    return charge;
+}
+
 std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire) {
     const auto asset = to_asset_code(wire.coin);
     if (!asset.has_value()) {

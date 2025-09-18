@@ -43,4 +43,39 @@ struct FuturesBalanceBuffer {
 [[nodiscard]] std::expected<std::span<const WireFuturesBalance>, WireError>
 parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage);
 
+// One row of the futures wallet's own ledger, off
+// /future/user/v1/balance/bills.
+//
+// `type` says what the row IS. Measured over 100 live rows: FUND (95), FEE (3)
+// and CLOSE_POSITION (2). Only the first two are money this process did not
+// already book — CLOSE_POSITION is realised PnL, which the fill that closed
+// the position already accounted for, and booking it again double-counts.
+//
+// `amount` IS ALREADY SIGNED and `side` merely restates it: over those same
+// 100 rows every ADD carried a positive amount and every SUB a negative one,
+// with no disagreement. Re-applying `side` to the value would flip every SUB
+// row — checked against the running `afterAmount` balance, that rule matched
+// 4 of 19 consecutive pairs where taking the amount verbatim matched 10.
+// `side` is therefore read as a cross-check and never as the sign.
+struct WireBill {
+    std::string_view id;
+    std::string_view symbol; // lowercase, as the catalogue spells it
+    std::string_view coin;
+    std::string_view type;
+    std::string_view amount;
+    std::string_view side;
+    std::uint64_t created_ms{0};
+};
+
+inline constexpr std::size_t k_max_bills = 512;
+
+struct BillBuffer {
+    std::array<WireBill, k_max_bills> bills{};
+};
+
+// The `result` here is an object holding `items`, like every other paged
+// private body on this venue.
+[[nodiscard]] std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
+                                                                              BillBuffer& storage);
+
 } // namespace raikiri::venues::xt

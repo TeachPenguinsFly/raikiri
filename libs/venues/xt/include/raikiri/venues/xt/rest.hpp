@@ -159,6 +159,10 @@ public:
     // the other host again and is not reached from this builder.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> futures_balances(UnixNanos now);
 
+    // The wallet ledger since `since`. XT pages newest-first and refuses an
+    // endTime, so the caller asks for a floor and takes what it is given.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> bills(UnixNanos since, UnixNanos now);
+
     // GET /future/user/v1/user/listen-key — valid 8 hours.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key(UnixNanos now);
 

@@ -181,6 +181,9 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .book_checksum = false,
         .position_pull = true,
         .order_pull = true,
+        // VERIFIED live: /future/user/v1/balance/bills states FUND and FEE rows
+        // with the amount already signed.
+        .funding_charge = true,
         .balance_pull = true,
         .fill_pull = true,
         // Futures fills only the quote column: `v` is quote turnover and `a`

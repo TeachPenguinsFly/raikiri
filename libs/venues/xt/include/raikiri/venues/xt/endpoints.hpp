@@ -45,6 +45,9 @@ inline constexpr std::string_view k_futures_trades = "/future/trade/v1/order/tra
 inline constexpr std::string_view k_futures_positions = "/future/user/v1/position/list";
 // fapi.xt.com is the U-BASED wallet; the coin-margined one is another host.
 inline constexpr std::string_view k_futures_balances = "/future/user/v1/balance/list";
+// The wallet's own ledger. `startTime` filters and `endTime` is REFUSED with
+// returnCode 1, so the pull is a floor and never a window.
+inline constexpr std::string_view k_futures_bills = "/future/user/v1/balance/bills";
 inline constexpr std::string_view k_spot_open_orders = "/v4/open-order";
 inline constexpr std::string_view k_spot_trades = "/v4/trade";
 // The two socket credentials: futures mints a listen key, spot a ws token.
