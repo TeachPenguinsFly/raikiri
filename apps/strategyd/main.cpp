@@ -26,6 +26,7 @@
 #include <raikiri/observ/histogram.hpp>
 #include <raikiri/oms/attribution.hpp>
 #include <raikiri/oms/fee_ledger.hpp>
+#include <raikiri/oms/funding_identity.hpp>
 #include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
@@ -773,28 +774,11 @@ void write_funding_row(journal::JournalWriter& writer,
         // No order produced this, so there is no client order id to name — zero
         // here means "not from an order", not "order zero".
         m.clientOrderIdField(jt::clientOrderId{0});
-        // NOT the venue's own id for the charge. One settlement reaches this
-        // process twice — live off the private socket and again from the REST
-        // ledger the poller reconciles against — and the venue mints a
-        // DIFFERENT id on each. Keying on either would book the money twice.
-        //
-        // The identity that both legs agree on is the settlement itself:
-        // symbol and the second it landed on, plus the book it was split onto.
-        // Seconds rather than nanoseconds because the two sources state the
-        // stamp at different resolutions, and no instrument settles twice in
-        // one second.
-        char buf[48];
-        const auto symbol = base.exchange_symbol.view();
-        auto* out = std::copy(symbol.begin(), symbol.end(), buf);
-        *out++ = ':';
-        auto [tick, tick_ec] =
-            std::to_chars(out, buf + sizeof buf, charge.settled_at.ns / 1'000'000'000);
-        out = tick_ec == std::errc{} ? tick : out;
-        *out++ = ':';
-        const auto [end, ec] = std::to_chars(out, buf + sizeof buf, strategy_id);
-        const auto len = ec == std::errc{} ? static_cast<std::size_t>(end - buf)
-                                           : static_cast<std::size_t>(out - buf);
-        m.execIdField().assign_range(std::string_view{buf, len});
+        // NOT the venue's own id for the charge, and NOT the symbol text —
+        // oms::funding_identity states why it is neither.
+        std::array<char, oms::k_max_funding_identity> buf{};
+        m.execIdField().assign_range(
+            oms::funding_identity(base.id, charge.settled_at, strategy_id, buf));
         m.amount(jt::fixedE9{amount.raw});
         m.tsEvent(jt::timestampNs{charge.settled_at.ns});
     });
