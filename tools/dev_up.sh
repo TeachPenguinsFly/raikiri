@@ -132,8 +132,15 @@ VENUES="${VENUES:-bybit gate kucoin binance deribit-opt}"
 
 have_credentials=no
 if [[ -f "$ENV_FILE" ]]; then
-    # shellcheck disable=SC1090
-    set -a; source "$ENV_FILE"; set +a
+    # ONLY BEFORE `op run` HAS RESOLVED THEM. This script re-execs itself
+    # through `op run` and comes back with the secrets already in the
+    # environment; sourcing the file again on that pass laid the raw `op://`
+    # references back over them, and the guard below then unset every one —
+    # so a machine with working credentials came up public-only and said so.
+    if [[ -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]]; then
+        # shellcheck disable=SC1090
+        set -a; source "$ENV_FILE"; set +a
+    fi
     for venue in $VENUES; do
         upper="$(echo "${venue%-opt}" | tr '[:lower:]' '[:upper:]')"
         for field in API_KEY API_SECRET PASSPHRASE; do
