@@ -1,6 +1,7 @@
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
+#include <raikiri/oms/funding_identity.hpp>
 #include <raikiri/persist/mapper.hpp>
 #include <raikiri/persist/sink.hpp>
 #include <raikiri/schema/codec.hpp>
@@ -64,6 +65,35 @@ std::string build_journal(const char* name) {
         m.tsInit(jt::timestampNs{201});
     });
 
+    // TWO STRATEGIES, ONE SETTLEMENT. This is the pair whose keys used to
+    // collide when a long symbol truncated the identity: same instrument, same
+    // settlement second, different books. If the key cannot tell them apart,
+    // ON CONFLICT DO NOTHING keeps one and the other's money is never booked.
+    // A SETTLEMENT NOBODY HAS PERSISTED YET. The key is deterministic by
+    // design, so a fixed stamp would already be in the table on the second
+    // execution against the same database and the first pass would insert
+    // nothing — which is indistinguishable from the row being dropped.
+    const auto settled = UnixNanos{1'788'696'006'115'000'000ULL +
+                                   static_cast<std::uint64_t>(::getpid()) * 1'000'000'000ULL};
+    for (const std::uint16_t strategy : {std::uint16_t{3}, std::uint16_t{10}}) {
+        (void)schema::append_msg<msgs::PnlIncrementMsg>(
+            *writer, 400 + strategy, [strategy, settled](auto m) {
+                const auto instrument =
+                    InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
+                std::array<char, oms::k_max_funding_identity> buf{};
+                m.kind(jt::pnlKindEnum::Funding);
+                m.settleSide(jt::settleSideEnum::Quote);
+                m.strategyId(strategy);
+                m.instrument(jt::instrumentId{instrument.packed});
+                m.symbol().assign_range(std::string_view{"BTCUSDT"});
+                m.clientOrderIdField(jt::clientOrderId{0});
+                m.execIdField().assign_range(
+                    oms::funding_identity(instrument, settled, strategy, buf));
+                m.amount(jt::fixedE9{-250'000});
+                m.tsEvent(jt::timestampNs{settled.ns});
+            });
+    }
+
     (void)schema::append_msg<msgs::BboMsg>(*writer, 300, [](auto m) {
         m.instrument(jt::instrumentId{1});
         m.bid(jt::priceTicks{1});
@@ -91,7 +121,10 @@ TEST(Mapper, FillProducesEventUpsertAndExecution) {
     ASSERT_EQ(batch.order_upserts.size(), 1U);
     ASSERT_EQ(batch.executions.size(), 1U);
     ASSERT_EQ(batch.funding.size(), 1U);
-    EXPECT_EQ(batch.last_seq, 3U); // BBO advanced the cursor without rows
+    // Two of the five frames are the funding increments the idempotency test
+    // needs; they map to pnl_increments and not to anything asserted above.
+    ASSERT_EQ(batch.pnl_increments.size(), 2U);
+    EXPECT_EQ(batch.last_seq, 5U); // the BBO advanced the cursor without rows
 
     const auto& ev = batch.order_events[0];
     EXPECT_EQ(ev.event_type, "filled");
@@ -229,17 +262,37 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
         }
     };
 
-    run_once();
-    const auto cursor_after_first = sink.load_cursor("test-journal");
-    EXPECT_EQ(cursor_after_first, 3U);
+    // THE CURSOR OUTLIVES THE JOURNAL. It is keyed by name in the database and
+    // the journal directory is new every run, so a cursor left at 3 by an
+    // earlier execution makes the first pass start midway and read fewer
+    // frames than the second — which reads as a duplicate and is not one.
+    // Both passes are given the same starting point deliberately.
+    const auto rewind = [&] {
+        RowBatch reset;
+        reset.last_seq = 0;
+        sink.commit("test-journal", reset);
+    };
+    // Counted rather than assumed empty: this runs against a database that
+    // holds whatever earlier work left in it, and the invariant is the DELTA.
+    const auto increments_before = sink.count_rows("pnl_increments");
 
-    // Reset the cursor to force a full re-read, then persist again: every
-    // insert must be absorbed by ON CONFLICT.
-    RowBatch reset;
-    reset.last_seq = 0;
-    sink.commit("test-journal", reset); // cursor -> 0
+    rewind();
     run_once();
-    EXPECT_EQ(sink.load_cursor("test-journal"), 3U);
+    EXPECT_EQ(sink.load_cursor("test-journal"), 5U);
+    const auto increments = sink.count_rows("pnl_increments");
+    const auto events = sink.count_rows("order_events");
+    // Both funding rows landed: the two strategies sharing one settlement are
+    // the pair a truncated key used to fold into one.
+    EXPECT_GE(increments - increments_before, 2)
+        << "one strategy's funding never reached the ledger";
+
+    rewind();
+    run_once();
+    EXPECT_EQ(sink.load_cursor("test-journal"), 5U);
+    // THE CURSOR ALONE PROVES NOTHING: a replay that duplicated every row
+    // advances it to the same number. The counts are the invariant.
+    EXPECT_EQ(sink.count_rows("pnl_increments"), increments);
+    EXPECT_EQ(sink.count_rows("order_events"), events);
 }
 
 } // namespace

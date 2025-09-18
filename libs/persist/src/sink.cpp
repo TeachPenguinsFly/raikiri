@@ -1,8 +1,10 @@
 #include <raikiri/persist/sink.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <pqxx/pqxx>
 #include <sstream>
+#include <stdexcept>
 
 namespace raikiri::persist {
 
@@ -39,6 +41,18 @@ std::uint64_t PgSink::load_cursor(const std::string& journal) {
         return 0;
     }
     return row[0][0].as<std::uint64_t>();
+}
+
+std::int64_t PgSink::count_rows(const std::string& table) {
+    if (table.empty() || !std::ranges::all_of(table, [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || c == '_';
+        })) {
+        throw std::invalid_argument{"count_rows: not a bare table name"};
+    }
+    pqxx::work tx{impl_->conn};
+    const auto row = tx.exec("SELECT count(*) FROM raikiri." + table);
+    tx.commit();
+    return row[0][0].as<std::int64_t>();
 }
 
 void PgSink::commit(const std::string& journal, const RowBatch& batch) {

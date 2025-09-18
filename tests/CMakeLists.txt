@@ -24,7 +24,7 @@ raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::dom
 
 raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
 
-raikiri_add_test(mapper_test SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema)
+raikiri_add_test(mapper_test SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema raikiri::oms)
 target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE_DIR}/sql")
 
 raikiri_add_test(credentials_test SRCS config/credentials_test.cpp LIBS raikiri::config)

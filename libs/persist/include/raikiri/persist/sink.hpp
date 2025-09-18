@@ -32,6 +32,14 @@ public:
 
     void commit(const std::string& journal, const RowBatch& batch);
 
+    // How many rows one of our tables holds. Exists so the exactly-once claim
+    // is CHECKABLE: a replay that duplicated every row still advances the
+    // cursor to the same number, so the cursor alone proves nothing.
+    // `table` is an unqualified name in the raikiri schema and is refused
+    // unless it is lowercase letters and underscores — it is interpolated,
+    // because Postgres takes no parameter in an identifier position.
+    [[nodiscard]] std::int64_t count_rows(const std::string& table);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
