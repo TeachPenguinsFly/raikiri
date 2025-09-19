@@ -155,6 +155,31 @@ function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): 
   return value
 }
 
+/** Merges the rows of each frame into one map, keyed by instrument.
+ *
+ *  MERGED, not replaced. A frame carries only what MOVED, so a venue that did
+ *  not tick this round is absent from it — and dropping the map would blank a
+ *  price that is perfectly current.
+ *
+ *  A NEW MAP EVERY TIME A FRAME LANDS, and that is the whole point. This used
+ *  to mutate one map held in a ref and hand back the same object forever, so
+ *  every caller that reads it through a useMemo — which is how the markets
+ *  table builds its rows — saw unchanged dependencies and never recomputed.
+ *  Prices arrived, the map filled, and the screen kept its dashes until
+ *  something else happened to change the memo's other inputs.
+ */
+function useMerged<T extends { instrument_id: string }>(rows: T[] | null): Map<string, T> {
+  const merged = useRef(new Map<string, T>())
+  const applied = useRef<T[] | null>(null)
+  if (rows !== null && rows !== applied.current) {
+    applied.current = rows
+    const next = new Map(merged.current)
+    for (const row of rows) next.set(row.instrument_id, row)
+    merged.current = next
+  }
+  return merged.current
+}
+
 export function useQuotes(instruments: string[], hz?: number): Map<string, Quote> {
   const rows = useFeed(
     instruments.length === 0
@@ -162,14 +187,7 @@ export function useQuotes(instruments: string[], hz?: number): Map<string, Quote
       : { channel: 'quotes', instruments, ...(hz === undefined ? {} : { hz }) },
     (frame) => (frame.type === 'quotes' ? frame.quotes : null),
   )
-  const merged = useRef(new Map<string, Quote>())
-  if (rows !== null) {
-    // MERGED, not replaced. A frame carries only what MOVED, so a venue that
-    // did not tick this round is absent from it — and dropping the map would
-    // blank a price that is perfectly current.
-    for (const row of rows) merged.current.set(row.instrument_id, row)
-  }
-  return merged.current
+  return useMerged(rows)
 }
 
 export function useFunding(instruments: string[]): Map<string, Funding> {
@@ -177,11 +195,7 @@ export function useFunding(instruments: string[]): Map<string, Funding> {
     instruments.length === 0 ? null : { channel: 'funding', instruments },
     (frame) => (frame.type === 'funding' ? frame.funding : null),
   )
-  const merged = useRef(new Map<string, Funding>())
-  if (rows !== null) {
-    for (const row of rows) merged.current.set(row.instrument_id, row)
-  }
-  return merged.current
+  return useMerged(rows)
 }
 
 export function useTicker(instruments: string[]): Map<string, Ticker> {
@@ -189,11 +203,7 @@ export function useTicker(instruments: string[]): Map<string, Ticker> {
     instruments.length === 0 ? null : { channel: 'ticker', instruments },
     (frame) => (frame.type === 'ticker' ? frame.ticker : null),
   )
-  const merged = useRef(new Map<string, Ticker>())
-  if (rows !== null) {
-    for (const row of rows) merged.current.set(row.instrument_id, row)
-  }
-  return merged.current
+  return useMerged(rows)
 }
 
 export function useBook(instrument: string | null, levels = 25): Book | null {
