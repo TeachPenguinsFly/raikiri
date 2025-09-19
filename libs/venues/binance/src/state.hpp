@@ -60,6 +60,15 @@ struct VenueState {
     std::vector<InstrumentId> funding_instruments;
     std::uint64_t next_funding_poll_ns{0};
 
+    // SUBSCRIBING IS RATE LIMITED TOO. Binance closes a connection that sends
+    // more than a handful of messages a second, and a full catalogue is 1024
+    // streams — 32 SUBSCRIBE frames at 32 streams each. Sent in a loop on
+    // connect, as they were, the venue dropped us and the reconnect did it
+    // again: the gateway announced 342 instruments and then delivered zero
+    // books, zero trades and zero depth, for as long as it ran.
+    std::vector<std::string> pending_subscribes;
+    std::uint64_t next_subscribe_ns{0};
+
     // Venue clock offset, measured against /fapi/v1/time.
     std::int64_t clock_offset_ns{0};
 

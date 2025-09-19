@@ -35,6 +35,10 @@ namespace {
 // continuously; a poll a minute is far finer than the fact changes.
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
+// Binance drops a connection that sends more than about five messages a
+// second. Four a second leaves room for the pings sharing the same budget.
+constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
+
 // A 24-hour rolling figure barely moves in a minute, and the whole table
 // costs weight 40 against the funding read's 1. Slow on purpose.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
@@ -178,17 +182,19 @@ public:
         for (const auto& stream : state_->desired_streams) {
             streams.push_back(stream);
         }
-        std::size_t sent = 0;
-        while (sent < streams.size()) {
+        // QUEUED, not sent. The pacing lives in poll(); see state.hpp for what
+        // sending them all at once cost.
+        state_->pending_subscribes.clear();
+        state_->next_subscribe_ns = 0;
+        std::size_t built = 0;
+        while (built < streams.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{streams}.subspan(sent));
+                std::span<const std::string_view>{streams}.subspan(built));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
+            state_->pending_subscribes.emplace_back(frame->text);
+            built += frame->consumed;
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -277,6 +283,7 @@ public:
             return;
         }
         state_->io.poll();
+        drain_subscribes(now);
         poll_funding(now);
         poll_ticker(now);
         if (state_->tick_hook) {
@@ -285,6 +292,23 @@ public:
     }
 
 private:
+    // One SUBSCRIBE per tick, well under the venue's allowance. A catalogue of
+    // 1024 streams therefore takes about eight seconds to ask for, which is
+    // the price of the venue answering at all.
+    void drain_subscribes(UnixNanos now) noexcept {
+        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
+            return;
+        }
+        if (!client_.connected()) {
+            return; // the reconnect refills the queue
+        }
+        if (!client_.send(state_->pending_subscribes.front())) {
+            return; // wedged socket; the reconnect retries the whole set
+        }
+        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
+        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
+    }
+
     // One call covers every symbol, so there is no cursor and no per-symbol
     // fan-out: the whole table refreshes on each poll and only the instruments
     // somebody subscribed reach the sink.

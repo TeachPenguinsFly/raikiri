@@ -34,6 +34,10 @@ namespace {
 // the gateway watches.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
+// KuCoin allows about ten messages a second on a connection; five leaves room
+// for the application ping sharing the same budget.
+constexpr std::uint64_t k_subscribe_spacing_ns = 120ULL * 1'000'000ULL;
+
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
 // refuses is left alone, because the next change asks again.
@@ -204,19 +208,41 @@ public:
         for (const auto& entry : state_->desired) {
             views.push_back({.topic = entry.topic, .symbol = entry.symbol});
         }
-        std::ranges::sort(
-            views, [](const Subscription& a, const Subscription& b) { return a.topic < b.topic; });
-        std::size_t sent = 0;
-        while (sent < views.size()) {
+        // GROUPED BY TOPIC so a frame batches, but ordered by what a screen
+        // needs FIRST. Sorted lexicographically, tickerV2 — the top of book —
+        // came last of the four, and once the sends are paced that meant the
+        // one column everybody looks at was the last to arrive and, on a large
+        // catalogue, did not arrive at all.
+        const auto rank = [](std::string_view topic) {
+            if (topic.ends_with("tickerV2") || topic.ends_with("/market/ticker")) {
+                return 0; // the quote
+            }
+            if (topic.ends_with("instrument")) {
+                return 1; // funding and the mark
+            }
+            if (topic.ends_with("execution") || topic.ends_with("match")) {
+                return 2; // prints
+            }
+            return 3; // the ladder, which only the open market draws
+        };
+        std::ranges::sort(views, [&rank](const Subscription& a, const Subscription& b) {
+            const auto ra = rank(a.topic);
+            const auto rb = rank(b.topic);
+            return ra != rb ? ra < rb : a.topic < b.topic;
+        });
+        // QUEUED, not sent. The pacing lives in poll(); see state.hpp for what
+        // sending them all at once cost.
+        state_->pending_subscribes.clear();
+        state_->next_subscribe_ns = 0;
+        std::size_t built = 0;
+        while (built < views.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(sent));
+                std::span<const Subscription>{views}.subspan(built));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
+            state_->pending_subscribes.emplace_back(frame->text);
+            built += frame->consumed;
         }
         // The sequence the old book stopped at says nothing about where this
         // subscription resumes, so every book goes back to wanting a seed.
@@ -319,6 +345,7 @@ public:
             reopen();
         }
         state_->io.poll();
+        drain_subscribes(now);
         if (connected() && now.ns >= state_->next_app_ping_ns) {
             if (const auto frame = state_->protocol.ping_frame(); !frame.empty()) {
                 (void)client_->send(frame);
@@ -379,6 +406,21 @@ public:
     }
 
 private:
+    // One SUBSCRIBE per tick, well under the venue's allowance.
+    void drain_subscribes(UnixNanos now) noexcept {
+        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
+            return;
+        }
+        if (!connected()) {
+            return; // the reconnect refills the queue
+        }
+        if (!client_->send(state_->pending_subscribes.front())) {
+            return; // wedged socket; the reconnect retries the whole set
+        }
+        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
+        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
+    }
+
     void reopen() noexcept {
         try {
             (void)open_stream().has_value(); // failures schedule their own retry
