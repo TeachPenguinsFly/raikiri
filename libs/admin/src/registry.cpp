@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <unordered_map>
 #include <variant>
 
@@ -78,19 +79,20 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue;
         }
         (void)client->register_reader(reader_pid);
-        gateways_.push_back({.account = account,
-                             .name = account_name,
-                             .client = std::move(*client),
-                             .channels = *channels});
+        gateways_.push_back(std::make_unique<Gateway>(Gateway{.account = account,
+                                                              .name = account_name,
+                                                              .client = std::move(*client),
+                                                              .channels = *channels}));
     }
-    std::ranges::sort(gateways_, {}, &Gateway::name);
+    std::ranges::sort(gateways_, {}, [](const auto& gw) { return gw->name; });
     return gateways_.size();
 }
 
 std::vector<Account> Registry::accounts(MonoNanos now) const {
     std::vector<Account> out;
     out.reserve(gateways_.size());
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         // Monotonic, because that is the clock the gateway stamps its
         // heartbeat with; asking in wall time makes every owner look stale.
         const bool alive = gw.client.owner_alive(now.ns);
@@ -113,7 +115,8 @@ Health Registry::health(MonoNanos now) const {
 std::vector<Instrument> Registry::instruments(std::string_view account,
                                               std::optional<MarketType> market) const {
     std::vector<Instrument> out;
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         if (!account.empty() && gw.name != account) {
             continue;
         }
@@ -158,7 +161,8 @@ namespace {
 
 std::vector<Market> Registry::markets(std::string_view query, std::size_t limit) const {
     std::unordered_map<std::string, Market> by_symbol;
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         for (const auto& listed : gw.channels.catalogue->all()) {
             const auto& base = base_of(listed);
             const auto symbol = std::string{base.local_symbol.view()};
@@ -199,7 +203,8 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
 }
 
 std::optional<Registry::CatalogueRow> Registry::catalogue_row(InstrumentId id) const noexcept {
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         if (gw.account.venue != id.venue() || gw.account.market != id.market()) {
             continue;
         }
@@ -211,7 +216,8 @@ std::optional<Registry::CatalogueRow> Registry::catalogue_row(InstrumentId id) c
 }
 
 std::optional<Instrument> Registry::instrument(InstrumentId id) const {
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         // The (venue, market) prefix says which gateway can possibly hold it,
         // so this asks one catalogue rather than every one.
         if (gw.account.venue != id.venue() || gw.account.market != id.market()) {
@@ -230,7 +236,8 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
     constexpr std::uint64_t k_stale_ns = 90ULL * 1'000'000'000ULL;
 
     std::vector<AccountBalances> out;
-    for (const auto& gw : gateways_) {
+    for (const auto& owned : gateways_) {
+        const auto& gw = *owned;
         if (!account.empty() && gw.name != account) {
             continue;
         }
@@ -289,8 +296,8 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
 }
 
 const Gateway* Registry::find(std::string_view account) const noexcept {
-    const auto it = std::ranges::find(gateways_, account, &Gateway::name);
-    return it == gateways_.end() ? nullptr : &*it;
+    const auto it = std::ranges::find(gateways_, account, [](const auto& gw) { return gw->name; });
+    return it == gateways_.end() ? nullptr : it->get();
 }
 
 } // namespace raikiri::admin

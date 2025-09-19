@@ -18,6 +18,7 @@
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -94,11 +95,18 @@ public:
     // Positional access, for a caller that has to reach every attached
     // gateway rather than one it can name.
     [[nodiscard]] const Gateway* at(std::size_t index) const noexcept {
-        return index < gateways_.size() ? &gateways_[index] : nullptr;
+        return index < gateways_.size() ? gateways_[index].get() : nullptr;
     }
 
 private:
-    std::vector<Gateway> gateways_;
+    // HELD BY POINTER SO THE GATEWAYS DO NOT MOVE. A live stream subscription
+    // keeps a `const Gateway*` per instrument it is watching, and this used to
+    // be a vector of values: every rescan push_back'd — reallocating — and
+    // then SORTED, which moves elements even when it does not reallocate. Any
+    // client subscribed while a gateway appeared was left reading a gateway
+    // that had been moved out from under it, or freed memory. Sorting a vector
+    // of pointers rearranges only the pointers.
+    std::vector<std::unique_ptr<Gateway>> gateways_;
 };
 
 // Exposed for tests and for anything that needs one row without a segment.
