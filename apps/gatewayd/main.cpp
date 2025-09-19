@@ -967,6 +967,18 @@ int main(int argc, char** argv) {
                    first_refusal.empty() ? "no reason given" : first_refusal);
         return 1;
     }
+    // SAID OUT LOUD, not swallowed. `first_refusal` used to be collected and
+    // then discarded unless EVERY subscription failed, so a gateway that got
+    // 256 of 979 announced the 256 and nothing else — and the other 723
+    // instruments sat on the markets board with every column empty, which
+    // reads as a dead venue rather than an unsubscribed instrument.
+    if (subscribed < matched) {
+        RLOG_WARN("gatewayd[{}]: {} of {} instruments were REFUSED a subscription — {}",
+                  account_name,
+                  matched - subscribed,
+                  matched,
+                  first_refusal.empty() ? "no reason given" : first_refusal);
+    }
     RLOG_INFO("gatewayd[{}]: subscribed to {} instrument(s)", account_name, subscribed);
     owner->publish();
     RateWitness rates;
