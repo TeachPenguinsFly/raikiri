@@ -110,7 +110,17 @@ enum class BookResult : std::uint8_t {
 inline constexpr std::size_t k_max_buffered_deltas = 64;
 
 // The seed depth, and so the width of the band the book is trusted inside.
-inline constexpr std::uint32_t k_seed_depth = 1000;
+// MATCHED TO WHAT A BOOK CAN HOLD, which is `k_book_levels` — 100. Seeding
+// 1000 asked binance for ten times what the record has room for and cost
+// weight 20 a call where 100 levels cost 5; 342 instruments seeding at once
+// was 6840 weight against an allowance of 2400 a minute, and it earned this
+// process an IP ban twice in a day.
+//
+// Lower is available and cheaper still — binance charges weight 2 for 50 or
+// fewer — but that would cap the book below what shm carries, and a book that
+// serves fewer levels than it claims is the one failure this file must not
+// have. The terminal draws 12.
+inline constexpr std::uint32_t k_seed_depth = 100;
 
 // One symbol's book. Prices and sizes become instrument-scaled integers at
 // ingest, so nothing downstream ever sees a venue string.
