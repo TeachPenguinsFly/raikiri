@@ -78,7 +78,8 @@ constexpr std::string_view k_rate_header_prefixes[] = {
 // Set once at startup, read on the reactor thread that owns every REST
 // completion. Not atomic because there is only ever the one writer and it runs
 // before any client exists; a second writer would be a bug this cannot hide.
-RateObserver g_rate_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+RateObserver g_rate_observer;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+RequestObserver g_request_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 template <typename Response>
 void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
@@ -445,6 +446,13 @@ private:
                 g_rate_observer(cfg_.host, header);
             }
         }
+        if (g_request_observer) {
+            g_request_observer(
+                cfg_.host,
+                std::string_view{conn->req.target().data(), conn->req.target().size()},
+                response.status,
+                response.received.ns - response.sent.ns);
+        }
 
         const bool reusable = conn->res.keep_alive();
         conn->busy = false;
@@ -556,6 +564,10 @@ struct RestClient::Impl {
 
 void set_rate_observer(RateObserver observer) {
     g_rate_observer = std::move(observer);
+}
+
+void set_request_observer(RequestObserver observer) {
+    g_request_observer = std::move(observer);
 }
 
 RestClient::RestClient(IoContext& io, RestConfig config)

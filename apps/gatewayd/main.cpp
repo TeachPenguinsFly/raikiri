@@ -638,6 +638,74 @@ private:
     std::map<std::string, Seen> seen_;
 };
 
+// WHAT THIS PROCESS SPENT ITS ALLOWANCE ON.
+//
+// A venue's ban message names no caller. The market-data pools are not metered
+// by RateBudget — only the order path is — so their traffic was invisible to
+// every counter in the process, and a repeated catalogue fetch or a 24-hour
+// ticker poll could earn an IP ban with nothing to point at afterwards.
+//
+// The tally is always kept and printed at shutdown, because it is small and it
+// is the thing that answers the question. RAIKIRI_LOG_REQUESTS=1 additionally
+// prints every request as it completes, which is far too loud to leave on.
+class RequestLedger {
+public:
+    RequestLedger() : verbose_{std::getenv("RAIKIRI_LOG_REQUESTS") != nullptr} {}
+
+    void observe(std::string_view host,
+                 std::string_view target,
+                 int status,
+                 std::uint64_t elapsed_ns,
+                 std::string_view account) {
+        // Keyed on the PATH, not the full target: a query string carries
+        // symbols and cursors, and one row per symbol would bury the endpoint
+        // that actually cost the allowance.
+        const auto path = target.substr(0, target.find('?'));
+        const std::lock_guard lock{mu_};
+        auto& row = spent_[std::string{host}.append(path)];
+        ++row.calls;
+        if (status < 200 || status >= 300) {
+            ++row.refused;
+            row.last_status = status;
+        }
+        if (verbose_) {
+            RLOG_INFO("gatewayd[{}]: {} {} -> {} in {} ms",
+                      account,
+                      host,
+                      target,
+                      status,
+                      elapsed_ns / 1'000'000);
+        }
+    }
+
+    void report(std::string_view account) const {
+        const std::lock_guard lock{mu_};
+        for (const auto& [endpoint, row] : spent_) {
+            if (row.refused != 0) {
+                RLOG_WARN("gatewayd[{}]: {} — {} calls, {} REFUSED (last status {})",
+                          account,
+                          endpoint,
+                          row.calls,
+                          row.refused,
+                          row.last_status);
+            } else {
+                RLOG_INFO("gatewayd[{}]: {} — {} calls", account, endpoint, row.calls);
+            }
+        }
+    }
+
+private:
+    struct Row {
+        std::uint64_t calls{0};
+        std::uint64_t refused{0};
+        int last_status{0};
+    };
+
+    mutable std::mutex mu_;
+    std::map<std::string, Row> spent_;
+    bool verbose_;
+};
+
 int main(int argc, char** argv) {
     // NOTHING HERE WRITES TO STDOUT. Every line this process emits goes to
     // stderr, which is unbuffered; a print added to stdout would need the line
@@ -981,6 +1049,12 @@ int main(int argc, char** argv) {
     }
     RLOG_INFO("gatewayd[{}]: subscribed to {} instrument(s)", account_name, subscribed);
     owner->publish();
+    RequestLedger requests;
+    raikiri::net::set_request_observer(
+        [&requests, &account_name](
+            std::string_view host, std::string_view target, int status, std::uint64_t elapsed_ns) {
+            requests.observe(host, target, status, elapsed_ns, account_name);
+        });
     RateWitness rates;
     raikiri::net::set_rate_observer(
         [&rates, &clock](std::string_view host, const raikiri::net::RateHeader& header) {
@@ -1175,6 +1249,7 @@ int main(int argc, char** argv) {
     adapter->execution->stop();
     journal_writer->flush();
     const auto& counts = sink.counts();
+    requests.report(account_name);
     rates.report(account_name);
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
               "ticker={} order-events={} refusals={}",

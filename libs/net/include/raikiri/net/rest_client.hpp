@@ -95,6 +95,21 @@ using RateObserver = std::function<void(std::string_view host, const RateHeader&
 
 void set_rate_observer(RateObserver observer);
 
+// EVERY REQUEST THIS PROCESS MAKES, as it completes.
+//
+// The rate observer above reports what a venue said about our budget; this
+// reports what we actually spent it on. Without it, an IP ban is a message
+// with no way to find the caller that earned it — the market-data pools are
+// not metered by RateBudget at all, so their traffic is invisible to every
+// other accounting in the process.
+//
+// `target` keeps its query string: two calls to one path with different
+// parameters can cost very different weight.
+using RequestObserver = std::function<void(
+    std::string_view host, std::string_view target, int status, std::uint64_t elapsed_ns)>;
+
+void set_request_observer(RequestObserver observer);
+
 class RestClient {
 public:
     RestClient(IoContext& io, RestConfig config);
