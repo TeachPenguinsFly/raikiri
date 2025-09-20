@@ -66,6 +66,14 @@ struct VenueState {
     // connect, as they were, the venue dropped us and the reconnect did it
     // again: the gateway announced 342 instruments and then delivered zero
     // books, zero trades and zero depth, for as long as it ran.
+    // BOOK SEEDS ARE THE EXPENSIVE ONES. /fapi/v1/depth?limit=1000 is weight
+    // 20 and every subscribed instrument wants one the moment its first delta
+    // arrives — 342 of them at once is 6840 weight against an allowance of
+    // 2400 a minute, which is how this process earned an IP ban twice in a day
+    // from traffic no counter in it could see.
+    std::vector<InstrumentId> pending_seeds;
+    std::uint64_t next_seed_ns{0};
+
     std::vector<std::string> pending_subscribes;
     std::uint64_t next_subscribe_ns{0};
 

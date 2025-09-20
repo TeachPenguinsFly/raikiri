@@ -39,6 +39,9 @@ constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 // second. Four a second leaves room for the pings sharing the same budget.
 constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 
+// A book seed is weight 20 here; see state.hpp.
+constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
+
 // A 24-hour rolling figure barely moves in a minute, and the whole table
 // costs weight 40 against the funding read's 1. Slow on purpose.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
@@ -46,7 +49,7 @@ constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send that
 // the pool refuses is left alone, because the next delta asks again.
-void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
+[[nodiscard]] bool request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
     const auto handled = [owner, id](net::RestResponse&& response) {
@@ -78,10 +81,16 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
             owner->sink->on_depth(*book);
         }
     };
-    if (state.depth_rest.send(
+    if (!state.depth_rest.send(
             state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
-        book.seed_requested();
+        // The pool refused it. The caller marked the book in flight when it
+        // queued the seed, so that has to be undone or the book waits for a
+        // request nobody made.
+        book.seed_failed();
+        return false;
     }
+    book.seed_requested();
+    return true;
 }
 
 void handle_depth(VenueState& state, std::string_view data, UnixNanos received) {
@@ -101,7 +110,12 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     // Asked before the delta is offered, so the frame that triggered the seed
     // is itself buffered behind it.
     if (book.wants_seed()) {
-        request_seed(state, book, base);
+        // QUEUED, not fired. The pacing lives in poll(); see state.hpp for what
+        // firing them all at once cost.
+        if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
+            state.pending_seeds.push_back(base.id);
+        }
+        book.seed_requested();
     }
     if (book.apply(*wire) != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
@@ -284,6 +298,7 @@ public:
         }
         state_->io.poll();
         drain_subscribes(now);
+        drain_seeds(now);
         poll_funding(now);
         poll_ticker(now);
         if (state_->tick_hook) {
@@ -292,6 +307,31 @@ public:
     }
 
 private:
+    // One book seed per tick. At weight 20 each this is 40 a second against an
+    // allowance of 2400 a minute — a fifth of it, which leaves the order path
+    // and the polls their share.
+    void drain_seeds(UnixNanos now) noexcept {
+        if (state_->pending_seeds.empty() || now.ns < state_->next_seed_ns) {
+            return;
+        }
+        const auto id = state_->pending_seeds.front();
+        const auto entry = state_->books.find(id.packed);
+        if (entry == state_->books.end()) {
+            state_->pending_seeds.erase(state_->pending_seeds.begin());
+            return;
+        }
+        const auto* listed = state_->instruments.find(id);
+        if (listed == nullptr) {
+            state_->pending_seeds.erase(state_->pending_seeds.begin());
+            return;
+        }
+        if (!request_seed(*state_, entry->second, base_of(*listed))) {
+            return; // left queued; the next tick asks again
+        }
+        state_->pending_seeds.erase(state_->pending_seeds.begin());
+        state_->next_seed_ns = now.ns + k_seed_spacing_ns;
+    }
+
     // One SUBSCRIBE per tick, well under the venue's allowance. A catalogue of
     // 1024 streams therefore takes about eight seconds to ask for, which is
     // the price of the venue answering at all.
