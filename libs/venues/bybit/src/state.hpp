@@ -34,6 +34,10 @@ namespace raikiri::venues::bybit::detail {
 // is comfortably inside that rather than at it.
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 
+// Venues drop a client that floods the socket with SUBSCRIBE messages. One
+// frame per tick is far under any of their allowances.
+constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
+
 // State every bybit connection shares within one gateway process. Single
 // threaded by contract: the gateway loop is the only caller, which is why
 // nothing here synchronises.
@@ -61,6 +65,13 @@ struct VenueState {
     std::vector<std::string> desired_topics;
 
     std::unordered_map<InstrumentId, BookSync> books;
+
+    // SUBSCRIBING IS RATE LIMITED TOO. A full catalogue is thousands of
+    // topics; sent in a loop on connect, as they were, the venue answers a
+    // fraction and drops the rest without saying so — measured at 25 of 150
+    // instruments ever quoting. Paced, the same 150 all quote.
+    std::vector<std::string> pending_subscribes;
+    std::uint64_t next_subscribe_ns{0};
     std::uint64_t next_app_ping_ns{0};
 
     std::int64_t clock_offset_ns{0};

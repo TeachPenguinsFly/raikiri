@@ -12,6 +12,7 @@
 #include <raikiri/venues/gate/rest.hpp>
 #include <raikiri/venues/gate/ws.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -28,6 +29,10 @@ namespace {
 // Gate closes a connection idle for 60 s of application traffic; the app ping
 // runs well inside that window.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
+
+// Venues drop a client that floods the socket with SUBSCRIBE messages. One
+// frame per tick is far under any of their allowances.
+constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
 
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
@@ -187,18 +192,24 @@ public:
         for (const auto& entry : state_->desired) {
             views.push_back({.channel = entry.channel, .contract = entry.contract});
         }
+        // THE QUOTE FIRST. Once the sends are paced, whatever goes last on a
+        // large catalogue effectively does not go at all — and book_ticker is
+        // the Bid/Ask column every screen shows.
+        std::ranges::stable_partition(
+            views, [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });
         const auto now_s = state_->now_s();
-        std::size_t sent = 0;
-        while (sent < views.size()) {
+        // QUEUED, not sent. The pacing lives in poll(); see state.hpp.
+        state_->pending_subscribes.clear();
+        state_->next_subscribe_ns = 0;
+        std::size_t built = 0;
+        while (built < views.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(sent), now_s);
+                std::span<const Subscription>{views}.subspan(built), now_s);
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
+            state_->pending_subscribes.emplace_back(frame->text);
+            built += frame->consumed;
         }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -285,11 +296,27 @@ public:
         return {};
     }
 
+    // One SUBSCRIBE per tick, well under the venue's allowance.
+    void drain_subscribes(UnixNanos now) noexcept {
+        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
+            return;
+        }
+        if (!client_.connected()) {
+            return; // the reconnect refills the queue
+        }
+        if (!client_.send(state_->pending_subscribes.front())) {
+            return; // wedged socket; the reconnect retries the whole set
+        }
+        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
+        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
+    }
+
     void poll(UnixNanos now) noexcept override {
         if (!started_) {
             return;
         }
         state_->io.poll();
+        drain_subscribes(now);
         if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
             (void)client_.send(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL));
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;

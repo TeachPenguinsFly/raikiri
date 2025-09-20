@@ -9,6 +9,7 @@
 #include <raikiri/venues/bybit/rest.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -103,17 +104,26 @@ public:
         for (const auto& topic : state_->desired_topics) {
             topics.push_back(topic);
         }
-        std::size_t sent = 0;
-        while (sent < topics.size()) {
+        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
+        // goes last on a large catalogue effectively does not go at all — and
+        // the top of book is the one column every screen shows.
+        // `orderbook.` carries the top of book AND the ladder on this venue —
+        // one topic feeds both the Bid/Ask columns and the depth panel — so it
+        // is the one that must not end up last.
+        std::ranges::stable_partition(
+            topics, [](std::string_view topic) { return topic.starts_with("orderbook."); });
+        // QUEUED, not sent. The pacing lives in poll(); see state.hpp.
+        state_->pending_subscribes.clear();
+        state_->next_subscribe_ns = 0;
+        std::size_t built = 0;
+        while (built < topics.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{topics}.subspan(sent));
+                std::span<const std::string_view>{topics}.subspan(built));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect will retry the whole set
-            }
-            sent += frame->consumed;
+            state_->pending_subscribes.emplace_back(frame->text);
+            built += frame->consumed;
         }
         // Books cannot survive a gap in the socket, let alone a reconnect.
         for (auto& [id, book] : state_->books) {
@@ -193,11 +203,29 @@ public:
         return {};
     }
 
+    // One SUBSCRIBE per tick, well under the venue's allowance. A catalogue of
+    // a few thousand topics therefore takes a few seconds to ask for, which is
+    // the price of the venue answering for all of them rather than a quarter.
+    void drain_subscribes(UnixNanos now) noexcept {
+        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
+            return;
+        }
+        if (!client_.connected()) {
+            return; // the reconnect refills the queue
+        }
+        if (!client_.send(state_->pending_subscribes.front())) {
+            return; // wedged socket; the reconnect retries the whole set
+        }
+        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
+        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
+    }
+
     void poll(UnixNanos now) noexcept override {
         if (!started_) {
             return;
         }
         state_->io.poll();
+        drain_subscribes(now);
         if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
             (void)client_.send(state_->protocol.ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
