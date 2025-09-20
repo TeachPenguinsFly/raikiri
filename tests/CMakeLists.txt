@@ -88,6 +88,7 @@ target_link_libraries(ws_client_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 
 raikiri_add_test(rest_client_test SRCS net/rest_client_test.cpp LIBS raikiri::net)
+raikiri_add_test(ws_pool_test SRCS net/ws_pool_test.cpp LIBS raikiri::net)
 target_link_libraries(rest_client_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 
