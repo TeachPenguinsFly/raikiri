@@ -28,6 +28,20 @@ same catalogue delivers: kucoin went from 30 books to 45 703, binance from 0 to
 
 Pacing does not raise the ceiling. That needs more connections.
 
+`net::WsPool` is that, and gate is the first venue on it. Measured against the
+live venue, one run of sixty seconds:
+
+| gate                | before  | on the pool |
+| ------------------- | ------: | ----------: |
+| instruments subscribed |    256 |     **979** |
+| subscriptions refused  |    723 |       **0** |
+| top of book in 60 s    |      — |      50 684 |
+| depth in 60 s          |      — |      19 539 |
+
+The catalogue stopped being a quarter of itself. What the pool spends for that
+is sockets — four for gate's 3916 channels at 1024 each — and a few seconds at
+startup, because the asks are paced per connection rather than fired at once.
+
 ## The pool
 
 A `WsPool` per adapter, holding N connections, each with a subscription set and
