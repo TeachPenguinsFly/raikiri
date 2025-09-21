@@ -19,10 +19,16 @@ public:
     ConnHandler(WsHandler& shared, OnOpen opened) : shared_{&shared}, opened_{std::move(opened)} {}
 
     void on_open() override {
+        // The pool re-asks for THIS connection's keys; the shared handler no
+        // longer resubscribes anything, which is what made forwarding safe.
         opened_();
-        // NOT forwarded to the shared handler. Its on_open replays the whole
-        // desired set — which is what the pool exists to stop happening on
-        // every socket. The pool re-asks per connection instead.
+        // AND IT MUST BE FORWARDED. Not forwarding it left the adapter's own
+        // on_open unreachable, and that is where a venue invalidates the depth
+        // books whose delta chain a reconnect has just broken. Invalidating on
+        // a socket whose books were fine costs a reseed; NOT invalidating one
+        // whose chain is gone serves a stale book as current, which is the
+        // failure this codebase refuses to have.
+        shared_->on_open();
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
