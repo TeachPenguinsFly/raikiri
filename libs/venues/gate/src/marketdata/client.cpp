@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
@@ -33,6 +34,11 @@ constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 // Venues drop a client that floods the socket with SUBSCRIBE messages. One
 // frame per tick is far under any of their allowances.
 constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
+
+// Enough sockets for gate's whole catalogue at 1024 channels each: 979
+// contracts times four channels is 3916, so four would do and eight leaves
+// room for the listings gate adds.
+constexpr std::size_t k_max_connections = 8;
 
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
@@ -182,35 +188,26 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// A pool key is one channel on one contract, joined by a byte neither can
+// contain. The pool stores keys as opaque strings and hands them back when a
+// socket reconnects, so this is the only place that knows the shape.
+constexpr char k_key_sep = '\x1f';
+
+[[nodiscard]] std::string key_of(std::string_view channel, std::string_view contract) {
+    std::string key{channel};
+    key.push_back(k_key_sep);
+    key.append(contract);
+    return key;
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
+    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
+    // own keys when it opens; replaying the whole desired set on every one of
+    // them is the flood the pool exists to avoid.
     void on_open() override {
-        std::vector<Subscription> views;
-        views.reserve(state_->desired.size());
-        for (const auto& entry : state_->desired) {
-            views.push_back({.channel = entry.channel, .contract = entry.contract});
-        }
-        // THE QUOTE FIRST. Once the sends are paced, whatever goes last on a
-        // large catalogue effectively does not go at all — and book_ticker is
-        // the Bid/Ask column every screen shows.
-        std::ranges::stable_partition(
-            views, [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });
-        const auto now_s = state_->now_s();
-        // QUEUED, not sent. The pacing lives in poll(); see state.hpp.
-        state_->pending_subscribes.clear();
-        state_->next_subscribe_ns = 0;
-        std::size_t built = 0;
-        while (built < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(built), now_s);
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            state_->pending_subscribes.emplace_back(frame->text);
-            built += frame->consumed;
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -224,40 +221,40 @@ public:
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
 private:
     VenueState* state_;
-    net::WsClient* client_{nullptr};
 };
 
 class GateData final : public exec::DataClient {
 public:
     explicit GateData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          client_{
-              state_->io,
-              net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
-                            .port = std::string{stream_port()},
-                            .target = std::string{private_path(state_->testnet, state_->market)}},
-              handler_} {
-        handler_.attach(client_);
-    }
+          pool_{state_->io,
+                net::WsConfig{.host = std::string{private_host(state_->testnet, state_->market)},
+                              .port = std::string{stream_port()},
+                              .target = std::string{private_path(state_->testnet, state_->market)}},
+                handler_,
+                // Gate caps a CONNECTION at 1024 channels; the pool turns that
+                // into a per-socket number instead of the process's ceiling.
+                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
+                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .max_connections = k_max_connections},
+                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
         state_->depth_rest.start();
-        client_.start();
+        pool_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        client_.stop();
+        pool_.stop();
         state_->depth_rest.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
@@ -276,39 +273,20 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
-        }
         const auto before = state_->desired.size();
         state_->add_subscription(channel, symbol);
         if (state_->desired.size() == before) {
-            return {};
+            return {}; // refcounting lives in the gateway core; this is a set
         }
-        if (client_.connected()) {
-            const std::array<Subscription, 1> one{
-                Subscription{.channel = channel, .contract = symbol}};
-            if (const auto frame = state_->protocol.subscribe_frame(one, state_->now_s());
-                frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        // THE POOL PLACES IT. A key that does not fit on any existing socket
+        // opens another, and only the pool's own ceiling refuses — which is
+        // said out loud rather than leaving the instrument silently unwatched.
+        const std::array<std::string, 1> one{key_of(channel, symbol)};
+        if (!pool_.subscribe(one)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "gate: connection pool is full")};
         }
         return {};
-    }
-
-    // One SUBSCRIBE per tick, well under the venue's allowance.
-    void drain_subscribes(UnixNanos now) noexcept {
-        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
-            return;
-        }
-        if (!client_.connected()) {
-            return; // the reconnect refills the queue
-        }
-        if (!client_.send(state_->pending_subscribes.front())) {
-            return; // wedged socket; the reconnect retries the whole set
-        }
-        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
-        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
     }
 
     void poll(UnixNanos now) noexcept override {
@@ -316,9 +294,9 @@ public:
             return;
         }
         state_->io.poll();
-        drain_subscribes(now);
-        if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
-            (void)client_.send(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL));
+        pool_.poll(now);
+        if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
+            pool_.broadcast(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL));
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
     }
@@ -326,7 +304,41 @@ public:
 private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
-    net::WsClient client_;
+
+    // Turns one connection's keys back into the frames that ask for them.
+    // Called on every open of that socket, which is why the quote channel is
+    // ordered first here rather than at subscribe time: on a reconnect the
+    // order that matters is the order the venue is asked in.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<Subscription> views;
+        views.reserve(keys.size());
+        for (const auto& key : keys) {
+            const auto cut = key.find(k_key_sep);
+            if (cut == std::string::npos) {
+                continue;
+            }
+            views.push_back({.channel = std::string_view{key}.substr(0, cut),
+                             .contract = std::string_view{key}.substr(cut + 1)});
+        }
+        std::ranges::stable_partition(
+            views, [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });
+
+        std::vector<std::string> frames;
+        const auto now_s = state_->now_s();
+        std::size_t built = 0;
+        while (built < views.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const Subscription>{views}.subspan(built), now_s);
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
+        }
+        return frames;
+    }
+
+    net::WsPool pool_;
     bool started_{false};
 };
 

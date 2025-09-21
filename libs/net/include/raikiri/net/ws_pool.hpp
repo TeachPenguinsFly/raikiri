@@ -84,6 +84,11 @@ public:
     // and is reported rather than silently dropped.
     [[nodiscard]] bool subscribe(std::span<const std::string> keys);
 
+    // Sends one frame on EVERY connection. For the keepalive a venue expects
+    // per socket: a ping on one of four sockets leaves the other three looking
+    // idle, and an idle socket is one the venue closes.
+    void broadcast(std::string_view text) noexcept;
+
     // Drains one paced send per connection. Call it from the adapter's poll,
     // beside the io context.
     void poll(UnixNanos now) noexcept;

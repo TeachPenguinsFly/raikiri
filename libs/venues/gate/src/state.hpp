@@ -85,13 +85,6 @@ struct VenueState {
 
     std::vector<OwnedSubscription> desired;
 
-    // SUBSCRIBING IS RATE LIMITED TOO. A full catalogue is thousands of
-    // channels; sent in a loop on connect, as they were, the venue answers a
-    // fraction and drops the rest silently — measured at 25 of 150 instruments
-    // ever quoting.
-    std::vector<std::string> pending_subscribes;
-    std::uint64_t next_subscribe_ns{0};
-
     std::uint64_t next_app_ping_ns{0};
 
     // Venue clock offset, measured against /api/v4/spot/time.

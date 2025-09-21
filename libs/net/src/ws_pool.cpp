@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 namespace raikiri::net {
@@ -130,6 +131,14 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
         impl.refill(*target);
     }
     return true;
+}
+
+void WsPool::broadcast(std::string_view text) noexcept {
+    for (const auto& conn : impl_->conns) {
+        if (conn->client->connected()) {
+            (void)conn->client->send(text);
+        }
+    }
 }
 
 void WsPool::poll(UnixNanos now) noexcept {
