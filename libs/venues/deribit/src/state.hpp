@@ -8,7 +8,6 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
-#include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
@@ -106,9 +105,10 @@ void sync_clock(VenueState& state, net::RestClient& rest);
 // ONE dialect for both sockets. Deribit speaks JSON-RPC on the public and the
 // private connection alike, so the parser belongs to neither client and lives
 // in its own unit rather than being copied into both.
-void handle_frame(VenueState& state,
-                  net::WsClient& client,
-                  std::string_view frame,
-                  UnixNanos received);
+//
+// True when the frame was a test_request. The answer must go back on the
+// SOCKET that asked and this reader is not told which one that was, so the
+// caller sends it: the private stream has one, the market-data pool several.
+[[nodiscard]] bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received);
 
 } // namespace raikiri::venues::deribit::detail

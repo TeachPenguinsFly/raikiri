@@ -57,7 +57,11 @@ public:
                 return;
             }
         }
-        handle_frame(*state_, *client_, payload, received);
+        if (handle_frame(*state_, payload, received)) {
+            // An unanswered test_request costs the connection, and this socket
+            // answers on its own id sequence.
+            (void)client_->send(state_->private_protocol.test_frame().text);
+        }
     }
 
     void on_close(net::WsCloseReason) override {

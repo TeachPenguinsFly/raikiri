@@ -3,7 +3,6 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
-#include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
@@ -95,19 +94,16 @@ void handle_changes(VenueState& state, std::string_view frame, UnixNanos receive
 
 } // namespace
 
-void handle_frame(VenueState& state,
-                  net::WsClient& client,
-                  std::string_view frame,
-                  UnixNanos received) {
+bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
-        return; // unknown shapes are ignored, never fatal
+        return false; // unknown shapes are ignored, never fatal
     }
     switch (event->kind) {
     case EventKind::Bbo: {
         const auto wire = parse_bbo(frame);
         if (!wire.has_value()) {
-            return;
+            return false;
         }
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
@@ -118,7 +114,7 @@ void handle_frame(VenueState& state,
         static thread_local TradeBuffer trades;
         const auto wire = parse_trades(frame, trades);
         if (!wire.has_value()) {
-            return;
+            return false;
         }
         for (const auto& entry : *wire) {
             if (const auto trade = map_trade(entry, state.instruments, received);
@@ -131,7 +127,7 @@ void handle_frame(VenueState& state,
     case EventKind::Ticker: {
         const auto wire = parse_ticker(frame);
         if (!wire.has_value()) {
-            return;
+            return false;
         }
         // Dated futures share this channel and quote no funding at all, and
         // options carry greeks instead. One ticker, three kinds of row.
@@ -156,15 +152,13 @@ void handle_frame(VenueState& state,
         handle_changes(state, frame, received);
         break;
     case EventKind::Heartbeat:
-        // An unanswered test_request costs the connection.
-        if (event->needs_test_reply) {
-            (void)client.send(state.protocol.test_frame().text);
-        }
-        break;
+        // An unanswered test_request costs the connection, and only the caller
+        // knows which socket to answer on.
+        return event->needs_test_reply;
     case EventKind::Response: {
         const auto response = parse_response(frame);
         if (!response.has_value()) {
-            return;
+            return false;
         }
         if (response->failed()) {
             state.last_error_code = response->error_code;
@@ -176,6 +170,7 @@ void handle_frame(VenueState& state,
     case EventKind::Unknown:
         break;
     }
+    return false;
 }
 
 } // namespace raikiri::venues::deribit::detail
