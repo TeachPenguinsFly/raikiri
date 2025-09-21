@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/bybit/book.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
 #include <raikiri/venues/bybit/envelope.hpp>
@@ -20,6 +21,11 @@
 
 namespace raikiri::venues::bybit::detail {
 namespace {
+
+// Enough sockets for bybit's whole catalogue at 512 topics each: 855 linear
+// listings times three topics — orderbook, publicTrade and tickers — is 2565,
+// so six would do and eight leaves room for the listings bybit adds.
+constexpr std::size_t k_max_connections = 8;
 
 // Routes one public frame. Kept separate from the client so the dispatch is
 // testable without a socket.
@@ -98,33 +104,10 @@ class PublicHandler final : public net::WsHandler {
 public:
     PublicHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
 
+    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
+    // own topics when it opens; replaying the whole desired set on every one of
+    // them is the flood the pool exists to avoid.
     void on_open() override {
-        std::vector<std::string_view> topics;
-        topics.reserve(state_->desired_topics.size());
-        for (const auto& topic : state_->desired_topics) {
-            topics.push_back(topic);
-        }
-        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
-        // goes last on a large catalogue effectively does not go at all — and
-        // the top of book is the one column every screen shows.
-        // `orderbook.` carries the top of book AND the ladder on this venue —
-        // one topic feeds both the Bid/Ask columns and the depth panel — so it
-        // is the one that must not end up last.
-        std::ranges::stable_partition(
-            topics, [](std::string_view topic) { return topic.starts_with("orderbook."); });
-        // QUEUED, not sent. The pacing lives in poll(); see state.hpp.
-        state_->pending_subscribes.clear();
-        state_->next_subscribe_ns = 0;
-        std::size_t built = 0;
-        while (built < topics.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{topics}.subspan(built));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            state_->pending_subscribes.emplace_back(frame->text);
-            built += frame->consumed;
-        }
         // Books cannot survive a gap in the socket, let alone a reconnect.
         for (auto& [id, book] : state_->books) {
             book.invalidate();
@@ -145,14 +128,11 @@ public:
                                        .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
     [[nodiscard]] MarketType market() const noexcept { return market_; }
 
 private:
     VenueState* state_;
     MarketType market_;
-    net::WsClient* client_{nullptr};
 };
 
 // Private order/execution socket.
@@ -160,26 +140,30 @@ class BybitData final : public exec::DataClient {
 public:
     BybitData(std::shared_ptr<VenueState> state, MarketType market)
         : state_{std::move(state)}, handler_{*state_, market},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{host(state_->testnet)},
-                                .port = "443",
-                                .target = std::string{public_stream_path(market)}},
-                  handler_} {
-        handler_.attach(client_);
-    }
+          pool_{state_->io,
+                net::WsConfig{.host = std::string{host(state_->testnet)},
+                              .port = "443",
+                              .target = std::string{public_stream_path(market)}},
+                handler_,
+                // Bybit caps one CONNECTION's args array, not the process; the
+                // pool turns that into a per-socket number.
+                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
+                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .max_connections = k_max_connections},
+                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
-        client_.start();
+        pool_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        client_.stop();
+        pool_.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
@@ -193,31 +177,20 @@ public:
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
+        const auto before = state_->desired_topics.size();
         state_->add_topic(topic);
-        if (client_.connected()) {
-            const std::array<std::string_view, 1> one{topic};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        if (state_->desired_topics.size() == before) {
+            return {}; // Bbo and Depth are ONE `orderbook.` topic here, not two
+        }
+        // THE POOL PLACES IT. A topic that does not fit on any existing socket
+        // opens another, and only the pool's own ceiling refuses — which is
+        // said out loud rather than leaving the instrument silently unwatched.
+        const std::array<std::string, 1> one{std::string{topic}};
+        if (!pool_.subscribe(one)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "bybit: connection pool is full")};
         }
         return {};
-    }
-
-    // One SUBSCRIBE per tick, well under the venue's allowance. A catalogue of
-    // a few thousand topics therefore takes a few seconds to ask for, which is
-    // the price of the venue answering for all of them rather than a quarter.
-    void drain_subscribes(UnixNanos now) noexcept {
-        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
-            return;
-        }
-        if (!client_.connected()) {
-            return; // the reconnect refills the queue
-        }
-        if (!client_.send(state_->pending_subscribes.front())) {
-            return; // wedged socket; the reconnect retries the whole set
-        }
-        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
-        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
     }
 
     void poll(UnixNanos now) noexcept override {
@@ -225,9 +198,9 @@ public:
             return;
         }
         state_->io.poll();
-        drain_subscribes(now);
-        if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
-            (void)client_.send(state_->protocol.ping_frame());
+        pool_.poll(now);
+        if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
+            pool_.broadcast(state_->protocol.ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
     }
@@ -235,7 +208,41 @@ public:
 private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
-    net::WsClient client_;
+
+    // A pool key is one topic string. Bybit's desired set is already a flat
+    // list of topics, so nothing is encoded into the key and taken apart here.
+    //
+    // Called on every open of ONE socket, which is why the ordering lives here
+    // rather than at subscribe time: on a reconnect the order that matters is
+    // the order the venue is asked in.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<std::string_view> topics;
+        topics.reserve(keys.size());
+        for (const auto& key : keys) {
+            topics.push_back(key);
+        }
+        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
+        // goes last effectively does not go at all — and `orderbook.` carries
+        // the top of book AND the ladder on this venue, one topic feeding both
+        // the Bid/Ask columns and the depth panel.
+        std::ranges::stable_partition(
+            topics, [](std::string_view topic) { return topic.starts_with("orderbook."); });
+
+        std::vector<std::string> frames;
+        std::size_t built = 0;
+        while (built < topics.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const std::string_view>{topics}.subspan(built));
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
+        }
+        return frames;
+    }
+
+    net::WsPool pool_;
     bool started_{false};
 };
 

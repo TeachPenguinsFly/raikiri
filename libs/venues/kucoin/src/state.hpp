@@ -106,14 +106,6 @@ struct VenueState {
                                net::RestConfig{.host = std::string{rest_host()}, .port = "443"}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
-    // SUBSCRIBING IS RATE LIMITED TOO. KuCoin allows about ten messages a
-    // second on a connection, and a full catalogue is many batched SUBSCRIBE
-    // frames. Sent in a loop on connect, as they were, the venue answered a
-    // handful of books and nothing more — trades kept arriving, which is what
-    // made it look like a live socket rather than a refused subscription.
-    std::vector<std::string> pending_subscribes;
-    std::uint64_t next_subscribe_ns{0};
-
     std::uint64_t app_ping_interval_ns{k_default_ping_ms * 1'000'000ULL};
     std::uint64_t next_app_ping_ns{0};
 

@@ -3,6 +3,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
 #include <raikiri/venues/kucoin/catalogue.hpp>
 #include <raikiri/venues/kucoin/envelope.hpp>
@@ -37,6 +38,12 @@ constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 // KuCoin allows about ten messages a second on a connection; five leaves room
 // for the application ping sharing the same budget.
 constexpr std::uint64_t k_subscribe_spacing_ns = 120ULL * 1'000'000ULL;
+
+// Enough sockets for KuCoin's whole catalogue at 1024 keys each: 673 perpetual
+// contracts times four topics is 2692, so three would do and six leaves room
+// for the contracts KuCoin lists. Far under the fifty connections a user id is
+// allowed, which is the ceiling that would actually hurt to trip.
+constexpr std::size_t k_max_connections = 6;
 
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
@@ -198,52 +205,28 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// A pool key is one topic on one symbol, joined by a byte neither can contain.
+// The pool stores keys as opaque strings and hands them back when a socket
+// reconnects, so this is the only place that knows the shape.
+constexpr char k_key_sep = '\x1f';
+
+[[nodiscard]] std::string key_of(std::string_view topic, std::string_view symbol) {
+    std::string key{topic};
+    key.push_back(k_key_sep);
+    key.append(symbol);
+    return key;
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
+    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
+    // own keys when it opens; replaying the whole desired set on every one of
+    // them is the flood the pool exists to avoid. The pool does not forward a
+    // connection's open either, so the caller invokes this once per stream —
+    // that is, once per bullet, since the token lives in the URL.
     void on_open() override {
-        std::vector<Subscription> views;
-        views.reserve(state_->desired.size());
-        for (const auto& entry : state_->desired) {
-            views.push_back({.topic = entry.topic, .symbol = entry.symbol});
-        }
-        // GROUPED BY TOPIC so a frame batches, but ordered by what a screen
-        // needs FIRST. Sorted lexicographically, tickerV2 — the top of book —
-        // came last of the four, and once the sends are paced that meant the
-        // one column everybody looks at was the last to arrive and, on a large
-        // catalogue, did not arrive at all.
-        const auto rank = [](std::string_view topic) {
-            if (topic.ends_with("tickerV2") || topic.ends_with("/market/ticker")) {
-                return 0; // the quote
-            }
-            if (topic.ends_with("instrument")) {
-                return 1; // funding and the mark
-            }
-            if (topic.ends_with("execution") || topic.ends_with("match")) {
-                return 2; // prints
-            }
-            return 3; // the ladder, which only the open market draws
-        };
-        std::ranges::sort(views, [&rank](const Subscription& a, const Subscription& b) {
-            const auto ra = rank(a.topic);
-            const auto rb = rank(b.topic);
-            return ra != rb ? ra < rb : a.topic < b.topic;
-        });
-        // QUEUED, not sent. The pacing lives in poll(); see state.hpp for what
-        // sending them all at once cost.
-        state_->pending_subscribes.clear();
-        state_->next_subscribe_ns = 0;
-        std::size_t built = 0;
-        while (built < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(built));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            state_->pending_subscribes.emplace_back(frame->text);
-            built += frame->consumed;
-        }
         // The sequence the old book stopped at says nothing about where this
         // subscription resumes, so every book goes back to wanting a seed.
         for (auto& [id, book] : state_->books) {
@@ -265,11 +248,8 @@ public:
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient* client) noexcept { client_ = client; }
-
 private:
     VenueState* state_;
-    net::WsClient* client_{nullptr};
 };
 
 class KucoinData final : public exec::DataClient {
@@ -287,11 +267,10 @@ public:
     }
 
     void stop() override {
-        if (client_) {
-            client_->stop();
-            client_.reset();
+        if (pool_) {
+            pool_->stop();
+            pool_.reset();
         }
-        handler_.attach(nullptr);
         state_->reopen_due = false;
         rest_.stop();
         state_->depth_rest.stop();
@@ -299,7 +278,7 @@ public:
     }
 
     [[nodiscard]] bool connected() const noexcept override {
-        return client_ != nullptr && client_->connected();
+        return pool_ != nullptr && pool_->connected();
     }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
@@ -318,15 +297,18 @@ public:
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
-        }
+        const auto before = state_->desired.size();
         state_->add_subscription(topic, symbol);
-        if (client_ != nullptr && client_->connected()) {
-            const std::array<Subscription, 1> one{Subscription{.topic = topic, .symbol = symbol}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_->send(frame->text);
+        // Funding and the mark share /contract/instrument, so the second of the
+        // two adds no key — and must still reach the seed below.
+        if (state_->desired.size() != before && pool_ != nullptr) {
+            // THE POOL PLACES IT. A key that fits on no existing socket opens
+            // another, and only the pool's own ceiling refuses — which is said
+            // out loud rather than leaving the instrument silently unwatched.
+            const std::array<std::string, 1> one{key_of(topic, symbol)};
+            if (!pool_->subscribe(one)) {
+                return std::unexpected{exec::VenueError::make(
+                    exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
             }
         }
         if (kind == exec::SubKind::Funding) {
@@ -345,10 +327,15 @@ public:
             reopen();
         }
         state_->io.poll();
-        drain_subscribes(now);
+        if (pool_) {
+            pool_->poll(now);
+        }
         if (connected() && now.ns >= state_->next_app_ping_ns) {
             if (const auto frame = state_->protocol.ping_frame(); !frame.empty()) {
-                (void)client_->send(frame);
+                // EVERY socket. KuCoin closes a connection whose application
+                // ping stops arriving, so pinging one of six kills the other
+                // five a ping interval later.
+                pool_->broadcast(frame);
             }
             state_->next_app_ping_ns = now.ns + state_->app_ping_interval_ns;
         }
@@ -406,19 +393,56 @@ public:
     }
 
 private:
-    // One SUBSCRIBE per tick, well under the venue's allowance.
-    void drain_subscribes(UnixNanos now) noexcept {
-        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
-            return;
+    // Turns one connection's keys back into the frames that ask for them.
+    // Called on every open of that socket, which is why the ordering lives
+    // here rather than at subscribe time: on a reconnect the order that
+    // matters is the order the venue is asked in.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<Subscription> views;
+        views.reserve(keys.size());
+        for (const auto& key : keys) {
+            const auto cut = key.find(k_key_sep);
+            if (cut == std::string::npos) {
+                continue;
+            }
+            views.push_back({.topic = std::string_view{key}.substr(0, cut),
+                             .symbol = std::string_view{key}.substr(cut + 1)});
         }
-        if (!connected()) {
-            return; // the reconnect refills the queue
+        // GROUPED BY TOPIC so a frame batches, but ordered by what a screen
+        // needs FIRST. Sorted lexicographically, tickerV2 — the top of book —
+        // came last of the four, and once the sends are paced that meant the
+        // one column everybody looks at was the last to arrive and, on a large
+        // catalogue, did not arrive at all.
+        const auto rank = [](std::string_view topic) {
+            if (topic.ends_with("tickerV2") || topic.ends_with("/market/ticker")) {
+                return 0; // the quote
+            }
+            if (topic.ends_with("instrument")) {
+                return 1; // funding and the mark
+            }
+            if (topic.ends_with("execution") || topic.ends_with("match")) {
+                return 2; // prints
+            }
+            return 3; // the ladder, which only the open market draws
+        };
+        std::ranges::sort(views, [&rank](const Subscription& a, const Subscription& b) {
+            const auto ra = rank(a.topic);
+            const auto rb = rank(b.topic);
+            return ra != rb ? ra < rb : a.topic < b.topic;
+        });
+
+        std::vector<std::string> frames;
+        std::size_t built = 0;
+        while (built < views.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const Subscription>{views}.subspan(built));
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
         }
-        if (!client_->send(state_->pending_subscribes.front())) {
-            return; // wedged socket; the reconnect retries the whole set
-        }
-        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
-        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
+        return frames;
     }
 
     void reopen() noexcept {
@@ -454,16 +478,45 @@ private:
         }
         state_->next_app_ping_ns = 0;
 
-        if (client_) {
-            client_->stop();
+        if (pool_) {
+            pool_->stop();
         }
-        client_ = std::make_unique<net::WsClient>(state_->io,
-                                                  net::WsConfig{.host = endpoint->host,
-                                                                .port = endpoint->port,
-                                                                .target = endpoint->target},
-                                                  handler_);
-        handler_.attach(client_.get());
-        client_->start();
+        // ONE BULLET FOR THE WHOLE POOL, and the token and connect id sit in
+        // the target every socket is built from. KuCoin wants a connect id per
+        // connection, so the sockets here present the same one; giving each its
+        // own needs a per-connection config on net::WsPool, which this venue
+        // cannot add on its own. What keeps it honest meanwhile: the pool opens
+        // its sockets within a second of the mint, and a token the venue
+        // refuses answers 401, which schedules the reopen that mints again.
+        pool_ = std::make_unique<net::WsPool>(
+            state_->io,
+            net::WsConfig{
+                .host = endpoint->host, .port = endpoint->port, .target = endpoint->target},
+            handler_,
+            // KuCoin's own ceiling is 100 TOPICS, and batching keeps that at
+            // one per kind — so this bounds our bookkeeping per socket.
+            net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
+                              .send_spacing_ns = k_subscribe_spacing_ns,
+                              .max_connections = k_max_connections},
+            [this](std::span<const std::string> keys) { return build_frames(keys); });
+        pool_->start();
+
+        // The desired set outlives the pool the bullet expiry throws away, so
+        // it is placed again here — including whatever subscribe() recorded
+        // while there was no pool to place it on.
+        std::vector<std::string> keys;
+        keys.reserve(state_->desired.size());
+        for (const auto& entry : state_->desired) {
+            keys.push_back(key_of(entry.topic, entry.symbol));
+        }
+        if (!keys.empty() && !pool_->subscribe(keys)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
+        }
+        // The handler's own on_open is NOT called here. The pool forwards it
+        // per connection, which is what invalidates the books whose delta
+        // chain that connection's reconnect has just broken; calling it here
+        // as well would fire the connectivity event once per stream on top.
         return {};
     }
 
@@ -499,7 +552,7 @@ private:
     std::vector<InstrumentId> wanted_;
     std::uint64_t next_ticker_poll_ns_{0};
     bool ticker_in_flight_{false};
-    std::unique_ptr<net::WsClient> client_;
+    std::unique_ptr<net::WsPool> pool_;
     bool started_{false};
 };
 

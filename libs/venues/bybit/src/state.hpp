@@ -66,12 +66,6 @@ struct VenueState {
 
     std::unordered_map<InstrumentId, BookSync> books;
 
-    // SUBSCRIBING IS RATE LIMITED TOO. A full catalogue is thousands of
-    // topics; sent in a loop on connect, as they were, the venue answers a
-    // fraction and drops the rest without saying so — measured at 25 of 150
-    // instruments ever quoting. Paced, the same 150 all quote.
-    std::vector<std::string> pending_subscribes;
-    std::uint64_t next_subscribe_ns{0};
     std::uint64_t next_app_ping_ns{0};
 
     std::int64_t clock_offset_ns{0};
