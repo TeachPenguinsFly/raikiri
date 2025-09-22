@@ -1,0 +1,4 @@
+# Playwright's run artefacts: traces kept from a failed e2e run, and the HTML
+# report generated beside them.
+test-results/
+playwright-report/
