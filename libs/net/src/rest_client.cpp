@@ -214,6 +214,17 @@ public:
 
     [[nodiscard]] std::size_t in_flight() const noexcept { return dispatched_ + queue_.size(); }
 
+    // Whether a send would be taken at all. Asked BEFORE the admission gate,
+    // so a request the pool was always going to refuse never spends a venue's
+    // allowance: a cold depth book re-asks for its seed on every delta frame,
+    // and across hundreds of contracts that is a kilohertz of refused sends
+    // pinning the budget at its reserve floor — starving the calls market data
+    // cannot go without, like a token re-mint.
+    [[nodiscard]] bool has_room() const noexcept {
+        return !dead_ && (find_free_slot() != k_no_slot ||
+                          queue_.size() < slots_.size() * k_queue_depth_per_conn);
+    }
+
     void keepalive(UnixNanos now) {
         if (dead_) {
             return;
@@ -588,6 +599,12 @@ void RestClient::stop() {
 }
 
 bool RestClient::send(const RestRequest& request, RestCallback on_complete) {
+    // ROOM FIRST, THEN THE BUDGET. Spending an allowance on a request that has
+    // nowhere to go is how a retry storm starves the calls that matter; see
+    // RestPool::has_room.
+    if (!impl_->pool->has_room()) {
+        return false;
+    }
     if (impl_->admit && !impl_->admit(request.target)) {
         return false; // over budget; the caller's next tick asks again
     }

@@ -54,6 +54,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -650,6 +651,36 @@ private:
 // prints every request as it completes, which is far too loud to leave on.
 class RequestLedger {
 public:
+    // A segment naming an INSTRUMENT is collapsed; a segment naming the API is
+    // not. Venue symbols here are upper case — XBTUSDTM, BTC-USDT-SWAP — and
+    // no endpoint name is, while an api version is `v1` and must survive.
+    // Getting this backwards is easy and was: keying on "contains a digit"
+    // collapsed the version and kept every symbol, which is the 313-row tally
+    // this exists to prevent.
+    [[nodiscard]] static bool names_an_instrument(std::string_view segment) noexcept {
+        if (segment.size() < 3) {
+            return false; // `v1`, `q`, and anything else too short to be a symbol
+        }
+        return std::ranges::none_of(segment, [](unsigned char c) { return std::islower(c) != 0; });
+    }
+
+    [[nodiscard]] static std::string collapse(std::string_view path) {
+        std::string out;
+        out.reserve(path.size());
+        std::size_t at = 0;
+        while (at <= path.size()) {
+            const auto end = std::min(path.find('/', at), path.size());
+            const auto segment = path.substr(at, end - at);
+            out.append(names_an_instrument(segment) ? std::string_view{"{symbol}"} : segment);
+            if (end == path.size()) {
+                break;
+            }
+            out.push_back('/');
+            at = end + 1;
+        }
+        return out;
+    }
+
     RequestLedger() : verbose_{std::getenv("RAIKIRI_LOG_REQUESTS") != nullptr} {}
 
     void observe(std::string_view host,
@@ -657,10 +688,13 @@ public:
                  int status,
                  std::uint64_t elapsed_ns,
                  std::string_view account) {
-        // Keyed on the PATH, not the full target: a query string carries
-        // symbols and cursors, and one row per symbol would bury the endpoint
-        // that actually cost the allowance.
-        const auto path = target.substr(0, target.find('?'));
+        // Keyed on the SHAPE of the path, not the path. A query string carries
+        // symbols and cursors — and some venues put the symbol in the path
+        // itself, which turned this tally into 313 rows of
+        // `/funding-rate/<symbol>/current` and buried the endpoint that
+        // actually cost the allowance. A segment that names an instrument is
+        // collapsed so the endpoint is what gets counted.
+        const auto path = collapse(target.substr(0, target.find('?')));
         const std::lock_guard lock{mu_};
         auto& row = spent_[std::string{host}.append(path)];
         ++row.calls;
