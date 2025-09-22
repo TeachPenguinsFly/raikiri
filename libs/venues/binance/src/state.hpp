@@ -60,22 +60,15 @@ struct VenueState {
     std::vector<InstrumentId> funding_instruments;
     std::uint64_t next_funding_poll_ns{0};
 
-    // SUBSCRIBING IS RATE LIMITED TOO. Binance closes a connection that sends
-    // more than a handful of messages a second, and a full catalogue is 1024
-    // streams — 32 SUBSCRIBE frames at 32 streams each. Sent in a loop on
-    // connect, as they were, the venue dropped us and the reconnect did it
-    // again: the gateway announced 342 instruments and then delivered zero
-    // books, zero trades and zero depth, for as long as it ran.
-    // BOOK SEEDS ARE THE EXPENSIVE ONES. /fapi/v1/depth?limit=1000 is weight
-    // 20 and every subscribed instrument wants one the moment its first delta
-    // arrives — 342 of them at once is 6840 weight against an allowance of
-    // 2400 a minute, which is how this process earned an IP ban twice in a day
-    // from traffic no counter in it could see.
+    // BOOK SEEDS ARE THE EXPENSIVE ONES, and they are REST, not the socket:
+    // the pool paces SUBSCRIBE frames, and nothing it does paces these.
+    // /fapi/v1/depth?limit=1000 is weight 20 and every subscribed instrument
+    // wants one the moment its first delta arrives — 342 of them at once is
+    // 6840 weight against an allowance of 2400 a minute, which is how this
+    // process earned an IP ban twice in a day from traffic no counter in it
+    // could see.
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
-
-    std::vector<std::string> pending_subscribes;
-    std::uint64_t next_subscribe_ns{0};
 
     // Venue clock offset, measured against /fapi/v1/time.
     std::int64_t clock_offset_ns{0};

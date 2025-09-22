@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
@@ -36,8 +37,16 @@ namespace {
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
 // Binance drops a connection that sends more than about five messages a
-// second. Four a second leaves room for the pings sharing the same budget.
+// second, counted per socket. Four a second leaves room for the pings sharing
+// the same budget.
 constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
+
+// Enough sockets for binance's whole catalogue at 1024 streams each: 571 USD-M
+// listings times the three streams the gateway asks for — @bookTicker, @trade
+// and @depth@100ms — is 1713, so two would do and four leaves room for the
+// listings binance adds. Funding is not a fourth: @markPrice is acknowledged
+// here and then never sends, so the rate is pulled over REST instead.
+constexpr std::size_t k_max_connections = 4;
 
 // A book seed is weight 20 here; see state.hpp.
 constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
@@ -190,26 +199,10 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
+    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
+    // own streams when it opens; replaying the whole desired set on every one
+    // of them is the flood the pool exists to avoid.
     void on_open() override {
-        std::vector<std::string_view> streams;
-        streams.reserve(state_->desired_streams.size());
-        for (const auto& stream : state_->desired_streams) {
-            streams.push_back(stream);
-        }
-        // QUEUED, not sent. The pacing lives in poll(); see state.hpp for what
-        // sending them all at once cost.
-        state_->pending_subscribes.clear();
-        state_->next_subscribe_ns = 0;
-        std::size_t built = 0;
-        while (built < streams.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{streams}.subspan(built));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            state_->pending_subscribes.emplace_back(frame->text);
-            built += frame->consumed;
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -223,39 +216,42 @@ public:
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
 private:
     VenueState* state_;
-    net::WsClient* client_{nullptr};
 };
 
 class BinanceData final : public exec::DataClient {
 public:
     explicit BinanceData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host(state_->testnet)},
-                                .port = "443",
-                                .target = std::string{stream_path()}},
-                  handler_} {
-        handler_.attach(client_);
-    }
+          pool_{state_->io,
+                net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                              .port = "443",
+                              .target = std::string{stream_path()}},
+                handler_,
+                // Binance caps one CONNECTION at 1024 streams; the pool turns
+                // that into a per-socket number instead of the process's,
+                // which is what left 342 of 571 listings subscribed and 229
+                // refused outright.
+                net::WsPoolConfig{.max_keys_per_connection = k_max_streams_per_connection,
+                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .max_connections = k_max_connections},
+                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
         state_->depth_rest.start();
-        client_.start();
+        pool_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        client_.stop();
+        pool_.stop();
         state_->depth_rest.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
@@ -278,16 +274,18 @@ public:
         if (stream.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired_streams.size() >= k_max_streams_per_connection) {
-            return std::unexpected{
-                exec::VenueError::make(exec::ErrorClass::Terminal, 0, "stream limit reached")};
-        }
+        const auto before = state_->desired_streams.size();
         state_->add_stream(stream);
-        if (client_.connected()) {
-            const std::array<std::string_view, 1> one{stream};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        if (state_->desired_streams.size() == before) {
+            return {}; // already placed on a socket; a stream is asked for once
+        }
+        // THE POOL PLACES IT. A stream that does not fit on any existing socket
+        // opens another, and only the pool's own ceiling refuses — which is
+        // said out loud rather than leaving the instrument silently unwatched.
+        const std::array<std::string, 1> one{std::string{stream}};
+        if (!pool_.subscribe(one)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "binance: connection pool is full")};
         }
         return {};
     }
@@ -297,7 +295,7 @@ public:
             return;
         }
         state_->io.poll();
-        drain_subscribes(now);
+        pool_.poll(now);
         drain_seeds(now);
         poll_funding(now);
         poll_ticker(now);
@@ -330,23 +328,6 @@ private:
         }
         state_->pending_seeds.erase(state_->pending_seeds.begin());
         state_->next_seed_ns = now.ns + k_seed_spacing_ns;
-    }
-
-    // One SUBSCRIBE per tick, well under the venue's allowance. A catalogue of
-    // 1024 streams therefore takes about eight seconds to ask for, which is
-    // the price of the venue answering at all.
-    void drain_subscribes(UnixNanos now) noexcept {
-        if (state_->pending_subscribes.empty() || now.ns < state_->next_subscribe_ns) {
-            return;
-        }
-        if (!client_.connected()) {
-            return; // the reconnect refills the queue
-        }
-        if (!client_.send(state_->pending_subscribes.front())) {
-            return; // wedged socket; the reconnect retries the whole set
-        }
-        state_->pending_subscribes.erase(state_->pending_subscribes.begin());
-        state_->next_subscribe_ns = now.ns + k_subscribe_spacing_ns;
     }
 
     // One call covers every symbol, so there is no cursor and no per-symbol
@@ -449,9 +430,44 @@ private:
         }
     }
 
+    // A pool key is one stream string. Binance's desired set is already a flat
+    // list of stream names, so nothing is encoded into the key and taken apart
+    // here.
+    //
+    // Called on every open of ONE socket, which is why the ordering lives here
+    // rather than at subscribe time: on a reconnect the order that matters is
+    // the order the venue is asked in. One frame carries at most
+    // k_max_streams_per_frame, so a full socket is 32 frames and eight seconds.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<std::string_view> streams;
+        streams.reserve(keys.size());
+        for (const auto& key : keys) {
+            streams.push_back(key);
+        }
+        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
+        // goes last effectively does not go at all — and `@bookTicker` is this
+        // venue's top of book: it is the suffix stream_name() builds for
+        // SubKind::Bbo, and it feeds the Bid/Ask columns every screen shows.
+        std::ranges::stable_partition(
+            streams, [](std::string_view stream) { return stream.ends_with("@bookTicker"); });
+
+        std::vector<std::string> frames;
+        std::size_t built = 0;
+        while (built < streams.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const std::string_view>{streams}.subspan(built));
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
+        }
+        return frames;
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
-    net::WsClient client_;
+    net::WsPool pool_;
     bool started_{false};
     bool in_flight_{false};
     bool ticker_in_flight_{false};
