@@ -67,8 +67,26 @@ public:
     // which is why it takes the keys rather than closing over them.
     using BuildFrames = std::function<std::vector<std::string>(std::span<const std::string> keys)>;
 
-    WsPool(
-        IoContext& io, WsConfig config, WsHandler& handler, WsPoolConfig pool, BuildFrames build);
+    // Told when ONE connection opens, and told WHICH KEYS it carries.
+    //
+    // A depth book is fed by exactly one socket, so a socket that reopens has
+    // broken the delta chain of its own books and of nobody else's. Without
+    // the keys an adapter can only invalidate every book it holds: on a pool
+    // of eight, one socket blinking would resynchronise all of them, and on a
+    // venue that reseeds over REST that is precisely the request burst that
+    // has already earned this process an IP ban. On a venue with no REST
+    // reseed it is worse — the books that were fine are simply lost.
+    //
+    // Called on the first open and on every reopen, after the connection's own
+    // subscriptions have been queued.
+    using OnConnectionOpen = std::function<void(std::span<const std::string> keys)>;
+
+    WsPool(IoContext& io,
+           WsConfig config,
+           WsHandler& handler,
+           WsPoolConfig pool,
+           BuildFrames build,
+           OnConnectionOpen opened = nullptr);
     ~WsPool();
     WsPool(const WsPool&) = delete;
     WsPool& operator=(const WsPool&) = delete;

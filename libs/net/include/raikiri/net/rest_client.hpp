@@ -123,6 +123,19 @@ public:
 
     [[nodiscard]] bool send(const RestRequest& request, RestCallback on_complete);
 
+    // ASKED BEFORE EVERY SEND, and a false refuses the request.
+    //
+    // The order path spends a RateBudget; the market-data pools spent nothing,
+    // and their traffic was invisible to every counter in the process. That is
+    // what banned this IP twice on 2026-09-06 — 342 book seeds at weight 20
+    // against an allowance of 2400 a minute, from a path nothing was watching.
+    //
+    // A gate that refuses is not an error: the caller asks again on its next
+    // tick, exactly as it does when the connection pool is busy. `target` is
+    // the request line, so a gate can charge one endpoint more than another.
+    using Admit = std::function<bool(std::string_view target)>;
+    void set_admit(Admit admit);
+
     [[nodiscard]] std::size_t in_flight() const noexcept;
 
     void keepalive(UnixNanos now);

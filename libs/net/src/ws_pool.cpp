@@ -53,13 +53,21 @@ struct WsPool::Impl {
         std::uint64_t next_send_ns{0};
     };
 
-    Impl(IoContext& io_ref, WsConfig cfg, WsHandler& shared, WsPoolConfig pool, BuildFrames build)
+    Impl(IoContext& io_ref,
+         WsConfig cfg,
+         WsHandler& shared,
+         WsPoolConfig pool,
+         BuildFrames build,
+         OnConnectionOpen opened)
         : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool},
-          build_frames{std::move(build)} {}
+          build_frames{std::move(build)}, on_open{std::move(opened)} {}
 
     // Re-asks for everything one connection holds. On a first open that is the
     // keys just placed; on a reconnect it is the same set again, because the
     // venue remembers nothing about a closed socket.
+    // Queues this connection's whole ask. Called when keys are placed on it
+    // and again whenever it opens — NOT the same thing as the connection
+    // having opened, which is why the open callback does not live here.
     void refill(Conn& conn) {
         conn.pending = build_frames(conn.keys);
         conn.next_send_ns = 0;
@@ -70,13 +78,19 @@ struct WsPool::Impl {
     WsHandler* handler;
     WsPoolConfig settings;
     BuildFrames build_frames;
+    OnConnectionOpen on_open;
     std::vector<std::unique_ptr<Conn>> conns;
     bool started{false};
 };
 
-WsPool::WsPool(
-    IoContext& io, WsConfig config, WsHandler& handler, WsPoolConfig pool, BuildFrames build)
-    : impl_{std::make_unique<Impl>(io, std::move(config), handler, pool, std::move(build))} {}
+WsPool::WsPool(IoContext& io,
+               WsConfig config,
+               WsHandler& handler,
+               WsPoolConfig pool,
+               BuildFrames build,
+               OnConnectionOpen opened)
+    : impl_{std::make_unique<Impl>(
+          io, std::move(config), handler, pool, std::move(build), std::move(opened))} {}
 
 WsPool::~WsPool() {
     stop();
@@ -116,8 +130,14 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
             }
             auto conn = std::make_unique<Impl::Conn>();
             auto* raw = conn.get();
-            conn->handler =
-                std::make_unique<ConnHandler>(*impl.handler, [&impl, raw] { impl.refill(*raw); });
+            conn->handler = std::make_unique<ConnHandler>(*impl.handler, [&impl, raw] {
+                impl.refill(*raw);
+                if (impl.on_open) {
+                    // The keys of THIS socket, so an adapter resynchronises
+                    // the books this reopen actually broke.
+                    impl.on_open(raw->keys);
+                }
+            });
             conn->client = std::make_unique<WsClient>(*impl.io, impl.config, *conn->handler);
             impl.conns.push_back(std::move(conn));
             target = raw;

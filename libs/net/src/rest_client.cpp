@@ -560,6 +560,7 @@ struct RestClient::Impl {
         : pool{std::make_shared<detail::RestPool>(ioc, std::move(config))} {}
 
     std::shared_ptr<detail::RestPool> pool;
+    Admit admit;
 };
 
 void set_rate_observer(RateObserver observer) {
@@ -587,7 +588,14 @@ void RestClient::stop() {
 }
 
 bool RestClient::send(const RestRequest& request, RestCallback on_complete) {
+    if (impl_->admit && !impl_->admit(request.target)) {
+        return false; // over budget; the caller's next tick asks again
+    }
     return impl_->pool->send(request, std::move(on_complete));
+}
+
+void RestClient::set_admit(Admit admit) {
+    impl_->admit = std::move(admit);
 }
 
 std::size_t RestClient::in_flight() const noexcept {

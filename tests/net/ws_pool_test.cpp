@@ -139,6 +139,31 @@ TEST(WsPool, KeysAreSpreadSoOneSocketDoesNotHoldTheWholeCatalogue) {
     EXPECT_EQ(pool.pending_sends(), 800U);
 }
 
+TEST(WsPool, TheOpenHookNamesOnlyTheKeysOfTheSocketThatOpened) {
+    // A book is fed by one socket, so a reopen breaks that socket's chains and
+    // nobody else's. Handed every key instead, an adapter can only resync
+    // everything — a request burst on a venue that reseeds over REST, and lost
+    // books on one that does not.
+    IoContext io;
+    Silent handler;
+    std::vector<std::vector<std::string>> announced;
+    WsPool pool{io,
+                WsConfig{.host = "example.invalid"},
+                handler,
+                {.max_keys_per_connection = 10},
+                one_each,
+                [&announced](std::span<const std::string> keys) {
+                    announced.emplace_back(keys.begin(), keys.end());
+                }};
+
+    ASSERT_TRUE(pool.subscribe(names(25)));
+    EXPECT_EQ(pool.connection_count(), 3U);
+    // PLACING keys is not OPENING a socket. Nothing has connected here, so the
+    // hook has said nothing — firing it on subscribe would invalidate a book
+    // every time an instrument is added.
+    EXPECT_TRUE(announced.empty());
+}
+
 TEST(WsPool, AnEmptyAskIsNotAnError) {
     IoContext io;
     Silent handler;
