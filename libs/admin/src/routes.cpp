@@ -66,6 +66,18 @@ paginate(std::vector<T> rows, std::string_view cursor, std::size_t limit) {
     return {std::move(page), std::move(next)};
 }
 
+// The markets board's own limit. Absent means EVERYTHING, because the board
+// exists to be browsed; the paged routes below cannot afford that and keep
+// their 200.
+std::size_t read_markets_limit(std::string_view text) {
+    if (text.empty()) {
+        return std::numeric_limits<std::size_t>::max();
+    }
+    std::size_t value = 0;
+    const auto [stop, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    return (ec != std::errc{} || value == 0) ? std::numeric_limits<std::size_t>::max() : value;
+}
+
 std::size_t read_limit(std::string_view text) {
     constexpr std::size_t k_default = 200;
     constexpr std::size_t k_max = 1000;
@@ -328,7 +340,13 @@ Handler make_router(const Registry& registry,
             // catalogue listed: a search asks "which market", and a market is
             // the thing several venues have in common.
             const auto query = query_param(req.query, "q");
-            return json(registry.markets(query, read_limit(query_param(req.query, "limit"))));
+            // NO LIMIT BY DEFAULT, unlike every paged route beside it. The
+            // board is the screen for browsing the whole catalogue, and the
+            // shared default of 200 silently served a fifth of it — a person
+            // scrolling to the end had no way to tell a short list from the
+            // end of the list. A caller that wants a page still asks for one.
+            return json(
+                registry.markets(query, read_markets_limit(query_param(req.query, "limit"))));
         }
 
         if (req.path == "/v1/instruments") {
