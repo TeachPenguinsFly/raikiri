@@ -57,6 +57,7 @@ void load_credentials(const exec::VenueConfig& config, VenueState& state) {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock);
+    state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
     load_credentials(config, *state);
 

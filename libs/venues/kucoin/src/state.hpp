@@ -5,6 +5,7 @@
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -78,6 +79,10 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    // Shared with the order path: KuCoin meters one allowance per IP, so two
+    // budgets would each believe they had the whole of it. Null means the
+    // venue is unmeasured, which reads as unlimited rather than as closed.
+    exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
     // The one market this process serves. KuCoin's two trees are separate
@@ -122,6 +127,18 @@ struct VenueState {
         const auto local = clock->wall();
         return UnixNanos{
             static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
+    }
+
+    // ASKED BEFORE EVERY MARKET-DATA REST SEND, and a false refuses it. KuCoin
+    // counts REQUESTS, not weight — gw-ratelimit-limit measured at 2000 over a
+    // 30 s window on api-futures.kucoin.com — so one call is one unit. Poll,
+    // never Order: a book seed may not spend the reserve a cancel needs.
+    [[nodiscard]] bool admit_poll() noexcept {
+        if (budget == nullptr) {
+            return true; // unmeasured venue: unlimited, not closed
+        }
+        return budget->take(exec::RateBucket::Shared, 1, clock->mono(), exec::RateClass::Poll)
+            .has_value();
     }
 
     std::uint64_t subscribe_refusals{0};

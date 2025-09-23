@@ -47,6 +47,12 @@ struct Subscription {
 // that at one per kind however many instruments are subscribed — so what is
 // bounded here is our own bookkeeping, not the venue's limit.
 inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
+
+// What ONE connection may actually carry, counted in topic-symbol pairs. The
+// number above is this adapter's own bookkeeping bound; this is the venue's,
+// and exceeding it is silent — kucoin serves the first hundred and drops the
+// rest without an error frame.
+inline constexpr std::size_t k_max_topics_per_connection = 100;
 inline constexpr std::size_t k_max_symbols_per_topic = 100;
 
 // Host/target split of the bullet endpoint, with the token and connect id
