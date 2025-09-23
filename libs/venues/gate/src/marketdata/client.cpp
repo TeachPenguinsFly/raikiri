@@ -200,13 +200,27 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
+// The inverse, and the only decode: the frame builder and the reopen hook read
+// the same key and must not disagree about where the cut is. Views into the
+// key, which the pool owns for as long as the connection holds it.
+[[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
+    const auto cut = key.find(k_key_sep);
+    if (cut == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return Subscription{.channel = key.substr(0, cut), .contract = key.substr(cut + 1)};
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
-    // own keys when it opens; replaying the whole desired set on every one of
-    // them is the flood the pool exists to avoid.
+    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
+    // re-asks for its own keys when it opens; replaying the whole desired set
+    // on every one of them is the flood the pool exists to avoid. This handler
+    // is shared by every connection and so cannot tell WHICH one reopened —
+    // the books belonging to that socket are invalidated by the pool's own
+    // open hook, which is handed its keys.
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -239,7 +253,10 @@ public:
                 net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
                                   .send_spacing_ns = k_subscribe_spacing_ns,
                                   .max_connections = k_max_connections},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [this](std::span<const std::string> keys) { return build_frames(keys); },
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
+        meter_market_data(*state_, state_->depth_rest);
+    }
 
     std::expected<void, exec::VenueError> start() override {
         state_->depth_rest.start();
@@ -305,6 +322,31 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
 
+    // ONLY THE BOOKS THIS SOCKET FEEDS. A depth book is chained by exactly one
+    // connection, so a socket that reopens has broken its own books' delta
+    // chains and nobody else's; invalidating every book on any reopen puts the
+    // whole catalogue back on the REST seed at once, which is the unpaced
+    // burst that earned this IP a ban. The channel is checked as well as the
+    // contract: book_ticker for a contract may sit on a different socket from
+    // its depth, and only the depth key names a chain that can break.
+    void invalidate_books(std::span<const std::string> keys) {
+        const auto depth = channel_for(exec::SubKind::Depth, state_->market);
+        for (const auto& key : keys) {
+            const auto one = split_key(key);
+            if (!one.has_value() || one->channel != depth) {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(one->contract);
+            if (instrument == nullptr) {
+                continue;
+            }
+            if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
+                entry != state_->books.end()) {
+                entry->second.invalidate();
+            }
+        }
+    }
+
     // Turns one connection's keys back into the frames that ask for them.
     // Called on every open of that socket, which is why the quote channel is
     // ordered first here rather than at subscribe time: on a reconnect the
@@ -313,12 +355,9 @@ private:
         std::vector<Subscription> views;
         views.reserve(keys.size());
         for (const auto& key : keys) {
-            const auto cut = key.find(k_key_sep);
-            if (cut == std::string::npos) {
-                continue;
+            if (const auto one = split_key(key); one.has_value()) {
+                views.push_back(*one);
             }
-            views.push_back({.channel = std::string_view{key}.substr(0, cut),
-                             .contract = std::string_view{key}.substr(cut + 1)});
         }
         std::ranges::stable_partition(
             views, [](const Subscription& one) { return one.channel.ends_with("book_ticker"); });

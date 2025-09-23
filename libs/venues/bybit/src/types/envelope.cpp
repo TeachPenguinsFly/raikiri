@@ -12,6 +12,8 @@ namespace {
 using detail::guarded;
 namespace ondemand = detail::ondemand;
 
+} // namespace
+
 // Bybit topics are "kind.arg[.arg]" — the symbol is always the last segment.
 // Resolving the kind once here turns the per-message dispatch that follows
 // into an integer compare instead of a chain of string compares at line rate.
@@ -45,8 +47,6 @@ TopicInfo classify_topic(std::string_view topic) noexcept {
     }
     return info;
 }
-
-} // namespace
 
 std::expected<TopicInfo, WireError> parse_topic(std::string_view frame) {
     return guarded([&]() -> std::expected<TopicInfo, WireError> {

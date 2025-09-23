@@ -35,7 +35,9 @@ public:
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host(state_->testnet)},
                                 .port = "443",
-                                .timeout_ms = k_catalogue_timeout_ms}} {}
+                                .timeout_ms = k_catalogue_timeout_ms}} {
+        meter_market_data(*state_, rest_);
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         net::RestRequest request{};

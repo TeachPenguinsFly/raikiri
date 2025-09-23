@@ -41,6 +41,12 @@ struct TopicInfo {
     std::string_view symbol; // empty for private and control frames
 };
 
+// Resolves a bare topic string, with no frame around it. Exported because a
+// subscription key IS a topic on this venue, and a key must map back to a book
+// by the same rule the frame dispatch maps a topic by — two copies of "the
+// symbol is the last segment" is one copy that drifts.
+[[nodiscard]] TopicInfo classify_topic(std::string_view topic) noexcept;
+
 // Peeks at "topic"/"op" without consuming the rest of the frame.
 [[nodiscard]] std::expected<TopicInfo, WireError> parse_topic(std::string_view frame);
 

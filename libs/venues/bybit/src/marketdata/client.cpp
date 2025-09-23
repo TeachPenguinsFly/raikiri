@@ -104,14 +104,13 @@ class PublicHandler final : public net::WsHandler {
 public:
     PublicHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
-    // own topics when it opens; replaying the whole desired set on every one of
-    // them is the flood the pool exists to avoid.
+    // NOTHING IS RESUBSCRIBED HERE, AND NOTHING IS INVALIDATED HERE. Each
+    // socket in the pool re-asks for its own topics when it opens; replaying
+    // the whole desired set on every one of them is the flood the pool exists
+    // to avoid. Every connection reports through this one handler, so a book
+    // dropped here is a book dropped for the whole pool — which books an open
+    // actually broke is answered where the keys are known, in invalidate_books.
     void on_open() override {
-        // Books cannot survive a gap in the socket, let alone a reconnect.
-        for (auto& [id, book] : state_->books) {
-            book.invalidate();
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -150,7 +149,8 @@ public:
                 net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
                                   .send_spacing_ns = k_subscribe_spacing_ns,
                                   .max_connections = k_max_connections},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [this](std::span<const std::string> keys) { return build_frames(keys); },
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
@@ -208,6 +208,33 @@ public:
 private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
+
+    // ONE SOCKET'S BOOKS, and no others. A depth stream is fed by exactly one
+    // connection, so a reopen breaks the delta chain of the books on THAT
+    // connection and of nobody else's. Bybit's catalogue is ~815 books across
+    // six or more sockets — its ceiling is 21,000 characters of args per
+    // connection — so invalidating all of them because one socket blinked
+    // throws away the books that were still good.
+    void invalidate_books(std::span<const std::string> keys) {
+        for (const auto& key : keys) {
+            // A pool key IS a topic string here, and only `orderbook.` names a
+            // book: `publicTrade.` and `tickers.` carry nothing to resync.
+            const auto topic = classify_topic(key);
+            if (topic.kind != TopicKind::Orderbook) {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(topic.symbol);
+            if (instrument == nullptr) {
+                continue;
+            }
+            // find, not book_for: a topic with no book yet has no gap either,
+            // and seeding one here would invent a book nothing feeds.
+            const auto entry = state_->books.find(base_of(*instrument).id);
+            if (entry != state_->books.end()) {
+                entry->second.invalidate();
+            }
+        }
+    }
 
     // A pool key is one topic string. Bybit's desired set is already a flat
     // list of topics, so nothing is encoded into the key and taken apart here.

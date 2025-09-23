@@ -52,6 +52,7 @@ namespace {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     // Dropped on the floor, as before: a venue factory has nowhere to report a

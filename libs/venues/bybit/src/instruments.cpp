@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "clients.hpp"
@@ -23,14 +24,51 @@ class BybitInstruments final : public exec::InstrumentSource {
 public:
     explicit BybitInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io,
-                net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
-                                .port = "443"}} {}
+          rest_{
+              state_->io,
+              net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)}, .port = "443"}} {
+        // MARKET-DATA REST SPENDS THE BUDGET TOO. The order path has asked
+        // before every send since it was written; this transport asked nothing,
+        // and traffic no counter in the process can see is an IP ban with no
+        // caller to charge it to.
+        //
+        // SHARED, not Account or Ledger. Those two hold bybit's per-UID signed
+        // meters, measured on 2026-09-01 from X-Bapi-Limit — fifty a second on
+        // positions, balances and open orders, twenty-five on the transaction
+        // log — and this is an unsigned /v5/market read that bybit counts per
+        // IP on a meter nobody here has measured. Charging it to Account would
+        // spend the allowance reconciliation needs and eat into the ten held
+        // back for order traffic, so a wrong bucket would starve the order path
+        // to meter a catalogue pull. bybit's `shared` bucket is capacity 0 in
+        // config/venues.yaml, which RateBudget reads as unlimited rather than
+        // closed: this admits everything until somebody measures the public
+        // meter and writes a capacity there, and then it bites with no change
+        // here.
+        rest_.set_admit([this](std::string_view) noexcept {
+            if (state_->budget == nullptr) {
+                return true; // unmeasured venue: unlimited, not closed
+            }
+            // Poll class: market data may not spend the slice held back for a
+            // cancel. bybit counts requests, not weight, so a call costs one.
+            const auto taken = state_->budget->take(
+                exec::RateBucket::Shared, 1, state_->clock->mono(), exec::RateClass::Poll);
+            refused_ = !taken.has_value();
+            return taken.has_value();
+        });
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
+        refused_ = false;
         const auto request = builder_.instruments(market);
         const auto response = await_response(*state_, rest_, request, 15'000);
+        if (refused_) {
+            // The budget refused before the socket, which is not a timeout and
+            // must not be logged as one: the caller comes back, it does not
+            // reconnect.
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::RateLimited, 0, "catalogue: local rate budget spent")};
+        }
         if (!response.has_value()) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Connectivity, 0, "catalogue: no response before deadline")};
@@ -75,6 +113,9 @@ private:
     std::shared_ptr<VenueState> state_;
     net::RestClient rest_;
     RequestBuilder builder_{state_->signer};
+    // Set by the admit gate, because a refused send and a send that timed out
+    // both reach the caller as an absent response.
+    bool refused_{false};
 };
 
 } // namespace

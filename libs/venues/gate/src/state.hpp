@@ -5,6 +5,7 @@
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -47,6 +48,10 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
+    // Shared with the account poller AND with market data: Gate counts one
+    // pool of requests per IP, so two private budgets would together spend
+    // twice the allowance.
+    exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
     // The one market this process serves. Gate names a spot pair and its
@@ -165,6 +170,37 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
         }
     }
     return result;
+}
+
+// Makes one market-data REST client ask the budget before every send.
+//
+// MARKET DATA SPENT NOTHING until now: 376 order_book calls in 60 s from book
+// seeding alone, against a budget only the order path drew on. Gate meters per
+// IP, so those calls were always the order path's allowance being spent by
+// traffic no counter in this process could see.
+//
+// ONE POOL. Gate's `order_entry`, `account` and `ledger` buckets are zero in
+// config/venues.yaml — unmeasured, therefore unlimited — and `shared` is the
+// only one it states, so that is what every call here draws from.
+//
+// COST 1, because Gate meters REQUESTS and not weight: every entry of its
+// `costs` row is 1, so there is no per-endpoint figure to look up and no
+// endpoint that costs more than another.
+//
+// RateClass::Poll, never Order: a book seed may not draw the bucket into the
+// reserve a cancel is about to need. A refusal is not an error — the next
+// delta asks for the seed again. The catalogue pull is the one caller with no
+// next tick, and it is a single request against a bucket still at capacity.
+inline void meter_market_data(VenueState& state, net::RestClient& rest) {
+    auto* owner = &state;
+    rest.set_admit([owner](std::string_view) {
+        if (owner->budget == nullptr) {
+            return true; // unmeasured venue: unlimited, not closed
+        }
+        return owner->budget
+            ->take(exec::RateBucket::Shared, 1, owner->clock->mono(), exec::RateClass::Poll)
+            .has_value();
+    });
 }
 
 // Gate's code is a string label and VenueError carries an integer, so the
