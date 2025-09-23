@@ -38,6 +38,28 @@ export function compact(value: number): string {
   return value.toFixed(0)
 }
 
+/** A size in the order book, where the column is under sixty pixels wide.
+ *
+ *  A contract quantity spans nine orders of magnitude across one venue — 0.001
+ *  of a BTC contract and 470117.000 of a cheap alt sit in the same column — so
+ *  a fixed number of decimals renders one of them unreadable. Above a thousand
+ *  the exact figure is not what the eye is there for; the shape of the book is.
+ *
+ *  Distinct from `compact` above, which is an axis label and gets four
+ *  characters. Here two significant decimals survive, because a taker compares
+ *  1.2K against 1.9K and rounding both to 1K throws away the comparison. */
+export function size(value: number): string {
+  const magnitude = Math.abs(value)
+  if (magnitude >= 1e9) return `${(value / 1e9).toFixed(2)}B`
+  if (magnitude >= 1e6) return `${(value / 1e6).toFixed(2)}M`
+  if (magnitude >= 1e3) return `${(value / 1e3).toFixed(1)}K`
+  if (magnitude >= 1) return value.toFixed(2)
+  if (magnitude === 0) return '0'
+  // Below one the leading digits ARE the value, so they are kept whatever the
+  // width costs — a size shown as "0.00" reads as an empty level.
+  return value.toFixed(4)
+}
+
 /** A holding, in its own units. Only the denomination gets a currency mark;
  *  0.001 BTC formatted as money is "$0.00", which reads as nothing held. */
 export function quantity(value: number, asset: string, denomination: string): string {

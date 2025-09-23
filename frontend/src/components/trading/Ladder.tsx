@@ -1,3 +1,4 @@
+import { size } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
@@ -92,8 +93,8 @@ function Row({
         >
           {price(row.price)}
         </span>
-        <span className="flex-1 text-right text-fg-mid">{row.size.toFixed(3)}</span>
-        <span className="w-[52px] text-right text-fg-dim">{row.depth.toFixed(1)}</span>
+        <span className="flex-1 text-right text-fg-mid">{size(row.size)}</span>
+        <span className="w-[52px] text-right text-fg-dim">{size(row.depth)}</span>
       </span>
     </div>
   )
