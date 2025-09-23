@@ -86,6 +86,21 @@ the order path uses, and to pace the seeding rather than fan it out at once.
 3. The pool, per venue, starting with the two whose catalogues are cut worst
    (deribit at 14%, gate at 26%).
 
+## What the pool cost, and has not paid back yet
+
+`ConnectivityMsg` carries a `streamId` described in `schema/journal.xml` as
+"which WS within the gateway". Every venue passes **0**, which was honest while
+there was one socket. Under a pool the adapter's `on_open` fires once per
+connection and still says 0, so the journal can no longer tell "socket three
+came back" from "the venue came back" — and on a pool of eight that is eight
+identical records where there used to be one meaningful one.
+
+The pool knows the index; the adapter does not, because the shared handler is
+deliberately not told which connection called it. Fixing it means widening
+`WsPool::OnConnectionOpen` to carry the connection's index alongside its keys,
+and each adapter putting that in `stream_id`. Small, and worth doing before
+anybody tries to diagnose a flapping socket from the journal.
+
 ## Also waiting: a browser test
 
 Nothing in this repository opens the terminal. Every bug on 2026-09-06 that
