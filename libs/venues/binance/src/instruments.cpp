@@ -48,7 +48,12 @@ public:
     explicit BinanceInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
           rest_{state_->io,
-                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {}
+                net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
+        // Two calls, weight 1 each, against a bucket still at capacity — and
+        // they are the one market-data caller with no next tick, so a refusal
+        // here surfaces as a gateway that will not start rather than a retry.
+        meter_market_data(*state_, rest_);
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();

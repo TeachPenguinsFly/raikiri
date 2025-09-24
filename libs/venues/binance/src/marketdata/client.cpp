@@ -48,7 +48,10 @@ constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 // here and then never sends, so the rate is pulled over REST instead.
 constexpr std::size_t k_max_connections = 4;
 
-// A book seed is weight 20 here; see state.hpp.
+// SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
+// weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
+// the queue from arriving as one burst; what actually bounds it is the admit
+// gate installed in the constructor.
 constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
 
 // A 24-hour rolling figure barely moves in a minute, and the whole table
@@ -56,8 +59,9 @@ constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 // Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises; a send that
-// the pool refuses is left alone, because the next delta asks again.
+// thread through IoContext::poll, so nothing here synchronises; a send that the
+// pool or the rate budget refuses is left alone, because the next delta asks
+// again.
 [[nodiscard]] bool request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
@@ -92,9 +96,9 @@ constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
     };
     if (!state.depth_rest.send(
             state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
-        // The pool refused it. The caller marked the book in flight when it
-        // queued the seed, so that has to be undone or the book waits for a
-        // request nobody made.
+        // Refused — a full pool, or a budget with no weight left to sell. The
+        // caller marked the book in flight when it queued the seed, so that has
+        // to be undone or the book waits for a request nobody made.
         book.seed_failed();
         return false;
     }
@@ -236,7 +240,12 @@ public:
                 net::WsPoolConfig{.max_keys_per_connection = k_max_streams_per_connection,
                                   .send_spacing_ns = k_subscribe_spacing_ns,
                                   .max_connections = k_max_connections},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [this](std::span<const std::string> keys) { return build_frames(keys); }} {
+        // The seeds, the funding pull and the 24-hour table all ride this one
+        // pool, and binance counts every one of them against the same weight
+        // the order path spends.
+        meter_market_data(*state_, state_->depth_rest);
+    }
 
     std::expected<void, exec::VenueError> start() override {
         state_->depth_rest.start();
@@ -305,9 +314,10 @@ public:
     }
 
 private:
-    // One book seed per tick. At weight 20 each this is 40 a second against an
-    // allowance of 2400 a minute — a fifth of it, which leaves the order path
-    // and the polls their share.
+    // One book seed per tick, and only while the budget will still sell one.
+    // A refused seed keeps its place in the queue AND leaves `next_seed_ns`
+    // where it was, so the next tick asks again rather than the book waiting
+    // for a request nobody made.
     void drain_seeds(UnixNanos now) noexcept {
         if (state_->pending_seeds.empty() || now.ns < state_->next_seed_ns) {
             return;
@@ -338,17 +348,20 @@ private:
             in_flight_) {
             return;
         }
-        state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
         in_flight_ = true;
         try {
             if (!state_->depth_rest.send(
                     state_->builder.premium_index(),
                     [this](const net::RestResponse& response) { on_funding(response); })) {
                 in_flight_ = false;
+                return; // refused: still due, so the next tick asks again
             }
         } catch (...) {
             in_flight_ = false;
+            return;
         }
+        // Only a call the venue was actually asked buys the next minute.
+        state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
     }
 
     // Rides the funding subscription's instrument list: binance has no
@@ -359,17 +372,20 @@ private:
             ticker_in_flight_) {
             return;
         }
-        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
         ticker_in_flight_ = true;
         try {
             if (!state_->depth_rest.send(
                     state_->builder.ticker_24h(),
                     [this](const net::RestResponse& response) { on_ticker(response); })) {
                 ticker_in_flight_ = false;
+                return; // refused: still due, so the next tick asks again
             }
         } catch (...) {
             ticker_in_flight_ = false;
+            return;
         }
+        // Only a call the venue was actually asked buys the next five minutes.
+        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
     }
 
     void on_ticker(const net::RestResponse& response) noexcept {

@@ -61,12 +61,13 @@ struct VenueState {
     std::uint64_t next_funding_poll_ns{0};
 
     // BOOK SEEDS ARE THE EXPENSIVE ONES, and they are REST, not the socket:
-    // the pool paces SUBSCRIBE frames, and nothing it does paces these.
-    // /fapi/v1/depth?limit=1000 is weight 20 and every subscribed instrument
-    // wants one the moment its first delta arrives — 342 of them at once is
-    // 6840 weight against an allowance of 2400 a minute, which is how this
-    // process earned an IP ban twice in a day from traffic no counter in it
-    // could see.
+    // the pool paces SUBSCRIBE frames, and nothing it does paces these. Every
+    // subscribed instrument wants one the moment its first delta arrives, and
+    // at the limit=1000 this used to ask for that was weight 20 apiece — 571
+    // listings is 11420 against an allowance of 2400 a minute, which is how
+    // this process earned an IP ban twice on 2026-09-06 from traffic no
+    // counter in it could see. The seed is 100 levels now (weight 5), the
+    // queue below paces it, and meter_market_data charges it.
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
 
@@ -98,6 +99,39 @@ struct VenueState {
         desired_streams.emplace_back(stream);
     }
 };
+
+// Makes one market-data REST client ask the budget before every send.
+//
+// MARKET DATA SPENT NOTHING until now, and it is the larger half of what this
+// process asks binance for: see `pending_seeds` above for what that cost.
+//
+// ONE POOL. binance meters weight across every endpoint together, so `shared`
+// is the only bucket config/venues.yaml fills for it and every call here draws
+// from the same 2400 a minute the order path does.
+//
+// COST IS WEIGHT, NOT ONE — ep::market_data_weight prices each path from
+// binance's own table. A flat 1 would charge a depth snapshot a twentieth of
+// what binance charges for it, and the gate would not bite until after the ban.
+//
+// RateClass::Poll, never Order: a book seed may not draw the bucket into the
+// reserve a cancel is about to need. A refusal is not an error — the seed stays
+// queued and the polls leave their deadline where it was, so the next tick asks
+// again. The catalogue pull is the one caller with no next tick, and it is a
+// single request against a bucket still at capacity.
+inline void meter_market_data(VenueState& state, net::RestClient& rest) {
+    auto* owner = &state;
+    rest.set_admit([owner](std::string_view target) {
+        if (owner->budget == nullptr) {
+            return true; // unmeasured venue: unlimited, not closed
+        }
+        return owner->budget
+            ->take(exec::RateBucket::Shared,
+                   ep::market_data_weight(target),
+                   owner->clock->mono(),
+                   exec::RateClass::Poll)
+            .has_value();
+    });
+}
 
 inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
