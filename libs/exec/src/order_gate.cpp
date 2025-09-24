@@ -8,6 +8,7 @@ void RateLimiter::refill(MonoNanos now) noexcept {
     if (!started_) {
         started_ = true;
         last_refill_ns_ = now.ns;
+        window_start_ns_ = now.ns;
         return;
     }
     if (now.ns <= last_refill_ns_ || window_ns_ == 0) {
@@ -47,6 +48,19 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
         const auto missing = floor + cost - tokens_;
         return std::unexpected{RateDenied{
             .retry_after_ns = (static_cast<std::uint64_t>(missing) * window_ns_) / capacity_}};
+    }
+    // AND THE WINDOW ITSELF, which the bucket does not enforce; see the header.
+    if (window_ns_ != 0) {
+        if (now.ns - window_start_ns_ >= window_ns_) {
+            window_start_ns_ = now.ns;
+            window_spent_ = 0;
+        }
+        if (static_cast<std::uint64_t>(window_spent_) + cost > capacity_) {
+            ++denials_;
+            return std::unexpected{
+                RateDenied{.retry_after_ns = window_ns_ - (now.ns - window_start_ns_)}};
+        }
+        window_spent_ += cost;
     }
     tokens_ -= cost;
     return {};

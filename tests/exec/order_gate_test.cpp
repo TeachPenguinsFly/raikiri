@@ -43,6 +43,42 @@ TEST(RateLimiter, RefillIsContinuousNotWindowed) {
     EXPECT_EQ(limiter.available(MonoNanos{k_minute}), 100U);
 }
 
+TEST(RateLimiter, AWindowCannotBeSpentTwiceOverByRefilling) {
+    // THE DEFECT THIS EXISTS FOR. The bucket starts full and refills
+    // continuously, so spending it all and then spending the refill puts twice
+    // the venue's allowance through one window — measured against binance's
+    // 2400 a minute, roughly 4560, with nothing refused. A full 571-instrument
+    // seed round is 2855 weight and fits in that gap.
+    RateLimiter limiter{100, 1'000'000'000ULL};
+    MonoNanos now{0};
+    ASSERT_TRUE(limiter.take(100, now).has_value()) << "the bucket starts full";
+
+    // Half a window later the bucket has earned fifty back, and the bucket
+    // alone would hand them over. The window has not turned, so it must not.
+    now.ns += 500'000'000ULL;
+    const auto refused = limiter.take(50, now);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_GT(refused.error().retry_after_ns, 0U) << "waiting for the window IS the answer";
+
+    // Past the window it opens again, and only then.
+    now.ns += 500'000'000ULL;
+    EXPECT_TRUE(limiter.take(50, now).has_value());
+}
+
+TEST(RateLimiter, TheWindowCeilingCountsWhatWasSpentAndNotWhatWasAsked) {
+    // A refusal must not consume the allowance it was refused: a caller that
+    // retries every tick would otherwise hold its own budget shut.
+    RateLimiter limiter{10, 1'000'000'000ULL};
+    MonoNanos now{0};
+    ASSERT_TRUE(limiter.take(10, now).has_value());
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        now.ns += 1'000'000ULL;
+        EXPECT_FALSE(limiter.take(1, now).has_value());
+    }
+    now.ns += 1'000'000'000ULL;
+    EXPECT_TRUE(limiter.take(10, now).has_value()) << "the whole window is available again";
+}
+
 TEST(RateLimiter, RefillNeverExceedsCapacity) {
     RateLimiter limiter{100, k_minute};
     EXPECT_EQ(limiter.available(MonoNanos{10 * k_minute}), 100U);

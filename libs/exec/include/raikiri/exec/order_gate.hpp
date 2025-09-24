@@ -46,8 +46,22 @@ enum class RateClass : std::uint8_t {
     Poll,  // catalogue, positions, balances, ledgers — may not
 };
 
-// Token bucket over a fixed window. Costs are venue units: 1 request, or
-// binance's endpoint weight, or an order count against a separate budget.
+// Token bucket over a fixed window, with a CEILING ON THE WINDOW ITSELF.
+// Costs are venue units: 1 request, or binance's endpoint weight, or an order
+// count against a separate budget.
+//
+// The bucket alone is not the venue's rule and is looser than it. It starts
+// full and refills continuously, so a caller may spend the capacity it began
+// with AND a window's worth of refill — twice what the line in venues.yaml
+// says. Against binance's 2400 a minute that is roughly 4560 inside one
+// calendar minute with nothing refused, and a full 571-instrument seed round
+// fits in the gap.
+//
+// So the bucket keeps its job, which is smoothing WITHIN a window, and a plain
+// counter enforces the window itself. That is the venue's own model — binance
+// resets its weight on the calendar minute — and for a venue quoting a rate
+// instead (bybit's fifty a second) the same ceiling is exactly that rate, so
+// one mechanism is honest for both.
 class RateLimiter {
 public:
     // `reserve` is the floor a Poll may not spend below. Zero is right only
@@ -77,6 +91,10 @@ private:
     bool started_{false};
     std::uint64_t blocked_until_ns_{0};
     std::uint64_t denials_{0};
+
+    // What has been spent since the current window opened, and when it did.
+    std::uint32_t window_spent_{0};
+    std::uint64_t window_start_ns_{0};
 };
 
 // One request awaiting a venue verdict.
