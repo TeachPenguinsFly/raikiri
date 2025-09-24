@@ -78,6 +78,26 @@ reports what each endpoint was called and how often, which is how this was
 found; the fix is to route the market-data pools through the same `RateBudget`
 the order path uses, and to pace the seeding rather than fan it out at once.
 
+### The local budget is looser than the venue's, and by a factor of two
+
+`RateLimiter` is a token bucket that **starts full** and refills continuously,
+so over any one window a caller may spend the capacity it began with PLUS a
+window's worth of refill — twice what the venue allows. Against binance's 2400
+a minute, poll traffic can reach roughly 4560 inside one calendar minute and
+the local gate will not have refused a thing.
+
+It has not bitten: measured on a live 46-second run the whole market-data path
+spent 1388 weight, because the subscribe pacing delivers first deltas slowly
+enough that seeds arrive at about six a second. But a full 571-instrument seed
+round is 2855 weight and would fit inside that gap, so the ceiling is holding
+by the ramp rather than by the budget.
+
+The bucket is the right model for a venue quoting a rate (bybit's 50 a second);
+it is the wrong one for a venue quoting a fixed window (binance's 2400 a
+minute), and `venues.yaml` currently expresses both the same way. Fixing it
+means either a window counter beside the bucket or halving what a
+fixed-window venue declares — a decision about the model, not a patch.
+
 ## Order
 
 1. Meter the market-data REST pools. The ban is the loudest failure and the
