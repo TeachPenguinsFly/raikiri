@@ -602,6 +602,28 @@ std::string problem_frame(std::string_view id, const Problem& problem) {
     return out;
 }
 
+// ------------------------------------------------------------ targets ----
+
+std::vector<Target> resolve_targets(const Registry& registry,
+                                    std::span<const InstrumentId> ids,
+                                    std::vector<std::string>& unknown) {
+    std::vector<Target> out;
+    out.reserve(ids.size());
+    for (const auto id : ids) {
+        const auto row = registry.catalogue_row(id);
+        const std::size_t cell = id.symbol().raw;
+        // An id past the tables has nowhere to quote from, which reaches the
+        // client as the same answer as no gateway listing it at all: nothing
+        // will ever arrive for it.
+        if (!row.has_value() || cell >= shm::k_bbo_cells) {
+            unknown.push_back(digits(id));
+            continue;
+        }
+        out.push_back({.gateway = row->gateway, .listed = row->instrument, .id = id, .cell = cell});
+    }
+    return out;
+}
+
 // -------------------------------------------------------------- stream ----
 
 namespace {
@@ -627,16 +649,11 @@ constexpr std::size_t k_max_queued = 64;
 // Bounded so one busy venue cannot hold the pass open indefinitely.
 constexpr std::size_t k_max_polls_per_pass = 256;
 
-// One instrument, resolved once at subscribe time: the gateway that answers
-// for it, its catalogue row, and the cell every table indexes it by.
-struct Target {
-    const Gateway* gateway{nullptr};
-    const raikiri::Instrument* listed{nullptr};
-    std::size_t cell{0};
-};
-
 struct EventSource {
     const Gateway* gateway{nullptr};
+    // The ring the cursor below counts in. A re-attached gateway maps a new
+    // one, and a sequence number from the old ring means nothing in it.
+    const shm::ExecRing* ring{nullptr};
     shm::ExecReader reader;
 };
 
@@ -646,6 +663,10 @@ struct FeedState {
     std::int64_t millihertz{0};
     std::uint64_t period{0};
     MonoNanos due{};
+    // What the client ASKED for, kept beside what it resolved to. A re-attached
+    // gateway is a new catalogue, and the targets have to be built again from
+    // the ids rather than from themselves.
+    std::vector<InstrumentId> asked;
     std::vector<Target> targets;
     ChangeGate gate;
     std::vector<EventSource> sources;
@@ -671,7 +692,7 @@ template <typename Record> struct Changed {
 class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(tcp::socket socket, const Registry& registry, const Clock& clock)
-        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock} {}
+        : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, epoch_{registry.epoch()} {}
 
     void run() {
         // Read the upgrade request before accepting it, because the path is
@@ -691,19 +712,34 @@ public:
         if (closed_ || !open_) {
             return 0;
         }
+        resync();
         std::size_t sent = drain_events();
-        for (auto& feed : feeds_) {
+        // ROUND ROBIN, and the deadline moves only for a feed that was
+        // actually sampled. Both halves are load-bearing and neither was here:
+        //
+        // The socket takes one frame per tick, so the first feed to be sampled
+        // makes busy() true for every feed after it. Advancing `due` before
+        // that check meant a skipped feed did not merely wait — it forfeited
+        // its turn, and starting the walk at zero every tick meant the same
+        // feeds forfeited it every time. A terminal subscribing to quotes at
+        // 10 Hz beside a book and a funding feed at 1 Hz starved both: measured
+        // on one socket, whichever channel was subscribed last received
+        // NOTHING, indefinitely.
+        for (std::size_t step = 0; step < feeds_.size(); ++step) {
+            if (busy()) {
+                break; // the socket is behind; every remaining feed stays due
+            }
+            auto& feed = feeds_[(next_feed_ + step) % feeds_.size()];
             if (sequenced(feed.kind) || mono.ns < feed.due.ns) {
                 continue;
             }
-            // The next tick is scheduled from NOW rather than from the missed
-            // deadline: a client that stalled is not owed a burst when it
-            // comes back.
+            // Scheduled from NOW rather than from the missed deadline: a client
+            // that stalled is not owed a burst when it comes back.
             feed.due = mono + feed.period;
-            if (busy()) {
-                continue; // the socket is behind: re-sample next tick, never queue
-            }
             sent += sample(feed, mono, wall) ? 1U : 0U;
+        }
+        if (!feeds_.empty()) {
+            next_feed_ = (next_feed_ + 1) % feeds_.size();
         }
         return sent;
     }
@@ -776,37 +812,101 @@ private:
         }
     }
 
-    // Registry hands out gateways by name, so the set of them is the set of
-    // account names it reports.
+    // Every attached gateway, in the registry's order.
     [[nodiscard]] std::vector<const Gateway*> attached() const {
         std::vector<const Gateway*> out;
-        for (const auto& account : registry_->accounts(clock_->mono())) {
-            if (const auto* gateway = registry_->find(account.account); gateway != nullptr) {
-                out.push_back(gateway);
+        out.reserve(registry_->size());
+        for (std::size_t i = 0; i < registry_->size(); ++i) {
+            out.push_back(registry_->at(i));
+        }
+        return out;
+    }
+
+    // One target per catalogued instrument that has a position cell. The whole
+    // catalogue, because a position feed follows the account rather than a
+    // watchlist.
+    [[nodiscard]] static std::vector<Target>
+    position_targets(const std::vector<const Gateway*>& gateways) {
+        std::vector<Target> out;
+        for (const auto* gateway : gateways) {
+            for (const auto& listed : gateway->channels.catalogue->all()) {
+                const auto id = base_of(listed).id;
+                if (const std::size_t cell = id.symbol().raw; cell < shm::k_position_cells) {
+                    out.push_back({.gateway = gateway, .listed = &listed, .id = id, .cell = cell});
+                }
             }
         }
         return out;
     }
 
-    [[nodiscard]] static std::optional<Target> resolve(const std::vector<const Gateway*>& gateways,
-                                                       InstrumentId id) {
+    [[nodiscard]] static std::vector<EventSource>
+    exec_sources(const std::vector<const Gateway*>& gateways) {
+        std::vector<EventSource> out;
+        out.reserve(gateways.size());
         for (const auto* gateway : gateways) {
-            // The (venue, market) prefix says which gateway can possibly hold
-            // it, so this asks one catalogue rather than every one.
-            if (gateway->account.venue != id.venue() || gateway->account.market != id.market()) {
-                continue;
-            }
-            const auto* listed = gateway->channels.catalogue->find(id);
-            if (listed == nullptr) {
-                continue;
-            }
-            const std::size_t cell = id.symbol().raw;
-            if (cell >= shm::k_bbo_cells) {
-                continue; // an id past the tables has nowhere to quote from
-            }
-            return Target{.gateway = gateway, .listed = listed, .cell = cell};
+            out.push_back({.gateway = gateway,
+                           .ring = gateway->channels.exec_events,
+                           .reader = shm::ExecReader{gateway->channels.exec_events}});
         }
-        return std::nullopt;
+        return out;
+    }
+
+    // A GATEWAY THAT RESTARTED IS A NEW MAPPING, AND EVERY `listed` THIS
+    // SESSION HOLDS POINTED INTO THE OLD ONE.
+    //
+    // The registry re-attaches such a gateway and moves its epoch to say so
+    // (registry.hpp). Live subscriptions RE-RESOLVE here rather than the
+    // re-attach being refused while a session holds targets: a terminal is
+    // connected all day, so refusing would mean a restarted gatewayd stays
+    // alive=false until admind is restarted — which is the defect this fixes,
+    // reintroduced through the other door. Cheap, and it has to be: one
+    // integer compare on every tick, work only on the tick after a re-attach.
+    void resync() {
+        const auto epoch = registry_->epoch();
+        if (epoch == epoch_) {
+            return;
+        }
+        epoch_ = epoch;
+        const auto gateways = attached();
+        for (auto& feed : feeds_) {
+            if (sequenced(feed.kind)) {
+                // ONLY THE GATEWAY THAT RESTARTED. Its ring went with its
+                // mapping and its sequence numbers belonged to a world that is
+                // gone (shm/segment.hpp), so that reader starts again on the
+                // new ring — but every fill is money, and resetting the other
+                // venues' cursors would skip whatever they had queued.
+                for (auto& source : feed.sources) {
+                    if (source.ring != source.gateway->channels.exec_events) {
+                        source.ring = source.gateway->channels.exec_events;
+                        source.reader = shm::ExecReader{source.ring};
+                    }
+                }
+                continue;
+            }
+            if (feed.kind == Feed::Health) {
+                continue; // reads the registry per frame and holds nothing
+            }
+            if (feed.kind == Feed::Positions) {
+                feed.targets = position_targets(gateways);
+            } else {
+                std::vector<std::string> unknown;
+                feed.targets = resolve_targets(*registry_, feed.asked, unknown);
+                if (!unknown.empty()) {
+                    // A restarted gateway numbers its own catalogue, so an id
+                    // it no longer lists is an id that will never arrive. Said
+                    // out loud, exactly as at subscribe time.
+                    enqueue(problem_frame(feed.id,
+                                          {.title = "the gateway restarted and no longer lists "
+                                                    "these instruments",
+                                           .status = 404,
+                                           .detail = join(unknown)}));
+                }
+            }
+            // Empty again, so the first tick after a re-attach is a snapshot:
+            // nothing has been sent from the new mapping, and the versions
+            // recorded against the old one mean nothing in it.
+            feed.gate = ChangeGate{feed.targets.size()};
+        }
     }
 
     void subscribe(const ClientMessage& message) {
@@ -842,7 +942,6 @@ private:
     }
 
     void open_state(const ClientMessage& message, Feed kind, std::span<const InstrumentId> ids) {
-        const auto gateways = attached();
         FeedState feed{};
         feed.id = message.id;
         feed.kind = kind;
@@ -851,15 +950,9 @@ private:
         // snapshot holds.
         feed.levels =
             std::min<std::size_t>(message.levels.value_or(k_default_levels), k_book_levels);
+        feed.asked.assign(ids.begin(), ids.end());
         std::vector<std::string> unknown;
-        for (const auto id : ids) {
-            const auto target = resolve(gateways, id);
-            if (!target.has_value()) {
-                unknown.push_back(digits(id));
-                continue;
-            }
-            feed.targets.push_back(*target);
-        }
+        feed.targets = resolve_targets(*registry_, ids, unknown);
         if (!unknown.empty()) {
             // Said out loud: a watchlist quietly missing a row is a terminal
             // showing nothing where a price was asked for.
@@ -903,11 +996,7 @@ private:
                 FeedState feed{};
                 feed.id = message.id;
                 feed.kind = kind;
-                for (const auto* gateway : gateways) {
-                    feed.sources.push_back(
-                        {.gateway = gateway,
-                         .reader = shm::ExecReader{gateway->channels.exec_events}});
-                }
+                feed.sources = exec_sources(gateways);
                 feeds_.push_back(std::move(feed));
                 created = true;
                 continue;
@@ -916,15 +1005,7 @@ private:
                 FeedState feed{};
                 feed.id = message.id;
                 feed.kind = kind;
-                for (const auto* gateway : gateways) {
-                    for (const auto& listed : gateway->channels.catalogue->all()) {
-                        const std::size_t cell = base_of(listed).id.symbol().raw;
-                        if (cell < shm::k_position_cells) {
-                            feed.targets.push_back(
-                                {.gateway = gateway, .listed = &listed, .cell = cell});
-                        }
-                    }
-                }
+                feed.targets = position_targets(gateways);
                 feed.gate = ChangeGate{feed.targets.size()};
                 feed.millihertz =
                     negotiate_millihertz(kind, feed.targets.size(), message.millihertz);
@@ -1130,6 +1211,9 @@ private:
     }
 
     std::size_t drain_events() {
+        // Also reached from a write completion, which is outside tick(): every
+        // door into the targets resyncs before it touches one.
+        resync();
         std::size_t sent = 0;
         for (auto& feed : feeds_) {
             if (sequenced(feed.kind)) {
@@ -1188,6 +1272,10 @@ private:
 
     [[nodiscard]] bool busy() const noexcept { return writing_ || !out_.empty(); }
 
+    // Where the next tick starts its walk, so a chatty feed cannot hold the
+    // front of the queue for ever.
+    std::size_t next_feed_{0};
+
     void enqueue(std::string frame) {
         if (out_.size() >= k_max_queued) {
             close(); // a client that will not read is not a client to wait for
@@ -1223,6 +1311,8 @@ private:
     std::unique_ptr<http::request_parser<http::empty_body>> request_;
     const Registry* registry_;
     const Clock* clock_;
+    // The registry epoch every target here was resolved against.
+    std::uint64_t epoch_{0};
     std::vector<FeedState> feeds_;
     std::deque<std::string> out_;
     std::string writing_buf_;

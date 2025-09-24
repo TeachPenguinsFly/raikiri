@@ -18,6 +18,7 @@
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,13 +43,32 @@ public:
     // dead owner — is skipped rather than fatal, because one bad gateway must
     // not stop the reader from seeing the rest.
     //
-    // SAFE TO CALL REPEATEDLY, and meant to be. A gateway already attached is
-    // left alone, so this is the rescan as well as the first look — and it has
-    // to be: the segment file exists from the instant a gateway creates it but
-    // its channels appear only once it has published, so a reader that looked
-    // exactly once would miss every gateway that was still starting, and every
-    // gateway started afterwards for the rest of its life.
+    // SAFE TO CALL REPEATEDLY, and meant to be: this is the rescan as well as
+    // the first look — and it has to be, because the segment file exists from
+    // the instant a gateway creates it but its channels appear only once it has
+    // published, so a reader that looked exactly once would miss every gateway
+    // that was still starting, and every gateway started afterwards for the
+    // rest of its life.
+    //
+    // A GATEWAY THAT RESTARTED IS RE-ATTACHED, and the segment's generation is
+    // what says so: it is the owner's start time, so one generation is one run
+    // of one gateway. An attachment whose generation still matches the file on
+    // disk is left exactly as it is; one whose generation moved belongs to a
+    // process that is gone. Measured before this existed — a gatewayd was
+    // killed and started again, loaded its instruments and subscribed, and
+    // /v1/health went on reporting that account alive=false with the dead run's
+    // generation until admind itself was restarted.
     std::size_t discover(const std::string& shm_dir, std::int32_t reader_pid);
+
+    // How many attachments have been REPLACED, which is the signal a holder of
+    // any pointer into a segment needs. A catalogue row, a channel, the tables
+    // behind them: all of them belong to the mapping they were resolved
+    // against, and a re-attach unmaps it. Anything that keeps one across a
+    // discover() must compare this against what it captured and resolve again
+    // — Stream's live subscriptions do, and the alternative was refusing to
+    // re-attach while a client was connected, which would leave the venue dead
+    // for exactly as long as one terminal stays open.
+    [[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
 
     [[nodiscard]] std::vector<Account> accounts(MonoNanos now) const;
     [[nodiscard]] Health health(MonoNanos now) const;
@@ -99,6 +119,8 @@ public:
     }
 
 private:
+    [[nodiscard]] Gateway* find_mutable(std::string_view account) noexcept;
+
     // HELD BY POINTER SO THE GATEWAYS DO NOT MOVE. A live stream subscription
     // keeps a `const Gateway*` per instrument it is watching, and this used to
     // be a vector of values: every rescan push_back'd — reallocating — and
@@ -106,7 +128,14 @@ private:
     // client subscribed while a gateway appeared was left reading a gateway
     // that had been moved out from under it, or freed memory. Sorting a vector
     // of pointers rearranges only the pointers.
+    //
+    // A re-attach keeps that promise as well: it assigns the new mapping over
+    // the Gateway in place, so a `const Gateway*` stays a pointer to a live
+    // object and only the segment behind it changes. What it cannot keep alive
+    // is a pointer INTO the old mapping, which is what `epoch()` is for.
     std::vector<std::unique_ptr<Gateway>> gateways_;
+
+    std::uint64_t epoch_{0};
 };
 
 // Exposed for tests and for anything that needs one row without a segment.

@@ -129,6 +129,30 @@ private:
     std::vector<std::uint32_t> versions_;
 };
 
+// ------------------------------------------------------------ targets ----
+
+// One instrument as a live subscription holds it: the gateway that answers for
+// it, its catalogue row, and the cell every table indexes it by.
+//
+// `listed` POINTS INTO A SEGMENT MAPPING, so a target is worth exactly as much
+// as the attachment it was resolved against. A gateway that restarts is
+// re-attached and that mapping goes away with it, which is why the id is kept
+// here beside the row: a target is RE-RESOLVED when Registry::epoch() moves,
+// never carried across one.
+struct Target {
+    const Gateway* gateway{nullptr};
+    const raikiri::Instrument* listed{nullptr};
+    InstrumentId id{};
+    std::size_t cell{0};
+};
+
+// Resolves a watchlist against what is attached NOW. Ids nothing answers for
+// are appended to `unknown` rather than dropped quietly: a watchlist silently
+// missing a row is a terminal showing nothing where a price was asked for.
+[[nodiscard]] std::vector<Target> resolve_targets(const Registry& registry,
+                                                  std::span<const InstrumentId> ids,
+                                                  std::vector<std::string>& unknown);
+
 // --------------------------------------------------- records into rows ----
 
 // A cell with a side missing is not a quote yet: the contract requires all

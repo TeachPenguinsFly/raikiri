@@ -61,15 +61,20 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
         if (account.venue == VenueId::Invalid) {
             continue; // a file whose name is not an account is not ours
         }
-        // Already attached: this is a RESCAN, not a first look. Attaching twice
-        // would take a second reader slot for one reader and answer every
-        // question about that gateway two ways.
-        if (find(account_name) != nullptr) {
-            continue;
-        }
+        auto* held = find_mutable(account_name);
         auto client = shm::SegmentClient::attach(entry.path().string());
         if (!client.has_value()) {
             continue; // wrong ABI, wrong layout, dead owner: skip, never fatal
+        }
+        // THE GENERATION IS THE RUN, not the account. An attachment that still
+        // carries the generation on disk is this same gateway, and re-attaching
+        // it would take a second of the segment's four reader slots every two
+        // seconds for one reader. A generation that MOVED is a gateway that
+        // died and came back: the old mapping belongs to a dead process, and
+        // holding it is why a restarted gatewayd used to read alive=false for
+        // ever — books that looked dead for a venue that was perfectly healthy.
+        if (held != nullptr && held->client.generation() == client->generation()) {
+            continue;
         }
         auto channels = shm::open_gateway_channels(*client);
         if (!channels.has_value()) {
@@ -79,10 +84,20 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
             continue;
         }
         (void)client->register_reader(reader_pid);
-        gateways_.push_back(std::make_unique<Gateway>(Gateway{.account = account,
-                                                              .name = account_name,
-                                                              .client = std::move(*client),
-                                                              .channels = *channels}));
+        Gateway fresh{.account = account,
+                      .name = account_name,
+                      .client = std::move(*client),
+                      .channels = *channels};
+        if (held != nullptr) {
+            // IN PLACE, so the Gateway keeps its address (registry.hpp), and
+            // the old client's mapping is unmapped by the assignment. Every
+            // pointer INTO that mapping is now dangling, which is what the
+            // epoch announces.
+            *held = std::move(fresh);
+            ++epoch_;
+            continue; // the set of gateways did not change, so neither did its order
+        }
+        gateways_.push_back(std::make_unique<Gateway>(std::move(fresh)));
     }
     std::ranges::sort(gateways_, {}, [](const auto& gw) { return gw->name; });
     return gateways_.size();
@@ -296,6 +311,11 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
 }
 
 const Gateway* Registry::find(std::string_view account) const noexcept {
+    const auto it = std::ranges::find(gateways_, account, [](const auto& gw) { return gw->name; });
+    return it == gateways_.end() ? nullptr : it->get();
+}
+
+Gateway* Registry::find_mutable(std::string_view account) noexcept {
     const auto it = std::ranges::find(gateways_, account, [](const auto& gw) { return gw->name; });
     return it == gateways_.end() ? nullptr : it->get();
 }

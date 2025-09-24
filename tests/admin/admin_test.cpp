@@ -1,11 +1,21 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/server.hpp>
+#include <raikiri/admin/stream.hpp>
+#include <raikiri/shm/records.hpp>
+#include <raikiri/shm/segment.hpp>
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+
 #include <algorithm>
+#include <filesystem>
 #include <glaze/glaze.hpp>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace raikiri::admin {
 namespace {
@@ -101,6 +111,172 @@ TEST(AdminServer, QueryParametersAreReadByNameAndNotByPosition) {
     EXPECT_TRUE(query_param(query, "lim").empty());
     EXPECT_TRUE(query_param("", "account").empty());
     EXPECT_TRUE(query_param("account", "account").empty()) << "a key with no value is no answer";
+}
+
+// ------------------------------------------------- a restarted gateway ----
+//
+// Against REAL segments, because the defect is in what the registry does with a
+// second segment under the same name and a hand-built attachment would prove
+// nothing about the mapping that goes away.
+
+std::string segment_dir() {
+    return "/tmp/raikiri-admin-reattach-" + std::to_string(::getpid());
+}
+
+// Removed at the end whatever the test does, so a failed assertion cannot leave
+// a segment behind for the next run to attach to.
+struct SegmentDir {
+    SegmentDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(segment_dir(), ec);
+        std::filesystem::create_directories(segment_dir(), ec);
+    }
+
+    SegmentDir(const SegmentDir&) = delete;
+    SegmentDir& operator=(const SegmentDir&) = delete;
+
+    ~SegmentDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(segment_dir(), ec);
+    }
+};
+
+// The catalogue hands out slots in push order, so an instrument's SymbolId is
+// the slot it will land in.
+raikiri::Instrument listed_as(std::uint32_t slot, std::string_view symbol) {
+    InstrumentBase base{};
+    base.id = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{slot});
+    base.exchange_symbol = *SymbolText::from(symbol);
+    base.local_symbol = *SymbolText::from(symbol);
+    base.tick_size = *parse_decimal_e9("0.01");
+    base.lot_size = *parse_decimal_e9("0.001");
+    base.min_notional = *parse_decimal_e9("1");
+    base.contract_value = *parse_decimal_e9("1");
+    base.kind = ContractKind::Linear;
+    return raikiri::Instrument{PerpInstrument{.base = base}};
+}
+
+// One run of one gateway, in gatewayd's own order: create the segment, fill the
+// catalogue, and only then publish — so a reader that can attach at all can
+// resolve every id it will be sent.
+std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation,
+                                               const std::vector<std::string>& symbols) {
+    auto owner = shm::SegmentOwner::create(
+        segment_dir() + "/gw.sim", shm::k_gateway_segment_bytes, generation, generation);
+    if (!owner.has_value()) {
+        return std::nullopt;
+    }
+    const auto channels = shm::create_gateway_channels(*owner);
+    if (!channels.has_value()) {
+        return std::nullopt;
+    }
+    for (std::uint32_t slot = 0; slot < symbols.size(); ++slot) {
+        if (!channels->catalogue->push(listed_as(slot, symbols[slot])).has_value()) {
+            return std::nullopt;
+        }
+    }
+    owner->publish();
+    return std::optional<shm::SegmentOwner>{std::move(*owner)};
+}
+
+TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
+    // MEASURED: a gatewayd was killed and started again, loaded its instruments
+    // and subscribed, and /v1/health went on reporting that account alive=false
+    // with the dead run's generation until admind itself was restarted.
+    const SegmentDir dir;
+    constexpr std::uint64_t k_first_run = 1'000;
+    // Far enough past the first run's last heartbeat that the dead owner reads
+    // dead, which is exactly what the terminal showed.
+    constexpr std::uint64_t k_second_run = k_first_run + 10 * shm::k_owner_stale_ns;
+
+    auto first_run = start_gateway(k_first_run, {"AAA"});
+    ASSERT_TRUE(first_run.has_value());
+
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    const Gateway* attached = registry.find("sim");
+    ASSERT_NE(attached, nullptr);
+    EXPECT_EQ(attached->client.generation(), k_first_run);
+    const auto epoch = registry.epoch();
+
+    // A rescan of the SAME run must change nothing: re-attaching a live gateway
+    // every two seconds would spend the segment's four reader slots and unmap a
+    // catalogue nobody asked it to.
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    EXPECT_EQ(registry.find("sim"), attached);
+    EXPECT_EQ(registry.epoch(), epoch);
+
+    // The gateway dies and comes back: a new segment, a new generation, and a
+    // catalogue of its own. This is the rescan that used to skip it.
+    first_run.reset();
+    const auto second_run = start_gateway(k_second_run, {"BBB"});
+    ASSERT_TRUE(second_run.has_value());
+
+    const auto dead = registry.accounts(MonoNanos{k_second_run});
+    ASSERT_EQ(dead.size(), 1U);
+    EXPECT_FALSE(dead.front().gateway.alive) << "the dead run, still attached";
+    EXPECT_EQ(dead.front().gateway.generation, digits(k_first_run));
+
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U) << "one account, not two";
+    EXPECT_EQ(registry.find("sim"), attached) << "the Gateway keeps its address (registry.hpp)";
+    EXPECT_EQ(attached->client.generation(), k_second_run);
+    EXPECT_GT(registry.epoch(), epoch) << "every pointer into the old mapping is stale";
+
+    const auto live = registry.accounts(MonoNanos{k_second_run});
+    ASSERT_EQ(live.size(), 1U);
+    EXPECT_TRUE(live.front().gateway.alive);
+    EXPECT_EQ(live.front().gateway.generation, digits(k_second_run));
+
+    // And every read now goes to the NEW catalogue.
+    const auto instruments = registry.instruments("sim", std::nullopt);
+    ASSERT_EQ(instruments.size(), 1U);
+    EXPECT_EQ(instruments.front().exchange_symbol, "BBB");
+}
+
+TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
+    // The hazard the re-attach creates. A live subscription holds a `listed`
+    // POINTING INTO the mapping a re-attach drops, so a session compares
+    // Registry::epoch() against the one it resolved at and resolves again; this
+    // is what resolving again has to answer.
+    const SegmentDir dir;
+    const auto kept = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0});
+    const auto gone = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1});
+    const std::vector<InstrumentId> watchlist{kept, gone};
+
+    auto first_run = start_gateway(1'000, {"AAA", "BBB"});
+    ASSERT_TRUE(first_run.has_value());
+
+    Registry registry;
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    std::vector<std::string> unknown;
+    const auto before = resolve_targets(registry, watchlist, unknown);
+    ASSERT_TRUE(unknown.empty());
+    ASSERT_EQ(before.size(), 2U);
+    // Kept as a VALUE and never read again: once the re-attach has happened it
+    // is a pointer into an unmapped segment, and reading one is the
+    // use-after-free this test exists to keep out.
+    const auto* dropped = before.front().listed;
+    const auto epoch = registry.epoch();
+
+    // The gateway comes back listing one of the two.
+    first_run.reset();
+    const auto second_run = start_gateway(2'000, {"AAA"});
+    ASSERT_TRUE(second_run.has_value());
+    ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
+    ASSERT_NE(registry.epoch(), epoch) << "the compare a live session re-resolves on";
+
+    std::vector<std::string> missing;
+    const auto after = resolve_targets(registry, watchlist, missing);
+    ASSERT_EQ(after.size(), 1U);
+    EXPECT_NE(after.front().listed, dropped) << "a row of the new mapping, not the old one";
+    EXPECT_EQ(after.front().listed, registry.find("sim")->channels.catalogue->find(kept));
+    EXPECT_EQ(after.front().id, kept);
+    EXPECT_EQ(after.front().cell, 0U);
+    // The one the restarted run no longer lists is SAID rather than quietly
+    // dropped: a feed that stops ticking without a word is a terminal showing
+    // nothing where a price was asked for.
+    ASSERT_EQ(missing.size(), 1U);
+    EXPECT_EQ(missing.front(), digits(gone));
 }
 
 } // namespace
