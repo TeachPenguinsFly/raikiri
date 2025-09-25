@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
 #include <raikiri/venues/okx/errors.hpp>
@@ -12,6 +13,7 @@
 #include <raikiri/venues/okx/rest.hpp>
 #include <raikiri/venues/okx/ws.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -29,6 +31,19 @@ namespace {
 // count websocket control frames toward that timer, so the app ping runs well
 // inside the window.
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
+
+// OKX meters op messages per CONNECTION at three a second, and the app ping
+// draws on the same budget. One frame carries 64 subscriptions, so a full
+// socket is sixteen frames and under six seconds.
+constexpr std::uint64_t k_subscribe_spacing_ns = 350ULL * 1'000'000ULL;
+
+// Enough sockets for OKX's whole catalogue at 1024 subscriptions each: 471
+// swap listings times the SIX channels one instrument costs here — bbo-tbt,
+// trades, books, funding-rate, tickers and mark-price — is 2826, so three
+// would do and six leaves room for the listings OKX adds. On one socket that
+// arithmetic ran the other way: 1024/6 is 170, and the gateway subscribed 171
+// of the 471 and was refused the other 300.
+constexpr std::size_t k_max_connections = 6;
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
@@ -140,33 +155,40 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// A pool key is one channel on one instrument, joined by a byte neither can
+// contain. The pool stores keys as opaque strings and hands them back when a
+// socket reconnects, so this is the only place that knows the shape.
+constexpr char k_key_sep = '\x1f';
+
+[[nodiscard]] std::string key_of(std::string_view channel, std::string_view inst_id) {
+    std::string key{channel};
+    key.push_back(k_key_sep);
+    key.append(inst_id);
+    return key;
+}
+
+// The inverse, and the only decode: the frame builder and the reopen hook read
+// the same key and must not disagree about where the cut is. Views into the
+// key, which the pool owns for as long as the connection holds it.
+[[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
+    const auto cut = key.find(k_key_sep);
+    if (cut == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return Subscription{.channel = key.substr(0, cut), .inst_id = key.substr(cut + 1)};
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
+    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
+    // re-asks for its own keys when it opens; replaying the whole desired set
+    // on every one of them is the flood the pool exists to avoid. This handler
+    // is shared by every connection and so cannot tell WHICH one reopened —
+    // the books that reopen actually broke are invalidated by the pool's own
+    // open hook, which is handed that socket's keys.
     void on_open() override {
-        std::vector<Subscription> views;
-        views.reserve(state_->desired.size());
-        for (const auto& entry : state_->desired) {
-            views.push_back({.channel = entry.channel, .inst_id = entry.inst_id});
-        }
-        std::size_t sent = 0;
-        while (sent < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(sent));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
-        }
-        // Whatever the seqId chain said before the socket dropped says nothing
-        // about the snapshot OKX is about to send.
-        for (auto& [id, book] : state_->books) {
-            book.invalidate();
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -180,37 +202,40 @@ public:
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
 private:
     VenueState* state_;
-    net::WsClient* client_{nullptr};
 };
 
 class OkxData final : public exec::DataClient {
 public:
     explicit OkxData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host(state_->testnet)},
-                                .port = std::string{stream_port()},
-                                .target = std::string{stream_path()}},
-                  handler_} {
-        handler_.attach(client_);
-    }
+          pool_{state_->io,
+                net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                              .port = std::string{stream_port()},
+                              .target = std::string{stream_path()}},
+                handler_,
+                // OKX caps a CONNECTION at 1024 subscriptions; the pool turns
+                // that into a per-socket number instead of the process's,
+                // which is what left 171 of 471 instruments watched.
+                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
+                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .max_connections = k_max_connections},
+                [this](std::span<const std::string> keys) { return build_frames(keys); },
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
-        client_.start();
+        pool_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        client_.stop();
+        pool_.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
@@ -223,20 +248,24 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
+        if (!open(channel, symbol)) {
+            return pool_full();
         }
-        open(channel, symbol);
         // The turnover has no SubKind of its own and does not ride the
         // funding-rate frame the way it does on bybit and gate, so it is
         // opened beside it — otherwise nothing ever subscribes `tickers` and
         // every OKX row on the board keeps an empty volume cell.
         if (kind == exec::SubKind::Funding) {
-            open(k_tickers_channel, symbol);
+            if (!open(k_tickers_channel, symbol)) {
+                return pool_full();
+            }
             // And the mark, for the same reason: OKX states it on a channel of
             // its own, `FundingUpdate` carries both, and nothing else opens it.
-            open(channel_for(exec::SubKind::MarkPrice), symbol);
+            // THIS IS WHY AN INSTRUMENT COSTS SIX CHANNELS AND NOT FOUR, which
+            // is the number k_max_connections above divides the ceiling by.
+            if (!open(channel_for(exec::SubKind::MarkPrice), symbol)) {
+                return pool_full();
+            }
         }
         return {};
     }
@@ -246,32 +275,98 @@ public:
             return;
         }
         state_->io.poll();
-        if (client_.connected() && now.ns >= state_->next_app_ping_ns) {
-            (void)client_.send(Protocol::ping_frame());
+        pool_.poll(now);
+        if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
+            // EVERY socket. OKX times out a connection that says nothing for
+            // 30 s, so a ping on one of six leaves the other five idle.
+            pool_.broadcast(Protocol::ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
     }
 
 private:
-    // Records the subscription and, on a live socket, sends it now; a socket
-    // still connecting picks it up from `desired` in on_open.
-    void open(std::string_view channel, std::string_view symbol) {
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
-            return;
-        }
+    [[nodiscard]] static std::unexpected<exec::VenueError> pool_full() {
+        return std::unexpected{
+            exec::VenueError::make(exec::ErrorClass::Terminal, 0, "okx: connection pool is full")};
+    }
+
+    // Records the subscription and hands the key to the pool, which places it
+    // on a socket with room or opens another. False only at the pool's own
+    // ceiling, where the key would be carried by nothing.
+    [[nodiscard]] bool open(std::string_view channel, std::string_view symbol) {
+        const auto before = state_->desired.size();
         state_->add_subscription(channel, symbol);
-        if (!client_.connected()) {
-            return;
+        if (state_->desired.size() == before) {
+            return true; // already placed on a socket; a key is asked for once
         }
-        const std::array<Subscription, 1> one{Subscription{.channel = channel, .inst_id = symbol}};
-        if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-            (void)client_.send(frame->text);
+        const std::array<std::string, 1> one{key_of(channel, symbol)};
+        return pool_.subscribe(one);
+    }
+
+    // ONLY THE BOOKS THIS SOCKET FEEDS. A book is chained on seqId by exactly
+    // one connection, so a socket that reopens has broken its own books' chains
+    // and nobody else's; blanking every book on any reopen would silence the
+    // 300-odd instruments the other sockets are still feeding until they
+    // happen to reconnect too. The channel is checked as well as the
+    // instrument: bbo-tbt for a symbol may sit on a different socket from its
+    // `books`, and only `books` names a chain that can break.
+    void invalidate_books(std::span<const std::string> keys) {
+        const auto depth = channel_for(exec::SubKind::Depth);
+        for (const auto& key : keys) {
+            const auto one = split_key(key);
+            if (!one.has_value() || one->channel != depth) {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(one->inst_id);
+            if (instrument == nullptr) {
+                continue;
+            }
+            // find, not book_for: a key with no book yet has no broken chain
+            // either, and seeding one here would invent a book nothing feeds.
+            if (const auto entry = state_->books.find(base_of(*instrument).id);
+                entry != state_->books.end()) {
+                entry->second.invalidate();
+            }
         }
+    }
+
+    // Turns one connection's keys back into the frames that ask for them.
+    // Called on every open of that socket, which is why the quote channel is
+    // ordered here rather than at subscribe time: on a reconnect the order that
+    // matters is the order the venue is asked in.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<Subscription> views;
+        views.reserve(keys.size());
+        for (const auto& key : keys) {
+            if (const auto one = split_key(key); one.has_value()) {
+                views.push_back(*one);
+            }
+        }
+        // THE QUOTE FIRST. Once the sends are paced, whatever goes last
+        // effectively never arrives — that is how kucoin's whole depth ladder
+        // vanished across 673 instruments — and bbo-tbt is the Bid/Ask column
+        // every screen shows.
+        const auto quote = channel_for(exec::SubKind::Bbo);
+        std::ranges::stable_partition(
+            views, [quote](const Subscription& one) { return one.channel == quote; });
+
+        std::vector<std::string> frames;
+        std::size_t built = 0;
+        while (built < views.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const Subscription>{views}.subspan(built));
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
+        }
+        return frames;
     }
 
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
-    net::WsClient client_;
+    net::WsPool pool_;
     bool started_{false};
 };
 
