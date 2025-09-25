@@ -20,6 +20,7 @@
 #include <raikiri/net/inflater.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -41,6 +42,18 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
+
+// What ONE connection may carry, in TOPICS — not in characters, as bybit
+// counts, and not in instruments. BingX's WebSocket Rules page for
+// wss://open-api-swap.bingx.com/swap-market, the host stream_host() returns for
+// a perpetual: "A websocket is limited to a maximum of 200 topics, and 80403
+// error codes will be returned." A topic is one dataType and a subscribe frame
+// names exactly one, so a topic here is one key on the pool. Spot was moved to
+// the same 200 from unlimited on 2024-08-20.
+//
+// The same page caps an IP at 60 websockets, which is what bounds the pool's
+// connection count rather than this.
+inline constexpr std::size_t k_max_subscriptions_per_connection = 200;
 
 // The user stream. The perpetual one is the SAME host and path as the public
 // market stream with a listenKey on the query, and it takes no subscription at
