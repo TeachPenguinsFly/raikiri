@@ -58,9 +58,22 @@ struct Subscription {
     std::uint32_t limit{0}; // depth.full only; omitted from the frame when zero
 };
 
-// Provisional: MEXC documents no per-connection subscription ceiling and 60
-// ticker subscriptions on one socket were all acknowledged (verified), so this
-// is a guard against unbounded growth rather than a venue-stated limit.
+// What ONE connection carries HERE, and it is our share rather than MEXC's
+// ceiling: MEXC states no per-connection limit and enforces none at any size
+// this gateway can reach. MEASURED 2026-09-07 against contract.mexc.com/edge on
+// a SINGLE socket, the whole futures catalogue — 1186 contracts across
+// depth.full, deal, depth and ticker, 4744 subscriptions — was accepted with
+// zero rs.error and 1185 of the 1186 pushed on every one of the four channels.
+// So this is not kucoin's confusion, where 1024 was bookkeeping and 100 was the
+// venue: on MEXC there is no venue number to be wrong about.
+//
+// WHAT DOES BIND IS THE ASK. `param` names ONE symbol, so a key costs a whole
+// frame and a connection's set takes its key count in paced sends: those same
+// 4744 on one socket at ten a second is eight minutes before the last contract
+// is asked for at all. Splitting the catalogue over sockets that drain in
+// PARALLEL is what shortens the ramp, and 512 a socket puts it at 51 s.
+// Raising this lengthens it and buys nothing, because the socket was never the
+// thing running out.
 inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
 
 class Protocol {
