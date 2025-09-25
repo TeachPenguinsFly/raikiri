@@ -64,7 +64,29 @@ struct Subscription {
     std::string_view inst_id;
 };
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1000;
+// What ONE CONNECTION may carry, MEASURED. Bitget's websocket page states a
+// maximum of 1000 channel subscriptions per connection; that number is not
+// served. Counting the distinct instruments a 60 s run ever saw a books15
+// frame for, against 779 perpetuals asked for ticker, trade and books15 with
+// the ticker ordered first:
+//
+//   1000 a socket (3 sockets): ticker 779, books15 543
+//    500 a socket (5 sockets): ticker 779, books15 704
+//    300 a socket (8 sockets): ticker 779, books15 703
+//    150 a socket (16 sockets): ticker 779, books15 691
+//
+// The plateau at ~700 is the catalogue itself — the rest are contracts whose
+// book does not change in a minute — so anything up to 500 is served whole and
+// 1000 silently drops about 160 subscriptions, with no error frame and with
+// the quote intact, which is what makes the loss look like a quiet market.
+//
+// It was also read here as a bound on the PROCESS, and refusing past it left
+// 334 of 779 perpetuals subscribed and 445 with a blank row on the board.
+//
+// The same page recommends fewer than 50 channels a connection. 2337 of them
+// that way is 47 sockets against the 100 an IP may hold, and 150 a socket
+// measured no better than 500, so the recommendation buys nothing here.
+inline constexpr std::size_t k_max_subscriptions_per_connection = 500;
 inline constexpr std::size_t k_max_subscriptions_per_frame = 50;
 
 class Protocol {
