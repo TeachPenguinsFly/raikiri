@@ -44,13 +44,27 @@ inline constexpr std::string_view k_depth_channel = "@depth15";
 inline constexpr std::string_view k_trade_channel = "@trade";
 inline constexpr std::string_view k_ticker_channel = "@ticker";
 
-// What ONE connection may carry. WEEX's own websocket page states "Maximum 100
-// channels per connection", counted in CHANNELS and not in characters. It is
-// not enforced today — 600 @trade channels were accepted in a single frame and
-// all 600 pushed — but an unenforced ceiling is one the venue can start
-// enforcing without telling anyone, and the failure mode when it does is a
-// silent drop rather than a refusal.
-inline constexpr std::size_t k_max_channels_per_connection = 100;
+// What ONE connection may carry, counted in CHANNELS and not in characters.
+//
+// WEEX'S TWO STATED LIMITS CANNOT BOTH BE THE OPERATING ONES. Its websocket
+// page says "Maximum 100 channels per connection" and "maximum 20 concurrent
+// connections per IP", which multiply to 2000 — and its own catalogue needs
+// 3060, three channels for each of 1020 contracts. Held to both numbers this
+// gateway subscribed 534 and left 486 contracts blank, verified end to end:
+// 531 of 1020 ever put a bid on the terminal's socket in 40 s.
+//
+// So one of them is not a limit, and it is measurable which: 600 @trade
+// channels were accepted in one frame on ONE socket and all 600 pushed. 200
+// is a third of that, and sixteen sockets of it covers the catalogue while
+// staying under the connection cap, which is the number that would hurt to
+// trip. Measured the same way afterwards: 1003 of 1020, the missing seventeen
+// being contracts that did not quote at all in the minute.
+//
+// IF WEEX EVER STARTS ENFORCING THE HUNDRED, it will drop the excess in
+// silence rather than refuse it — the shape kucoin and bitget both had here.
+// What catches that is not the frame counters, which a few busy contracts keep
+// high; it is counting the DISTINCT instruments that ever deliver a price.
+inline constexpr std::size_t k_max_channels_per_connection = 200;
 
 // The same page states "maximum 20 concurrent connections per IP". Sixteen
 // leaves the difference for anything else this host runs against WEEX, and a
