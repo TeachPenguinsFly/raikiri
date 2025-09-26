@@ -70,9 +70,13 @@ the common one.
 
 ## What it would take to serve these
 
-- **Scanner, perp·perp:** computable from `/v1/markets` plus the `quotes` and
-  `funding` stream channels, with one input missing — no 24h volume is published
-  anywhere in the contract, so the depth filter has nothing to read.
+- **Scanner, perp·perp:** computable today. `/v1/markets` names the listings,
+  `quotes` carries the prices, `funding` carries rate, mark, interval and next
+  settlement, and `ticker` carries `volume_24h_quote` — the depth filter's input,
+  which this document called missing until it was published. Nothing is absent
+  but the arithmetic and an endpoint to serve it from. Computing it in the
+  browser instead would subscribe every symbol on every venue to render a
+  screenful, and leave a board that cannot be checked against anything.
 - **Scanner, spot·perp and spot·spot:** the same, once spot gateways are
   attached beside the perp ones.
 - **Strategies:** needs a registry. admind knows a strategy only as an integer

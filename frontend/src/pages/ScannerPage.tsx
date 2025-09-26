@@ -19,14 +19,20 @@ export function ScannerPage() {
           computed and hidden; nothing computes it.
         </p>
         <p className="max-w-2xl text-sm text-fg-dim">
-          The perp·perp board is the closest: every input except one is already
-          on the wire. <span className="text-fg-mid">/v1/markets</span> names
-          which venues list a symbol, and the{' '}
-          <span className="text-fg-mid">quotes</span> and{' '}
-          <span className="text-fg-mid">funding</span> stream channels carry the
-          prices and the rates. The missing input is 24h volume, which nothing
-          in the contract publishes — and depth is the filter that separates a
-          route you can take from a number you can admire.
+          The perp·perp board now needs no new input.{' '}
+          <span className="text-fg-mid">/v1/markets</span> names which venues
+          list a symbol, <span className="text-fg-mid">quotes</span> and{' '}
+          <span className="text-fg-mid">funding</span> carry the prices, the
+          rates, the marks and the settlement times, and{' '}
+          <span className="text-fg-mid">ticker</span> carries the 24h volume
+          that the depth filter was waiting on. What is absent is the
+          computation, not the data.
+        </p>
+        <p className="max-w-2xl text-sm text-fg-dim">
+          It belongs behind an endpoint rather than in this file. Computed here,
+          the board would exist only while a tab is open, could not be checked
+          against anything, and would cost a subscription to every symbol on
+          every venue to render sixteen rows.
         </p>
         <p className="max-w-2xl text-sm text-fg-dim">
           The spot boards need spot gateways attached beside the perp ones. Same
