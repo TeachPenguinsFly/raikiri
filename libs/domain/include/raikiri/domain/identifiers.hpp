@@ -30,9 +30,10 @@ enum class VenueId : std::uint8_t {
     Bitget,
     Htx,
     Bitfinex,
+    Weex,
 };
 
-inline constexpr std::size_t k_venue_count = 18; // including Invalid
+inline constexpr std::size_t k_venue_count = 19; // including Invalid
 
 enum class MarketType : std::uint8_t {
     Spot = 0,

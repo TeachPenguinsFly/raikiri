@@ -1,0 +1,259 @@
+#include <raikiri/common/fixed_point.hpp>
+#include <raikiri/venues/weex/book.hpp>
+
+namespace raikiri::venues::weex {
+
+// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer; a
+// venue that reimplements opt_str or req_array is one that will disagree with
+// its neighbours about what an absent field means.
+namespace detail = raikiri::wire;
+
+namespace {
+
+using detail::guarded;
+using detail::session;
+
+// A level is a two-element array of strings, ["79375.3","2.5048"], on the socket
+// and in the REST body alike.
+std::expected<std::size_t, WireError>
+read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
+    auto array = detail::req_array(root, key);
+    if (!array.has_value()) {
+        return std::unexpected(array.error());
+    }
+    std::size_t count = 0;
+    for (auto entry : *array) {
+        if (count == k_max_levels) {
+            return std::unexpected(WireError::TooManyEntries);
+        }
+        detail::ondemand::array pair;
+        if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        WireLevel level{};
+        std::size_t field = 0;
+        for (auto element : pair) {
+            detail::ondemand::value value;
+            if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            const auto text = detail::str_of(value);
+            if (!text.has_value()) {
+                return std::unexpected(text.error());
+            }
+            if (field == 0) {
+                level.price = *text;
+            } else if (field == 1) {
+                level.qty = *text;
+            }
+            ++field;
+        }
+        if (field < 2) {
+            return std::unexpected(WireError::ShortArray);
+        }
+        into[count] = level;
+        ++count;
+    }
+    return count;
+}
+
+// The venue's own reader: WEEX writes plain decimals on every price and size.
+// The exact-or-refuse rule itself is book::exact_steps.
+std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
+    const auto value = parse_decimal_e9(text);
+    return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
+}
+
+} // namespace
+
+std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireDepth, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto obj = *root;
+
+        WireDepth out{};
+        const auto event = detail::req_str(obj, "e");
+        if (!event.has_value()) {
+            return std::unexpected(event.error());
+        }
+        obj.reset();
+        const auto symbol = detail::req_str(obj, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        out.symbol = *symbol;
+
+        obj.reset();
+        const auto disposition = detail::req_str(obj, "d");
+        if (!disposition.has_value()) {
+            return std::unexpected(disposition.error());
+        }
+        // TWO FIELDS, ONE FACT, AND THEY MUST AGREE. `e` names the frame and
+        // `d` names its disposition; a snapshot applied as a delta leaves a book
+        // that is a mixture of two moments and still reports itself live, so a
+        // frame whose two answers differ is refused rather than resolved.
+        const bool snapshot_event = *event == "depthSnapshot";
+        const bool snapshot_field = *disposition == "SNAPSHOT";
+        if (snapshot_event != snapshot_field) {
+            return std::unexpected(WireError::UnknownMessage);
+        }
+        if (!snapshot_field && *disposition != "CHANGED") {
+            return std::unexpected(WireError::UnknownMessage);
+        }
+        out.is_snapshot = snapshot_field;
+
+        obj.reset();
+        const auto first = detail::opt_u64(obj, "U");
+        obj.reset();
+        const auto last = detail::opt_u64(obj, "u");
+        obj.reset();
+        const auto event_ms = detail::opt_u64(obj, "E");
+        obj.reset();
+        const auto tier = detail::opt_u64(obj, "l");
+        if (!first.has_value() || !last.has_value() || !event_ms.has_value() || !tier.has_value()) {
+            return std::unexpected(WireError::WrongType);
+        }
+        if (*first == 0 || *last == 0) {
+            return std::unexpected(WireError::MissingField); // a frame off the chain
+        }
+        out.first_id = *first;
+        out.last_id = *last;
+        out.event_ms = *event_ms;
+        out.tier = static_cast<std::uint32_t>(*tier);
+
+        obj.reset();
+        const auto bids = read_levels(obj, "b", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        obj.reset();
+        const auto asks = read_levels(obj, "a", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        out.bids = {storage.bids.data(), *bids};
+        out.asks = {storage.asks.data(), *asks};
+        return out;
+    });
+}
+
+DepthBook::DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
+    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {
+    ladders_.bids().reserve(k_max_levels);
+    ladders_.asks().reserve(k_max_levels);
+}
+
+void DepthBook::invalidate() noexcept {
+    ladders_.clear();
+    last_id_ = 0;
+    live_ = false;
+}
+
+std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const {
+    const auto price = steps_of(wire.price, tick_size_);
+    const auto qty = steps_of(wire.qty, lot_size_);
+    if (!price.has_value() || !qty.has_value()) {
+        return std::nullopt;
+    }
+    return Level{.price = PriceTicks::from_raw(*price), .qty = QtyLots::from_raw(*qty)};
+}
+
+void DepthBook::upsert(book::Ladder& side, const Level& level) {
+    if (level.qty.raw == 0) {
+        // Quantity "0" is WEEX's delete, and it is how the venue keeps the
+        // window at its subscribed width: a level pushed out of the top 15
+        // arrives once more at zero and never again.
+        side.remove(level.price);
+        return;
+    }
+    side.upsert(level);
+}
+
+void DepthBook::apply_wire(std::span<const WireLevel> levels, book::Ladder& side) {
+    for (const auto& wire : levels) {
+        const auto level = convert(wire);
+        if (!level.has_value()) {
+            ++dropped_levels_;
+            continue;
+        }
+        upsert(side, *level);
+    }
+}
+
+BookResult DepthBook::apply(const WireDepth& frame) {
+    return frame.is_snapshot ? seed(frame) : advance(frame);
+}
+
+BookResult DepthBook::seed(const WireDepth& frame) {
+    // A snapshot REPLACES. It arrives when the channel opens and after any
+    // resubscribe, and either way what came before it belongs to a chain this
+    // frame does not continue.
+    ladders_.clear();
+    apply_wire(frame.bids, ladders_.bids());
+    apply_wire(frame.asks, ladders_.asks());
+    last_id_ = frame.last_id;
+    live_ = true;
+    if (ladders_.bids().empty() || ladders_.asks().empty()) {
+        // One-sided is not a book, and it cannot be published or chained from.
+        invalidate();
+        return BookResult::Unseeded;
+    }
+    return BookResult::Applied;
+}
+
+BookResult DepthBook::advance(const WireDepth& frame) {
+    if (!live_) {
+        return BookResult::Unseeded; // silence until the channel's own snapshot
+    }
+    if (frame.last_id <= last_id_) {
+        return BookResult::Stale; // duplicate or reordered; already applied
+    }
+    // THE BOUNDARY IS SHARED, not successive: `U` equals the PREVIOUS frame's
+    // `u`, on 478 of 478 consecutive deltas measured live. Testing for
+    // `last_id_ + 1` here would count every valid frame as a gap and leave the
+    // book permanently dark.
+    if (frame.first_id != last_id_) {
+        ++gaps_;
+        invalidate();
+        return BookResult::Gap;
+    }
+    apply_wire(frame.bids, ladders_.bids());
+    apply_wire(frame.asks, ladders_.asks());
+    last_id_ = frame.last_id;
+    if (ladders_.bids().empty() || ladders_.asks().empty()) {
+        invalidate();
+        return BookResult::Gap;
+    }
+    return BookResult::Applied;
+}
+
+std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!live_) {
+        return std::nullopt;
+    }
+    return ladders_.snapshot(instrument_, last_id_, ts_event, ts_init);
+}
+
+std::optional<Bbo> DepthBook::touch(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!live_) {
+        return std::nullopt;
+    }
+    const auto top = ladders_.touch();
+    if (!top.has_value()) {
+        return std::nullopt;
+    }
+    Bbo out{};
+    out.instrument = instrument_;
+    out.bid = top->first.price;
+    out.bid_qty = top->first.qty;
+    out.ask = top->second.price;
+    out.ask_qty = top->second.qty;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
+} // namespace raikiri::venues::weex

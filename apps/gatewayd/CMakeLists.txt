@@ -5,4 +5,4 @@ target_link_libraries(gatewayd
           raikiri::venue_bitget raikiri::venue_bitmex raikiri::venue_bybit raikiri::venue_coinbase
           raikiri::venue_deribit raikiri::venue_gate raikiri::venue_htx raikiri::venue_hyperliquid
           raikiri::venue_kraken raikiri::venue_kucoin raikiri::venue_mexc raikiri::venue_okx
-          raikiri::venue_sim raikiri::venue_xt raikiri::warnings)
+          raikiri::venue_sim raikiri::venue_weex raikiri::venue_xt raikiri::warnings)

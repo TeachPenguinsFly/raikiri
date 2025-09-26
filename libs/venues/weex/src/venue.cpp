@@ -1,0 +1,36 @@
+#include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/weex/weex_venue.hpp>
+
+#include <memory>
+
+#include "clients.hpp"
+
+namespace raikiri::venues::weex {
+
+using namespace detail;
+
+namespace {
+
+exec::VenueAdapter
+make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+    auto state = std::make_shared<VenueState>(sink, clock);
+    state->budget = config.budget;
+    state->market = config.market;
+    // NO CREDENTIALS ARE RESOLVED. Nothing in this adapter signs, so reading a
+    // key here would be a secret pulled out of a vault for no call to make.
+
+    exec::VenueAdapter adapter{};
+    adapter.caps = exec::caps_of(VenueId::Weex);
+    adapter.data = make_data_client(state);
+    adapter.execution = make_execution_client(state);
+    adapter.instruments = make_instrument_source(state);
+    return adapter;
+}
+
+} // namespace
+
+void register_adapter() {
+    exec::register_venue(VenueId::Weex, &make);
+}
+
+} // namespace raikiri::venues::weex

@@ -48,6 +48,7 @@
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
+#include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
 #include <fmt/format.h>
@@ -928,6 +929,7 @@ int main(int argc, char** argv) {
     venues::xt::register_adapter();
     venues::mexc::register_adapter();
     venues::okx::register_adapter();
+    venues::weex::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

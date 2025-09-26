@@ -419,6 +419,48 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .headline_order_rate_per_s = 10,
     };
 
+    table[static_cast<std::size_t>(VenueId::Weex)] = {
+        .venue = VenueId::Weex,
+        // The USDT-margined CONTRACT tree only. All 1022 rows of its
+        // exchangeInfo are USDT-quoted perpetuals; WEEX spot is a different
+        // exchange behind different hosts and this adapter never reaches it.
+        .spot = false,
+        .perp = true,
+        // FALSE BECAUSE NOTHING HERE PLACES AN ORDER. There are no WEEX
+        // credentials on this machine, so no signing scheme has ever been
+        // answered by the venue, and an order path nobody has run is worse than
+        // none — it looks like one. Every bit below that would let a caller act
+        // on this venue is false for the same reason, and the execution client
+        // refuses each command locally and immediately.
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false, // the depth channel carries no checksum
+        .position_pull = false,
+        .order_pull = false,
+        .funding_charge = false,
+        .balance_pull = false,
+        .fill_pull = false,
+        // <sym>@ticker's `v` (base) and `q` (quote). BOTH columns are real
+        // here: `v` times the same frame's weighted average `w` reproduced `q`
+        // to five figures live, so the sizes on this venue are base amounts and
+        // the two figures are the same turnover in two units.
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        // NOT MEASURED, AND NOT A CLAIM. No order path here mints a client
+        // order id, so WEEX has never been asked what it accepts. 26 is the
+        // floor make_venue enforces on every row — a smaller number would
+        // refuse this adapter at registration over a field nothing writes.
+        .max_client_order_id_len = 26,
+        // Its exchangeInfo states 500 request weight per ten minutes per IP,
+        // which is the market-data allowance and not an order rate; no order
+        // rate has been observed, so none is claimed.
+        .headline_order_rate_per_s = 0,
+    };
+
     return table;
 }();
 

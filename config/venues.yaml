@@ -18,7 +18,7 @@
 # need: a cancel that cannot be sent is an open position the strategy believes
 # is closed.
 #
-# A VENUE NOT LISTED HERE IS UNLIMITED, and eight of the sixteen are not
+# A VENUE NOT LISTED HERE IS UNLIMITED, and eight of the seventeen are not
 # listed because they state no metering header at all on the traffic this
 # gateway makes — okx, mexc, deribit, hyperliquid, coinbase, kraken, bitmex and
 # bitfinex. Two more are listed with zeroes because what they do state is a
@@ -130,4 +130,27 @@ venues:
       order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
       account: { capacity: 0, window_ms: 0, reserve: 0 }
       ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  weex:
+    order_answer_timeout_ms: 15000
+    rate:
+      # Measured 2026-09-07 from x-remaining-weight-10s and x-used-weight-10s
+      # on api-contract.weex.com, which name the window in the header itself:
+      # 500 weight in TEN SECONDS, counting back up from 1 after a pause.
+      #
+      # THE HEADER AND THE BODY DISAGREE and the header wins. exchangeInfo's own
+      # `rateLimits` array says REQUEST_WEIGHT / interval MINUTE / intervalNum
+      # 10 / limit 500, which reads as 500 per ten MINUTES — sixty times
+      # stingier than what the venue actually enforces. Taking the body would
+      # throttle this gateway to a call every 1.2 s for no reason.
+      shared: { capacity: 500, window_ms: 10000, reserve: 50 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      # Weight 1 per call, measured by reading x-used-weight-10s before and
+      # after each: the 685 KiB exchangeInfo and the 229 KiB premiumIndex each
+      # cost exactly what the 30-byte clock read does. Nothing here places an
+      # order or reads an account, so those rows carry the same 1 rather than a
+      # figure anyone measured.
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
