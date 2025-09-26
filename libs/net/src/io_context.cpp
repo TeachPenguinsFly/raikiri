@@ -18,15 +18,38 @@ IoContext::IoContext() : impl_{std::make_unique<Impl>()} {}
 
 IoContext::~IoContext() = default;
 
+// A CEILING ON ONE CALL, which asio's own poll() has none of: it runs handlers
+// until none is ready, and a busy socket makes another one ready as it goes, so
+// on a venue delivering thousands of frames a second the call simply does not
+// come back. Measured on bingx's full catalogue at 4800 messages a second, a
+// gateway asked to stop after 60 s ran for 153, because the deadline is read at
+// the top of a loop this call was holding.
+//
+// The header above promises that no venue can delay a cancel. It is this bound
+// that keeps the promise: everything else in the loop — the command rings, the
+// pool's paced sends, the deadline — runs between two batches, not after the
+// venue goes quiet. Nothing is dropped; what is not run now is run on the next
+// pass, which is the very next thing the caller does.
+constexpr std::size_t k_max_handlers_per_poll = 256;
+
 std::size_t IoContext::poll() noexcept {
     if (impl_->ioc.stopped()) {
         impl_->ioc.restart();
     }
+    std::size_t ran = 0;
     try {
-        return impl_->ioc.poll();
+        while (ran < k_max_handlers_per_poll) {
+            const auto one = impl_->ioc.poll_one();
+            if (one == 0) {
+                break;
+            }
+            ran += one;
+        }
     } catch (...) {
-        return 0;
+        // A handler threw. What already ran still ran, and saying so is the
+        // honest count.
     }
+    return ran;
 }
 
 std::size_t IoContext::run_for(std::size_t timeout_ms) noexcept {
