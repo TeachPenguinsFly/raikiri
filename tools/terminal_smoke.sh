@@ -44,6 +44,12 @@ web, api, watch = sys.argv[1], sys.argv[2], float(sys.argv[3])
 # finds calls that a pass — which it did, the first time this file ran.
 health = json.load(urllib.request.urlopen(f"http://{api}/v1/health", timeout=10))
 attached = {g["account"] for g in health.get("gateways", [])}
+# A GATEWAY THAT DIED LEAVES ITS PRICES BEHIND. admind serves the last value in
+# its table to whoever subscribes, so a venue whose process is gone answers with
+# a full set of numbers that are simply old — and this file passed two such
+# venues before the check existed, which is the exact false green it was
+# written to prevent.
+dead = sorted(g["account"] for g in health.get("gateways", []) if not g["gateway"]["alive"])
 
 markets = json.load(urllib.request.urlopen(f"http://{api}/v1/markets?limit=2000", timeout=20))
 by_account = collections.defaultdict(list)
@@ -117,6 +123,11 @@ for account in sorted(by_account):
     if got == 0:
         silent.append(account)
 
+if dead:
+    print(f"\nFAIL: the gateway is gone but its last prices are still served: "
+          f"{', '.join(dead)}", file=sys.stderr)
+    print("      those rows read as a live market and are not one", file=sys.stderr)
+    raise SystemExit(1)
 missing = sorted(attached - set(by_account))
 if missing:
     print(f"\nFAIL: attached but contributing no market at all: {', '.join(missing)}",

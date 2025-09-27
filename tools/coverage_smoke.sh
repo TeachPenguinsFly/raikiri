@@ -33,6 +33,13 @@ import base64, collections, json, os, re, socket, sys, time, urllib.request
 web, api, watch = sys.argv[1], sys.argv[2], float(sys.argv[3])
 only = set(sys.argv[4:])
 
+# A GATEWAY THAT DIED LEAVES ITS PRICES BEHIND: admind answers a subscribe from
+# its own table, so a venue whose process is gone prices its whole catalogue out
+# of values that are simply old. Counting those as coverage would score a dead
+# stack at 100%.
+health = json.load(urllib.request.urlopen(f"http://{api}/v1/health", timeout=10))
+dead = {g["account"] for g in health.get("gateways", []) if not g["gateway"]["alive"]}
+
 markets = json.load(urllib.request.urlopen(f"http://{api}/v1/markets?limit=4000", timeout=30))
 listed = collections.defaultdict(list)
 for market in markets:
@@ -110,10 +117,18 @@ thin = []
 for account in sorted(listed):
     have, want = len(priced[account]), len(listed[account])
     share = have / want if want else 0.0
-    print(f"{account:<14}{want:>8}{have:>8}{share * 100:>7.0f}%")
-    if share < 0.9:
+    note = "  (gateway gone — last known)" if account in dead else ""
+    print(f"{account:<14}{want:>8}{have:>8}{share * 100:>7.0f}%{note}")
+    if share < 0.9 and account not in dead:
         thin.append(f"{account} ({have}/{want})")
 
+stale = sorted(dead & set(listed))
+if stale:
+    print(f"\nFAIL: measured a venue whose gateway is gone: {', '.join(stale)}",
+          file=sys.stderr)
+    print("      its share says how much of the catalogue admind REMEMBERS, not how "
+          "much arrives", file=sys.stderr)
+    raise SystemExit(1)
 if thin:
     print(f"\nFAIL: most of a catalogue never priced: {', '.join(thin)}", file=sys.stderr)
     print("      the board shows blank rows for the rest, which reads as a dead venue",
