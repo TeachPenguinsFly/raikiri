@@ -313,7 +313,7 @@ Handler make_router(const Registry& registry,
         }
 
         if (req.path == "/v1/health") {
-            auto health = registry.health(now());
+            auto health = registry.health(now(), wall());
             if (history != nullptr) {
                 health.database = history->health();
             }
@@ -321,7 +321,7 @@ Handler make_router(const Registry& registry,
         }
 
         if (req.path == "/v1/accounts") {
-            return json(registry.accounts(now()));
+            return json(registry.accounts(now(), wall()));
         }
 
         if (req.path == "/v1/balances") {

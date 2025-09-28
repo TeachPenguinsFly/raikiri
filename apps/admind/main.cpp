@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
         // missed for the life of the process.
         RLOG_INFO("admind: no gateway segments under {} yet", shm_dir);
     }
-    for (const auto& account : registry.accounts(clock.mono())) {
+    for (const auto& account : registry.accounts(clock.mono(), clock.wall())) {
         RLOG_INFO("admind: attached to {} — {} instruments, owner {}",
                   account.account,
                   account.gateway.instruments,
@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
         if (const auto mono = clock.mono().ns; mono >= rescan_due) {
             rescan_due = mono + k_rescan_ns;
             if (const auto found = registry.discover(shm_dir, ::getpid()); found > attached) {
-                for (const auto& account : registry.accounts(clock.mono())) {
+                for (const auto& account : registry.accounts(clock.mono(), clock.wall())) {
                     RLOG_INFO("admind: attached to {} — {} instruments",
                               account.account,
                               account.gateway.instruments);

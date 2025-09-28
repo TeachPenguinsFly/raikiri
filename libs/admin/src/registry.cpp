@@ -103,7 +103,35 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
     return gateways_.size();
 }
 
-std::vector<Account> Registry::accounts(MonoNanos now) const {
+namespace {
+
+// The heartbeat, MOVED ONTO THE WALL CLOCK, because those are two different
+// numbers and only one of them means anything outside this process.
+//
+// A gateway stamps its heartbeat with the monotonic clock — time since the
+// machine booted — which is the right choice for liveness: the wall clock can
+// step, and a step would make every owner look dead or immortal. But the field
+// leaves here as `Nanos`, which the contract defines as nanoseconds since the
+// Unix epoch, and a client has nothing to subtract a monotonic reading from.
+// Read as epoch nanos, twelve days of uptime dates the last heartbeat to 1969
+// and the terminal rendered it as "496579h ago".
+//
+// So convert by the AGE, which is the part both clocks agree on, and never by
+// the reading. Zero stays zero: a gateway that has never stamped one has no
+// heartbeat to date, and inventing "now" for it would be the loudest possible
+// lie about a process that may be gone.
+[[nodiscard]] std::uint64_t heartbeat_wall(const Gateway& gw, MonoNanos now, UnixNanos wall) {
+    const auto beat = gw.client.last_heartbeat();
+    if (beat == 0 || beat > now.ns) {
+        return 0; // never stamped, or stamped ahead of us — do not date it
+    }
+    const auto age = now.ns - beat;
+    return age > wall.ns ? 0 : wall.ns - age;
+}
+
+} // namespace
+
+std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
     std::vector<Account> out;
     out.reserve(gateways_.size());
     for (const auto& owned : gateways_) {
@@ -116,15 +144,15 @@ std::vector<Account> Registry::accounts(MonoNanos now) const {
                        .market = std::string{to_string(gw.account.market)},
                        .gateway = {.alive = alive,
                                    .generation = digits(gw.client.generation()),
-                                   .last_heartbeat = digits(gw.client.last_heartbeat()),
+                                   .last_heartbeat = digits(heartbeat_wall(gw, now, wall)),
                                    .instruments = gw.channels.catalogue->size()}});
     }
     return out;
 }
 
-Health Registry::health(MonoNanos now) const {
+Health Registry::health(MonoNanos now, UnixNanos wall) const {
     // The database half is filled by the caller, which owns the connection.
-    return {.gateways = accounts(now), .database = {}};
+    return {.gateways = accounts(now, wall), .database = {}};
 }
 
 std::vector<Instrument> Registry::instruments(std::string_view account,

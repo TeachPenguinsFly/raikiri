@@ -96,7 +96,7 @@ TEST(AdminRegistry, AnEmptyRuntimeDirectoryIsNoGatewaysRatherThanAnError) {
     Registry registry;
     EXPECT_EQ(registry.discover("/tmp/raikiri-admin-test-does-not-exist", 1), 0U);
     EXPECT_EQ(registry.size(), 0U);
-    EXPECT_TRUE(registry.accounts(MonoNanos{1}).empty());
+    EXPECT_TRUE(registry.accounts(MonoNanos{1}, UnixNanos{1}).empty());
     EXPECT_EQ(registry.find("bybit"), nullptr);
     EXPECT_FALSE(registry.instrument(InstrumentId{1}).has_value());
 }
@@ -188,6 +188,10 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     // Far enough past the first run's last heartbeat that the dead owner reads
     // dead, which is exactly what the terminal showed.
     constexpr std::uint64_t k_second_run = k_first_run + 10 * shm::k_owner_stale_ns;
+    // A plausible wall clock: the two are unrelated readings, which is the
+    // whole point — the monotonic one is small because the machine booted
+    // recently, the epoch one is not.
+    constexpr std::uint64_t k_wall_now = 1'788'000'000'000'000'000ULL;
 
     auto first_run = start_gateway(k_first_run, {"AAA"});
     ASSERT_TRUE(first_run.has_value());
@@ -212,7 +216,14 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     const auto second_run = start_gateway(k_second_run, {"BBB"});
     ASSERT_TRUE(second_run.has_value());
 
-    const auto dead = registry.accounts(MonoNanos{k_second_run});
+    const auto dead = registry.accounts(MonoNanos{k_second_run}, UnixNanos{k_wall_now});
+    // THE HEARTBEAT LEAVES ON THE WALL CLOCK. The gateway stamps it on the
+    // monotonic one and that is right for `alive` above, but the contract calls
+    // this field nanoseconds since the epoch — reported raw, twelve days of
+    // uptime read as 1969 and the terminal drew "496579h ago".
+    EXPECT_LE(std::stoull(dead.front().gateway.last_heartbeat), k_wall_now);
+    EXPECT_GT(std::stoull(dead.front().gateway.last_heartbeat), k_wall_now / 2)
+        << "dated by its age, not by the monotonic reading";
     ASSERT_EQ(dead.size(), 1U);
     EXPECT_FALSE(dead.front().gateway.alive) << "the dead run, still attached";
     EXPECT_EQ(dead.front().gateway.generation, digits(k_first_run));
@@ -222,7 +233,7 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     EXPECT_EQ(attached->client.generation(), k_second_run);
     EXPECT_GT(registry.epoch(), epoch) << "every pointer into the old mapping is stale";
 
-    const auto live = registry.accounts(MonoNanos{k_second_run});
+    const auto live = registry.accounts(MonoNanos{k_second_run}, UnixNanos{k_wall_now});
     ASSERT_EQ(live.size(), 1U);
     EXPECT_TRUE(live.front().gateway.alive);
     EXPECT_EQ(live.front().gateway.generation, digits(k_second_run));

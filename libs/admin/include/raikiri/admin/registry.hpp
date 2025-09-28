@@ -70,8 +70,12 @@ public:
     // for exactly as long as one terminal stays open.
     [[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
 
-    [[nodiscard]] std::vector<Account> accounts(MonoNanos now) const;
-    [[nodiscard]] Health health(MonoNanos now) const;
+    // BOTH CLOCKS, and they are not interchangeable here. Liveness is decided
+    // on the monotonic one, which is what the gateway stamps; the heartbeat
+    // REPORTED is epoch nanos, because that is what the contract promises and
+    // the only thing a client can subtract from its own clock.
+    [[nodiscard]] std::vector<Account> accounts(MonoNanos now, UnixNanos wall) const;
+    [[nodiscard]] Health health(MonoNanos now, UnixNanos wall) const;
 
     // The catalogue of one gateway, or of all of them when `account` is empty.
     [[nodiscard]] std::vector<Instrument> instruments(std::string_view account,

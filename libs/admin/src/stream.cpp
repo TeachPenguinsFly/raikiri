@@ -1071,7 +1071,7 @@ private:
             // Gateways only: the database half belongs to whoever owns the
             // connection and this side has none, so `database` here is a
             // default rather than an observation.
-            enqueue(health_frame(feed.id, wall, registry_->health(mono)));
+            enqueue(health_frame(feed.id, wall, registry_->health(mono, wall)));
             return true;
         case Feed::Orders:
         case Feed::Fills:
