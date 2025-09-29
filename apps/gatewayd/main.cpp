@@ -1,6 +1,7 @@
 // gatewayd — one venue AND ONE MARKET per process.
 //
 //   gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
+//            [--channels=bbo,trades,depth,funding]
 //            [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
 //
 // Every adapter is single-market by construction — several collapse the two
@@ -57,6 +58,7 @@
 #include <atomic>
 #include <cctype>
 #include <csignal>
+#include <expected>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -68,6 +70,55 @@
 #include <vector>
 
 namespace {
+
+// Which market-data channels this process asks the venue for.
+//
+// The quote is not optional and is not represented here: an adapter with no
+// top of book has no market data at all, and it is the subscription whose
+// refusal decides whether an instrument counts as subscribed. What the flag
+// selects is what rides ALONGSIDE it.
+struct SubKinds {
+    bool trades{true};
+    bool depth{true};
+    bool funding{true};
+};
+
+// Parses "--channels=bbo,funding". Refuses an unknown name rather than
+// ignoring it: a typo that silently subscribes everything is a gateway that
+// costs what it was asked not to, and says nothing.
+//
+// `bbo` is accepted and required — naming the channels without it would read
+// as a request to drop the quote, which this cannot honour.
+[[nodiscard]] std::expected<SubKinds, std::string> parse_channels(std::string_view spec) {
+    SubKinds out{.trades = false, .depth = false, .funding = false};
+    bool named_bbo = false;
+    std::size_t at = 0;
+    while (at <= spec.size()) {
+        const auto comma = spec.find(',', at);
+        const auto name = spec.substr(at, comma == std::string_view::npos ? comma : comma - at);
+        if (name == "bbo") {
+            named_bbo = true;
+        } else if (name == "trades") {
+            out.trades = true;
+        } else if (name == "depth") {
+            out.depth = true;
+        } else if (name == "funding") {
+            out.funding = true;
+        } else if (!name.empty()) {
+            return std::unexpected{fmt::format(
+                "unknown channel '{}' — bbo, trades, depth or funding", name)};
+        }
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        at = comma + 1;
+    }
+    if (!named_bbo) {
+        return std::unexpected{std::string{
+            "the quote cannot be dropped — name bbo alongside whatever else you want"}};
+    }
+    return out;
+}
 
 // The class decides what a human does next — retry, back off, or page someone —
 // so a refusal prints it by name rather than as an integer.
@@ -760,6 +811,24 @@ int main(int argc, char** argv) {
     std::string api_secret_ref;
     std::vector<std::string> symbols;
     std::string market_arg;
+    // EVERY CHANNEL BY DEFAULT, so an existing command line means what it
+    // always meant.
+    //
+    // IT DOES NOT SAVE CPU, and the number was measured rather than assumed:
+    // okx, 471 instruments, two minutes each — 43.8% of a core with every
+    // channel and 43.0% with depth and trades off, though depth really did go
+    // from 138 931 frames to none. A BookSnapshot is large to WRITE (a hundred
+    // levels a side, ~3200 bytes against a Bbo's 48) and that write is a
+    // memcpy; the processor time goes on receiving, decrypting and parsing,
+    // which scales with the NUMBER of messages a socket delivers, and that
+    // barely moved.
+    //
+    // What it is for: a gateway run only to widen a scanner's venue coverage
+    // publishes no ladder nobody reads — less churn in the segment, and fewer
+    // cells for every reader's change gate to walk. To spend less CPU, run
+    // fewer venues; the cost is about the venue, not about the channel.
+    SubKinds wanted_channels{}; // all on
+    std::string channels_arg;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg.starts_with("--venue=")) {
@@ -770,6 +839,8 @@ int main(int argc, char** argv) {
             testnet = true;
         } else if (arg.starts_with("--market=")) {
             market_arg = arg.substr(9);
+        } else if (arg.starts_with("--channels=")) {
+            channels_arg = arg.substr(11);
         } else if (arg.starts_with("--symbol=")) {
             symbols.emplace_back(arg.substr(9));
         } else if (arg.starts_with("--api-key=")) {
@@ -780,6 +851,14 @@ int main(int argc, char** argv) {
         } else if (arg.starts_with("--passphrase=")) {
             passphrase_ref = arg.substr(13);
         }
+    }
+    if (!channels_arg.empty()) {
+        const auto parsed = parse_channels(channels_arg);
+        if (!parsed.has_value()) {
+            fmt::print(stderr, "gatewayd: --channels: {}\n", parsed.error());
+            return 2;
+        }
+        wanted_channels = *parsed;
     }
     const auto venue = venue_from_string(venue_name);
     if (venue == VenueId::Invalid) {
@@ -1055,9 +1134,13 @@ int main(int argc, char** argv) {
             continue;
         }
         ++subscribed;
-        (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
-        (void)adapter->data->subscribe(exec::SubKind::Depth, base.id);
-        if (venue != VenueId::Sim) {
+        if (wanted_channels.trades) {
+            (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
+        }
+        if (wanted_channels.depth) {
+            (void)adapter->data->subscribe(exec::SubKind::Depth, base.id);
+        }
+        if (wanted_channels.funding && venue != VenueId::Sim) {
             (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
         }
     }
