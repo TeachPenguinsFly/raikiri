@@ -30,6 +30,7 @@
 #include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
 #include <raikiri/oms/order_store.hpp>
+#include <raikiri/oms/kernel_gate.hpp>
 #include <raikiri/oms/recon.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/portfolio/position_book.hpp>
@@ -97,6 +98,10 @@ struct Gateway {
     std::vector<std::uint32_t> bbo_seen;
     std::vector<std::uint32_t> funding_seen;
     std::uint64_t recon_due{0};
+    // WHETHER THIS GATEWAY'S BOOK IS STILL TRUSTED. One machine per gateway on
+    // purpose: a break on bybit-perp must not stop coinbase-spot, which shares
+    // nothing with it but this process.
+    oms::KernelGate kernel;
 
     Gateway(AccountId id,
             std::string display,
@@ -172,7 +177,12 @@ public:
             // unreachable, and both mean the order never gets to the wire.
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument),
+        // TWO HALTS, ONE FIELD. `recon_gate` halts a single instrument whose
+        // venue disagreed; `kernel` halts a whole gateway whose picture is no
+        // longer trusted. RiskGate already refuses on this flag, so neither
+        // needs a reject code of its own.
+        oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument) ||
+                                                       !gw->kernel.may_open(),
                                .open_orders = store_->open_count()};
         if (const auto* held = position(order.instrument); held != nullptr) {
             exposure.position_lots = held->qty();
@@ -624,7 +634,16 @@ void reconcile_open_orders(KernelContext& ctx,
     }
 }
 
-void reconcile_against_venue(KernelContext& ctx,
+// What one pass over a gateway's catalogue found, for the kernel machine. Not
+// counts: the machine only asks whether the venue confirmed a break, and
+// whether anything agreed at all — an empty book agrees with nothing and must
+// not be read as agreement.
+struct ReconSweep {
+    bool confirmed_break{false};
+    bool any_agreement{false};
+};
+
+ReconSweep reconcile_against_venue(KernelContext& ctx,
                              raikiri::VenueId venue,
                              const raikiri::shm::CatalogueTable& catalogue,
                              const raikiri::shm::PositionTable& table,
@@ -632,6 +651,7 @@ void reconcile_against_venue(KernelContext& ctx,
                              raikiri::UnixNanos now) {
     using namespace raikiri;
 
+    ReconSweep sweep;
     std::unordered_map<std::uint64_t, std::int64_t> book;
     for (const auto& held : ctx.positions.all()) {
         book[held.key().instrument.packed] += held.qty().raw;
@@ -691,8 +711,10 @@ void reconcile_against_venue(KernelContext& ctx,
         bool confirmed = false;
         if (result.verdict == portfolio::ReconVerdict::Break) {
             confirmed = ctx.recon_gate.on_break(id, boundary);
+            sweep.confirmed_break = sweep.confirmed_break || confirmed;
         } else if (result.verdict == portfolio::ReconVerdict::Agree) {
             ctx.recon_gate.on_agree(id);
+            sweep.any_agreement = true;
         }
         const auto seen = ctx.recon_seen.find(id.packed);
         const bool changed = seen == ctx.recon_seen.end() || seen->second != result.verdict;
@@ -722,6 +744,7 @@ void reconcile_against_venue(KernelContext& ctx,
                       result.detail);
         }
     }
+    return sweep;
 }
 
 // Rebuilds the book from this process's own journal before it writes another
@@ -1163,7 +1186,16 @@ int main(int argc, char** argv) {
                     break;
                 }
                 if (poll == shm::PollResult::Overrun) {
-                    ++exec_overruns; // policy: halt+reconcile; demo just counts
+                    ++exec_overruns;
+                    // A DROPPED RECORD MAY BE A FILL, and the book is what
+                    // every later decision is priced off. Stop adding risk on
+                    // this gateway until the venue has been asked; cancels
+                    // continue, which is the half that matters while blind.
+                    if (gw.kernel.on(oms::KernelEvent::ExecOverrun, clock.wall())) {
+                        RLOG_WARN("strategyd[{}]: execution record dropped — "
+                                  "no new orders until reconciliation agrees",
+                                  gw.name);
+                    }
                     continue;
                 }
                 // A COPY: oms::attribute restores our own id onto it, and the
@@ -1296,8 +1328,14 @@ int main(int argc, char** argv) {
             // Monotonic, because that is the clock the gateway stamps the
             // heartbeat with; asking in wall time makes every owner look stale.
             if (!gw.client.owner_alive(now_ns)) {
-                gateway_gone = gw.name;
-                break;
+                // HALTS THIS GATEWAY, not the process. Everything read from a
+                // segment belongs to the generation that wrote it, so this
+                // book is finished — but a second gateway shares nothing with
+                // it and has no reason to stop trading.
+                if (gw.kernel.on(oms::KernelEvent::GatewayLost, clock.wall())) {
+                    RLOG_ERROR("strategyd[{}]: gateway stopped answering — halted", gw.name);
+                }
+                continue;
             }
             if (now_ns >= gw.recon_due) {
                 // Seven days is the widest window any venue's ledger reaches
@@ -1305,24 +1343,46 @@ int main(int argc, char** argv) {
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
-                reconcile_against_venue(ctx,
-                                        gw.account.venue,
-                                        *gw.ch.catalogue,
-                                        *gw.ch.positions,
-                                        *journal_writer,
-                                        clock.wall());
+                const auto sweep = reconcile_against_venue(ctx,
+                                                          gw.account.venue,
+                                                          *gw.ch.catalogue,
+                                                          *gw.ch.positions,
+                                                          *journal_writer,
+                                                          clock.wall());
+                // A CONFIRMED BREAK HALTS; agreement only clears a Degraded
+                // book, never a halted one. Silence is neither — a sweep that
+                // found nothing to compare has not checked anything, and
+                // reading it as agreement would let an empty catalogue resume
+                // trading.
+                if (sweep.confirmed_break) {
+                    if (gw.kernel.on(oms::KernelEvent::ReconFailed, clock.wall())) {
+                        RLOG_ERROR("strategyd[{}]: venue disagreed — halted until an operator "
+                                   "resumes on a book that agrees",
+                                   gw.name);
+                    }
+                } else if (sweep.any_agreement) {
+                    if (gw.kernel.on(oms::KernelEvent::ReconAgreed, clock.wall())) {
+                        RLOG_INFO("strategyd[{}]: venue agrees — trading again", gw.name);
+                    }
+                }
                 gw.recon_due = now_ns + k_recon_read_interval_ns;
             }
         }
-        if (!gateway_gone.empty()) {
+        // Stop only when NOTHING is left to trade on. One halted gateway is a
+        // halted book; every gateway halted is a process with no purpose, and
+        // spinning on dead segments is worse than exiting.
+        if (std::ranges::all_of(gateways, [](const Gateway& gw) {
+                return gw.kernel.state() == oms::KernelState::Halted;
+            })) {
+            gateway_gone = gateways.empty() ? std::string{"none attached"} : gateways.front().name;
             break;
         }
     }
     active.on_stop(ctx);
     journal_writer->flush();
     if (!gateway_gone.empty()) {
-        RLOG_ERROR("strategyd: gateway {} stopped answering — cursors and book belong to a dead "
-                   "generation, stopping",
+        RLOG_ERROR("strategyd: every gateway is halted (first: {}) — nothing left to trade on, "
+                   "stopping",
                    gateway_gone);
     }
 
