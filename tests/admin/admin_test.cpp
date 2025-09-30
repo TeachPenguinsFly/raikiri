@@ -1,6 +1,6 @@
 #include <raikiri/admin/format.hpp>
 #include <raikiri/admin/registry.hpp>
-#include <raikiri/admin/server.hpp>
+#include <raikiri/http/server.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/shm/segment.hpp>
@@ -103,14 +103,14 @@ TEST(AdminRegistry, AnEmptyRuntimeDirectoryIsNoGatewaysRatherThanAnError) {
 
 TEST(AdminServer, QueryParametersAreReadByNameAndNotByPosition) {
     constexpr std::string_view query = "account=bybit-spot&kind=option&limit=50";
-    EXPECT_EQ(query_param(query, "account"), "bybit-spot");
-    EXPECT_EQ(query_param(query, "kind"), "option");
-    EXPECT_EQ(query_param(query, "limit"), "50");
-    EXPECT_TRUE(query_param(query, "cursor").empty());
+    EXPECT_EQ(http::query_param(query, "account"), "bybit-spot");
+    EXPECT_EQ(http::query_param(query, "kind"), "option");
+    EXPECT_EQ(http::query_param(query, "limit"), "50");
+    EXPECT_TRUE(http::query_param(query, "cursor").empty());
     // A prefix is not a name: `limit` must not answer for `lim`.
-    EXPECT_TRUE(query_param(query, "lim").empty());
-    EXPECT_TRUE(query_param("", "account").empty());
-    EXPECT_TRUE(query_param("account", "account").empty()) << "a key with no value is no answer";
+    EXPECT_TRUE(http::query_param(query, "lim").empty());
+    EXPECT_TRUE(http::query_param("", "account").empty());
+    EXPECT_TRUE(http::query_param("account", "account").empty()) << "a key with no value is no answer";
 }
 
 // ------------------------------------------------- a restarted gateway ----

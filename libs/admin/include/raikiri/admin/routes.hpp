@@ -10,7 +10,7 @@
 #include <raikiri/admin/desk.hpp>
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
-#include <raikiri/admin/server.hpp>
+#include <raikiri/http/server.hpp>
 
 namespace raikiri::admin {
 
@@ -29,13 +29,13 @@ namespace raikiri::admin {
 // `desk` may be null, and then the write paths answer 503 — "nothing is
 // attached to place orders through", which is a different fact from a refusal
 // and the one case worth retrying.
-[[nodiscard]] Handler make_router(const Registry& registry,
+[[nodiscard]] http::Handler make_router(const Registry& registry,
                                   const History* history,
                                   ManualDesk* desk,
                                   std::function<MonoNanos()> now,
                                   std::function<UnixNanos()> wall);
 
 // RFC 9457, rendered. The one error shape this API produces.
-[[nodiscard]] Response problem(int status, std::string_view title, std::string_view detail = {});
+[[nodiscard]] http::Response problem(int status, std::string_view title, std::string_view detail = {});
 
 } // namespace raikiri::admin

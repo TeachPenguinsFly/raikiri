@@ -1,6 +1,10 @@
 #pragma once
 
-// The HTTP half of admind.
+// A small HTTP server, owned by no service in particular.
+//
+// It began as admind's half and moved out when a second process needed one:
+// nothing here knows about a registry, a database or a contract, so a consumer
+// that wants to serve JSON no longer inherits libpqxx to get a socket.
 //
 // Beast is already a dependency — every venue socket is built on it — so
 // serving HTTP costs no new one. It stays behind this facade for the same
@@ -19,7 +23,7 @@
 #include <string>
 #include <string_view>
 
-namespace raikiri::admin {
+namespace raikiri::http {
 
 struct Request {
     std::string_view method;
@@ -73,4 +77,4 @@ private:
 // decoder that is never exercised is a decoder that is wrong when it finally is.
 [[nodiscard]] std::string_view query_param(std::string_view query, std::string_view key) noexcept;
 
-} // namespace raikiri::admin
+} // namespace raikiri::http

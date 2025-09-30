@@ -1,4 +1,4 @@
-#include <raikiri/admin/server.hpp>
+#include <raikiri/http/server.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-namespace raikiri::admin {
+namespace raikiri::http {
 
 namespace {
 
@@ -219,4 +219,4 @@ std::string_view query_param(std::string_view query, std::string_view key) noexc
     return {};
 }
 
-} // namespace raikiri::admin
+} // namespace raikiri::http

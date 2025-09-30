@@ -26,7 +26,7 @@
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/routes.hpp>
-#include <raikiri/admin/server.hpp>
+#include <raikiri/http/server.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     // doing either — two would mint colliding ids.
     admin::ManualDesk desk{registry};
 
-    admin::Server server{address,
+    http::Server server{address,
                          port,
                          admin::make_router(
                              registry,

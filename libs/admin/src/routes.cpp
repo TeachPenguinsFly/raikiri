@@ -35,7 +35,7 @@ namespace {
 // 1970 and a strike of zero is a free option.
 constexpr glz::opts k_opts{.skip_null_members = true};
 
-template <typename T> Response json(const T& value) {
+template <typename T> http::Response json(const T& value) {
     std::string out;
     if (const auto ec = glz::write<k_opts>(value, out); ec) {
         return problem(500, "serialisation failed");
@@ -124,32 +124,32 @@ std::optional<MarketType> read_market(std::string_view text) {
 
 // The filters every listing shares. A refusal comes back as the response to
 // send, so a caller cannot forget to send one.
-std::expected<PageQuery, Response> read_page_query(const Request& req) {
+std::expected<PageQuery, http::Response> read_page_query(const http::Request& req) {
     PageQuery query{};
-    query.limit = read_limit(query_param(req.query, "limit"));
+    query.limit = read_limit(http::query_param(req.query, "limit"));
 
-    if (const auto text = query_param(req.query, "account"); !text.empty()) {
+    if (const auto text = http::query_param(req.query, "account"); !text.empty()) {
         const auto account = account_from_string(text);
         if (account.venue == VenueId::Invalid) {
             return std::unexpected(problem(400, "unknown account", text));
         }
         query.account = account;
     }
-    if (const auto text = query_param(req.query, "instrument_id"); !text.empty()) {
+    if (const auto text = http::query_param(req.query, "instrument_id"); !text.empty()) {
         const auto packed = read_digits(text);
         if (!packed.has_value()) {
             return std::unexpected(problem(400, "instrument id must be digits", text));
         }
         query.instrument = InstrumentId{*packed};
     }
-    if (const auto text = query_param(req.query, "since"); !text.empty()) {
+    if (const auto text = http::query_param(req.query, "since"); !text.empty()) {
         const auto ns = read_digits(text);
         if (!ns.has_value()) {
             return std::unexpected(problem(400, "since is nanoseconds, as digits", text));
         }
         query.since = UnixNanos{*ns};
     }
-    if (const auto text = query_param(req.query, "cursor"); !text.empty()) {
+    if (const auto text = http::query_param(req.query, "cursor"); !text.empty()) {
         auto cursor = Cursor::decode(text);
         if (!cursor.has_value()) {
             return std::unexpected(problem(400,
@@ -163,7 +163,7 @@ std::expected<PageQuery, Response> read_page_query(const Request& req) {
 
 // Absent is not false. `?open=` and no `open` at all both mean "do not filter",
 // and only the words true and false mean the two things they say.
-std::expected<std::optional<bool>, Response> read_flag(std::string_view text) {
+std::expected<std::optional<bool>, http::Response> read_flag(std::string_view text) {
     if (text.empty()) {
         return std::optional<bool>{};
     }
@@ -176,7 +176,7 @@ std::expected<std::optional<bool>, Response> read_flag(std::string_view text) {
     return std::unexpected(problem(400, "expected true or false", text));
 }
 
-Response no_database() {
+http::Response no_database() {
     return problem(503,
                    "no database configured",
                    "admind was started without a DSN, so nothing that Postgres holds can be "
@@ -186,7 +186,7 @@ Response no_database() {
 
 } // namespace
 
-Response problem(int status, std::string_view title, std::string_view detail) {
+http::Response problem(int status, std::string_view title, std::string_view detail) {
     Problem out{.title = std::string{title}, .status = status};
     if (!detail.empty()) {
         out.detail = std::string{detail};
@@ -205,7 +205,7 @@ int status_for(DeskError error) noexcept {
     return error == DeskError::RingFull ? 503 : 422;
 }
 
-Response place_order(ManualDesk* desk, const Request& req, UnixNanos now) {
+http::Response place_order(ManualDesk* desk, const http::Request& req, UnixNanos now) {
     if (desk == nullptr) {
         return problem(503, "no desk", "no gateway is attached to place orders through");
     }
@@ -272,7 +272,7 @@ Response place_order(ManualDesk* desk, const Request& req, UnixNanos now) {
     return answer;
 }
 
-Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNanos now) {
+http::Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNanos now) {
     if (desk == nullptr) {
         return problem(503, "no desk", "no gateway is attached to place orders through");
     }
@@ -294,13 +294,13 @@ Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNanos now)
 
 } // namespace
 
-Handler make_router(const Registry& registry,
+http::Handler make_router(const Registry& registry,
                     const History* history,
                     ManualDesk* desk,
                     std::function<MonoNanos()> now,
                     std::function<UnixNanos()> wall) {
     return [&registry, history, desk, now = std::move(now), wall = std::move(wall)](
-               const Request& req) -> Response {
+               const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
             return place_order(desk, req, wall());
         }
@@ -328,7 +328,7 @@ Handler make_router(const Registry& registry,
             // LIVE, from the gateway segments — not from Postgres. Nothing
             // persists a balance: it is what the venue says right now, and a
             // stored one would answer "as of when?" wrongly.
-            const auto account = query_param(req.query, "account");
+            const auto account = http::query_param(req.query, "account");
             if (!account.empty() && registry.find(account) == nullptr) {
                 return problem(404, "no such account", account);
             }
@@ -339,25 +339,25 @@ Handler make_router(const Registry& registry,
             // The catalogue GROUPED, which is a different question from the
             // catalogue listed: a search asks "which market", and a market is
             // the thing several venues have in common.
-            const auto query = query_param(req.query, "q");
+            const auto query = http::query_param(req.query, "q");
             // NO LIMIT BY DEFAULT, unlike every paged route beside it. The
             // board is the screen for browsing the whole catalogue, and the
             // shared default of 200 silently served a fifth of it — a person
             // scrolling to the end had no way to tell a short list from the
             // end of the list. A caller that wants a page still asks for one.
             return json(
-                registry.markets(query, read_markets_limit(query_param(req.query, "limit"))));
+                registry.markets(query, read_markets_limit(http::query_param(req.query, "limit"))));
         }
 
         if (req.path == "/v1/instruments") {
-            const auto account = query_param(req.query, "account");
-            const auto kind_text = query_param(req.query, "kind");
+            const auto account = http::query_param(req.query, "account");
+            const auto kind_text = http::query_param(req.query, "kind");
             if (!kind_text.empty() && !read_market(kind_text).has_value()) {
                 return problem(400, "unknown market", kind_text);
             }
             auto [items, next] = paginate(registry.instruments(account, read_market(kind_text)),
-                                          query_param(req.query, "cursor"),
-                                          read_limit(query_param(req.query, "limit")));
+                                          http::query_param(req.query, "cursor"),
+                                          read_limit(http::query_param(req.query, "limit")));
             return json(InstrumentPage{.items = std::move(items), .next_cursor = std::move(next)});
         }
 
@@ -389,7 +389,7 @@ Handler make_router(const Registry& registry,
             if (!query.has_value()) {
                 return std::move(query).error();
             }
-            auto open = read_flag(query_param(req.query, "open"));
+            auto open = read_flag(http::query_param(req.query, "open"));
             if (!open.has_value()) {
                 return std::move(open).error();
             }
@@ -425,7 +425,7 @@ Handler make_router(const Registry& registry,
 
         if (req.path == "/v1/positions") {
             std::optional<AccountId> account;
-            if (const auto text = query_param(req.query, "account"); !text.empty()) {
+            if (const auto text = http::query_param(req.query, "account"); !text.empty()) {
                 const auto parsed = account_from_string(text);
                 if (parsed.venue == VenueId::Invalid) {
                     return problem(400, "unknown account", text);
@@ -433,7 +433,7 @@ Handler make_router(const Registry& registry,
                 account = parsed;
             }
             std::optional<std::uint16_t> strategy;
-            if (const auto text = query_param(req.query, "strategy_id"); !text.empty()) {
+            if (const auto text = http::query_param(req.query, "strategy_id"); !text.empty()) {
                 const auto value = read_digits(text);
                 if (!value.has_value() || *value > 0xFFFF) {
                     return problem(400, "strategy id is 0 to 65535", text);
@@ -454,7 +454,7 @@ Handler make_router(const Registry& registry,
             }
             std::optional<PnlKind> kind;
             if (req.path == "/v1/pnl") {
-                if (const auto text = query_param(req.query, "kind"); !text.empty()) {
+                if (const auto text = http::query_param(req.query, "kind"); !text.empty()) {
                     kind = pnl_kind_from_string(text);
                     if (!kind.has_value()) {
                         return problem(400, "unknown pnl kind", text);
