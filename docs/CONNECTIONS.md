@@ -121,6 +121,28 @@ deliberately not told which connection called it. Fixing it means widening
 and each adapter putting that in `stream_id`. Small, and worth doing before
 anybody tries to diagnose a flapping socket from the journal.
 
+## The loop was the cost, not the data
+
+Measured on okx, release build, 60-second windows after the subscribe ramp:
+
+| | spinning | parked 1 ms |
+| --- | ---: | ---: |
+| one symbol (5 940 messages) | 35.5% of a core | 14.0% |
+| full catalogue (556 681 messages) | 37.8% of a core | 15.6% |
+
+Ninety-four times the messages cost **two and a half percentage points**. Almost
+all of what a gateway spent was the loop going round, not the data going
+through — which is also why subscribing fewer channels saved nothing measurable
+(43.8% with everything, 43.0% with depth and trades off, on the same venue).
+
+`gatewayd` now parks for 1 ms after 64 consecutive passes that drained no
+command. Trading is unaffected while commands keep arriving; the cost is up to
+1 ms on the first command after a lull, against a venue round trip measured in
+tens of milliseconds.
+
+Live, nine venues on their full catalogues: **4.2 cores before, 0.76 after**,
+with coverage unchanged at 93-100% per venue (`tools/coverage_smoke.sh`).
+
 ## Also waiting: a browser test
 
 Nothing in this repository opens the terminal. Every bug on 2026-09-06 that

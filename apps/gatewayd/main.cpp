@@ -1298,6 +1298,34 @@ int main(int argc, char** argv) {
     const auto t_end =
         duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
+    // SPIN WHILE THERE IS TRADING, PARK WHEN THERE IS NOT.
+    //
+    // This loop used to spin unconditionally, and the cost of that was the
+    // whole cost: measured on okx, one symbol burned 35.5% of a core and the
+    // entire 471-instrument catalogue — ninety-four times the messages —
+    // burned 37.8%. Nearly all of it was the loop going round, not the data
+    // going through, which is also why subscribing fewer channels saved
+    // nothing.
+    //
+    // The park is only ever reached when the command rings came up empty
+    // several passes running, so an order or a cancel is still drained at spin
+    // speed for as long as they keep arriving. What it costs is up to
+    // k_park_ns of extra latency on the FIRST command after a quiet spell,
+    // against a venue round trip measured in tens of milliseconds.
+    //
+    // Market data does not wait on it: the adapter is polled every pass either
+    // way, and a thousand passes a second against a venue delivering some five
+    // thousand messages a second is a drain capacity of 256 000 — the poll
+    // ceiling times the pass rate — so the queue never grows.
+    //
+    // MEASURED, okx, full catalogue: 37.8% of a core spinning, 20.7% at a
+    // 200 us park, 15.6% at 1 ms, 12.9% at 5 ms. Stopped at 1 ms because the
+    // 5 ms run also delivered fewer messages (72k against 100k) and market
+    // drift cannot be told from drainage lag at that distance — the two points
+    // of a core it buys are not worth being unable to say which.
+    constexpr std::uint32_t k_spin_passes = 64;
+    constexpr std::uint64_t k_park_ns = 1'000'000;
+    std::uint32_t idle_passes = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -1310,7 +1338,9 @@ int main(int argc, char** argv) {
         }
         // Cancels first: the escape hatch never queues behind new risk.
         OrderCmd cmd{};
+        std::uint32_t commands = 0;
         while (cancels.try_pop(cmd)) {
+            ++commands;
             if (!can_trade) {
                 sink.reject(cmd, "venue is running market-data only");
                 continue;
@@ -1318,6 +1348,7 @@ int main(int argc, char** argv) {
             adapter->execution->cancel(cmd);
         }
         while (creates.try_pop(cmd)) {
+            ++commands;
             // Refused, never dropped. A command that vanishes leaves a strategy
             // waiting on a verdict that is not coming; a rejection reaches a
             // terminal state and the order store retires it.
@@ -1358,6 +1389,10 @@ int main(int argc, char** argv) {
         if (mono.ns >= flush_due) {
             journal_writer->flush();
             flush_due = mono.ns + 50'000'000; // 50 ms group commit
+        }
+        idle_passes = commands != 0 ? 0 : idle_passes + 1;
+        if (idle_passes > k_spin_passes) {
+            std::this_thread::sleep_for(std::chrono::nanoseconds{k_park_ns});
         }
     }
 
