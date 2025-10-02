@@ -73,12 +73,9 @@ std::expected<Row, Reject> pair(const Leg& a, const Leg& b, FixedE9 min_volume_q
     const auto sum = short_leg.bid.raw + long_leg.ask.raw;
     row.price_spread_bp = mul_div(short_leg.bid.raw - long_leg.ask.raw, 2 * k_bp_scale, sum);
 
-    row.volume_floor = FixedE9::from_raw(std::min(a.volume_24h_quote.is_undef()
-                                                      ? 0
-                                                      : a.volume_24h_quote.raw,
-                                                  b.volume_24h_quote.is_undef()
-                                                      ? 0
-                                                      : b.volume_24h_quote.raw));
+    row.volume_floor =
+        FixedE9::from_raw(std::min(a.volume_24h_quote.is_undef() ? 0 : a.volume_24h_quote.raw,
+                                   b.volume_24h_quote.is_undef() ? 0 : b.volume_24h_quote.raw));
     return row;
 }
 

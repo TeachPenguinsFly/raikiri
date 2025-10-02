@@ -91,6 +91,7 @@ add_subdirectory(apps/replay)
 add_subdirectory(apps/persisterd)
 add_subdirectory(apps/gatewayd)
 add_subdirectory(apps/admind)
+add_subdirectory(apps/kowalski)
 add_subdirectory(apps/strategyd)
 add_subdirectory(apps/launcher)
 

@@ -41,18 +41,18 @@ struct Leg {
     InstrumentId instrument{};
     FixedE9 bid{};
     FixedE9 ask{};
-    FixedE9 rate{};                // for THIS venue's interval, not normalised
-    std::uint32_t interval_s{0};   // 0 means the venue did not say
+    FixedE9 rate{};              // for THIS venue's interval, not normalised
+    std::uint32_t interval_s{0}; // 0 means the venue did not say
     UnixNanos next_funding{};
     FixedE9 volume_24h_quote{};
 };
 
 enum class Reject : std::uint8_t {
-    OneVenue,     // a venue against itself is not a route
-    NoInterval,   // a leg that will not state its clock cannot be normalised
-    NoQuote,      // no bid, no ask, or a price that is not positive
-    ThinVolume,   // below the floor on at least one leg
-    CrossedBook,  // bid above ask on a leg: the venue contradicted itself
+    OneVenue,    // a venue against itself is not a route
+    NoInterval,  // a leg that will not state its clock cannot be normalised
+    NoQuote,     // no bid, no ask, or a price that is not positive
+    ThinVolume,  // below the floor on at least one leg
+    CrossedBook, // bid above ask on a leg: the venue contradicted itself
 };
 
 [[nodiscard]] constexpr std::string_view to_string(Reject why) noexcept {
@@ -100,8 +100,7 @@ struct Row {
 
 // Prices one pair. The orientation is decided by the rates, not by the caller:
 // whichever leg charges more is the one to be short of.
-[[nodiscard]] std::expected<Row, Reject> pair(const Leg& a,
-                                              const Leg& b,
-                                              FixedE9 min_volume_quote) noexcept;
+[[nodiscard]] std::expected<Row, Reject>
+pair(const Leg& a, const Leg& b, FixedE9 min_volume_quote) noexcept;
 
 } // namespace raikiri::scan
