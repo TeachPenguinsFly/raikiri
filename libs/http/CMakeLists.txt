@@ -1,4 +1,5 @@
 add_library(raikiri_http STATIC
+  src/fetch.cpp
   src/server.cpp
 )
 add_library(raikiri::http ALIAS raikiri_http)

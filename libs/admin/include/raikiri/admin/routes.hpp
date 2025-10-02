@@ -29,13 +29,21 @@ namespace raikiri::admin {
 // `desk` may be null, and then the write paths answer 503 — "nothing is
 // attached to place orders through", which is a different fact from a refusal
 // and the one case worth retrying.
+//
+// `scanner_port` is where kowalski answers, or 0 for "no scanner configured".
+// admind computes no board of its own and holds none: it forwards, and says
+// 503 when the forward fails. An empty board would be a claim that the search
+// ran and found nothing, which is a statement about the market rather than
+// about us.
 [[nodiscard]] http::Handler make_router(const Registry& registry,
-                                  const History* history,
-                                  ManualDesk* desk,
-                                  std::function<MonoNanos()> now,
-                                  std::function<UnixNanos()> wall);
+                                        const History* history,
+                                        ManualDesk* desk,
+                                        std::function<MonoNanos()> now,
+                                        std::function<UnixNanos()> wall,
+                                        std::uint16_t scanner_port = 0);
 
 // RFC 9457, rendered. The one error shape this API produces.
-[[nodiscard]] http::Response problem(int status, std::string_view title, std::string_view detail = {});
+[[nodiscard]] http::Response
+problem(int status, std::string_view title, std::string_view detail = {});
 
 } // namespace raikiri::admin

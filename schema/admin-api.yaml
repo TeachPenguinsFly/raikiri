@@ -477,6 +477,38 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/FundingObservation" }
 
+  /v1/scanner/funding:
+    get:
+      tags: [analytics]
+      summary: Perpetual against perpetual, ranked by the funding edge
+      description: |
+        Proxied from kowalski, which computes it from the same shared-memory
+        tables this API serves everything else from. admind holds no board of
+        its own: when kowalski is not answering this endpoint returns **503**
+        rather than an empty list, because an empty board is a claim that the
+        search ran and found nothing.
+
+        **Two numbers, never one.** `funding_edge_8h` and `price_spread_bp` are
+        different quantities and are not combined. A pair whose funding pays
+        while the two perpetuals sit far apart is a directional position with a
+        coupon, and a single ranked score would float exactly that to the top.
+
+        Rates are normalised to eight hours before anything is compared. A leg
+        whose venue does not state its funding interval is excluded from the
+        board rather than assumed to be on the common one.
+      operationId: listFundingBoard
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FundingBoard" }
+        "503":
+          description: kowalski is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/recon-breaks:
     get:
       tags: [analytics]
@@ -1099,6 +1131,69 @@ components:
         - type: object
           properties:
             observed_at: { $ref: "#/components/schemas/Nanos" }
+
+    FundingBoardLeg:
+      type: object
+      required: [account, venue, symbol, interval_s]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        symbol: { type: string, description: "the venue's own spelling" }
+        bid: { $ref: "#/components/schemas/Decimal" }
+        ask: { $ref: "#/components/schemas/Decimal" }
+        rate:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: As stated by the venue, for ITS interval — not comparable across venues.
+        rate_per_8h:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The same rate on the common clock. This is the one to compare.
+        interval_s:
+          type: integer
+          description: The venue's funding interval. Never zero here — a leg without one is excluded.
+        next_funding_time: { $ref: "#/components/schemas/Nanos" }
+        volume_24h_quote: { $ref: "#/components/schemas/Decimal" }
+
+    FundingBoardRow:
+      type: object
+      required: [symbol, long_leg, short_leg, price_spread_bp]
+      properties:
+        symbol:
+          type: string
+          description: Canonical and venue-neutral, "BTC/USDT" — what the two legs agree on.
+        long_leg:
+          allOf: [{ $ref: "#/components/schemas/FundingBoardLeg" }]
+          description: The leg to hold. It pays the least, or is paid.
+        short_leg:
+          allOf: [{ $ref: "#/components/schemas/FundingBoardLeg" }]
+          description: The leg to sell. It charges the most.
+        funding_edge_8h:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The rate difference over one eight-hour settlement. Always positive.
+        price_spread_bp:
+          type: integer
+          description: |
+            Buying the long leg at its ask and selling the short leg at its bid,
+            against their mid. NEGATIVE is the cost of getting on to the route,
+            which the funding then has to beat.
+        volume_floor:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The thinner leg's 24h turnover. A route is only as deep as that.
+
+    FundingBoard:
+      type: object
+      required: [ts, venues, symbols, considered, rows]
+      properties:
+        ts: { $ref: "#/components/schemas/Nanos" }
+        venues:
+          type: integer
+          description: Gateways that were ALIVE for this pass. A dead one contributes nothing.
+        symbols: { type: integer }
+        considered:
+          type: integer
+          description: Pairs priced before filtering, so a short board can be told from a quiet market.
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/FundingBoardRow" }
 
     ReconVerdict:
       type: string

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -71,6 +72,27 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// ONE BLOCKING GET, to a service on this host.
+//
+// Blocking on purpose and bounded on purpose: the caller is a single-threaded
+// loop, and the only thing it may wait on is a peer close enough that waiting
+// is measured in microseconds. `timeout_ms` is the whole exchange — connect,
+// write, read — because a dependency that hangs must degrade the caller by a
+// known amount rather than by however long a socket feels like taking.
+//
+// Nullopt is "did not answer", never an empty body: a caller has to be able to
+// tell a service that is gone from one that returned nothing, and that
+// distinction is the whole reason this returns an optional.
+struct Fetched {
+    int status{0};
+    std::string body;
+};
+
+[[nodiscard]] std::optional<Fetched> fetch(std::string_view host,
+                                           std::uint16_t port,
+                                           std::string_view target,
+                                           std::uint32_t timeout_ms) noexcept;
 
 // A query string's value for `key`, or empty. Percent-decoding is deliberately
 // absent: every parameter this API takes is digits or an account name, and a

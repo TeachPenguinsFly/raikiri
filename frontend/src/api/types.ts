@@ -300,6 +300,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scanner/funding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Perpetual against perpetual, ranked by the funding edge
+         * @description Proxied from kowalski, which computes it from the same shared-memory
+         *     tables this API serves everything else from. admind holds no board of
+         *     its own: when kowalski is not answering this endpoint returns **503**
+         *     rather than an empty list, because an empty board is a claim that the
+         *     search ran and found nothing.
+         *
+         *     **Two numbers, never one.** `funding_edge_8h` and `price_spread_bp` are
+         *     different quantities and are not combined. A pair whose funding pays
+         *     while the two perpetuals sit far apart is a directional position with a
+         *     coupon, and a single ranked score would float exactly that to the top.
+         *
+         *     Rates are normalised to eight hours before anything is compared. A leg
+         *     whose venue does not state its funding interval is excluded from the
+         *     board rather than assumed to be on the common one.
+         */
+        get: operations["listFundingBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recon-breaks": {
         parameters: {
             query?: never;
@@ -765,6 +798,49 @@ export interface components {
         };
         FundingObservation: components["schemas"]["Funding"] & {
             observed_at?: components["schemas"]["Nanos"];
+        };
+        FundingBoardLeg: {
+            account: string;
+            venue: string;
+            /** @description the venue's own spelling */
+            symbol: string;
+            bid?: components["schemas"]["Decimal"];
+            ask?: components["schemas"]["Decimal"];
+            /** @description As stated by the venue, for ITS interval — not comparable across venues. */
+            rate?: components["schemas"]["Decimal"];
+            /** @description The same rate on the common clock. This is the one to compare. */
+            rate_per_8h?: components["schemas"]["Decimal"];
+            /** @description The venue's funding interval. Never zero here — a leg without one is excluded. */
+            interval_s: number;
+            next_funding_time?: components["schemas"]["Nanos"];
+            volume_24h_quote?: components["schemas"]["Decimal"];
+        };
+        FundingBoardRow: {
+            /** @description Canonical and venue-neutral, "BTC/USDT" — what the two legs agree on. */
+            symbol: string;
+            /** @description The leg to hold. It pays the least, or is paid. */
+            long_leg: components["schemas"]["FundingBoardLeg"];
+            /** @description The leg to sell. It charges the most. */
+            short_leg: components["schemas"]["FundingBoardLeg"];
+            /** @description The rate difference over one eight-hour settlement. Always positive. */
+            funding_edge_8h?: components["schemas"]["Decimal"];
+            /**
+             * @description Buying the long leg at its ask and selling the short leg at its bid,
+             *     against their mid. NEGATIVE is the cost of getting on to the route,
+             *     which the funding then has to beat.
+             */
+            price_spread_bp: number;
+            /** @description The thinner leg's 24h turnover. A route is only as deep as that. */
+            volume_floor?: components["schemas"]["Decimal"];
+        };
+        FundingBoard: {
+            ts: components["schemas"]["Nanos"];
+            /** @description Gateways that were ALIVE for this pass. A dead one contributes nothing. */
+            venues: number;
+            symbols: number;
+            /** @description Pairs priced before filtering, so a short board can be told from a quiet market. */
+            considered: number;
+            rows: components["schemas"]["FundingBoardRow"][];
         };
         /**
          * @description `unknown` is the venue not answering, and it is NOT agreement. Agreeing
@@ -1418,6 +1494,35 @@ export interface operations {
                     "application/json": components["schemas"]["Page"] & {
                         items: components["schemas"]["FundingObservation"][];
                     };
+                };
+            };
+        };
+    };
+    listFundingBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FundingBoard"];
+                };
+            };
+            /** @description kowalski is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

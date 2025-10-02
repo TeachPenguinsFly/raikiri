@@ -1,6 +1,7 @@
 // admind — the read side of a running raikiri deployment.
 //
 //   admind [--address 127.0.0.1] [--port 8787] [--stream-port 8788]
+//          [--scanner-port 8790]
 //          [--dsn <postgres-dsn>]
 //
 // Attaches to every gateway segment it finds and serves
@@ -26,10 +27,10 @@
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/routes.hpp>
-#include <raikiri/http/server.hpp>
 #include <raikiri/admin/stream.hpp>
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
+#include <raikiri/http/server.hpp>
 #include <raikiri/log/log.hpp>
 
 #include <unistd.h>
@@ -56,12 +57,17 @@ int main(int argc, char** argv) {
 
     std::string address = "127.0.0.1";
     std::uint16_t port = 8787;
+    // 0 means no scanner: the board endpoint then says so rather than
+    // answering with an empty one.
+    std::uint16_t scanner_port = 0;
     std::uint16_t stream_port = 0;
     std::string dsn;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--address" && i + 1 < argc) {
             address = argv[++i];
+        } else if (arg == "--scanner-port" && i + 1 < argc) {
+            scanner_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--port" && i + 1 < argc) {
             port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--stream-port" && i + 1 < argc) {
@@ -116,13 +122,14 @@ int main(int argc, char** argv) {
     admin::ManualDesk desk{registry};
 
     http::Server server{address,
-                         port,
-                         admin::make_router(
-                             registry,
-                             history.get(),
-                             &desk,
-                             [&clock] { return clock.mono(); },
-                             [&clock] { return clock.wall(); })};
+                        port,
+                        admin::make_router(
+                            registry,
+                            history.get(),
+                            &desk,
+                            [&clock] { return clock.mono(); },
+                            [&clock] { return clock.wall(); },
+                            scanner_port)};
     if (!server.start()) {
         RLOG_ERROR("admind: cannot bind {}:{}", address, port);
         return 1;

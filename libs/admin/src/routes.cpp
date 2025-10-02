@@ -295,11 +295,12 @@ http::Response cancel_order(ManualDesk* desk, std::string_view id_text, UnixNano
 } // namespace
 
 http::Handler make_router(const Registry& registry,
-                    const History* history,
-                    ManualDesk* desk,
-                    std::function<MonoNanos()> now,
-                    std::function<UnixNanos()> wall) {
-    return [&registry, history, desk, now = std::move(now), wall = std::move(wall)](
+                          const History* history,
+                          ManualDesk* desk,
+                          std::function<MonoNanos()> now,
+                          std::function<UnixNanos()> wall,
+                          std::uint16_t scanner_port) {
+    return [&registry, history, desk, now = std::move(now), wall = std::move(wall), scanner_port](
                const http::Request& req) -> http::Response {
         if (req.method == "POST" && req.path == "/v1/orders") {
             return place_order(desk, req, wall());
@@ -312,6 +313,28 @@ http::Handler make_router(const Registry& registry,
             return problem(405, "method not allowed", "this path serves reads");
         }
 
+        // FORWARDED, never answered from here. The board lives in kowalski
+        // because it is a producer with its own loop, and admind is a reader;
+        // holding a copy would be a second source of truth that goes stale the
+        // moment the scanner restarts.
+        if (req.path == "/v1/scanner/funding") {
+            if (scanner_port == 0) {
+                return problem(503,
+                               "no scanner configured",
+                               "admind was started without --scanner-port, so there is nothing "
+                               "to forward this to. An empty board would say the search ran and "
+                               "found nothing, which is a different fact.");
+            }
+            const auto answer = http::fetch("127.0.0.1", scanner_port, req.path, 250);
+            if (!answer.has_value()) {
+                return problem(503,
+                               "scanner is not answering",
+                               "kowalski did not respond. Nothing on this screen is current, and "
+                               "the rows it would show cannot be computed without it.");
+            }
+            return {
+                .status = answer->status, .content_type = "application/json", .body = answer->body};
+        }
         if (req.path == "/v1/health") {
             auto health = registry.health(now(), wall());
             if (history != nullptr) {
