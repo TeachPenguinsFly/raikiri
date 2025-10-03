@@ -70,13 +70,11 @@ the common one.
 
 ## What it would take to serve these
 
-- **Scanner, perp·perp:** computable today. `/v1/markets` names the listings,
-  `quotes` carries the prices, `funding` carries rate, mark, interval and next
-  settlement, and `ticker` carries `volume_24h_quote` — the depth filter's input,
-  which this document called missing until it was published. Nothing is absent
-  but the arithmetic and an endpoint to serve it from. Computing it in the
-  browser instead would subscribe every symbol on every venue to render a
-  screenful, and leave a board that cannot be checked against anything.
+- **Scanner, perp·perp:** BUILT. `apps/kowalski` reads the same shared-memory
+  tables everything else does, prices every pair once a second and serves the
+  board; admind forwards it and answers 503 when the scanner is gone. The
+  arithmetic is `libs/scan`, where the funding edge and the price spread stay
+  two separate numbers and a leg whose venue states no interval is refused.
 - **Scanner, spot·perp and spot·spot:** the same, once spot gateways are
   attached beside the perp ones.
 - **Strategies:** needs a registry. admind knows a strategy only as an integer
