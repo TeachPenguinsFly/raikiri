@@ -110,6 +110,12 @@ struct Source {
 
     Source(AccountId id, std::string display, shm::SegmentClient attached, shm::GatewayChannels c)
         : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{c} {}
+
+    Source(Source&&) = default;
+    Source& operator=(Source&&) = default;
+    Source(const Source&) = delete;
+    Source& operator=(const Source&) = delete;
+    ~Source() = default;
 };
 
 [[nodiscard]] std::string digits(std::uint64_t value) {
@@ -291,48 +297,66 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, on_signal);
     const LiveClock clock;
 
-    // HELD BY POINTER, and the vector reserved: the channel pointers below
-    // reference mappings this object owns, so a reallocation would leave every
-    // one of them dangling.
+    // HELD BY POINTER: the channel pointers below reference mappings this
+    // object owns, so a vector reallocation would leave every one of them
+    // dangling.
     std::vector<std::unique_ptr<Source>> sources;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator{shm_dir, ec}) {
-        const auto name = entry.path().filename().string();
-        if (!name.starts_with("gw.")) {
-            continue;
+
+    // RESCANNED, NOT DISCOVERED ONCE. A gateway's segment file exists from the
+    // instant it is created and carries nothing until it publishes, so a
+    // scanner that looks once at startup sees an empty directory and gives up —
+    // which is exactly what it did the first time the launcher started it
+    // beside the gateways rather than after them. Rescanning also means a venue
+    // brought up an hour later joins the board without restarting this.
+    //
+    // The generation check is what keeps a rescan from spending a reader slot
+    // every two seconds; admind's registry carries the same guard for the same
+    // reason, and there are only four slots.
+    const auto rescan = [&sources, &shm_dir]() {
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator{shm_dir, ec}) {
+            const auto name = entry.path().filename().string();
+            if (!name.starts_with("gw.")) {
+                continue;
+            }
+            const auto account_name = name.substr(3);
+            const auto account = account_from_string(account_name);
+            if (account.venue == VenueId::Invalid) {
+                continue;
+            }
+            auto client = shm::SegmentClient::attach(entry.path().string());
+            if (!client.has_value()) {
+                continue;
+            }
+            const auto held = std::ranges::find_if(
+                sources, [&](const auto& s) { return s->name == account_name; });
+            if (held != sources.end() && (*held)->client.generation() == client->generation()) {
+                continue; // the same run we already hold
+            }
+            auto channels = shm::open_gateway_channels(*client);
+            if (!channels.has_value()) {
+                continue; // created but not yet published
+            }
+            if (!client->register_reader(::getpid()).has_value()) {
+                RLOG_ERROR("kowalski: {} has no free reader slot (shm::k_max_readers is {})",
+                           account_name,
+                           shm::k_max_readers);
+                continue;
+            }
+            if (held != sources.end()) {
+                RLOG_INFO("kowalski: {} came back on a new generation", account_name);
+                **held = Source{account, account_name, std::move(*client), *channels};
+                continue;
+            }
+            RLOG_INFO("kowalski: reading {}", account_name);
+            sources.push_back(
+                std::make_unique<Source>(account, account_name, std::move(*client), *channels));
         }
-        const auto account_name = name.substr(3);
-        const auto account = account_from_string(account_name);
-        if (account.venue == VenueId::Invalid) {
-            continue;
+        if (ec) {
+            RLOG_WARN("kowalski: cannot read {} — {}", shm_dir, ec.message());
         }
-        auto client = shm::SegmentClient::attach(entry.path().string());
-        if (!client.has_value()) {
-            RLOG_WARN("kowalski: {} did not attach", account_name);
-            continue;
-        }
-        auto channels = shm::open_gateway_channels(*client);
-        if (!channels.has_value()) {
-            continue; // the file exists from the instant a gateway creates it
-        }
-        if (!client->register_reader(::getpid()).has_value()) {
-            RLOG_ERROR("kowalski: {} has no free reader slot (shm::k_max_readers is {})",
-                       account_name,
-                       shm::k_max_readers);
-            continue;
-        }
-        sources.push_back(
-            std::make_unique<Source>(account, account_name, std::move(*client), *channels));
-    }
-    if (ec) {
-        RLOG_ERROR("kowalski: cannot read {} — {}", shm_dir, ec.message());
-        return 1;
-    }
-    if (sources.empty()) {
-        RLOG_ERROR("kowalski: no gateway segment under {} — nothing to scan", shm_dir);
-        return 1;
-    }
-    RLOG_INFO("kowalski: attached to {} gateway(s)", sources.size());
+    };
+    rescan();
 
     // The board a request answers from, swapped whole. A reader never sees a
     // half-rebuilt board, and the rebuild never waits on a request.
@@ -364,6 +388,8 @@ int main(int argc, char** argv) {
     // symbol every venue lists, and recomputing it on each quote would be
     // thousands of passes a second over a page nobody reads that often.
     constexpr std::uint64_t k_rebuild_ns = 1'000'000'000;
+    constexpr std::uint64_t k_rescan_ns = 2'000'000'000;
+    std::uint64_t next_scan = 0;
     const auto t_end =
         duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t next_build = 0;
@@ -371,6 +397,10 @@ int main(int argc, char** argv) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
             break;
+        }
+        if (mono.ns >= next_scan) {
+            rescan();
+            next_scan = mono.ns + k_rescan_ns;
         }
         if (mono.ns >= next_build) {
             auto board = build(sources, min_volume, limit, clock.wall(), mono);

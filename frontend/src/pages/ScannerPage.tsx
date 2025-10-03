@@ -92,10 +92,22 @@ export function ScannerPage() {
           <EmptyState title={board.title} hint={board.detail ?? undefined} />
         )}
 
-        {board.state === 'ready' && board.data.rows.length === 0 && (
+        {/* TWO DIFFERENT EMPTIES, and conflating them is the whole hazard this
+            screen was written around. No gateway attached means nothing was
+            looked at; no pair clearing the filters means everything was looked
+            at and none of it qualified. Only the second is a statement about
+            the market. */}
+        {board.state === 'ready' && board.data.rows.length === 0 && board.data.venues === 0 && (
+          <EmptyState
+            title="No gateway is attached"
+            hint="the scanner has nothing to read — bring the stack up with make up"
+          />
+        )}
+
+        {board.state === 'ready' && board.data.rows.length === 0 && board.data.venues > 0 && (
           <EmptyState
             title="No pair cleared the filters"
-            hint={`${board.data.considered} priced across ${board.data.symbols} symbols`}
+            hint={`${board.data.considered} priced across ${board.data.symbols} symbols on ${board.data.venues} venues`}
           />
         )}
 
