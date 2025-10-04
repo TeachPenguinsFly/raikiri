@@ -509,6 +509,35 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /v1/scanner/spot-perp:
+    get:
+      tags: [analytics]
+      summary: Spot against its own perpetual, the cash-and-carry
+      description: |
+        Buy spot at its ask, sell the perpetual at its bid, and collect the
+        perpetual's funding while the position is delta-neutral.
+
+        **Same-venue pairs are included on purpose**, unlike the perpetual
+        board. One exchange's spot against its own perpetual is the classic
+        form of this trade and usually the only one whose two legs settle
+        against the same margin.
+
+        The spot leg has no funding and is not asked for an interval; only the
+        perpetual's rate enters. Proxied from kowalski, and **503** when it is
+        not answering.
+      operationId: listSpotPerpBoard
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CarryBoard" }
+        "503":
+          description: kowalski is not answering
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/recon-breaks:
     get:
       tags: [analytics]
@@ -1194,6 +1223,41 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/FundingBoardRow" }
+
+    CarryBoardRow:
+      type: object
+      required: [symbol, spot, perp, basis_bp]
+      properties:
+        symbol: { type: string }
+        spot:
+          allOf: [{ $ref: "#/components/schemas/FundingBoardLeg" }]
+          description: Bought at its ask. Carries no funding and states no interval.
+        perp:
+          allOf: [{ $ref: "#/components/schemas/FundingBoardLeg" }]
+          description: Sold at its bid. Its funding is what the position collects.
+        funding_8h:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: The perpetual's own rate on the common clock.
+        basis_bp:
+          type: integer
+          description: |
+            (perp bid − spot ask) / mid. NEGATIVE is what the carry costs on the
+            way in, which the funding then has to cover.
+        volume_floor: { $ref: "#/components/schemas/Decimal" }
+
+    CarryBoard:
+      type: object
+      required: [ts, venues, symbols, considered, rows]
+      properties:
+        ts: { $ref: "#/components/schemas/Nanos" }
+        venues: { type: integer }
+        symbols:
+          type: integer
+          description: Symbols with a SPOT listing. Zero means no spot gateway is attached.
+        considered: { type: integer }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/CarryBoardRow" }
 
     ReconVerdict:
       type: string

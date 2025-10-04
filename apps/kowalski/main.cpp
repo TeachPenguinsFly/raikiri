@@ -78,6 +78,23 @@ struct WireRow {
     std::string volume_floor;
 };
 
+struct WireCarryRow {
+    std::string symbol;
+    WireLeg spot;
+    WireLeg perp;
+    std::string funding_8h;
+    std::int64_t basis_bp{0};
+    std::string volume_floor;
+};
+
+struct WireCarryBoard {
+    std::string ts;
+    std::size_t venues{0};
+    std::size_t symbols{0};
+    std::size_t considered{0};
+    std::vector<WireCarryRow> rows;
+};
+
 struct WireBoard {
     std::string ts;
     std::size_t venues{0};
@@ -141,12 +158,18 @@ struct Gathered {
 
 // Builds the board. Pure of I/O apart from the seqlock reads, and every
 // exclusion below is a decision the board would otherwise make silently.
-[[nodiscard]] WireBoard build(const std::vector<std::unique_ptr<Source>>& sources,
-                              FixedE9 min_volume,
-                              std::size_t limit,
-                              UnixNanos now,
-                              MonoNanos mono) {
+struct Boards {
+    WireBoard funding;
+    WireCarryBoard carry;
+};
+
+[[nodiscard]] Boards build(const std::vector<std::unique_ptr<Source>>& sources,
+                           FixedE9 min_volume,
+                           std::size_t limit,
+                           UnixNanos now,
+                           MonoNanos mono) {
     std::map<std::string, std::vector<Gathered>> by_symbol;
+    std::map<std::string, std::vector<Gathered>> spot_by_symbol;
     std::size_t live_venues = 0;
 
     for (const auto& owned : sources) {
@@ -157,8 +180,9 @@ struct Gathered {
         ++live_venues;
         for (const auto& listed : src.ch.catalogue->all()) {
             const auto& base = base_of(listed);
-            if (base.id.market() != MarketType::Perp) {
-                continue; // the perpetual board; spot is a different pairing
+            const auto market = base.id.market();
+            if (market != MarketType::Perp && market != MarketType::Spot) {
+                continue; // futures and options pair on neither board
             }
             const auto sym = base.id.symbol().raw;
             if (sym >= shm::k_bbo_cells) {
@@ -167,8 +191,13 @@ struct Gathered {
             Bbo quote{};
             FundingUpdate funding{};
             TickerStats stats{};
-            if (src.ch.bbo->read(sym, quote) == 0 || src.ch.funding->read(sym, funding) == 0) {
+            if (src.ch.bbo->read(sym, quote) == 0) {
                 continue; // nothing has been published for it yet
+            }
+            // A SPOT LEG HAS NO FUNDING and must not be dropped for lacking
+            // it; a perpetual without one has not been published yet.
+            if (src.ch.funding->read(sym, funding) == 0 && market == MarketType::Perp) {
+                continue;
             }
             (void)src.ch.ticker_stats->read(sym, stats);
 
@@ -187,7 +216,8 @@ struct Gathered {
                 hourly.has_value()) {
                 got.rate_per_hour = *hourly;
             }
-            by_symbol[std::string{base.local_symbol.view()}].push_back(std::move(got));
+            auto& into = market == MarketType::Spot ? spot_by_symbol : by_symbol;
+            into[std::string{base.local_symbol.view()}].push_back(std::move(got));
         }
     }
 
@@ -257,7 +287,59 @@ struct Gathered {
                                      .price_spread_bp = s.row.price_spread_bp,
                                      .volume_floor = decimal(s.row.volume_floor)});
     }
-    return board;
+
+    // The carry board: buy spot, sell the perpetual against it. Every spot leg
+    // against every perpetual leg of the same symbol, SAME VENUE INCLUDED —
+    // one exchange's spot against its own perpetual is the classic form and
+    // the only one whose legs usually share margin.
+    struct CarryScored {
+        scan::CarryRow row;
+        const Gathered* spot{nullptr};
+        const Gathered* perp{nullptr};
+        const std::string* symbol{nullptr};
+    };
+
+    std::vector<CarryScored> carried;
+    std::size_t carry_considered = 0;
+    for (const auto& [symbol, spots] : spot_by_symbol) {
+        const auto perps = by_symbol.find(symbol);
+        if (perps == by_symbol.end()) {
+            continue;
+        }
+        for (const auto& spot : spots) {
+            for (const auto& perp : perps->second) {
+                ++carry_considered;
+                const auto priced = scan::carry(spot.leg, perp.leg, min_volume);
+                if (!priced.has_value()) {
+                    continue;
+                }
+                carried.push_back(
+                    {.row = *priced, .spot = &spot, .perp = &perp, .symbol = &symbol});
+            }
+        }
+    }
+    std::ranges::sort(carried, [](const CarryScored& a, const CarryScored& b) {
+        return a.row.funding_8h.raw > b.row.funding_8h.raw;
+    });
+    if (carried.size() > limit) {
+        carried.resize(limit);
+    }
+
+    WireCarryBoard carry_board{.ts = digits(now.ns),
+                               .venues = live_venues,
+                               .symbols = spot_by_symbol.size(),
+                               .considered = carry_considered,
+                               .rows = {}};
+    carry_board.rows.reserve(carried.size());
+    for (const auto& c : carried) {
+        carry_board.rows.push_back(WireCarryRow{.symbol = *c.symbol,
+                                                .spot = to_wire(*c.spot),
+                                                .perp = to_wire(*c.perp),
+                                                .funding_8h = decimal(c.row.funding_8h),
+                                                .basis_bp = c.row.basis_bp,
+                                                .volume_floor = decimal(c.row.volume_floor)});
+    }
+    return {.funding = std::move(board), .carry = std::move(carry_board)};
 }
 
 } // namespace
@@ -360,17 +442,26 @@ int main(int argc, char** argv) {
 
     // The board a request answers from, swapped whole. A reader never sees a
     // half-rebuilt board, and the rebuild never waits on a request.
-    std::string served = R"({"ts":"0","venues":0,"symbols":0,"considered":0,"rows":[]})";
+    constexpr std::string_view k_nothing_yet =
+        R"({"ts":"0","venues":0,"symbols":0,"considered":0,"rows":[]})";
+    std::string served{k_nothing_yet};
+    std::string served_carry{k_nothing_yet};
     std::mutex served_mu;
 
     http::Server server{
-        "127.0.0.1", port, [&served, &served_mu](const http::Request& req) -> http::Response {
+        "127.0.0.1",
+        port,
+        [&served, &served_carry, &served_mu](const http::Request& req) -> http::Response {
             if (req.method != "GET") {
                 return {.status = 405, .content_type = "application/json", .body = "{}"};
             }
             if (req.path == "/v1/scanner/funding") {
                 const std::lock_guard lock{served_mu};
                 return {.status = 200, .content_type = "application/json", .body = served};
+            }
+            if (req.path == "/v1/scanner/spot-perp") {
+                const std::lock_guard lock{served_mu};
+                return {.status = 200, .content_type = "application/json", .body = served_carry};
             }
             if (req.path == "/v1/health") {
                 return {
@@ -403,11 +494,15 @@ int main(int argc, char** argv) {
             next_scan = mono.ns + k_rescan_ns;
         }
         if (mono.ns >= next_build) {
-            auto board = build(sources, min_volume, limit, clock.wall(), mono);
-            std::string json;
-            if (const auto err = glz::write_json(board, json); !err) {
+            auto boards = build(sources, min_volume, limit, clock.wall(), mono);
+            std::string funding_json;
+            std::string carry_json;
+            const auto a = glz::write_json(boards.funding, funding_json);
+            const auto b = glz::write_json(boards.carry, carry_json);
+            if (!a && !b) {
                 const std::lock_guard lock{served_mu};
-                served = std::move(json);
+                served = std::move(funding_json);
+                served_carry = std::move(carry_json);
             }
             next_build = mono.ns + k_rebuild_ns;
         }

@@ -18,6 +18,8 @@ export type Problem = Schema<'Problem'>
 export type FundingBoard = Schema<'FundingBoard'>
 export type FundingBoardRow = Schema<'FundingBoardRow'>
 export type FundingBoardLeg = Schema<'FundingBoardLeg'>
+export type CarryBoard = Schema<'CarryBoard'>
+export type CarryBoardRow = Schema<'CarryBoardRow'>
 
 /** A refusal the server explained. Carries the RFC 9457 body, so a screen can
  *  say what went wrong instead of "something went wrong". */
@@ -89,6 +91,7 @@ export const api = {
   // that refusal has to reach the screen — an empty board would say the search
   // ran and found nothing.
   fundingBoard: () => get<FundingBoard>('/v1/scanner/funding'),
+  carryBoard: () => get<CarryBoard>('/v1/scanner/spot-perp'),
   instrument: (id: string) => get<Instrument>(`/v1/instruments/${id}`),
   markets: (params: { q?: string | undefined; limit?: string | undefined } = {}) =>
     get<Market[]>('/v1/markets', { q: params.q, limit: params.limit }),

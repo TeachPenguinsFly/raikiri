@@ -79,4 +79,40 @@ std::expected<Row, Reject> pair(const Leg& a, const Leg& b, FixedE9 min_volume_q
     return row;
 }
 
+std::expected<CarryRow, Reject>
+carry(const Leg& spot, const Leg& perp, FixedE9 min_volume_quote) noexcept {
+    // Only the perpetual is asked for an interval. Spot has no funding, and
+    // demanding one of it would refuse every pair this function exists for.
+    const auto hourly = per_hour(perp.rate, perp.interval_s);
+    if (!hourly.has_value()) {
+        return std::unexpected{Reject::NoInterval};
+    }
+    if (!quoted(spot) || !quoted(perp)) {
+        return std::unexpected{Reject::NoQuote};
+    }
+    if (spot.bid.raw > spot.ask.raw || perp.bid.raw > perp.ask.raw) {
+        return std::unexpected{Reject::CrossedBook};
+    }
+    if (!min_volume_quote.is_undef() && min_volume_quote.raw > 0) {
+        const auto thin = [&](const Leg& leg) {
+            return leg.volume_24h_quote.is_undef() ||
+                   leg.volume_24h_quote.raw < min_volume_quote.raw;
+        };
+        if (thin(spot) || thin(perp)) {
+            return std::unexpected{Reject::ThinVolume};
+        }
+    }
+
+    CarryRow row{.spot = spot, .perp = perp};
+    row.funding_8h = FixedE9::from_raw(hourly->raw * k_hours_per_settlement);
+    // Buy spot at its ask, sell the perpetual at its bid. Positive means the
+    // perpetual trades above spot and the basis pays on the way in as well.
+    const auto sum = perp.bid.raw + spot.ask.raw;
+    row.basis_bp = mul_div(perp.bid.raw - spot.ask.raw, 2 * k_bp_scale, sum);
+    row.volume_floor = FixedE9::from_raw(
+        std::min(spot.volume_24h_quote.is_undef() ? 0 : spot.volume_24h_quote.raw,
+                 perp.volume_24h_quote.is_undef() ? 0 : perp.volume_24h_quote.raw));
+    return row;
+}
+
 } // namespace raikiri::scan

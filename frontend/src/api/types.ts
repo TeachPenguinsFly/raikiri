@@ -333,6 +333,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scanner/spot-perp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Spot against its own perpetual, the cash-and-carry
+         * @description Buy spot at its ask, sell the perpetual at its bid, and collect the
+         *     perpetual's funding while the position is delta-neutral.
+         *
+         *     **Same-venue pairs are included on purpose**, unlike the perpetual
+         *     board. One exchange's spot against its own perpetual is the classic
+         *     form of this trade and usually the only one whose two legs settle
+         *     against the same margin.
+         *
+         *     The spot leg has no funding and is not asked for an interval; only the
+         *     perpetual's rate enters. Proxied from kowalski, and **503** when it is
+         *     not answering.
+         */
+        get: operations["listSpotPerpBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recon-breaks": {
         parameters: {
             query?: never;
@@ -841,6 +871,29 @@ export interface components {
             /** @description Pairs priced before filtering, so a short board can be told from a quiet market. */
             considered: number;
             rows: components["schemas"]["FundingBoardRow"][];
+        };
+        CarryBoardRow: {
+            symbol: string;
+            /** @description Bought at its ask. Carries no funding and states no interval. */
+            spot: components["schemas"]["FundingBoardLeg"];
+            /** @description Sold at its bid. Its funding is what the position collects. */
+            perp: components["schemas"]["FundingBoardLeg"];
+            /** @description The perpetual's own rate on the common clock. */
+            funding_8h?: components["schemas"]["Decimal"];
+            /**
+             * @description (perp bid − spot ask) / mid. NEGATIVE is what the carry costs on the
+             *     way in, which the funding then has to cover.
+             */
+            basis_bp: number;
+            volume_floor?: components["schemas"]["Decimal"];
+        };
+        CarryBoard: {
+            ts: components["schemas"]["Nanos"];
+            venues: number;
+            /** @description Symbols with a SPOT listing. Zero means no spot gateway is attached. */
+            symbols: number;
+            considered: number;
+            rows: components["schemas"]["CarryBoardRow"][];
         };
         /**
          * @description `unknown` is the venue not answering, and it is NOT agreement. Agreeing
@@ -1514,6 +1567,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FundingBoard"];
+                };
+            };
+            /** @description kowalski is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listSpotPerpBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarryBoard"];
                 };
             };
             /** @description kowalski is not answering */

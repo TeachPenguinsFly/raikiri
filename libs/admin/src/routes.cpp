@@ -317,7 +317,7 @@ http::Handler make_router(const Registry& registry,
         // because it is a producer with its own loop, and admind is a reader;
         // holding a copy would be a second source of truth that goes stale the
         // moment the scanner restarts.
-        if (req.path == "/v1/scanner/funding") {
+        if (req.path.starts_with("/v1/scanner/")) {
             if (scanner_port == 0) {
                 return problem(503,
                                "no scanner configured",

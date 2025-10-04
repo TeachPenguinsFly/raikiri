@@ -170,6 +170,63 @@ TEST(ScanBoard, ACrossedBookIsRefusedRatherThanPriced) {
     EXPECT_EQ(row.error(), Reject::CrossedBook);
 }
 
+TEST(ScanCarry, SpotIsNotAskedForAFundingIntervalItCannotHave) {
+    // The refusal that would have killed every carry pair: spot pays no
+    // funding, so it states no interval, and requiring one of both legs — as
+    // the perpetual board does — would reject the whole board.
+    Leg spot = leg(VenueId::Bybit, 100, 0, 0);
+    spot.rate = FixedE9::undef();
+    const auto row = carry(spot, leg(VenueId::Bybit, 100, 300'000, 8 * 3600), FixedE9::from_raw(0));
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ(row->funding_8h.raw, 300'000) << "only the perpetual's rate enters";
+}
+
+TEST(ScanCarry, APerpetualWithoutAnIntervalIsStillRefused) {
+    Leg spot = leg(VenueId::Bybit, 100, 0, 0);
+    const auto row = carry(spot, leg(VenueId::Kraken, 100, 300'000, 0), FixedE9::from_raw(0));
+    ASSERT_FALSE(row.has_value());
+    EXPECT_EQ(row.error(), Reject::NoInterval);
+}
+
+TEST(ScanCarry, OneVenueIsAllowedBecauseThatIsTheClassicForm) {
+    // The perpetual board refuses a venue against itself; this one must not.
+    // Buying spot and shorting the perpetual on one exchange is the oldest
+    // version of this trade, and often the only one whose legs share margin.
+    Leg spot = leg(VenueId::Bybit, 100, 0, 0);
+    const auto row = carry(spot, leg(VenueId::Bybit, 100, 300'000, 8 * 3600), FixedE9::from_raw(0));
+    EXPECT_TRUE(row.has_value());
+}
+
+TEST(ScanCarry, TheBasisIsBuySpotAtTheAskAndSellThePerpAtTheBid) {
+    Leg spot = leg(VenueId::Bybit, 100, 0, 0);
+    spot.bid = e9(99);
+    spot.ask = e9(100); // we buy here
+    Leg perp = leg(VenueId::Bybit, 100, 300'000, 8 * 3600);
+    perp.bid = e9(101); // we sell here
+    perp.ask = e9(102);
+
+    const auto row = carry(spot, perp, FixedE9::from_raw(0));
+    ASSERT_TRUE(row.has_value());
+    // (101 - 100) / ((101 + 100) / 2) = 0.995%, i.e. 99 bp.
+    EXPECT_EQ(row->basis_bp, 99);
+}
+
+TEST(ScanCarry, ANegativeBasisIsReportedRatherThanHidden) {
+    // The perpetual below spot means the carry costs something on the way in,
+    // and the funding has to cover it before anything is earned.
+    Leg spot = leg(VenueId::Bitget, 100, 0, 0);
+    spot.bid = e9(100);
+    spot.ask = e9(101);
+    Leg perp = leg(VenueId::Bitget, 100, 300'000, 8 * 3600);
+    perp.bid = e9(99);
+    perp.ask = e9(100);
+
+    const auto row = carry(spot, perp, FixedE9::from_raw(0));
+    ASSERT_TRUE(row.has_value());
+    EXPECT_LT(row->basis_bp, 0);
+    EXPECT_GT(row->funding_8h.raw, 0);
+}
+
 TEST(ScanBoard, EveryRefusalNamesItself) {
     for (const auto why : {Reject::OneVenue,
                            Reject::NoInterval,

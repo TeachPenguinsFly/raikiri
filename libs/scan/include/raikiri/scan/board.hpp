@@ -94,6 +94,26 @@ struct Row {
     FixedE9 volume_floor{};
 };
 
+// Buying spot and selling the perpetual against it — the cash-and-carry.
+//
+// ONE LEG HAS NO FUNDING AND THAT IS NOT A DEFECT: spot pays and charges
+// nothing, so only the perpetual's rate enters, and the spot leg is not asked
+// for an interval it could never have.
+//
+// SAME-VENUE PAIRS ARE ALLOWED HERE, unlike the perpetual board. Buying spot
+// and shorting the perpetual on one exchange is the classic form of this trade
+// and often the only one whose two legs settle against the same margin.
+struct CarryRow {
+    Leg spot{};               // bought, at its ask
+    Leg perp{};               // sold, at its bid; its funding is what the position collects
+    FixedE9 funding_8h{};     // the perpetual's own rate on the common clock
+    std::int64_t basis_bp{0}; // (perp bid - spot ask) / mid; negative is a cost
+    FixedE9 volume_floor{};
+};
+
+[[nodiscard]] std::expected<CarryRow, Reject>
+carry(const Leg& spot, const Leg& perp, FixedE9 min_volume_quote) noexcept;
+
 // A leg's rate restated as what it accrues in one hour. Nullopt when the venue
 // did not state an interval — the one input that cannot be defaulted.
 [[nodiscard]] std::optional<FixedE9> per_hour(FixedE9 rate, std::uint32_t interval_s) noexcept;
