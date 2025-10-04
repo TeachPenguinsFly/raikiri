@@ -342,13 +342,14 @@ std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
         // watchlist of forty is a display, and a display is 10 Hz.
         return instruments <= 1 ? 30'000 : 10'000;
     case Feed::Book:
-        // ONE A SECOND, not thirty. A depth ladder is read, not raced: the eye
-        // takes a picture of it and the hand acts on the top of it, and the top
-        // of it is on the quotes feed at thirty. Several venues open at once is
-        // the ordinary case for a cross-venue view, and thirty frames a second
-        // of hundred-level ladders each is the bandwidth that buys nothing.
+        // A depth ladder is read, not raced: the eye takes a picture of it and
+        // the hand acts on the top of it, and the top is on the quotes feed at
+        // thirty. But ONE ladder open is a focused view and a second between
+        // frames is visibly a slideshow, so it gets five; several venues at
+        // once is a cross-venue display, and thirty frames a second of
+        // hundred-level ladders each is bandwidth that buys nothing.
         // A client that wants faster asks, and negotiate_millihertz answers.
-        return 1'000;
+        return instruments <= 1 ? 5'000 : 1'000;
     case Feed::Greeks:
     case Feed::Funding:
     case Feed::Ticker:

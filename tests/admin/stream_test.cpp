@@ -135,8 +135,10 @@ TEST(AdminStream, CadenceIsNegotiatedRatherThanObeyed) {
     EXPECT_EQ(default_millihertz(Feed::Quotes, 1), 30'000);
     EXPECT_EQ(default_millihertz(Feed::Quotes, 40), 10'000);
     // A ladder is READ, not raced — see the book test below. The top of it is
-    // on the quotes feed at thirty; the depth behind it is a picture.
-    EXPECT_EQ(default_millihertz(Feed::Book, 1), 1'000);
+    // on the quotes feed at thirty; the depth behind it is a picture, and one
+    // picture a second is a slideshow while eight are a display.
+    EXPECT_EQ(default_millihertz(Feed::Book, 1), 5'000);
+    EXPECT_EQ(default_millihertz(Feed::Book, 8), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Greeks, 8), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Positions, 200), 1'000);
     EXPECT_EQ(default_millihertz(Feed::Health, 0), 1'000);
@@ -304,12 +306,17 @@ TEST(AdminStream, ADepthVisualiserGetsTheLevelsItDrawsAndNotTheHundredHeld) {
     EXPECT_EQ(book_of(snapshot, base, 100).bids.size(), 40U);
 }
 
-TEST(AdminStream, ABookIsSampledOnceASecondUnlessAskedOtherwise) {
+TEST(AdminStream, OneLadderIsSampledFasterThanEightOfThem) {
     // Several venues open side by side is the ordinary case for a cross-venue
     // view. Thirty frames a second of ladders each, times eight, is bandwidth
     // that buys nothing: the top of the book is on the quotes feed at thirty.
-    EXPECT_EQ(default_millihertz(Feed::Book, 1), 1'000);
-    EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, std::nullopt), 1'000);
+    //
+    // ONE open ladder is a different thing — a focused view, where a second
+    // between frames reads as a slideshow rather than as a market.
+    EXPECT_EQ(default_millihertz(Feed::Book, 1), 5'000);
+    EXPECT_EQ(default_millihertz(Feed::Book, 8), 1'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, std::nullopt), 5'000);
+    EXPECT_EQ(negotiate_millihertz(Feed::Book, 8, std::nullopt), 1'000);
     // A client that wants faster still asks, and is still capped at the rate
     // the tables are sampled at.
     EXPECT_EQ(negotiate_millihertz(Feed::Book, 1, 10'000), 10'000);
