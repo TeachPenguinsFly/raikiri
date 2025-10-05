@@ -1,148 +1,236 @@
+import { useMemo, useState } from 'react'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PanelHeader } from '@/components/shared/PanelHeader'
+import { SortHead, type Sort } from '@/components/shared/SortHead'
 import { Venue } from '@/components/shared/Venue'
-import { api, type FundingBoardRow } from '@/api/client'
+import { VenueFilter } from '@/components/scanner/VenueFilter'
+import { api, type UpstreamColumn } from '@/api/client'
 import { compact, nanosToMillis, toNumber } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 
-/** The perpetual·perpetual funding board.
+/** A table this screen was not written for.
  *
- *  TWO COLUMNS, NEVER ONE SCORE. The funding edge and the price spread are
- *  different quantities, and a table ranked on their sum would float a pair to
- *  the top precisely when its two perpetuals have drifted apart — which is a
- *  directional position, not an arbitrage. This ranks on funding and shows the
- *  entry cost beside it, so the reader weighs them rather than the table.
+ *  THE COLUMNS ARRIVE WITH THE DATA. What is worth scanning for, and how the
+ *  edge in it is computed, is not this repository's to hold — so the upstream
+ *  names its own tables and its own columns, and this file knows only how to
+ *  draw a cell of each KIND. Hardcoding "funding spread" here would put the
+ *  model in a public repository as surely as shipping the arithmetic would.
  *
- *  Every rate here is already on an eight-hour clock. Venues fund on different
- *  ones, and comparing the numbers they publish would rank an hourly venue as
- *  though it paid an eighth of what it does. */
+ *  What it does own is the reading: sorting, a venue filter, and the difference
+ *  between two kinds of empty. */
 
-/** Basis points, because that is the size these live at: 0.0015 over eight
- *  hours is 15 bp, and as a percent rounded for a table it is 0.15 — a column
- *  of leading zeros. */
-const bps = (fraction: number) => (fraction * 10_000).toFixed(1)
+/** The upstream a terminal offers boards from. One neutral name, configurable
+ *  at the proxy — `admind --upstream boards=<port>` — so the screen names no
+ *  service and no service names itself here. */
+const k_upstream = 'boards'
 
-/** Time to that venue's own next settlement. BOTH legs are shown because they
- *  differ, and an edge collected in nine minutes on one side and six hours on
- *  the other is not the same trade as one that settles together. */
-function untilSettlement(nanos: string | undefined): string {
-  if (nanos === undefined || nanos === '' || nanos === '0') return '—'
-  const left = nanosToMillis(nanos) - Date.now()
-  if (left <= 0) return 'due'
-  const minutes = Math.floor(left / 60_000)
-  if (minutes < 60) return `${minutes}m`
-  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`
+type Row = Record<string, string>
+
+/** A cell, drawn by the column's declared KIND and never by its meaning.
+ *
+ *  `signed` is painted by sign because a number that can be a cost has to read
+ *  as one; `venue` gets the mark that makes an identity scannable in a column
+ *  of numbers; `duration` is an instant on the wire and time-remaining to a
+ *  reader, which is the only form anybody acts on. */
+function Cell({ column, value }: { column: UpstreamColumn; value: string | undefined }) {
+  if (value === undefined || value === '') return <span className="text-fg-dim/40">—</span>
+  switch (column.kind) {
+    case 'venue':
+      return <Venue venue={value} />
+    case 'signed': {
+      const n = toNumber(value)
+      return (
+        <span className={cn(n > 0 ? 'text-down' : n < 0 ? 'text-up' : 'text-fg-mid')}>{value}</span>
+      )
+    }
+    case 'duration': {
+      const left = nanosToMillis(value) - Date.now()
+      if (Number.isNaN(left)) return <span className="text-fg-dim/40">—</span>
+      if (left <= 0) return <span className="text-fg-dim">due</span>
+      const minutes = Math.floor(left / 60_000)
+      return (
+        <span className="text-fg-dim">
+          {minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`}
+        </span>
+      )
+    }
+    case 'number':
+      return <span>{Math.abs(toNumber(value)) >= 10_000 ? compact(toNumber(value)) : value}</span>
+    default:
+      return <span className="text-fg">{value}</span>
+  }
 }
 
-function Row({ row }: { row: FundingBoardRow }) {
-  const spread = row.price_spread_bp ?? 0
-  return (
-    <tr className="border-t border-line/40 hover:bg-bg-hi/40">
-      <td className="px-3 py-1.5 font-medium text-fg">{row.symbol}</td>
-      <td className="px-3 py-1.5">
-        <Venue venue={row.long_leg.venue} />
-      </td>
-      <td className="px-3 py-1.5">
-        <Venue venue={row.short_leg.venue} />
-      </td>
-      <td className="num px-3 py-1.5 text-right text-up">{bps(toNumber(row.funding_edge_8h))}</td>
-      {/* Negative is what it COSTS to get on to the route, and the funding has
-          to beat it before anything is earned. Painted as a loss because it is
-          one. */}
-      <td className={cn('num px-3 py-1.5 text-right', spread < 0 ? 'text-down' : 'text-fg-mid')}>
-        {spread}
-      </td>
-      <td className="num px-3 py-1.5 text-right text-fg-dim">
-        {untilSettlement(row.long_leg.next_funding_time)}
-        <span className="text-fg-dim/50"> / </span>
-        {untilSettlement(row.short_leg.next_funding_time)}
-      </td>
-      <td className="num px-3 py-1.5 text-right text-fg-dim">
-        {compact(toNumber(row.volume_floor))}
-      </td>
-    </tr>
-  )
-}
+const numeric = (column: UpstreamColumn): boolean =>
+  column.kind === 'number' || column.kind === 'signed' || column.kind === 'duration'
+
+/** OPAQUE, because a sticky `<tr>` paints nothing: the background has to sit on
+ *  the cells or the rows scroll through the labels. */
+const head = 'sticky top-0 z-10 border-b border-line bg-bg'
 
 export function ScannerPage() {
-  const board = useQuery(() => api.fundingBoard(), [], 2000)
+  const index = useQuery(() => api.upstreamIndex(k_upstream), [])
+  const [tab, setTab] = useState<string | null>(null)
+  const tables = index.state === 'ready' ? index.data.tables : []
+  const active = tab ?? tables[0]?.path ?? ''
+
+  const table = useQuery(
+    () => (active === '' ? Promise.reject(new Error('no table')) : api.upstreamTable(k_upstream, active)),
+    [active],
+    2000,
+  )
+
+  const [sort, setSort] = useState<Sort<string>>({ key: '', desc: true })
+  const [venues, setVenues] = useState<Set<string>>(new Set())
+
+  const columns = table.state === 'ready' ? table.data.columns : []
+  const venueKeys = useMemo(
+    () => columns.filter((c) => c.kind === 'venue').map((c) => c.key),
+    [columns],
+  )
+
+  const available = useMemo(() => {
+    if (table.state !== 'ready') return []
+    const seen = new Set<string>()
+    for (const row of table.data.rows as Row[]) {
+      for (const key of venueKeys) {
+        const v = row[key]
+        if (v !== undefined && v !== '') seen.add(v)
+      }
+    }
+    return [...seen].sort()
+  }, [table, venueKeys])
+
+  const rows = useMemo(() => {
+    if (table.state !== 'ready') return []
+    const kept = (table.data.rows as Row[]).filter((row) => {
+      if (venues.size === 0) return true
+      // EVERY venue leg must be wanted, not just one: a row is a route, and a
+      // route through a venue the reader excluded is not a route they can take.
+      return venueKeys.every((key) => {
+        const v = row[key]
+        return v === undefined || v === '' || venues.has(v)
+      })
+    })
+    if (sort.key === '') return kept
+    const column = columns.find((c) => c.key === sort.key)
+    return [...kept].sort((a, b) => {
+      const left = a[sort.key]
+      const right = b[sort.key]
+      if (left === undefined || left === '') return right === undefined || right === '' ? 0 : 1
+      if (right === undefined || right === '') return -1
+      const cmp =
+        column !== undefined && numeric(column)
+          ? toNumber(left) - toNumber(right)
+          : left.localeCompare(right)
+      return sort.desc ? -cmp : cmp
+    })
+  }, [table, columns, sort, venues, venueKeys])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <section className="panel flex min-h-0 flex-1 flex-col">
         <PanelHeader
-          title="Funding board"
+          title={
+            <div className="flex items-center gap-4">
+              {tables.map((t) => (
+                <button
+                  key={t.path}
+                  type="button"
+                  onClick={() => {
+                    setTab(t.path)
+                    setSort({ key: '', desc: true })
+                  }}
+                  className={cn(
+                    'relative flex h-7 items-center text-xs transition-colors duration-150',
+                    t.path === active
+                      ? 'font-medium text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent'
+                      : 'text-fg-dim hover:text-fg-mid',
+                  )}
+                >
+                  {t.title}
+                </button>
+              ))}
+            </div>
+          }
           right={
-            board.state === 'ready' ? (
-              <span className="text-2xs text-fg-dim">
-                {board.data.rows.length} of {board.data.considered} pairs, {board.data.venues} live
-                venues
-              </span>
+            available.length > 0 ? (
+              <VenueFilter available={available} selected={venues} onChange={setVenues} />
             ) : undefined
           }
         />
 
-        {board.state === 'loading' && <EmptyState title="Reading the segments…" />}
+        {index.state === 'failed' && (
+          <EmptyState title={index.title} hint={index.detail ?? undefined} />
+        )}
+        {index.state === 'ready' && tables.length === 0 && (
+          <EmptyState title="The upstream serves no tables" />
+        )}
 
-        {/* THE REFUSAL IS THE ANSWER. A scanner that is not running produces no
-            board, and an empty table here would say the search ran and found
+        {index.state === 'ready' && tables.length > 0 && table.state === 'loading' && (
+          <EmptyState title="Waiting on the upstream…" />
+        )}
+
+        {/* THE REFUSAL IS THE ANSWER. A service that is not running produces no
+            table, and an empty one here would say the search ran and found
             nothing — a claim about the market rather than about us. */}
-        {board.state === 'failed' && (
-          <EmptyState title={board.title} hint={board.detail ?? undefined} />
+        {table.state === 'failed' && (
+          <EmptyState title={table.title} hint={table.detail ?? undefined} />
         )}
 
-        {/* TWO DIFFERENT EMPTIES, and conflating them is the whole hazard this
-            screen was written around. No gateway attached means nothing was
-            looked at; no pair clearing the filters means everything was looked
-            at and none of it qualified. Only the second is a statement about
-            the market. */}
-        {board.state === 'ready' && board.data.rows.length === 0 && board.data.venues === 0 && (
+        {/* The upstream says which empty this is; only it knows whether it
+            looked at nothing or looked at everything and kept none of it. */}
+        {table.state === 'ready' && rows.length === 0 && (
           <EmptyState
-            title="No gateway is attached"
-            hint="the scanner has nothing to read — bring the stack up with make up"
+            title={venues.size > 0 ? 'No row uses only the venues you kept' : 'No rows'}
+            hint={venues.size > 0 ? undefined : (table.data.note ?? undefined)}
           />
         )}
 
-        {board.state === 'ready' && board.data.rows.length === 0 && board.data.venues > 0 && (
-          <EmptyState
-            title="No pair cleared the filters"
-            hint={`${board.data.considered} priced across ${board.data.symbols} symbols on ${board.data.venues} venues`}
-          />
-        )}
-
-        {board.state === 'ready' && board.data.rows.length > 0 && (
+        {table.state === 'ready' && rows.length > 0 && (
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-bg text-2xs uppercase tracking-wide text-fg-dim">
+            <table className="w-full border-separate border-spacing-0 text-xs">
+              <thead>
                 <tr>
-                  <th className="px-3 py-1.5 text-left font-normal">Symbol</th>
-                  <th className="px-3 py-1.5 text-left font-normal">Hold</th>
-                  <th className="px-3 py-1.5 text-left font-normal">Sell</th>
-                  <th className="px-3 py-1.5 text-right font-normal">Funding 8h, bp</th>
-                  <th className="px-3 py-1.5 text-right font-normal">Entry, bp</th>
-                  <th className="px-3 py-1.5 text-right font-normal">Settles in</th>
-                  <th className="px-3 py-1.5 text-right font-normal">Volume 24h</th>
+                  {columns.map((column) => (
+                    <SortHead
+                      key={column.key}
+                      k={column.key}
+                      sort={sort}
+                      onSort={setSort}
+                      right={column.align === 'right'}
+                      className={head}
+                    >
+                      {column.label}
+                    </SortHead>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {board.data.rows.map((row) => (
-                  <Row
-                    key={`${row.symbol}:${row.long_leg.venue}:${row.short_leg.venue}`}
-                    row={row}
-                  />
+                {rows.map((row, i) => (
+                  <tr
+                    key={columns.map((c) => row[c.key] ?? '').join('') + String(i)}
+                    className="border-t border-line/40 hover:bg-bg-hi/40"
+                  >
+                    {columns.map((column) => (
+                      <td
+                        key={column.key}
+                        className={cn(
+                          'whitespace-nowrap px-3 py-1.5',
+                          numeric(column) && 'num',
+                          column.align === 'right' ? 'text-right' : 'text-left',
+                        )}
+                      >
+                        <Cell column={column} value={row[column.key]} />
+                      </td>
+                    ))}
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
-
-      <section className="panel p-3 text-2xs leading-relaxed text-fg-dim">
-        Gross edge, before fees and before depth. What is executable depends on
-        size, on the account&apos;s fee tier and on the book past its top level,
-        none of which the scanner reads. A leg whose venue does not publish its
-        funding interval is left out rather than assumed to be on the common one.
       </section>
     </div>
   )

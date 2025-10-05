@@ -15,17 +15,22 @@ export function SortHead<K extends string>({
   sort,
   onSort,
   right,
+  className,
   children,
 }: {
   k: K
   sort: Sort<K>
   onSort: (s: Sort<K>) => void
   right?: boolean
+  /** For a header that has to carry more than the cell's own styling — a
+   *  sticky row needs an opaque background on the CELLS, because a sticky
+   *  `<tr>` paints nothing and the rows scroll through it. */
+  className?: string | undefined
   children: ReactNode
 }) {
   const active = sort.key === k
   return (
-    <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>
+    <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left', className)}>
       <button
         type="button"
         onClick={() => onSort({ key: k, desc: active ? !sort.desc : true })}

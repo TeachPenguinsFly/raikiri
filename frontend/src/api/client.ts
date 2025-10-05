@@ -15,11 +15,9 @@ export type Position = Schema<'Position'>
 export type Order = Schema<'Order'>
 export type Fill = Schema<'Fill'>
 export type Problem = Schema<'Problem'>
-export type FundingBoard = Schema<'FundingBoard'>
-export type FundingBoardRow = Schema<'FundingBoardRow'>
-export type FundingBoardLeg = Schema<'FundingBoardLeg'>
-export type CarryBoard = Schema<'CarryBoard'>
-export type CarryBoardRow = Schema<'CarryBoardRow'>
+export type UpstreamTable = Schema<'UpstreamTable'>
+export type UpstreamColumn = Schema<'UpstreamColumn'>
+export type UpstreamIndex = Schema<'UpstreamIndex'>
 
 /** A refusal the server explained. Carries the RFC 9457 body, so a screen can
  *  say what went wrong instead of "something went wrong". */
@@ -87,11 +85,11 @@ type InstrumentQuery = NonNullable<paths['/v1/instruments']['get']['parameters']
 export const api = {
   health: () => get<Health>('/v1/health'),
   accounts: () => get<Account[]>('/v1/accounts'),
-  // Forwarded from kowalski. A 503 here means the scanner is not running, and
-  // that refusal has to reach the screen — an empty board would say the search
-  // ran and found nothing.
-  fundingBoard: () => get<FundingBoard>('/v1/scanner/funding'),
-  carryBoard: () => get<CarryBoard>('/v1/scanner/spot-perp'),
+  // FORWARDED, and this file does not know what comes back. The upstream
+  // names its own tables and its own columns; a screen that hardcoded them
+  // would carry somebody's model in a public repository.
+  upstreamIndex: (name: string) => get<UpstreamIndex>(`/v1/x/${name}/`),
+  upstreamTable: (name: string, path: string) => get<UpstreamTable>(`/v1/x/${name}/${path}`),
   instrument: (id: string) => get<Instrument>(`/v1/instruments/${id}`),
   markets: (params: { q?: string | undefined; limit?: string | undefined } = {}) =>
     get<Market[]>('/v1/markets', { q: params.q, limit: params.limit }),

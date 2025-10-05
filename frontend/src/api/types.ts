@@ -300,7 +300,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/scanner/funding": {
+    "/v1/x/{upstream}/{path}": {
         parameters: {
             query?: never;
             header?: never;
@@ -308,53 +308,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Perpetual against perpetual, ranked by the funding edge
-         * @description Proxied from kowalski, which computes it from the same shared-memory
-         *     tables this API serves everything else from. admind holds no board of
-         *     its own: when kowalski is not answering this endpoint returns **503**
-         *     rather than an empty list, because an empty board is a claim that the
-         *     search ran and found nothing.
+         * Forwarded to a service this API does not describe
+         * @description admind can be started with `--upstream <name>=<port>` and then forwards
+         *     `/v1/x/<name>/<path>` to that service on loopback, returning its answer
+         *     verbatim.
          *
-         *     **Two numbers, never one.** `funding_edge_8h` and `price_spread_bp` are
-         *     different quantities and are not combined. A pair whose funding pays
-         *     while the two perpetuals sit far apart is a directional position with a
-         *     coupon, and a single ranked score would float exactly that to the top.
+         *     **The payload is deliberately not described here.** This repository is
+         *     the framework; what anyone computes on top of it is theirs, and a
+         *     contract that named the fields an upstream returns would publish their
+         *     model in a public schema. The one shape admind knows about is
+         *     `UpstreamTable`, which exists so a generic screen can render a table it
+         *     was not written for.
          *
-         *     Rates are normalised to eight hours before anything is compared. A leg
-         *     whose venue does not state its funding interval is excluded from the
-         *     board rather than assumed to be on the common one.
+         *     An upstream that was never configured is a **404** — nothing is broken.
+         *     One that does not answer is a **503**, because an empty body would say
+         *     it ran and returned nothing, which is a different fact.
          */
-        get: operations["listFundingBoard"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/scanner/spot-perp": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Spot against its own perpetual, the cash-and-carry
-         * @description Buy spot at its ask, sell the perpetual at its bid, and collect the
-         *     perpetual's funding while the position is delta-neutral.
-         *
-         *     **Same-venue pairs are included on purpose**, unlike the perpetual
-         *     board. One exchange's spot against its own perpetual is the classic
-         *     form of this trade and usually the only one whose two legs settle
-         *     against the same margin.
-         *
-         *     The spot leg has no funding and is not asked for an interval; only the
-         *     perpetual's rate enters. Proxied from kowalski, and **503** when it is
-         *     not answering.
-         */
-        get: operations["listSpotPerpBoard"];
+        get: operations["getUpstream"];
         put?: never;
         post?: never;
         delete?: never;
@@ -829,71 +799,55 @@ export interface components {
         FundingObservation: components["schemas"]["Funding"] & {
             observed_at?: components["schemas"]["Nanos"];
         };
-        FundingBoardLeg: {
-            account: string;
-            venue: string;
-            /** @description the venue's own spelling */
-            symbol: string;
-            bid?: components["schemas"]["Decimal"];
-            ask?: components["schemas"]["Decimal"];
-            /** @description As stated by the venue, for ITS interval — not comparable across venues. */
-            rate?: components["schemas"]["Decimal"];
-            /** @description The same rate on the common clock. This is the one to compare. */
-            rate_per_8h?: components["schemas"]["Decimal"];
-            /** @description The venue's funding interval. Never zero here — a leg without one is excluded. */
-            interval_s: number;
-            next_funding_time?: components["schemas"]["Nanos"];
-            volume_24h_quote?: components["schemas"]["Decimal"];
+        /**
+         * @description What an upstream serves, so a screen can offer a tab per table without
+         *     being told in advance what the tables are.
+         */
+        UpstreamIndex: {
+            tables: {
+                /** @description Appended to the upstream's own prefix. */
+                path: string;
+                title: string;
+            }[];
         };
-        FundingBoardRow: {
-            /** @description Canonical and venue-neutral, "BTC/USDT" — what the two legs agree on. */
-            symbol: string;
-            /** @description The leg to hold. It pays the least, or is paid. */
-            long_leg: components["schemas"]["FundingBoardLeg"];
-            /** @description The leg to sell. It charges the most. */
-            short_leg: components["schemas"]["FundingBoardLeg"];
-            /** @description The rate difference over one eight-hour settlement. Always positive. */
-            funding_edge_8h?: components["schemas"]["Decimal"];
+        UpstreamColumn: {
+            /** @description The field each row carries this column under. */
+            key: string;
+            /** @description What the header says. The upstream names its own columns. */
+            label: string;
             /**
-             * @description Buying the long leg at its ask and selling the short leg at its bid,
-             *     against their mid. NEGATIVE is the cost of getting on to the route,
-             *     which the funding then has to beat.
+             * @description How to draw it, never what it means. `signed` is painted by sign,
+             *     `venue` is drawn as a venue mark, `duration` is a nanosecond instant
+             *     rendered as time remaining.
+             * @default text
+             * @enum {string}
              */
-            price_spread_bp: number;
-            /** @description The thinner leg's 24h turnover. A route is only as deep as that. */
-            volume_floor?: components["schemas"]["Decimal"];
-        };
-        FundingBoard: {
-            ts: components["schemas"]["Nanos"];
-            /** @description Gateways that were ALIVE for this pass. A dead one contributes nothing. */
-            venues: number;
-            symbols: number;
-            /** @description Pairs priced before filtering, so a short board can be told from a quiet market. */
-            considered: number;
-            rows: components["schemas"]["FundingBoardRow"][];
-        };
-        CarryBoardRow: {
-            symbol: string;
-            /** @description Bought at its ask. Carries no funding and states no interval. */
-            spot: components["schemas"]["FundingBoardLeg"];
-            /** @description Sold at its bid. Its funding is what the position collects. */
-            perp: components["schemas"]["FundingBoardLeg"];
-            /** @description The perpetual's own rate on the common clock. */
-            funding_8h?: components["schemas"]["Decimal"];
+            kind: "text" | "number" | "signed" | "venue" | "duration";
             /**
-             * @description (perp bid − spot ask) / mid. NEGATIVE is what the carry costs on the
-             *     way in, which the funding then has to cover.
+             * @default left
+             * @enum {string}
              */
-            basis_bp: number;
-            volume_floor?: components["schemas"]["Decimal"];
+            align: "left" | "right";
         };
-        CarryBoard: {
-            ts: components["schemas"]["Nanos"];
-            venues: number;
-            /** @description Symbols with a SPOT listing. Zero means no spot gateway is attached. */
-            symbols: number;
-            considered: number;
-            rows: components["schemas"]["CarryBoardRow"][];
+        /**
+         * @description A table an upstream describes and a generic screen draws. THE COLUMNS
+         *     COME WITH THE DATA: a screen that hardcoded them would carry the
+         *     upstream's model in this repository, which is what the proxy exists to
+         *     avoid.
+         */
+        UpstreamTable: {
+            title?: string;
+            ts?: components["schemas"]["Nanos"];
+            /**
+             * @description Said when there are no rows. An upstream that looked at nothing and
+             *     one that looked at everything and found nothing are different facts,
+             *     and only the upstream knows which happened.
+             */
+            note?: string;
+            columns: components["schemas"]["UpstreamColumn"][];
+            rows: {
+                [key: string]: string;
+            }[];
         };
         /**
          * @description `unknown` is the venue not answering, and it is NOT agreement. Agreeing
@@ -1551,26 +1505,29 @@ export interface operations {
             };
         };
     };
-    listFundingBoard: {
+    getUpstream: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                upstream: string;
+                path: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description Whatever the upstream returned */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FundingBoard"];
+                    "application/json": components["schemas"]["UpstreamTable"];
                 };
             };
-            /** @description kowalski is not answering */
-            503: {
+            /** @description No upstream is configured under that name */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1578,27 +1535,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-        };
-    };
-    listSpotPerpBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarryBoard"];
-                };
-            };
-            /** @description kowalski is not answering */
+            /** @description The upstream did not answer */
             503: {
                 headers: {
                     [name: string]: unknown;

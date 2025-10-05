@@ -101,7 +101,6 @@ raikiri_add_test(funding_identity_test SRCS oms/funding_identity_test.cpp LIBS r
 raikiri_add_test(funding_split_test SRCS oms/funding_split_test.cpp LIBS raikiri::oms)
 raikiri_add_test(recon_test SRCS oms/recon_test.cpp LIBS raikiri::oms)
 raikiri_add_test(kernel_gate_test SRCS oms/kernel_gate_test.cpp LIBS raikiri::oms)
-raikiri_add_test(scan_board_test SRCS scan/board_test.cpp LIBS raikiri::scan)
 raikiri_add_test(fee_ledger_test SRCS oms/fee_ledger_test.cpp LIBS raikiri::oms)
 raikiri_add_test(order_store_test SRCS oms/order_store_test.cpp LIBS raikiri::oms)
 raikiri_add_test(oms_risk_test SRCS oms/risk_test.cpp LIBS raikiri::oms)

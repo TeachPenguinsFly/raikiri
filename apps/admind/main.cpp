@@ -1,7 +1,7 @@
 // admind — the read side of a running raikiri deployment.
 //
 //   admind [--address 127.0.0.1] [--port 8787] [--stream-port 8788]
-//          [--scanner-port 8790]
+//          [--upstream <name>=<port>]...
 //          [--dsn <postgres-dsn>]
 //
 // Attaches to every gateway segment it finds and serves
@@ -38,6 +38,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -57,17 +58,24 @@ int main(int argc, char** argv) {
 
     std::string address = "127.0.0.1";
     std::uint16_t port = 8787;
-    // 0 means no scanner: the board endpoint then says so rather than
-    // answering with an empty one.
-    std::uint16_t scanner_port = 0;
+    // name -> loopback port. Empty means this admind proxies nothing, and every
+    // /v1/x/ path is a 404.
+    std::map<std::string, std::uint16_t> upstreams;
     std::uint16_t stream_port = 0;
     std::string dsn;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--address" && i + 1 < argc) {
             address = argv[++i];
-        } else if (arg == "--scanner-port" && i + 1 < argc) {
-            scanner_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
+        } else if (arg == "--upstream" && i + 1 < argc) {
+            // name=port. A service this repository knows nothing about, whose
+            // answers are forwarded under /v1/x/<name>/.
+            const std::string_view spec{argv[++i]};
+            if (const auto eq = spec.find('='); eq != std::string_view::npos) {
+                upstreams.emplace(std::string{spec.substr(0, eq)},
+                                  static_cast<std::uint16_t>(
+                                      std::atoi(std::string{spec.substr(eq + 1)}.c_str())));
+            }
         } else if (arg == "--port" && i + 1 < argc) {
             port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (arg == "--stream-port" && i + 1 < argc) {
@@ -129,7 +137,7 @@ int main(int argc, char** argv) {
                             &desk,
                             [&clock] { return clock.mono(); },
                             [&clock] { return clock.wall(); },
-                            scanner_port)};
+                            upstreams)};
     if (!server.start()) {
         RLOG_ERROR("admind: cannot bind {}:{}", address, port);
         return 1;

@@ -12,6 +12,9 @@
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/http/server.hpp>
 
+#include <map>
+#include <string>
+
 namespace raikiri::admin {
 
 // Builds the handler the server calls. `now` is injected rather than read so
@@ -30,17 +33,22 @@ namespace raikiri::admin {
 // attached to place orders through", which is a different fact from a refusal
 // and the one case worth retrying.
 //
-// `scanner_port` is where kowalski answers, or 0 for "no scanner configured".
-// admind computes no board of its own and holds none: it forwards, and says
-// 503 when the forward fails. An empty board would be a claim that the search
-// ran and found nothing, which is a statement about the market rather than
-// about us.
+// `upstreams` maps a name to a loopback port. A request to `/v1/x/<name>/...`
+// is forwarded there with the rest of the path intact, and answered 503 when
+// the forward fails.
+//
+// ADMIND DOES NOT KNOW WHAT AN UPSTREAM SERVES, and that is deliberate rather
+// than lazy. This repository is the framework; what anybody computes on top of
+// it — which markets, which arithmetic, which thresholds — is theirs, and a
+// proxy that named the shapes it carries would publish that here. So the body
+// is forwarded verbatim, the contract describes the MECHANISM and not the
+// payload, and an upstream nobody configured is a 404 like any other path.
 [[nodiscard]] http::Handler make_router(const Registry& registry,
                                         const History* history,
                                         ManualDesk* desk,
                                         std::function<MonoNanos()> now,
                                         std::function<UnixNanos()> wall,
-                                        std::uint16_t scanner_port = 0);
+                                        std::map<std::string, std::uint16_t> upstreams = {});
 
 // RFC 9457, rendered. The one error shape this API produces.
 [[nodiscard]] http::Response

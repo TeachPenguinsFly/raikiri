@@ -5,8 +5,7 @@
 #   make up VENUES="bybit gate"      # just these
 #   make up VENUES="deribit-opt"     # options only
 #
-# Starts one gatewayd per venue, kowalski and admind over them, and the
-# terminal's dev
+# Starts one gatewayd per venue, admind over them, and the terminal's dev
 # server in front. Ctrl+C takes all of it down together — a half-stopped set of
 # gateways leaves segments behind that the next run refuses to reuse.
 #
@@ -30,7 +29,6 @@ BIN="build/$PRESET/apps"
 PORT="${PORT:-8787}"
 STREAM_PORT="${STREAM_PORT:-$((PORT + 1))}"
 WEB_PORT="${WEB_PORT:-5173}"
-SCANNER_PORT="${SCANNER_PORT:-8790}"
 ENV_FILE=tools/credentials.env
 export RAIKIRI_DATA_DIR="${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 
@@ -194,17 +192,13 @@ done
 # anyway — it exists from the instant a gateway creates it, long before there is
 # anything in it.
 
-# Order does not matter: kowalski rescans the segment directory every couple of
-# seconds, so a gateway that is still creating its segment — or one brought up
-# an hour later — joins the board on its own. It found nothing and exited the
-# first time this file started it, which is what the rescan exists for.
-"$BIN/kowalski/kowalski" --port "$SCANNER_PORT" --min-volume 1000000 \
-    > "$RAIKIRI_DATA_DIR/kowalski.log" 2>&1 &
-pids+=($!)
-echo "  kowalski → http://127.0.0.1:$SCANNER_PORT/v1/scanner/funding"
-
+# UPSTREAM is a name=port pair for a service this repository does not contain.
+# admind forwards /v1/x/<name>/ to it and knows nothing about what comes back;
+# nothing here starts it, because nothing here is it.
+#
+#   UPSTREAM=boards=8790 make up
 "$BIN/admind/admind" --port "$PORT" --stream-port "$STREAM_PORT" \
-    --scanner-port "$SCANNER_PORT" \
+    ${UPSTREAM:+--upstream "$UPSTREAM"} \
     > "$RAIKIRI_DATA_DIR/admind.log" 2>&1 &
 pids+=($!)
 echo "  admind → http://127.0.0.1:$PORT  (stream :$STREAM_PORT)"
