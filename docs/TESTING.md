@@ -7,7 +7,7 @@ Three tiers exist and one does not.
 | unit | does this function compute the right number | `tests/`, 1619 of them |
 | smoke | does a venue still send bytes, does a price reach the browser's doorstep | `tools/*_smoke.sh` |
 | browser | does the screen show a number rather than a dash | `frontend/e2e/`, Playwright |
-| **integration** | **do the processes agree with each other** | **nothing** |
+| integration | do the processes agree with each other | `tests/integration/`, pytest |
 
 Every link in the order path has unit tests. The CHAIN has none: place an order
 through admind, watch it cross the command ring into gatewayd, reach the venue,
@@ -38,12 +38,25 @@ waits for `/v1/health` to report the gateways alive, and tears it down.
 
 ```
 tests/integration/
-  conftest.py        the stack fixture, the admind client, the journal reader
-  test_order_path.py an order placed at the API arrives at a venue and comes back
-  test_pnl_ledger.py a fill becomes exactly one PnL row, and a replay adds none
-  test_recon.py      a position the venue disagrees about halts the kernel
-  test_scanner.py    a board row's arithmetic against the two legs it names
+  conftest.py         the stack fixture — sim gateway, strategyd, admind, private runtime dir
+  test_stack.py       three processes agreeing about a catalogue and a clock
+  test_order_path.py  an order placed at the API reaching a terminal state
+  test_pnl_ledger.py  TODO: a fill becomes exactly one row, and a replay adds none
+  test_recon.py       TODO: a position the venue disagrees about halts the kernel
 ```
+
+## What the first run found
+
+**A refused desk order exists nowhere.** admind answers 202 with a client order
+id; strategyd's risk gate then refuses it and `submit_as` returns BEFORE
+`store_->create` and before `journal_cmd`, so the order is in no store, no
+journal and no database. The person who placed it holds an id for something
+that never happened and cannot learn why — the reason goes to a log they do not
+read. strategyd's own comment on that branch says a desk refusing in silence is
+one nobody can debug.
+
+Recorded as a strict `xfail` rather than left absent, so the day it is fixed the
+suite says so.
 
 **Marked by what they need**, because most of them need something the ordinary
 run does not have:
