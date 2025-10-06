@@ -47,16 +47,18 @@ tests/integration/
 
 ## What the first run found
 
-**A refused desk order exists nowhere.** admind answers 202 with a client order
-id; strategyd's risk gate then refuses it and `submit_as` returns BEFORE
-`store_->create` and before `journal_cmd`, so the order is in no store, no
-journal and no database. The person who placed it holds an id for something
-that never happened and cannot learn why — the reason goes to a log they do not
-read. strategyd's own comment on that branch says a desk refusing in silence is
-one nobody can debug.
+**A refused desk order existed nowhere.** admind answers 202 with a client
+order id; strategyd's risk gate then refused it and `submit_as` returned BEFORE
+`store_->create` and before `journal_cmd`, so the order was in no store, no
+journal and no database. The person who placed it held an id for something that
+never happened and could not learn why — the reason went to a log they do not
+read. strategyd's own comment on that branch said a desk refusing in silence is
+one nobody can debug, and then it only logged.
 
-Recorded as a strict `xfail` rather than left absent, so the day it is fixed the
-suite says so.
+Fixed: the refusal now journals the command and a terminal event, so a replay
+puts it in Postgres like any other order. The event type is **Denied**, not
+Rejected — the domain separates the risk gate's refusal from the venue's, and
+the venue never saw this order.
 
 **Marked by what they need**, because most of them need something the ordinary
 run does not have:

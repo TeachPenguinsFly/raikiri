@@ -20,6 +20,8 @@ import uuid
 
 import pytest
 
+from conftest import BIN
+
 # The manual desk owns a reserved strategy id so an order a person placed is
 # distinguishable from a strategy's in the book, the journal and the ledger.
 # Every client order id packs {strategy_id:16 | seq:48}.
@@ -199,35 +201,54 @@ def _frame(text: str) -> bytes:
     return bytes(header)
 
 
-@pytest.mark.xfail(
-    reason="strategyd refuses a desk order before it is stored or journalled, so the "
-    "person who placed it has an id for an order that exists nowhere and no way to "
-    "learn why (apps/strategyd/main.cpp — submit_as returns before store_->create)",
-    strict=True,
-)
-def test_a_refused_desk_order_is_findable_afterwards(stack, sim_instrument) -> None:
-    """A REFUSAL A PERSON CAN READ.
+def test_a_refused_desk_order_is_recorded_rather_than_only_logged(stack, sim_instrument) -> None:
+    """A REFUSAL THE PERSON WHO ASKED CAN FIND.
 
-    The desk answers 202 with a client order id, and a risk refusal downstream
-    then discards it: `submit_as` returns before `store_->create` and before
-    `journal_cmd`, so nothing anywhere records that the order was refused or
-    why. strategyd's own comment on that branch says a desk refusing in silence
-    is one nobody can debug, and then writes the reason only to a log the
-    caller cannot see.
+    The desk answers 202 with a client order id and hands the intent on. When
+    the risk gate refuses it, nothing used to be written anywhere: the caller
+    held an id for an order that existed in no store, no journal and no
+    database, and the reason went to a log they do not read. strategyd's own
+    comment on that branch said a desk refusing in silence is one nobody can
+    debug — and then it only logged.
 
-    This is the shape it should have: the order reaches a terminal state that
-    outlives the process, exactly as a venue rejection does.
+    Read out of the journal rather than out of Postgres, because the journal is
+    where durability begins: what is not there cannot reach the database on any
+    replay, and the default run has no database at all.
     """
+    import subprocess
+
     # Far outside the band the risk gate allows, which is what provokes it.
     code, accepted = post_order(stack, sim_instrument, price="1")
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
 
-    deadline = time.time() + 10
+    journal = stack.data_dir / "journal" / "strategyd"
+    replay = str(BIN / "replay" / "replay")
+
+    deadline = time.time() + 15
     while time.time() < deadline:
-        status, body = stack.get(f"/v1/orders/{coid}")
-        if status == 200:
-            assert body["status"] in ("rejected", "canceled"), body
-            return
-        time.sleep(0.3)
-    pytest.fail(f"the refusal of {coid} left no trace a caller could find")
+        # The writer group-commits, so an immediate read can legitimately miss
+        # the line; the loop is that, not a hope.
+        out = subprocess.run(
+            [replay, str(journal), "--prefix", "journal"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout
+        # replay prints the id in hex and the event type as its enumerator.
+        # DENIED (1), not REJECTED (4): the domain separates the risk gate's
+        # refusal from the venue's, and the venue never saw this order.
+        needle = f"coid={int(coid):x}"
+        for line in out.splitlines():
+            if "OEVT" in line and needle in line and "type=1" in line:
+                # NOTHING WORKING. An order refused before the wire leaves no
+                # quantity behind, and a non-zero leaves here would put a
+                # phantom into every book that replays this journal.
+                assert "leaves=0" in line, line
+                return
+        time.sleep(0.5)
+
+    pytest.fail(
+        f"the refusal of {coid} left no trace in the journal.\n"
+        f"--- strategyd refusals ---\n{stack.refusals('strategyd')}"
+    )

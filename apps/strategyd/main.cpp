@@ -29,8 +29,8 @@
 #include <raikiri/oms/funding_identity.hpp>
 #include <raikiri/oms/funding_split.hpp>
 #include <raikiri/oms/id_gen.hpp>
-#include <raikiri/oms/order_store.hpp>
 #include <raikiri/oms/kernel_gate.hpp>
+#include <raikiri/oms/order_store.hpp>
 #include <raikiri/oms/recon.hpp>
 #include <raikiri/oms/risk.hpp>
 #include <raikiri/portfolio/position_book.hpp>
@@ -181,8 +181,8 @@ public:
         // venue disagreed; `kernel` halts a whole gateway whose picture is no
         // longer trusted. RiskGate already refuses on this flag, so neither
         // needs a reject code of its own.
-        oms::Exposure exposure{.reconciliation_break = recon_gate.halted(order.instrument) ||
-                                                       !gw->kernel.may_open(),
+        oms::Exposure exposure{.reconciliation_break =
+                                   recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
                                .open_orders = store_->open_count()};
         if (const auto* held = position(order.instrument); held != nullptr) {
             exposure.position_lots = held->qty();
@@ -488,6 +488,47 @@ public:
             });
     }
 
+    // A REFUSAL THE PERSON WHO ASKED CAN FIND.
+    //
+    // The desk answers 202 with a client order id and hands the intent over;
+    // if the risk gate then refuses it, `submit_as` returns before the store
+    // and before the journal, and the order exists NOWHERE. The caller holds
+    // an id for something that never happened, and the reason goes only to a
+    // log they do not read — which is precisely the "a rejected order and a
+    // lost one look identical" this file warns about two hundred lines down
+    // and did not prevent.
+    //
+    // So write both halves the happy path writes: the command, so the order
+    // exists at all, and a terminal event, so it is finished with. A replay
+    // then puts it in Postgres and `/v1/orders/{id}` can answer.
+    void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why) noexcept {
+        journal_cmd(cmd);
+        (void)schema::append_msg<msgs::OrderEventMsg>(*journal_, clock_->wall().ns, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            // DENIED, NOT REJECTED. The domain separates them and the difference is
+            // who refused: Rejected is the venue's word, and the venue never saw
+            // this order. Writing Rejected here would blame a party that was
+            // not asked.
+            m.eventType(static_cast<jt::orderEventTypeEnum>(OrderEventType::Denied));
+            m.side(static_cast<jt::sideEnum>(cmd.side));
+            m.orderType(static_cast<jt::orderTypeEnum>(cmd.order_type));
+            m.tif(static_cast<jt::tifEnum>(cmd.tif));
+            m.flags(static_cast<std::uint8_t>(cmd.flags));
+            m.instrument(jt::instrumentId{cmd.instrument.packed});
+            m.clientOrderIdField(jt::clientOrderId{cmd.client_order_id.raw});
+            m.exchangeClientOrderIdField().assign_range(cmd.exchange_client_order_id.view());
+            m.price(jt::priceTicks{cmd.price.raw});
+            m.qty(jt::qtyLots{cmd.qty.raw});
+            // NOTHING IS WORKING. An order refused before the wire leaves
+            // no quantity behind, and a non-zero leaves here would put a
+            // phantom in every book that replays this.
+            m.leavesQty(jt::qtyLots{0});
+            m.tsEvent(jt::timestampNs{clock_->wall().ns});
+            m.tsInit(jt::timestampNs{clock_->wall().ns});
+        });
+        (void)why;
+    }
+
 private:
     void journal_cmd(const OrderCmd& cmd) noexcept {
         (void)schema::append_msg<msgs::OrderCmdMsg>(*journal_, cmd.ts_created.ns, [&](auto m) {
@@ -644,11 +685,11 @@ struct ReconSweep {
 };
 
 ReconSweep reconcile_against_venue(KernelContext& ctx,
-                             raikiri::VenueId venue,
-                             const raikiri::shm::CatalogueTable& catalogue,
-                             const raikiri::shm::PositionTable& table,
-                             raikiri::journal::JournalWriter& journal,
-                             raikiri::UnixNanos now) {
+                                   raikiri::VenueId venue,
+                                   const raikiri::shm::CatalogueTable& catalogue,
+                                   const raikiri::shm::PositionTable& table,
+                                   raikiri::journal::JournalWriter& journal,
+                                   raikiri::UnixNanos now) {
     using namespace raikiri;
 
     ReconSweep sweep;
@@ -1121,9 +1162,20 @@ int main(int argc, char** argv) {
                     const auto placed = ctx.submit_as(order, intent.client_order_id);
                     if (!placed.has_value()) {
                         desk_refusals += 1;
-                        // WHY, not just that. A desk that refuses in silence is
-                        // a desk nobody can debug: from the caller's side a
-                        // rejected order and a lost one look identical.
+                        // RECORDED, not only logged. Without this the caller
+                        // holds an id for an order that exists in no store, no
+                        // journal and no database.
+                        ctx.journal_refusal(OrderCmd{.kind = CmdKind::Create,
+                                                     .instrument = intent.instrument,
+                                                     .client_order_id = intent.client_order_id,
+                                                     .side = intent.side,
+                                                     .order_type = intent.order_type,
+                                                     .tif = intent.tif,
+                                                     .flags = intent.flags,
+                                                     .price = intent.price,
+                                                     .qty = intent.qty,
+                                                     .ts_created = clock.wall()},
+                                            placed.error());
                         RLOG_WARN("strategyd: desk order {} refused — {}",
                                   intent.client_order_id.raw,
                                   reject_name(placed.error()));
@@ -1344,11 +1396,11 @@ int main(int argc, char** argv) {
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 const auto sweep = reconcile_against_venue(ctx,
-                                                          gw.account.venue,
-                                                          *gw.ch.catalogue,
-                                                          *gw.ch.positions,
-                                                          *journal_writer,
-                                                          clock.wall());
+                                                           gw.account.venue,
+                                                           *gw.ch.catalogue,
+                                                           *gw.ch.positions,
+                                                           *journal_writer,
+                                                           clock.wall());
                 // A CONFIRMED BREAK HALTS; agreement only clears a Degraded
                 // book, never a halted one. Silence is neither — a sweep that
                 // found nothing to compare has not checked anything, and
