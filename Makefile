@@ -94,6 +94,20 @@ db-up:
 		printf '.'; sleep 1; done; echo ' ready'
 	@echo 'export RAIKIRI_PG_DSN=$(PG_DSN)'
 
+# A SIBLING DATABASE FOR THE TESTS, so a test run can never write a row the
+# terminal then reports as a position. `tests/integration` drains a real journal
+# into Postgres and its rows are indistinguishable from trading once they land.
+db-test-up:
+	docker compose exec -T db psql -U raikiri -d postgres \
+		-c "CREATE DATABASE raikiri_test" 2>/dev/null || true
+	@for f in sql/migrations/*.sql; do \
+		docker compose exec -T db psql -v ON_ERROR_STOP=1 -U raikiri -d raikiri_test < "$$f" >/dev/null || exit 1; \
+	done
+	@echo 'raikiri_test ready — pytest tests/integration -m pg'
+
+db-test-down:
+	docker compose exec -T db psql -U raikiri -d postgres -c "DROP DATABASE IF EXISTS raikiri_test"
+
 db-down:
 	docker compose down
 

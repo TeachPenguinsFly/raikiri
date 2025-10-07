@@ -22,7 +22,20 @@ from conftest import BIN
 
 pytestmark = pytest.mark.pg
 
-DSN = os.environ.get("RAIKIRI_PG_DSN", "postgresql://raikiri:raikiri@localhost:5432/raikiri")
+# A DATABASE OF ITS OWN, never the one the terminal reads.
+#
+# These tests drain a real journal into Postgres, and the rows they write are
+# indistinguishable from trading once they land: `/v1/positions` answered with
+# two sim positions from a test run, on a screen a person reads to find out
+# what they hold. A test tier that makes the screens lie is worse than no test
+# tier.
+#
+# RAIKIRI_PG_TEST_DSN overrides it; the default is a sibling database created by
+# `make db-test-up`.
+DSN = os.environ.get(
+    "RAIKIRI_PG_TEST_DSN", "postgresql://raikiri:raikiri@localhost:5432/raikiri_test"
+)
+DB = DSN.rsplit("/", 1)[-1]
 
 
 def psql(sql: str) -> str:
@@ -32,14 +45,17 @@ def psql(sql: str) -> str:
     reaching the database that can disagree with the first.
     """
     out = subprocess.run(
-        ["docker", "compose", "exec", "-T", "db", "psql", "-tAX", "-U", "raikiri", "-d", "raikiri",
+        ["docker", "compose", "exec", "-T", "db", "psql", "-tAX", "-U", "raikiri", "-d", DB,
          "-c", sql],
         capture_output=True,
         text=True,
         timeout=30,
     )
     if out.returncode != 0:
-        pytest.skip(f"no database reachable: {out.stderr.strip()[:200]}")
+        pytest.skip(
+            f"no test database `{DB}` — create it with `make db-test-up`, "
+            f"never point these at the one the terminal reads: {out.stderr.strip()[:160]}"
+        )
     return out.stdout.strip()
 
 
