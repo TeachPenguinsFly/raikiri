@@ -41,8 +41,8 @@ tests/integration/
   conftest.py         the stack fixture — sim gateway, strategyd, admind, private runtime dir
   test_stack.py       three processes agreeing about a catalogue and a clock
   test_order_path.py  an order placed at the API reaching a terminal state
-  test_pnl_ledger.py  TODO: a fill becomes exactly one row, and a replay adds none
-  test_recon.py       TODO: a position the venue disagrees about halts the kernel
+  test_pnl_ledger.py  the same journal drained twice adds no row  [pg]
+  test_kernel_halt.py a gateway that dies stops the kernel trading off its book
 ```
 
 ## What the first run found
@@ -59,6 +59,20 @@ Fixed: the refusal now journals the command and a terminal event, so a replay
 puts it in Postgres like any other order. The event type is **Denied**, not
 Rejected — the domain separates the risk gate's refusal from the venue's, and
 the venue never saw this order.
+
+**A gateway that had not beaten yet read as one that had died.** A segment file
+exists from the instant it is created, before the owner publishes and before its
+first heartbeat, and `owner_alive` reads a heartbeat of zero as stale. A
+strategyd started in the same breath as its gateway therefore halted on a
+gateway that was starting up perfectly well — and with one gateway attached,
+halting them all means exiting. It now waits for the first beat before the loop
+can call silence a death.
+
+**And the test that found it was passing for the wrong reason.** strategyd
+defaults to a ten-second demo run, so it stopped on its own and the assertion
+"it stopped" held whether or not the gateway was killed. Verified the other way
+round now: with the kill removed the test fails, which is the only thing that
+makes a passing test mean anything.
 
 **Marked by what they need**, because most of them need something the ordinary
 run does not have:

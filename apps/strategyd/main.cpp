@@ -49,6 +49,7 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -57,6 +58,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -1124,6 +1126,30 @@ int main(int argc, char** argv) {
     // into these rings reach nobody. There is no sound way to keep going, so
     // this stops and says why.
     std::string gateway_gone;
+
+    // AN OWNER THAT HAS NEVER BEATEN IS NOT ONE THAT STOPPED ANSWERING.
+    //
+    // A segment file exists from the instant it is created — before the owner
+    // publishes and before its first heartbeat — and `owner_alive` reads a
+    // heartbeat of zero as stale, which is correct for "is it serving?" and
+    // wrong as a cause of death. A strategyd started in the same breath as its
+    // gateway therefore halted on a gateway that was starting up perfectly
+    // well, and with one gateway attached that meant exiting.
+    //
+    // So wait for the first beat here, where waiting is free, rather than
+    // teaching the loop below to tell a birth from a death.
+    for (auto& gw : gateways) {
+        constexpr int k_tries = 200; // 10 s at 50 ms, the same shape as the attach retry
+        int waited = 0;
+        while (waited < k_tries && !gw.client.owner_alive(clock.mono().ns)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
+            ++waited;
+        }
+        if (waited == k_tries) {
+            RLOG_ERROR("strategyd: {} never sent a heartbeat — it is not serving", gw.name);
+            return 1;
+        }
+    }
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {

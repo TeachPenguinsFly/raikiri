@@ -13,6 +13,7 @@ teardown that leaves nothing behind for the next run to trip over.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -118,8 +119,8 @@ def _wait_for(predicate, timeout: float, what: str, detail=lambda: "") -> None:
     raise AssertionError(f"{what} did not happen in {timeout:.0f}s ({last})\n{detail()}")
 
 
-@pytest.fixture(scope="session")
-def stack(tmp_path_factory) -> Stack:
+@contextlib.contextmanager
+def build_stack(base: Path):
     """gatewayd on the sim venue, strategyd over it, admind in front.
 
     SIM, so the tier that needs no money and no keys is the DEFAULT one. Tests
@@ -129,7 +130,6 @@ def stack(tmp_path_factory) -> Stack:
     if not (BIN / "admind" / "admind").exists():
         pytest.skip(f"no build at {BIN} — cmake --build build/{PRESET}")
 
-    base = tmp_path_factory.mktemp("stack")
     runtime_dir = base / "runtime"
     data_dir = base / "data"
     (runtime_dir / "shm").mkdir(parents=True)
@@ -165,7 +165,13 @@ def stack(tmp_path_factory) -> Stack:
         "the sim gateway created its segment",
         lambda: stack.log("sim"),
     )
-    start("strategyd", [str(BIN / "strategyd" / "strategyd"), "--gateway=sim"])
+    # LONGER THAN ANY TEST. strategyd defaults to a ten-second demo run, and a
+    # process that stops on its own makes every assertion about why it stopped
+    # meaningless — a halt and a timeout look identical from outside.
+    start(
+        "strategyd",
+        [str(BIN / "strategyd" / "strategyd"), "--gateway=sim", "--duration", "900"],
+    )
     start(
         "admind",
         [
@@ -205,6 +211,26 @@ def stack(tmp_path_factory) -> Stack:
         except subprocess.TimeoutExpired:
             proc.kill()
     shutil.rmtree(base, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def stack(tmp_path_factory) -> Stack:
+    """The stack every ordinary test shares. Building one costs seconds under a
+    sanitiser, and nothing here needs a private copy."""
+    with build_stack(tmp_path_factory.mktemp("stack")) as running:
+        yield running
+
+
+@pytest.fixture
+def disposable_stack(tmp_path_factory) -> Stack:
+    """A stack a test may BREAK.
+
+    Killing a gateway is the only way to ask what the kernel does when its
+    book's generation dies, and doing that to the shared one would take every
+    later test with it.
+    """
+    with build_stack(tmp_path_factory.mktemp("broken")) as running:
+        yield running
 
 
 @pytest.fixture
