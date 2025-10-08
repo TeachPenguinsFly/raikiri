@@ -37,12 +37,13 @@ constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 // socket is sixteen frames and under six seconds.
 constexpr std::uint64_t k_subscribe_spacing_ns = 350ULL * 1'000'000ULL;
 
-// Enough sockets for OKX's whole catalogue at 1024 subscriptions each: 471
-// swap listings times the SIX channels one instrument costs here — bbo-tbt,
-// trades, books, funding-rate, tickers and mark-price — is 2826, so three
-// would do and six leaves room for the listings OKX adds. On one socket that
-// arithmetic ran the other way: 1024/6 is 170, and the gateway subscribed 171
-// of the 471 and was refused the other 300.
+// Enough sockets for either of OKX's catalogues at 1024 subscriptions each.
+// A swap listing costs SIX channels — bbo-tbt, trades, books, funding-rate,
+// tickers and mark-price — so the 471 of them are 2826 and three sockets
+// would do. SPOT is the binding side: 1406 listings at the FOUR channels a
+// spot pair costs (no funding, no mark) is 5624, which needs all six. On one
+// socket the arithmetic ran the other way: 1024/6 is 170, and the gateway
+// subscribed 171 of the 471 swaps and was refused the other 300.
 constexpr std::size_t k_max_connections = 6;
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
@@ -248,24 +249,40 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (!open(channel, symbol)) {
-            return pool_full();
-        }
-        // The turnover has no SubKind of its own and does not ride the
-        // funding-rate frame the way it does on bybit and gate, so it is
-        // opened beside it — otherwise nothing ever subscribes `tickers` and
-        // every OKX row on the board keeps an empty volume cell.
         if (kind == exec::SubKind::Funding) {
+            // The turnover has no SubKind of its own and does not ride the
+            // funding-rate frame the way it does on bybit and gate, so it is
+            // opened beside it — otherwise nothing ever subscribes `tickers`
+            // and every OKX row on the board keeps an empty volume cell. It
+            // is opened FIRST because it is the one of the three a spot
+            // instrument gets.
             if (!open(k_tickers_channel, symbol)) {
                 return pool_full();
             }
-            // And the mark, for the same reason: OKX states it on a channel of
-            // its own, `FundingUpdate` carries both, and nothing else opens it.
-            // THIS IS WHY AN INSTRUMENT COSTS SIX CHANNELS AND NOT FOUR, which
-            // is the number k_max_connections above divides the ceiling by.
+            // A SPOT PAIR PAYS NO FUNDING, and asking anyway is not free.
+            // Measured 2026-09-08 against ws.okx.com: `funding-rate` on
+            // instId BTC-USDT is refused with 60018, and `mark-price` on the
+            // same id answers instType MARGIN — a margin mark that
+            // FundingMemo then publishes as a FundingUpdate carrying no rate.
+            // The two cost a third of the pool, which is what left 382 of
+            // 1406 spot instruments unwatched.
+            if (state_->spot_enabled) {
+                return {};
+            }
+            if (!open(channel, symbol)) {
+                return pool_full();
+            }
+            // And the mark: OKX states it on a channel of its own,
+            // `FundingUpdate` carries both, and nothing else opens it.
+            // THIS IS WHY A SWAP INSTRUMENT COSTS SIX CHANNELS AND NOT FOUR,
+            // which is the number k_max_connections above divides by.
             if (!open(channel_for(exec::SubKind::MarkPrice), symbol)) {
                 return pool_full();
             }
+            return {};
+        }
+        if (!open(channel, symbol)) {
+            return pool_full();
         }
         return {};
     }

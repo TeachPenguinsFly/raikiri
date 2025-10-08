@@ -58,14 +58,13 @@ struct Subscription {
     std::uint32_t limit{0}; // depth.full only; omitted from the frame when zero
 };
 
-// What ONE connection carries HERE, and it is our share rather than MEXC's
-// ceiling: MEXC states no per-connection limit and enforces none at any size
-// this gateway can reach. MEASURED 2026-09-07 against contract.mexc.com/edge on
-// a SINGLE socket, the whole futures catalogue — 1186 contracts across
-// depth.full, deal, depth and ticker, 4744 subscriptions — was accepted with
-// zero rs.error and 1185 of the 1186 pushed on every one of the four channels.
-// So this is not kucoin's confusion, where 1024 was bookkeeping and 100 was the
-// venue: on MEXC there is no venue number to be wrong about.
+// What ONE FUTURES connection carries, and it is our share rather than MEXC's
+// ceiling: contract.mexc.com states no per-connection limit and enforces none
+// at any size this gateway can reach. MEASURED 2026-09-07 against
+// contract.mexc.com/edge on a SINGLE socket, the whole futures catalogue —
+// 1186 contracts across depth.full, deal, depth and ticker, 4744 subscriptions
+// — was accepted with zero rs.error and 1185 of the 1186 pushed on every one
+// of the four channels.
 //
 // WHAT DOES BIND IS THE ASK. `param` names ONE symbol, so a key costs a whole
 // frame and a connection's set takes its key count in paced sends: those same
@@ -75,6 +74,20 @@ struct Subscription {
 // Raising this lengthens it and buys nothing, because the socket was never the
 // thing running out.
 inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
+
+// THE SPOT TREE IS THE OTHER WAY ROUND, and the number above is not merely
+// generous there — it is wrong. MEASURED 2026-09-08 against wbs-api.mexc.com:
+// 35 bookTicker asks on one socket were answered with 30 plain acks and then
+//
+//   "Subscribed successful! []. Not Subscribed successfully! [...].
+//    Reason： Exceeded maximum subscription limit! "
+//
+// and THAT REFUSAL CARRIES code 0, so nothing upstream can tell it from an
+// acceptance. Asking for 512 therefore did not fail loudly; it had the venue
+// keep the first 30 keys of each socket and drop the rest in silence. With the
+// quote sent first those 30 were all quotes, which is exactly the shape a
+// 90 s spot run showed: 78 651 books and ZERO trades and ZERO depth.
+inline constexpr std::size_t k_max_spot_subscriptions_per_connection = 30;
 
 class Protocol {
 public:

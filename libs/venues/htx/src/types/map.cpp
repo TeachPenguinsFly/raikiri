@@ -459,9 +459,12 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     if (const auto min_value = exact_e9(wire.min_order_value); min_value.has_value()) {
         base.min_notional = *min_value;
     }
-    // A spot pair has no contract: one unit of base is one unit of base, and
-    // ContractKind stays Unknown because neither PnL formula applies.
+    // A spot pair has no contract: one unit of base is one unit of base.
+    // Linear is nonetheless what the kind must say — `validate` refuses
+    // ContractKind::Unknown, so leaving it there had InstrumentTable::add
+    // reject all 587 listed pairs and the gateway load a catalogue of zero.
     base.contract_value = FixedE9::from_raw(k_e9);
+    base.kind = ContractKind::Linear;
     return SpotInstrument{base};
 }
 
