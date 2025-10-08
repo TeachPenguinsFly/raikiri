@@ -4,6 +4,7 @@ import { BalanceTree } from '@/components/BalanceTree'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Venue } from '@/components/shared/Venue'
+import { dateTime, nanosToMillis } from '@/lib/format'
 import { num } from '@/lib/live'
 import { useQuery, type Query } from '@/lib/query'
 import { cn } from '@/lib/utils'
@@ -188,6 +189,20 @@ const N = ({ children, className }: { children: ReactNode; className?: string })
 
 const where = (c: Catalogue, id: string) => c.get(id)
 
+/** An instant, as a person reads one.
+ *
+ *  Every timestamp on the wire is nanoseconds since the epoch, as a STRING,
+ *  because the value is past what a double holds exactly. Printed raw it is a
+ *  nineteen-digit number under a column headed "Updated", which is the shape
+ *  this column had. */
+function When({ nanos }: { nanos: string | undefined }) {
+  if (nanos === undefined || nanos === '' || nanos === '0') return <Silent />
+  const millis = nanosToMillis(nanos)
+  return (
+    <span title={nanos}>{Number.isNaN(millis) ? <Silent /> : dateTime(millis)}</span>
+  )
+}
+
 function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
   return (
     <>
@@ -200,8 +215,20 @@ function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
       </td>
       {/* The id when the catalogue does not know it: a row whose instrument
           this gateway never loaded is still a real row, and blanking it would
-          hide the one case worth looking at. */}
-      <td className="px-3 text-fg">{listing?.exchange_symbol ?? id}</td>
+          hide the one case worth looking at.
+          SET DIFFERENTLY, though — a nineteen-digit packed id in the weight a
+          symbol gets reads as a symbol, and a person scanning the column has
+          no way to tell that this row's gateway is simply not attached. */}
+      {listing === undefined ? (
+        <td
+          className="num px-3 text-2xs text-fg-dim"
+          title="no attached gateway lists this instrument — the packed id is all there is"
+        >
+          {id}
+        </td>
+      ) : (
+        <td className="px-3 text-fg">{listing.exchange_symbol}</td>
+      )}
     </>
   )
 }
@@ -255,7 +282,9 @@ function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
             </td>
             {/* The stamp, not an age. An age has to be recomputed before it can
                 be compared with anything else in the journal. */}
-            <td className="num px-3 text-right text-xs text-fg-mid">{o.ts_created}</td>
+            <td className="num px-3 text-right text-xs text-fg-mid">
+              <When nanos={o.ts_created} />
+            </td>
           </tr>
         )
       })}
@@ -296,7 +325,9 @@ function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
             {t.fee === undefined || t.fee === null ? <Silent /> : t.fee}
           </td>
           <td className="px-3 text-fg-mid capitalize">{t.liquidity ?? 'unknown'}</td>
-          <td className="num px-3 text-right text-xs text-fg-mid">{t.ts_event}</td>
+          <td className="num px-3 text-right text-xs text-fg-mid">
+            <When nanos={t.ts_event} />
+          </td>
         </tr>
       ))}
     </Grid>
@@ -343,7 +374,9 @@ function Positions({ rows, catalogue }: { rows: Position[]; catalogue: Catalogue
             <td className="num px-3 text-right text-fg-mid">
               {p.venue_qty === undefined || p.venue_qty === null ? <Silent /> : p.venue_qty}
             </td>
-            <td className="num px-3 text-right text-xs text-fg-mid">{p.ts_updated}</td>
+            <td className="num px-3 text-right text-xs text-fg-mid">
+              <When nanos={p.ts_updated} />
+            </td>
           </tr>
         )
       })}
