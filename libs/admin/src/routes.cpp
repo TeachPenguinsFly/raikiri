@@ -189,14 +189,12 @@ http::Response no_database() {
 
 } // namespace
 
+// Forwarded, not rendered again. `admin::Problem` stays in types.hpp because
+// the WebSocket frames carry one inside a message envelope, but the HTTP
+// response shape has exactly one home — a second renderer would drift a field
+// and a caller behind the proxy would meet two dialects of the same error.
 http::Response problem(int status, std::string_view title, std::string_view detail) {
-    Problem out{.title = std::string{title}, .status = status};
-    if (!detail.empty()) {
-        out.detail = std::string{detail};
-    }
-    std::string body;
-    (void)glz::write<k_opts>(out, body);
-    return {.status = status, .content_type = "application/problem+json", .body = std::move(body)};
+    return http::problem(status, title, detail);
 }
 
 namespace {

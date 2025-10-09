@@ -1,6 +1,7 @@
 // strategyd — the strategy kernel (demo wiring).
 //
 //   strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
+//             [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
 //
 // --gateway is repeatable and takes an account name, which is also the segment
 // name: "bybit" is the perpetual gateway, "bybit-spot" the spot one beside it.
@@ -16,8 +17,22 @@
 //   submit-call        ctx.submit() wall time (risk + store + journal + ring)
 //   order-round-trip   submit -> first venue verdict event back
 //
-// Single thread, no locks: exec ring, md ring, BBO change-gates, timers, all
-// polled in one loop — the same shape the real kernel keeps forever.
+// --strategy is repeatable and names a type the process factory knows;
+// `demo-maker` and `observer` are the two this repository carries, and a build
+// that links others lists them at /v1/strategy-types without a line changing
+// here. Everything past the id is the operator's: a name, then the whole
+// remainder as an opaque config handed to the constructor verbatim.
+// --strategy-id names the FIRST instance's id, and every --strategy that
+// states none counts up from there.
+//
+// --port serves that control surface — list, start, stop, positions, pnl — on
+// loopback. admind reaches it with `--upstream <name>=<port>` and forwards
+// /v1/x/<name>/..., so nothing about a strategy needs naming in admind.
+//
+// Single thread, no locks: exec ring, md ring, BBO change-gates, timers, the
+// control surface, all polled in one loop — the same shape the real kernel
+// keeps forever. That single thread is what makes an HTTP handler calling
+// on_start sound: it runs between dispatches, never inside one.
 
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/reader.hpp>
@@ -36,9 +51,13 @@
 #include <raikiri/portfolio/position_book.hpp>
 #include <raikiri/portfolio/reconcile.hpp>
 #include <raikiri/portfolio/target.hpp>
+#include <raikiri/http/server.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
-#include <raikiri/strategies/demo_maker.hpp>
+#include <raikiri/strategies/register.hpp>
+#include <raikiri/strategy/control.hpp>
+#include <raikiri/strategy/factory.hpp>
+#include <raikiri/strategy/registry.hpp>
 #include <raikiri/strategy/strategy.hpp>
 
 #include <fmt/format.h>
@@ -53,10 +72,12 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <map>
 #include <ranges>
 #include <set>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -76,7 +97,9 @@ using msgs = raikiri_journal::schema::messages;
 using namespace raikiri;
 
 // Every Strategy callback defaults to a no-op, so observing a live venue
-// needs no separate code path.
+// needs no separate code path. Registered as a type like any other, because
+// "watch this venue and place nothing" is a real thing to ask for rather than
+// a special case of nothing being configured.
 class Observer final : public strategy::Strategy {};
 
 // One attached gateway — everything that is per-(venue, market).
@@ -117,8 +140,20 @@ struct Gateway {
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
 };
 
-class KernelContext final : public strategy::Context {
+// The machinery every strategy's window looks through: the gateways, the order
+// store, the risk gate, the book and the journal.
+//
+// NOT a strategy::Context, though it implements most of one. A Context is ONE
+// strategy's view and every answer it gives means "yours" — the position, the
+// orders it may cancel, the id it mints. This process runs several, so the
+// window is InstanceContext below and this is what stands behind all of them.
+// While the two were one type, "yours" meant one hardcoded strategy id, and a
+// hand-placed order was risk-checked against a strategy's position.
+class KernelContext {
 public:
+    KernelContext(const KernelContext&) = delete;
+    KernelContext& operator=(const KernelContext&) = delete;
+
     KernelContext(std::vector<Gateway>& gateways,
                   oms::OrderStore& store,
                   oms::RiskGate& risk,
@@ -139,11 +174,6 @@ public:
             }
         }
         return nullptr;
-    }
-
-    std::expected<ClientOrderId, strategy::RejectReason>
-    submit(const strategy::NewOrder& order) noexcept override {
-        return submit_as(order, ids_->next_client_id());
     }
 
     /** Place an order under an id somebody else already minted.
@@ -186,7 +216,12 @@ public:
         oms::Exposure exposure{.reconciliation_break =
                                    recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
                                .open_orders = store_->open_count()};
-        if (const auto* held = position(order.instrument); held != nullptr) {
+        // THE BOOK OF WHOEVER IS PLACING IT. The id packs its owner, so a
+        // hand-placed order is banded against the desk's position and a
+        // strategy's against its own. Reading one fixed strategy's book here
+        // priced every desk order off somebody else's exposure.
+        if (const auto* held = positions.find({id.strategy_id(), order.instrument});
+            held != nullptr) {
             exposure.position_lots = held->qty();
         }
         const auto working = oms::working_lots(*store_, order.instrument);
@@ -238,7 +273,7 @@ public:
         return cmd.client_order_id;
     }
 
-    bool cancel(ClientOrderId id) noexcept override {
+    bool cancel(ClientOrderId id) noexcept {
         const auto* order = store_->find(id);
         if (order == nullptr) {
             return false;
@@ -258,15 +293,7 @@ public:
         return gw->cancels.try_push(cmd).has_value();
     }
 
-    void cancel_all(InstrumentId instrument) noexcept override {
-        store_->for_each_open([&](const oms::Order& order) {
-            if (order.instrument() == instrument) {
-                (void)cancel(order.client_order_id());
-            }
-        });
-    }
-
-    std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override {
+    std::optional<Bbo> bbo(InstrumentId instrument) const noexcept {
         const auto idx = instrument.symbol().raw;
         const auto* gw = gateway_for(instrument);
         if (gw == nullptr || idx >= shm::k_bbo_cells) {
@@ -279,68 +306,14 @@ public:
         return out;
     }
 
-    const Instrument* instrument(InstrumentId id) const noexcept override {
+    const Instrument* instrument(InstrumentId id) const noexcept {
         const auto* gw = gateway_for(id);
         return gw != nullptr ? gw->ch.catalogue->find(id) : nullptr;
     }
 
-    std::optional<ClientOrderId>
-    set_target(const portfolio::PortfolioTarget& target) noexcept override {
-        auto held = QtyLots::from_raw(0);
-        if (const auto* p = position(target.instrument); p != nullptr) {
-            held = p->qty();
-        }
-        const auto working = oms::working_lots(*store_, target.instrument);
-        const auto move = portfolio::delta_to_target(target.qty, held, working.buy, working.sell);
-        if (move.qty.raw == 0) {
-            return std::nullopt;
-        }
-        // Market, because a target says WHAT to hold and not at what price. A
-        // strategy that cares about the price is asking for a different thing
-        // and should submit the order itself.
-        const auto sent = submit({.instrument = target.instrument,
-                                  .side = move.side,
-                                  .type = OrderType::Market,
-                                  .tif = TimeInForce::Ioc,
-                                  .qty = move.qty});
-        return sent.has_value() ? std::optional{*sent} : std::nullopt;
-    }
-
-    const portfolio::Position* position(InstrumentId id) const noexcept override {
-        return positions.find({ids_->strategy_id(), id});
-    }
-
-    FixedE9 unrealized(InstrumentId id, PriceTicks mark) const noexcept override {
-        const auto* held = position(id);
-        const auto* listed = instrument(id);
-        if (held == nullptr || listed == nullptr) {
-            return FixedE9::from_raw(0);
-        }
-        return portfolio::unrealized_pnl(base_of(*listed), *held, mark);
-    }
-
-    void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept override {
-        const auto deadline = clock_->mono().ns + delay_ns;
-        for (auto& timer : timers) {
-            if (timer.id == timer_id) {
-                timer.deadline_ns = deadline; // re-arm replaces
-                return;
-            }
-        }
-        timers.push_back({timer_id, deadline});
-    }
-
-    const Clock& clock() const noexcept override { return *clock_; }
+    [[nodiscard]] const Clock& clock() const noexcept { return *clock_; }
 
     // --- kernel-side state the main loop reads ---
-    // A fee this process wrote, kept only long enough for the venue's ledger to
-    // quote it back.
-    struct Timer {
-        std::uint32_t id{0};
-        std::uint64_t deadline_ns{0};
-    };
-
-    std::vector<Timer> timers;
     portfolio::PositionBook positions;
     // Instruments this process has stopped opening on. Cleared only by a
     // restart, never by one agreeing pull: an automatic clear on a single
@@ -556,6 +529,175 @@ private:
     oms::IdGen* ids_;
     journal::JournalWriter* journal_;
     const Clock* clock_;
+};
+
+// Working lots for ONE strategy on one instrument.
+//
+// oms::working_lots answers for the whole process, which is the right question
+// for the risk gate — the venue sees one book and does not care who filled it
+// — and the wrong one for a target, where netting one strategy's orders
+// against another's moves a position nobody asked to move.
+[[nodiscard]] oms::WorkingLots working_lots_of(const oms::OrderStore& store,
+                                               std::uint16_t strategy_id,
+                                               InstrumentId instrument) noexcept {
+    oms::WorkingLots out{};
+    store.for_each_open([&](const oms::Order& order) {
+        if (order.instrument() != instrument ||
+            order.client_order_id().strategy_id() != strategy_id) {
+            return;
+        }
+        auto& side = order.side() == Side::Buy ? out.buy : out.sell;
+        side = QtyLots::from_raw(side.raw + order.leaves().raw);
+    });
+    return out;
+}
+
+// ONE STRATEGY'S WINDOW onto the kernel above.
+//
+// Everything per-strategy is here — the id mint, the timers, and the slice of
+// the book that belongs to this id. Everything shared stays behind it. The
+// split is what makes strategy.hpp's promise true once a process runs more
+// than one strategy: "the kernel supplies the strategy_id, so a strategy
+// cannot read another's book". It cannot cancel another's orders either, and
+// that is ENFORCED here rather than assumed.
+class InstanceContext final : public strategy::Context {
+public:
+    // The ULID half of IdGen goes unused here: the exchange-side id is minted
+    // once, by the kernel, because what has to be monotone is the process's
+    // stream and not one strategy's. The seed is still per instance so that
+    // two windows can never agree on a sequence.
+    InstanceContext(KernelContext& kernel, std::uint16_t strategy_id, std::uint64_t ulid_seed)
+        : kernel_{&kernel}, ids_{strategy_id, ulid_seed} {}
+
+    [[nodiscard]] std::uint16_t strategy_id() const noexcept { return ids_.strategy_id(); }
+
+    std::expected<ClientOrderId, strategy::RejectReason>
+    submit(const strategy::NewOrder& order) noexcept override {
+        return kernel_->submit_as(order, ids_.next_client_id());
+    }
+
+    // ONLY ITS OWN. The id packs its owner, so an id belonging to somebody
+    // else is refused rather than cancelled: a strategy that can pull another
+    // strategy's quotes is a strategy that can be wrong about more than its
+    // own book.
+    bool cancel(ClientOrderId id) noexcept override {
+        return id.strategy_id() == strategy_id() && kernel_->cancel(id);
+    }
+
+    void cancel_all(InstrumentId instrument) noexcept override { (void)pull(&instrument); }
+
+    // Everything this strategy has working, on every instrument. What a stop
+    // calls, and the reason a stop can say the market holds none of its orders
+    // afterwards.
+    std::size_t pull_all() noexcept { return pull(nullptr); }
+
+    std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override {
+        return kernel_->bbo(instrument);
+    }
+
+    const Instrument* instrument(InstrumentId id) const noexcept override {
+        return kernel_->instrument(id);
+    }
+
+    const portfolio::Position* position(InstrumentId id) const noexcept override {
+        return kernel_->positions.find({strategy_id(), id});
+    }
+
+    FixedE9 unrealized(InstrumentId id, PriceTicks mark) const noexcept override {
+        const auto* held = position(id);
+        const auto* listed = instrument(id);
+        if (held == nullptr || listed == nullptr) {
+            return FixedE9::from_raw(0);
+        }
+        return portfolio::unrealized_pnl(base_of(*listed), *held, mark);
+    }
+
+    std::optional<ClientOrderId>
+    set_target(const portfolio::PortfolioTarget& target) noexcept override {
+        auto held = QtyLots::from_raw(0);
+        if (const auto* p = position(target.instrument); p != nullptr) {
+            held = p->qty();
+        }
+        const auto working = working_lots_of(kernel_->orders(), strategy_id(), target.instrument);
+        const auto move = portfolio::delta_to_target(target.qty, held, working.buy, working.sell);
+        if (move.qty.raw == 0) {
+            return std::nullopt;
+        }
+        // Market, because a target says WHAT to hold and not at what price. A
+        // strategy that cares about the price is asking for a different thing
+        // and should submit the order itself.
+        const auto sent = submit({.instrument = target.instrument,
+                                  .side = move.side,
+                                  .type = OrderType::Market,
+                                  .tif = TimeInForce::Ioc,
+                                  .qty = move.qty});
+        return sent.has_value() ? std::optional{*sent} : std::nullopt;
+    }
+
+    // TIMERS ARE PER INSTANCE. Two strategies both arming timer 1 arm two
+    // timers; one shared table would have each re-arm silently cancel the
+    // other's.
+    void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept override {
+        const auto deadline = kernel_->clock().mono().ns + delay_ns;
+        for (auto& timer : timers_) {
+            if (timer.id == timer_id) {
+                timer.deadline_ns = deadline; // re-arm replaces
+                return;
+            }
+        }
+        timers_.push_back({timer_id, deadline});
+    }
+
+    const Clock& clock() const noexcept override { return kernel_->clock(); }
+
+    // Disarms before it reports, so a strategy re-arming inside the callback
+    // sets the next deadline rather than having it cleared out from under it.
+    //
+    // BY INDEX, over the size as it was on entry: a callback may arm a timer
+    // it has never armed before, and a range-for over a vector that grows
+    // underneath walks freed memory.
+    template <typename F> void fire_due_timers(std::uint64_t now_ns, F&& fire) {
+        const auto armed = timers_.size();
+        for (std::size_t i = 0; i < armed; ++i) {
+            if (timers_[i].deadline_ns == 0 || now_ns < timers_[i].deadline_ns) {
+                continue;
+            }
+            const auto id = timers_[i].id;
+            timers_[i].deadline_ns = 0;
+            fire(id);
+        }
+    }
+
+private:
+    struct Timer {
+        std::uint32_t id{0};
+        std::uint64_t deadline_ns{0};
+    };
+
+    // `only` names one instrument, or is null for every one of them. Collected
+    // before anything is cancelled: `cancel` writes the journal and a ring, and
+    // walking the store while doing so asks it to be re-entrant for no reason.
+    std::size_t pull(const InstrumentId* only) noexcept {
+        std::vector<ClientOrderId> mine;
+        kernel_->orders().for_each_open([&](const oms::Order& order) {
+            if (order.is_terminal() || order.client_order_id().strategy_id() != strategy_id()) {
+                return;
+            }
+            if (only != nullptr && order.instrument() != *only) {
+                return;
+            }
+            mine.push_back(order.client_order_id());
+        });
+        std::size_t pulled = 0;
+        for (const auto id : mine) {
+            pulled += kernel_->cancel(id) ? 1U : 0U;
+        }
+        return pulled;
+    }
+
+    KernelContext* kernel_;
+    oms::IdGen ids_;
+    std::vector<Timer> timers_;
 };
 
 } // namespace
@@ -942,6 +1084,59 @@ Restoration restore_book(portfolio::PositionBook& book,
 }
 
 namespace {
+
+// What one --strategy said. Colons rather than `=` so the whole thing survives
+// a shell unquoted, and positional because three optional fields is not a
+// syntax worth inventing twice.
+struct Requested {
+    std::string type;
+    std::string name;
+    std::string config;
+    std::uint16_t strategy_id{0};
+};
+
+// `type[:id[:name[:config]]]`. The config is THE WHOLE REMAINDER, colons and
+// all, because it is JSON as often as not and this process never reads it.
+[[nodiscard]] std::optional<Requested> parse_strategy_spec(std::string_view spec,
+                                                           std::uint16_t default_id) {
+    Requested out{};
+    out.strategy_id = default_id;
+    const auto after_type = spec.find(':');
+    out.type = std::string{spec.substr(0, after_type)};
+    if (out.type.empty()) {
+        return std::nullopt;
+    }
+    out.name = out.type;
+    if (after_type == std::string_view::npos) {
+        return out;
+    }
+    const auto rest = spec.substr(after_type + 1);
+    const auto after_id = rest.find(':');
+    if (const auto text = rest.substr(0, after_id); !text.empty()) {
+        std::uint64_t value = 0;
+        const auto [stop, ec] =
+            std::from_chars(text.data(), text.data() + text.size(), value);
+        // A PARTIAL PARSE IS A REFUSAL: "7x" is not the id 7, it is a typo that
+        // would otherwise start a strategy under an id nobody chose.
+        if (ec != std::errc{} || stop != text.data() + text.size() || value > 0xFFFFULL) {
+            return std::nullopt;
+        }
+        out.strategy_id = static_cast<std::uint16_t>(value);
+    }
+    if (after_id == std::string_view::npos) {
+        return out;
+    }
+    const auto tail = rest.substr(after_id + 1);
+    const auto after_name = tail.find(':');
+    if (const auto text = tail.substr(0, after_name); !text.empty()) {
+        out.name = std::string{text};
+    }
+    if (after_name != std::string_view::npos) {
+        out.config = std::string{tail.substr(after_name + 1)};
+    }
+    return out;
+}
+
 [[nodiscard]] constexpr std::string_view reject_name(strategy::RejectReason why) noexcept {
     switch (why) {
     case strategy::RejectReason::Risk:
@@ -969,7 +1164,18 @@ int main(int argc, char** argv) {
     // Names this strategy's book and rides in the top 16 bits of every
     // ClientOrderId, so it reaches the ledger without extra plumbing. Two
     // strategies that share it net into one position; distinct ones do not.
-    std::uint16_t strategy_id = 1;
+    // 2, NOT 1. One is k_manual_strategy_id, and a strategy holding it would
+    // net its position into the manual desk's book — two books that no query
+    // could take apart again. The registry refuses it; this is where the
+    // default stopped colliding with it.
+    std::uint16_t strategy_id = 2;
+    // Repeatable. Empty means the demo wiring below, which is itself expressed
+    // as a --strategy nobody typed, so there is ONE path from a type name to a
+    // running strategy rather than two that can disagree.
+    std::vector<std::string> requested;
+    // Zero serves no control surface at all: a port bound by default is a port
+    // somebody did not decide to open.
+    std::uint16_t control_port = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--duration" && i + 1 < argc) {
@@ -978,6 +1184,12 @@ int main(int argc, char** argv) {
             wanted.emplace_back(arg.substr(arg.find('=') + 1));
         } else if (arg.starts_with("--strategy-id=")) {
             strategy_id = static_cast<std::uint16_t>(std::atoi(arg.substr(14).data()));
+        } else if (arg.starts_with("--strategy=")) {
+            requested.emplace_back(arg.substr(arg.find('=') + 1));
+        } else if (arg == "--strategy" && i + 1 < argc) {
+            requested.emplace_back(argv[++i]);
+        } else if (arg == "--port" && i + 1 < argc) {
+            control_port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         }
     }
     if (wanted.empty()) {
@@ -1046,6 +1258,10 @@ int main(int argc, char** argv) {
     oms::RiskGate risk{{.max_open_orders = 64,
                         .max_qty_lots = QtyLots::from_raw(1'000),
                         .max_price_band_bp = 500}};
+    // The kernel's own mint, used for ONE thing: the exchange-side id, where
+    // what must be monotone is this process's stream rather than any single
+    // strategy's. Client order ids are minted per instance, by the window that
+    // knows whose they are.
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
 
@@ -1058,9 +1274,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // DemoMaker quotes both sides, which is only ever appropriate against the
-    // sim venue. A live gateway is observed, not traded: the loop, the
-    // journal and the latency table are identical either way.
     // Before a single new line is written to the journal: what this process
     // held when it last stopped.
     std::vector<const shm::CatalogueTable*> catalogues;
@@ -1083,20 +1296,118 @@ int main(int argc, char** argv) {
                   accounts);
     }
 
-    strategies::DemoMaker maker;
-    Observer observer;
-    const bool quoting = gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
-    strategy::Strategy& active = quoting ? static_cast<strategy::Strategy&>(maker) : observer;
+    // The types this binary carries, put into the process factory by a CALL
+    // rather than by a static initializer — see raikiri/strategies/register.hpp
+    // for why a static one in a static library is not there when you look.
+    (void)strategies::register_all();
+    (void)strategy::register_type<Observer>("observer");
+
+    // One window per strategy, minted on demand and NEVER MOVED: a strategy
+    // holds this address for its whole life, so a container that reallocates
+    // would hand every running strategy a dangling Context.
+    std::deque<InstanceContext> contexts;
+    // The process's stop signal. Every instance starts holding it, so a
+    // shutdown reaches a strategy started over HTTP by the same path it
+    // reaches one named on the command line.
+    std::stop_source shutdown;
+    strategy::Registry live{
+        {.context_for =
+             [&contexts, &ctx](std::uint16_t id) -> strategy::Context* {
+                 for (auto& window : contexts) {
+                     if (window.strategy_id() == id) {
+                         // A create the constructor then refused already minted
+                         // one; handing back the same window keeps a retry
+                         // under that id from running beside an orphan.
+                         return &window;
+                     }
+                 }
+                 contexts.emplace_back(ctx, id, 0x7A10ULL + id);
+                 return &contexts.back();
+             },
+         .cancel_working =
+             [&contexts](std::uint16_t id) -> std::size_t {
+                 for (auto& window : contexts) {
+                     if (window.strategy_id() == id) {
+                         return window.pull_all();
+                     }
+                 }
+                 return 0;
+             },
+         .wall = [&clock] { return clock.wall(); }}};
+
+    // DemoMaker quotes both sides, which is only ever appropriate against the
+    // sim venue. A live gateway is observed, not traded: the loop, the journal
+    // and the latency table are identical either way.
+    if (requested.empty()) {
+        const bool quoting =
+            gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
+        requested.emplace_back(quoting ? "demo-maker" : "observer");
+    }
+    std::uint16_t next_id = strategy_id;
+    for (const auto& spec : requested) {
+        const auto parsed = parse_strategy_spec(spec, next_id);
+        if (!parsed.has_value()) {
+            fmt::print(stderr, "strategyd: cannot read --strategy {}\n", spec);
+            return 2;
+        }
+        const auto made = live.create({.name = parsed->name,
+                                       .type = parsed->type,
+                                       .config = parsed->config,
+                                       .strategy_id = parsed->strategy_id});
+        if (!made.has_value()) {
+            fmt::print(
+                stderr, "strategyd: --strategy {} refused — {}\n", spec, made.error().detail);
+            return 2;
+        }
+        if (const auto started = live.start(parsed->strategy_id, shutdown.get_token());
+            !started.has_value()) {
+            fmt::print(stderr,
+                       "strategyd: --strategy {} would not start — {}\n",
+                       spec,
+                       to_string(started.error()));
+            return 2;
+        }
+        // The next unnamed one goes BESIDE it rather than on top of it: two
+        // instances under one id net into one position.
+        next_id = static_cast<std::uint16_t>(parsed->strategy_id + 1);
+    }
+
     std::string attached;
     for (const auto& gw : gateways) {
         attached += (attached.empty() ? "" : ", ") + gw.name;
     }
+    std::string running;
+    for (const auto& view : live.list()) {
+        running += (running.empty() ? "" : ", ") +
+                   fmt::format("{}#{} ({})", view.name, view.strategy_id, view.type);
+    }
     RLOG_INFO("strategyd: attached to {}, {} instruments, running {} for {}s",
               attached,
               instrument_count,
-              quoting ? "DemoMaker" : "observer",
+              running,
               duration_s);
-    active.on_start(ctx);
+
+    // LOOPBACK, AND NO AUTHENTICATION — the same position admind takes, for
+    // the same reason: shipping an identity story that "works for now" is how
+    // a deployment ends up with a static token in a repository. A handler here
+    // runs on_start and on_stop, so this server may only ever be polled by the
+    // loop below.
+    std::unique_ptr<http::Server> control;
+    if (control_port != 0) {
+        control = std::make_unique<http::Server>(
+            "127.0.0.1",
+            control_port,
+            strategy::make_control(live, strategy::factory(), ctx.positions,
+                                   shutdown.get_token()));
+        if (!control->start()) {
+            RLOG_ERROR("strategyd: cannot bind the control surface on 127.0.0.1:{}", control_port);
+            return 1;
+        }
+        RLOG_INFO("strategyd: control on http://127.0.0.1:{} — admind forwards it with "
+                  "--upstream <name>={}",
+                  control->port(),
+                  control->port());
+    }
 
     observ::Histogram tick_hist; // BBO ts_init -> callback dispatch
     observ::Histogram rt_hist;   // submit -> first venue verdict
@@ -1349,7 +1660,7 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
-                active.on_order_event(ctx, event);
+                live.on_order_event(event);
             }
         }
         shm::MdEvent md{};
@@ -1362,7 +1673,7 @@ int main(int argc, char** argv) {
                 trade.aggressor = md.aggressor;
                 trade.ts_event = md.ts_event;
                 trade.ts_init = md.ts_init;
-                active.on_trade(ctx, trade);
+                live.on_trade(trade);
             }
         }
         for (auto& gw : gateways) {
@@ -1375,7 +1686,7 @@ int main(int argc, char** argv) {
                 if (gw.ch.bbo->read(sym, bbo) != 0) {
                     gw.bbo_seen[sym] = version;
                     tick_hist.record(clock.wall().ns - bbo.ts_init.ns);
-                    active.on_bbo(ctx, bbo);
+                    live.on_bbo(bbo);
                 }
             }
             // Funding changes on the venue's schedule — eight hours on most
@@ -1391,16 +1702,23 @@ int main(int argc, char** argv) {
                 if (gw.ch.funding->read(sym, funding) != 0) {
                     gw.funding_seen[sym] = version;
                     ++funding_ticks;
-                    active.on_funding(ctx, funding);
+                    live.on_funding(funding);
                 }
             }
         }
         const auto now_ns = clock.mono().ns;
-        for (auto& timer : ctx.timers) {
-            if (timer.deadline_ns != 0 && now_ns >= timer.deadline_ns) {
-                timer.deadline_ns = 0;
-                active.on_timer(ctx, timer.id);
-            }
+        for (auto& window : contexts) {
+            window.fire_due_timers(now_ns, [&live, &window](std::uint32_t timer_id) {
+                // Through the registry, not straight at the strategy: a timer
+                // that fires on an instance being torn down must land nowhere,
+                // and the subscription is what knows that.
+                live.on_timer(window.strategy_id(), timer_id);
+            });
+        }
+        if (control != nullptr) {
+            // Polled here, inside the loop, so a start or a stop arriving over
+            // HTTP runs its hooks on the thread that owns the order path.
+            (void)control->poll();
         }
         for (auto& gw : gateways) {
             // Monotonic, because that is the clock the gateway stamps the
@@ -1456,7 +1774,15 @@ int main(int argc, char** argv) {
             break;
         }
     }
-    active.on_stop(ctx);
+    // ONE TEARDOWN, whatever ended the run — a signal, the duration running
+    // out, or every gateway halting. The stop signal reaches each instance
+    // through the same ordered path a person's stop takes, so nothing gets a
+    // shorter unwind for having been ended by a clock.
+    shutdown.request_stop();
+    const auto torn_down = live.poll();
+    if (control != nullptr) {
+        control->stop();
+    }
     journal_writer->flush();
     if (!gateway_gone.empty()) {
         RLOG_ERROR("strategyd: every gateway is halted (first: {}) — nothing left to trade on, "
@@ -1498,6 +1824,16 @@ int main(int argc, char** argv) {
     // Refusals are reported beside the count, not hidden: a desk whose orders
     // are all being turned away looks exactly like a quiet desk otherwise.
     fmt::print("manual desk: intents={}  refused={}\n", desk_intents, desk_refusals);
+    // NAMED, not counted. "two strategies stopped" does not say whether the one
+    // that was quoting is the one that stopped holding orders.
+    fmt::print("strategies: {} stopped at exit\n", torn_down);
+    for (const auto& view : live.list()) {
+        fmt::print("  {:<16}{:<14}{:<10}orders-pulled={}\n",
+                   view.name,
+                   view.type,
+                   to_string(view.phase),
+                   view.orders_cancelled_on_stop);
+    }
     // Charges booked, and charges LOST. The second is money the ledger will
     // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);

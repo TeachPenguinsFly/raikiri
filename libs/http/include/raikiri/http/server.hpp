@@ -94,6 +94,16 @@ struct Fetched {
                                            std::string_view target,
                                            std::uint32_t timeout_ms) noexcept;
 
+// RFC 9457, rendered. THE ONE ERROR SHAPE every API in this repository
+// produces, and it lives here rather than beside one of them because a caller
+// behind admind's proxy cannot tell which process refused — two renderings of
+// the same shape would eventually differ in a field, and the difference would
+// show up as a client that handles one service's errors and not another's.
+//
+// `detail` is escaped on the way out, which is the reason this is not three
+// string concatenations: it carries text a caller sent us.
+[[nodiscard]] Response problem(int status, std::string_view title, std::string_view detail = {});
+
 // A query string's value for `key`, or empty. Percent-decoding is deliberately
 // absent: every parameter this API takes is digits or an account name, and a
 // decoder that is never exercised is a decoder that is wrong when it finally is.

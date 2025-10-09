@@ -16,3 +16,4 @@ frontend/tsconfig.tsbuildinfo
 tools/credentials.env
 tools/op.env
 .venv-test/
+.claude/

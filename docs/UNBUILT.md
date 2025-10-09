@@ -77,10 +77,19 @@ the common one.
   two separate numbers and a leg whose venue states no interval is refused.
 - **Scanner, spot·perp and spot·spot:** the same, once spot gateways are
   attached beside the perp ones.
-- **Strategies:** needs a registry. admind knows a strategy only as an integer
-  `strategy_id` on orders, positions and ledger rows; there is no name, kind or
-  status to list, and `/v1/orders` and `/v1/fills` accept no `strategy_id`
-  filter, so even counting per strategy is not expressible.
-- **Strategy detail:** the above, plus parameters, slots and per-slot fills.
-- **Start/Stop:** a control plane. A second producer into the SPSC command rings
-  is a decision to be made deliberately, not a POST added quietly.
+- **Strategies:** PARTLY BUILT. `libs/strategy` now holds a factory (type name
+  -> constructor) and a registry of live instances, and strategyd serves them on
+  `--port`: `/v1/strategies` lists name, type, phase and how many positions each
+  holds, and `/v1/strategies/{id}/positions` and `/pnl` answer per strategy.
+  admind forwards it under `/v1/x/<name>/` and names no strategy type, which is
+  what keeps a private strategy out of this repository. What is still missing is
+  the Postgres half: `/v1/orders` and `/v1/fills` accept no `strategy_id` filter,
+  so history per strategy is not expressible.
+- **Strategy detail:** the above, plus slots and per-slot fills. Parameters now
+  exist as the opaque `config` a strategy is constructed with; nothing renders
+  them, because nothing here knows what they mean.
+- **Start/Stop:** BUILT, and NOT by a second producer into the command rings.
+  strategyd's own control surface runs on the loop that already owns the single
+  producer, so a start or a stop reaches the rings through the same path a
+  strategy's own order does. A stop cancels working orders and stops new ones;
+  it does not flatten, and flattening is still unbuilt.

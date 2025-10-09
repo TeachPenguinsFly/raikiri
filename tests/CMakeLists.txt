@@ -110,6 +110,12 @@ raikiri_add_test(position_test SRCS portfolio/position_test.cpp LIBS raikiri::po
 raikiri_add_test(position_book_test SRCS portfolio/position_book_test.cpp LIBS raikiri::portfolio)
 raikiri_add_test(target_test SRCS portfolio/target_test.cpp LIBS raikiri::portfolio)
 
+raikiri_add_test(strategy_lifecycle_test SRCS strategy/lifecycle_test.cpp LIBS raikiri::strategy)
+raikiri_add_test(strategy_registry_test SRCS strategy/registry_test.cpp
+  LIBS raikiri::strategies raikiri::strategy)
+raikiri_add_test(strategy_control_test SRCS strategy/control_test.cpp
+  LIBS raikiri::strategy_control glaze::glaze)
+
 raikiri_add_test(spsc_ring_test SRCS shm/spsc_ring_test.cpp LIBS raikiri::shm)
 raikiri_add_test(seqlock_test SRCS shm/seqlock_test.cpp LIBS raikiri::shm)
 raikiri_add_test(broadcast_ring_test SRCS shm/broadcast_ring_test.cpp LIBS raikiri::shm)
