@@ -1,5 +1,6 @@
 #include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/positions.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::mexc {
 

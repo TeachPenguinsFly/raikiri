@@ -1,5 +1,6 @@
 #include <raikiri/venues/bybit/catalogue.hpp>
 #include <raikiri/venues/bybit/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bybit {
 

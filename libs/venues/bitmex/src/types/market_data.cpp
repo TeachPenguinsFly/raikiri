@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitmex/envelope.hpp>
 #include <raikiri/venues/bitmex/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bitmex {
 

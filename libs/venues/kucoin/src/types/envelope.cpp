@@ -1,4 +1,5 @@
 #include <raikiri/venues/kucoin/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <charconv>
 

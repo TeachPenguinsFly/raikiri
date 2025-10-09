@@ -9,7 +9,7 @@
 // and the newest frame just replaces what the gateway holds.
 
 #include <raikiri/venues/hyperliquid/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

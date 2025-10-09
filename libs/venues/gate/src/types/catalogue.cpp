@@ -1,5 +1,6 @@
 #include <raikiri/venues/gate/catalogue.hpp>
 #include <raikiri/venues/gate/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::gate {
 

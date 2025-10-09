@@ -1,6 +1,7 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::okx {
 

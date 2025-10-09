@@ -16,7 +16,7 @@
 // 2026-09-07 rather than transcribed from a page.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 

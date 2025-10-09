@@ -1,4 +1,5 @@
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <array>
 

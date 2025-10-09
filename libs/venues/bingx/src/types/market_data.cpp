@@ -1,5 +1,6 @@
 #include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bingx {
 

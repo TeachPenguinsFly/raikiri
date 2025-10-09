@@ -1,4 +1,5 @@
 #include <raikiri/venues/bybit/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bybit {
 

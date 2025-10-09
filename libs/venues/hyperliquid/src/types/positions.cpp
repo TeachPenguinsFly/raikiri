@@ -1,5 +1,6 @@
 #include <raikiri/venues/hyperliquid/envelope.hpp>
 #include <raikiri/venues/hyperliquid/positions.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::hyperliquid {
 

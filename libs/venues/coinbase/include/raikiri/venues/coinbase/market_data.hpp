@@ -4,7 +4,7 @@
 // turnover, and its prints.
 
 #include <raikiri/venues/coinbase/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <expected>

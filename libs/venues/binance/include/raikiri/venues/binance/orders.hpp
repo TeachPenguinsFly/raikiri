@@ -4,7 +4,7 @@
 // a REST answer says about it, and the fills it produced.
 
 #include <raikiri/venues/binance/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

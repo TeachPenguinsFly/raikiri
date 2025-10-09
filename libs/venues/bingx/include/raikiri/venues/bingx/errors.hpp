@@ -25,7 +25,7 @@
 // how a restricted key becomes a banned IP.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 

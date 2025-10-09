@@ -16,11 +16,31 @@ option(RAIKIRI_BUILD_TESTS "Build unit tests" ON)
 option(RAIKIRI_BUILD_BENCH "Build benchmarks" ON)
 option(RAIKIRI_WERROR "Treat warnings as errors" ON)
 option(RAIKIRI_BUILD_FUZZ "Build libFuzzer targets (needs Clang with the fuzzer runtime)" OFF)
+option(RAIKIRI_PCH "Share one precompiled header across every first-party target" ON)
 set(RAIKIRI_SANITIZE "" CACHE STRING "Sanitizers, e.g. 'address,undefined' or 'thread'")
 set(RAIKIRI_MARCH "" CACHE STRING "Explicit -march target (never 'native'); empty = compiler default")
 
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
+
+# ccache, off by default because it is a trade rather than a win. Measured on
+# this tree: a cache miss costs ~0.4s per TU on top of the compile, so editing
+# a widely-included header goes from 51s to 75s, while a clean build of source
+# already compiled once goes from 109s to 40s. Turn it on if you switch
+# branches or wipe build directories more often than you edit headers.
+#
+# The sloppiness is not optional with RAIKIRI_PCH on — ccache will not cache a
+# TU compiled against a precompiled header unless told that the PCH's defines
+# and __DATE__/__TIME__ do not matter, and every such TU then misses.
+option(RAIKIRI_CCACHE "Compile through ccache when the host has it" OFF)
+if(RAIKIRI_CCACHE)
+  find_program(RAIKIRI_CCACHE_BIN ccache)
+  if(RAIKIRI_CCACHE_BIN)
+    set(CMAKE_CXX_COMPILER_LAUNCHER
+        ${CMAKE_COMMAND} -E env CCACHE_SLOPPINESS=pch_defines,time_macros ${RAIKIRI_CCACHE_BIN})
+    message(STATUS "ccache: ${RAIKIRI_CCACHE_BIN}")
+  endif()
+endif()
 
 if(RAIKIRI_MARCH)
   if(RAIKIRI_MARCH STREQUAL "native")
@@ -103,4 +123,9 @@ endif()
 
 if(RAIKIRI_BUILD_FUZZ)
   add_subdirectory(fuzz)
+endif()
+
+if(RAIKIRI_PCH)
+  include(cmake/Pch.cmake)
+  raikiri_enable_pch()
 endif()

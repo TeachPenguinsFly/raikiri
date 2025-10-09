@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/binance/book.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

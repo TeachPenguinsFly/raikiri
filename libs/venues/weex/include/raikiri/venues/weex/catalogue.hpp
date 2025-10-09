@@ -27,7 +27,7 @@
 // dollar figure. The instrument's min_notional stays UNDEF: WEEX did not say.
 
 #include <raikiri/venues/weex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

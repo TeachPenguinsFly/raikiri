@@ -5,7 +5,7 @@
 // user stream will not connect and an order will not route.
 
 #include <raikiri/venues/bingx/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <expected>
 #include <string_view>

@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitget/catalogue.hpp>
 #include <raikiri/venues/bitget/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

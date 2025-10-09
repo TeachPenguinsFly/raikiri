@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitfinex/book.hpp>
 #include <raikiri/venues/bitfinex/map.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bitfinex {
 

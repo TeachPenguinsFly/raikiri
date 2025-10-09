@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitmex/catalogue.hpp>
 #include <raikiri/venues/bitmex/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

@@ -5,7 +5,7 @@
 // turnover.
 
 #include <raikiri/venues/bitmex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

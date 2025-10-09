@@ -5,7 +5,7 @@
 // identity the spot tree refuses to trade without.
 
 #include <raikiri/venues/htx/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <expected>

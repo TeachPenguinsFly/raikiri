@@ -11,7 +11,7 @@
 // terminal request is recoverable by asking again deliberately.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <string_view>
 

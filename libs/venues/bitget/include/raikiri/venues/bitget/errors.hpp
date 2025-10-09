@@ -12,7 +12,7 @@
 // channel it names whatever the code says.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <string_view>

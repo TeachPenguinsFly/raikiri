@@ -19,7 +19,7 @@
 // is why a frame is built only from channels the catalogue vouched for.
 
 #include <raikiri/venues/weex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <expected>

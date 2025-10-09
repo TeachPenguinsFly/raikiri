@@ -1,4 +1,5 @@
 #include <raikiri/venues/okx/catalogue.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::okx {
 

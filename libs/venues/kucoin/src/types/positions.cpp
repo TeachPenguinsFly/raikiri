@@ -1,5 +1,6 @@
 #include <raikiri/venues/kucoin/envelope.hpp>
 #include <raikiri/venues/kucoin/positions.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::kucoin {
 

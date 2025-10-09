@@ -1,5 +1,6 @@
 #include <raikiri/venues/binance/account.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <array>
 

@@ -1,5 +1,6 @@
 #include <raikiri/venues/xt/envelope.hpp>
 #include <raikiri/venues/xt/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::xt {
 

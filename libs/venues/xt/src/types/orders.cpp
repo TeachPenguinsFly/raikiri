@@ -1,5 +1,6 @@
 #include <raikiri/venues/xt/envelope.hpp>
 #include <raikiri/venues/xt/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

@@ -1,5 +1,6 @@
 #include <raikiri/venues/bingx/book.hpp>
 #include <raikiri/venues/bingx/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <algorithm>
 

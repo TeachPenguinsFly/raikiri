@@ -24,7 +24,7 @@
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

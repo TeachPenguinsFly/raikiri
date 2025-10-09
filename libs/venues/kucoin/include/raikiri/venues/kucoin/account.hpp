@@ -3,7 +3,7 @@
 // The account's own book: what the wallet holds, one currency at a time.
 
 #include <raikiri/venues/kucoin/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <expected>
 #include <string_view>

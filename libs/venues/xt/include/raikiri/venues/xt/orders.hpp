@@ -13,7 +13,7 @@
 // below is read with opt_scalar, which keeps the token either way.
 
 #include <raikiri/venues/xt/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

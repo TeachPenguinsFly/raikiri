@@ -1,4 +1,5 @@
 #include <raikiri/venues/gate/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <charconv>
 

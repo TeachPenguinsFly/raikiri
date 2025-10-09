@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitmex/envelope.hpp>
 #include <raikiri/venues/bitmex/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bitmex {
 

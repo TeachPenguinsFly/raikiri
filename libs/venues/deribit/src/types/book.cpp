@@ -1,6 +1,7 @@
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/map.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::deribit {
 

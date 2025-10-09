@@ -4,7 +4,7 @@
 // frame that carries the mark, the funding and an option's greeks together.
 
 #include <raikiri/venues/deribit/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>
