@@ -1,5 +1,6 @@
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::deribit {
 

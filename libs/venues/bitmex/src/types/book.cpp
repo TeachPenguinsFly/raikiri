@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitmex/book.hpp>
 #include <raikiri/venues/bitmex/map.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <algorithm>
 

@@ -1,4 +1,5 @@
 #include <raikiri/venues/mexc/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 #include <raikiri/wire/protobuf.hpp>
 
 namespace raikiri::venues::mexc {

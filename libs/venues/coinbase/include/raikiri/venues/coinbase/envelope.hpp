@@ -12,7 +12,7 @@
 // converted here; map.cpp owns the parser and explains why it is hand-rolled.
 
 #include <raikiri/venues/coinbase/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

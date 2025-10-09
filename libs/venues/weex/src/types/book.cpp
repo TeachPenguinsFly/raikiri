@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/weex/book.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::weex {
 

@@ -1,4 +1,5 @@
 #include <raikiri/venues/kraken/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <charconv>
 

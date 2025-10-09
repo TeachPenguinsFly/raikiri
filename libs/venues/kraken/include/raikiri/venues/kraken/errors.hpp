@@ -11,7 +11,7 @@
 // HTTP 200 with "authenticationError" (verified), so the body is the truth.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <string_view>
 

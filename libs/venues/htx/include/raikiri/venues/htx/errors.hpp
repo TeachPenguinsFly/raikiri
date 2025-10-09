@@ -15,7 +15,7 @@
 // fixed by resyncing, not by halting a venue whose keys are fine.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <string_view>

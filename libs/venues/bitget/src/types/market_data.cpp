@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

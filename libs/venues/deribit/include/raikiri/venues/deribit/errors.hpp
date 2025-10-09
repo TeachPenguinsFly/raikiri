@@ -12,7 +12,7 @@
 // code on neither side, which is why WireResponse uses a sentinel instead.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 

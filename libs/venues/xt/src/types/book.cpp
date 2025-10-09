@@ -1,5 +1,6 @@
 #include <raikiri/venues/xt/book.hpp>
 #include <raikiri/venues/xt/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::xt {
 

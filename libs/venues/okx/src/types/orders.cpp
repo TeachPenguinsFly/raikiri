@@ -1,5 +1,6 @@
 #include <raikiri/venues/okx/envelope.hpp>
 #include <raikiri/venues/okx/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::okx {
 

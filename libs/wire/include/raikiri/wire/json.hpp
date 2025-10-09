@@ -7,6 +7,8 @@
 // simdjson is visible here and in venue src/ files, nowhere else: venue wire
 // headers hand out std::string_view and std::span only.
 
+#include <raikiri/wire/error.hpp>
+
 #include <simdjson.h>
 
 #include <cstdint>
@@ -17,17 +19,6 @@
 namespace raikiri::wire {
 
 namespace ondemand = simdjson::ondemand;
-
-enum class Error : std::uint8_t {
-    NotJson,
-    MissingField,
-    WrongType,
-    TooManyEntries,
-    UnknownMessage, // a topic, stream or event this adapter does not read
-    ShortArray,     // a positional frame shorter than its declared schema
-};
-
-[[nodiscard]] std::string_view to_string(Error err) noexcept;
 
 [[nodiscard]] Error map_error(simdjson::error_code ec) noexcept;
 

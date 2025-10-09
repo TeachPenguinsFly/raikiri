@@ -3,7 +3,7 @@
 // What the venue says this account is long or short.
 
 #include <raikiri/venues/deribit/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

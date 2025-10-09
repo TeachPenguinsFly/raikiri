@@ -1,5 +1,6 @@
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::kraken {
 

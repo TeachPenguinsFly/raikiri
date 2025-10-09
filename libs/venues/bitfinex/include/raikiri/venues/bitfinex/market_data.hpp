@@ -7,7 +7,7 @@
 // struct is the schema — there are no field names on the wire to fall back on.
 
 #include <raikiri/venues/bitfinex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

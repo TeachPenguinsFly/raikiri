@@ -1,4 +1,5 @@
 #include <raikiri/venues/binance/catalogue.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <array>
 

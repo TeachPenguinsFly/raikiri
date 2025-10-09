@@ -5,7 +5,7 @@
 // the day's turnover at once.
 
 #include <raikiri/venues/hyperliquid/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

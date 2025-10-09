@@ -1,6 +1,7 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
 #include <raikiri/venues/kucoin/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

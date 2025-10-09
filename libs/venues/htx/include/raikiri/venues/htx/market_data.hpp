@@ -5,7 +5,7 @@
 // publishes no spot equivalent this adapter reads.
 
 #include <raikiri/venues/htx/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

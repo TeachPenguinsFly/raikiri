@@ -15,7 +15,7 @@
 // same arrays come back from REST.
 
 #include <raikiri/venues/bitfinex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

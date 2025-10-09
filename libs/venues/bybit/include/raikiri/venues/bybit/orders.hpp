@@ -9,7 +9,7 @@
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

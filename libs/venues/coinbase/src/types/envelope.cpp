@@ -1,4 +1,5 @@
 #include <raikiri/venues/coinbase/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::coinbase {
 

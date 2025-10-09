@@ -1,5 +1,6 @@
 #include <raikiri/venues/hyperliquid/envelope.hpp>
 #include <raikiri/venues/hyperliquid/market_data.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

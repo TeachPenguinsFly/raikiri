@@ -3,7 +3,7 @@
 // The account's own book: what the futures wallet holds, one coin per row.
 
 #include <raikiri/venues/xt/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

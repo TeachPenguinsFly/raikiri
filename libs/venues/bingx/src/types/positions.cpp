@@ -1,5 +1,6 @@
 #include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/positions.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bingx {
 

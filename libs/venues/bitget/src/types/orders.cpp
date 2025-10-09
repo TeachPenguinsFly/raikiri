@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bitget {
 

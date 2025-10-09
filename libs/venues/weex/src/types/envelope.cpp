@@ -1,4 +1,5 @@
 #include <raikiri/venues/weex/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::weex {
 

@@ -4,7 +4,7 @@
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/okx/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstdint>

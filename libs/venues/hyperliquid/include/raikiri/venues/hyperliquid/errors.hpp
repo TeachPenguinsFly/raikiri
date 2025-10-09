@@ -13,7 +13,7 @@
 // (verified live), so nothing but the body separates it from a real read.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <string_view>
 

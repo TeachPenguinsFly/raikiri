@@ -6,7 +6,7 @@
 // partial-column rule holds here too: an update carries only what moved.
 
 #include <raikiri/venues/bitmex/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

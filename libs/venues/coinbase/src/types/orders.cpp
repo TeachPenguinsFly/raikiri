@@ -1,4 +1,5 @@
 #include <raikiri/venues/coinbase/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

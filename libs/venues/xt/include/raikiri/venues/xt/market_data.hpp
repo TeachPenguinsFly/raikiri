@@ -7,7 +7,7 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/xt/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 #include <expected>

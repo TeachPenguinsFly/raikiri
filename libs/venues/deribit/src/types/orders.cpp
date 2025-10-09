@@ -1,5 +1,6 @@
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/orders.hpp>
+#include <raikiri/wire/json.hpp>
 
 #include <utility>
 

@@ -14,7 +14,7 @@
 // the API reference and stay provisional until seen.
 
 #include <raikiri/exec/error.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <cstdint>
 

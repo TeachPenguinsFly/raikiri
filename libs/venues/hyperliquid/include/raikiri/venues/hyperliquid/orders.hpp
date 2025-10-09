@@ -4,7 +4,7 @@
 // what /exchange said about the write that put it there.
 
 #include <raikiri/venues/hyperliquid/errors.hpp>
-#include <raikiri/wire/json.hpp>
+#include <raikiri/wire/error.hpp>
 
 #include <array>
 #include <cstddef>

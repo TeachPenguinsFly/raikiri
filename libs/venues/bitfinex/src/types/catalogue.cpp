@@ -1,5 +1,6 @@
 #include <raikiri/venues/bitfinex/catalogue.hpp>
 #include <raikiri/venues/bitfinex/envelope.hpp>
+#include <raikiri/wire/json.hpp>
 
 namespace raikiri::venues::bitfinex {
 
