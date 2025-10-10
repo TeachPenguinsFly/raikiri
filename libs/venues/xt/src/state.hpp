@@ -33,11 +33,12 @@ namespace raikiri::venues::xt::detail {
 constexpr std::size_t k_max_live_orders = 8'192;
 
 // A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
+// instrument table's views outlive nothing in particular. The topic's trailing
+// params are not kept: this is a set that answers "already asked", and the
+// pool holds the keys the frames are rebuilt from.
 struct OwnedSubscription {
     std::string channel;
     std::string symbol;
-    std::string params;
 };
 
 // State every xt connection shares within one gateway process. Single threaded
@@ -62,6 +63,11 @@ struct VenueState {
     Protocol protocol;
 
     std::vector<OwnedSubscription> desired;
+
+    // XT closes a socket that has sent nothing for 30 s however much it
+    // received, and counts only CLIENT messages — the public pool's sockets
+    // are no exception.
+    std::uint64_t next_app_ping_ns{0};
 
     std::vector<std::string> funding_symbols;
     std::size_t funding_cursor{0};
@@ -111,14 +117,14 @@ struct VenueState {
     // Keyed by the venue order id, the one field every frame does carry.
     std::unordered_map<std::string, OrderContext> live_orders;
 
-    void add_subscription(const Topic& topic, std::string_view symbol) {
+    bool add_subscription(std::string_view channel, std::string_view symbol) {
         for (const auto& existing : desired) {
-            if (existing.channel == topic.channel && existing.symbol == symbol) {
-                return; // refcounting lives in the gateway core; this is a set
+            if (existing.channel == channel && existing.symbol == symbol) {
+                return false; // refcounting lives in the gateway core; this is a set
             }
         }
-        desired.emplace_back(
-            std::string{topic.channel}, std::string{symbol}, std::string{topic.params});
+        desired.emplace_back(std::string{channel}, std::string{symbol});
+        return true;
     }
 
     // Takes the tree explicitly rather than reading `market`: the two XT

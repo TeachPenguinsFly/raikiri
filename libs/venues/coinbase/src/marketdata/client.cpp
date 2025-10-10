@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/coinbase/book.hpp>
 #include <raikiri/venues/coinbase/envelope.hpp>
 #include <raikiri/venues/coinbase/errors.hpp>
@@ -12,9 +13,11 @@
 #include <raikiri/venues/coinbase/rest.hpp>
 #include <raikiri/venues/coinbase/ws.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,6 +33,21 @@ namespace {
 // only frame that can start a book. Sized for a book several times that
 // rather than for the one measured; the value is a ceiling, not a buffer.
 constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
+
+// Coinbase allows 8 subscribe/unsubscribe frames a second PER IP, and that is
+// the one place the pool's pacing has to be told the difference: its spacing
+// is per connection, while every socket here spends the SAME budget. Each
+// gets 1/k_max_connections of it, with a fifth held back.
+constexpr std::uint64_t k_ip_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
+
+// Room for Coinbase's whole product list to more than double: eight sockets
+// at the 512 keys ws.hpp gives one is 4096, which is 1365 products across
+// ticker, matches and level2_batch — against the 522 online today, and
+// against the 837 the venue lists at all with the delisted counted in.
+// Today's catalogue is 1566 keys and takes four of the eight.
+constexpr std::size_t k_max_connections = 8;
+
+constexpr std::uint64_t k_subscribe_spacing_ns = k_ip_subscribe_spacing_ns * k_max_connections;
 
 // The book's own ts_event: every Coinbase timestamp is ISO-8601 text, and an
 // unreadable one falls back to ingest rather than to zero.
@@ -130,33 +148,40 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// A pool key is one channel on one product, joined by a byte neither can
+// contain. The pool stores keys as opaque strings and hands them back when a
+// socket reconnects, so this is the only place that knows the shape.
+constexpr char k_key_sep = '\x1f';
+
+[[nodiscard]] std::string key_of(std::string_view channel, std::string_view product_id) {
+    std::string key{channel};
+    key.push_back(k_key_sep);
+    key.append(product_id);
+    return key;
+}
+
+// The inverse, and the only decode: two readers of a key that disagree about
+// where the cut falls drift apart in silence. Views into the key, which the
+// pool owns for as long as the connection holds it.
+[[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
+    const auto cut = key.find(k_key_sep);
+    if (cut == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return Subscription{.channel = key.substr(0, cut), .product_id = key.substr(cut + 1)};
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
+    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
+    // re-asks for its own keys when it opens; replaying the whole desired set
+    // on every one of them is the flood the pool exists to avoid. This handler
+    // is shared by every connection and so cannot tell WHICH one reopened —
+    // the books a reopen actually broke are invalidated by the pool's own open
+    // hook, which is handed that socket's keys.
     void on_open() override {
-        std::vector<Subscription> views;
-        views.reserve(state_->desired.size());
-        for (const auto& entry : state_->desired) {
-            views.push_back({.channel = entry.channel, .product_id = entry.product_id});
-        }
-        std::size_t sent = 0;
-        while (sent < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(sent));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
-        }
-        // A fresh snapshot is coming and it replaces the book wholesale; what
-        // is held now describes a subscription that no longer exists.
-        for (auto& [id, book] : state_->books) {
-            book.invalidate();
-        }
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
     }
@@ -170,38 +195,42 @@ public:
             {.state = exec::ConnState::Disconnected, .stream_id = 0, .ts = state_->clock->wall()});
     }
 
-    void attach(net::WsClient& client) noexcept { client_ = &client; }
-
 private:
     VenueState* state_;
-    net::WsClient* client_{nullptr};
 };
 
 class CoinbaseData final : public exec::DataClient {
 public:
     explicit CoinbaseData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          client_{state_->io,
-                  net::WsConfig{.host = std::string{stream_host()},
-                                .port = std::string{stream_port()},
-                                .target = std::string{stream_path()},
-                                .max_message_bytes = k_max_message_bytes},
-                  handler_} {
-        handler_.attach(client_);
-    }
+          pool_{state_->io,
+                net::WsConfig{.host = std::string{stream_host()},
+                              .port = std::string{stream_port()},
+                              .target = std::string{stream_path()},
+                              .max_message_bytes = k_max_message_bytes},
+                handler_,
+                // The ceiling is a CONNECTION's, not the process's — reading
+                // it as the process's left 342 of 522 products watched and the
+                // other 180 rows blank. ws.hpp has what one socket was
+                // measured to serve and why the share it is given is smaller.
+                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
+                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .max_connections = k_max_connections},
+                [this](std::span<const std::string> keys) { return build_frames(keys); },
+                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
-        client_.start();
+        pool_.start();
         started_ = true;
         return {};
     }
 
     void stop() override {
-        client_.stop();
+        pool_.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return client_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
@@ -214,33 +243,97 @@ public:
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
-            return std::unexpected{exec::VenueError::make(
-                exec::ErrorClass::Terminal, 0, "subscription limit reached")};
+        if (!state_->add_subscription(channel, symbol)) {
+            return {}; // already asked for, and a second key would cost a socket's room
         }
-        state_->add_subscription(channel, symbol);
-        if (client_.connected()) {
-            const std::array<Subscription, 1> one{
-                Subscription{.channel = channel, .product_id = symbol}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+        // THE POOL PLACES IT. A key that fits on no existing socket opens
+        // another, and only the pool's own ceiling refuses — which is said out
+        // loud rather than leaving the instrument silently unwatched.
+        const std::array<std::string, 1> one{key_of(channel, symbol)};
+        if (!pool_.subscribe(one)) {
+            return std::unexpected{exec::VenueError::make(
+                exec::ErrorClass::Terminal, 0, "coinbase: connection pool is full")};
         }
         return {};
     }
 
+    // No application keepalive, unlike the other pooled venues: Coinbase's
+    // feed has no ping message at all, and the transport's own ping/pong runs
+    // per socket already.
     void poll(UnixNanos now) noexcept override {
-        (void)now;
         if (!started_) {
             return;
         }
         state_->io.poll();
+        pool_.poll(now);
     }
 
 private:
+    // ONLY THE BOOKS THIS SOCKET FEEDS. level2_batch carries no sequence, so a
+    // book that misses frames leaves no arithmetic trace — a reopened socket's
+    // books are worthless until the venue's fresh snapshot lands, and the
+    // books on every OTHER socket are still being fed. Blanking all of them
+    // would silence a few hundred products until their own socket happened to
+    // blink. The channel is checked as well as the product: a product's ticker
+    // may sit on a different socket from its level2_batch, and only the latter
+    // holds a book.
+    void invalidate_books(std::span<const std::string> keys) {
+        const auto depth = channel_for(exec::SubKind::Depth);
+        for (const auto& key : keys) {
+            const auto one = split_key(key);
+            if (!one.has_value() || one->channel != depth) {
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(one->product_id);
+            if (instrument == nullptr) {
+                continue;
+            }
+            // find, not book_for: a key with no book yet has nothing stale in
+            // it, and seeding one here would invent a book nothing feeds.
+            if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
+                entry != state_->books.end()) {
+                entry->second.invalidate();
+            }
+        }
+    }
+
+    // Turns one connection's keys back into the frames that ask for them.
+    // Called on every open of that socket, which is why the quote channel is
+    // ordered here rather than at subscribe time: on a reconnect the order that
+    // matters is the order the venue is asked in.
+    [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        std::vector<Subscription> views;
+        views.reserve(keys.size());
+        for (const auto& key : keys) {
+            if (const auto one = split_key(key); one.has_value()) {
+                views.push_back(*one);
+            }
+        }
+        // THE QUOTE FIRST. Once the sends are paced, whatever goes last
+        // effectively does not go at all — and `ticker` is the Bid/Ask column
+        // every screen shows, while level2_batch answers a subscription with a
+        // megabyte of ladder before it says anything else.
+        const auto quote = channel_for(exec::SubKind::Bbo);
+        std::ranges::stable_partition(
+            views, [quote](const Subscription& one) { return one.channel == quote; });
+
+        std::vector<std::string> frames;
+        std::size_t built = 0;
+        while (built < views.size()) {
+            const auto frame = state_->protocol.subscribe_frame(
+                std::span<const Subscription>{views}.subspan(built));
+            if (!frame.has_value() || frame->consumed == 0) {
+                break;
+            }
+            frames.emplace_back(frame->text);
+            built += frame->consumed;
+        }
+        return frames;
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
-    net::WsClient client_;
+    net::WsPool pool_;
     bool started_{false};
 };
 

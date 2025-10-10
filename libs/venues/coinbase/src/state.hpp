@@ -91,13 +91,17 @@ struct VenueState {
         return at == client_ids.end() ? ExchangeClientOrderId{} : at->second;
     }
 
-    void add_subscription(std::string_view channel, std::string_view product_id) {
+    // False when the pair was already asked for. The pool must not be handed
+    // the same key twice: it counts keys against a socket's room and would
+    // spend it on a subscription the venue already holds.
+    [[nodiscard]] bool add_subscription(std::string_view channel, std::string_view product_id) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.product_id == product_id) {
-                return; // refcounting lives in the gateway core; this is a set
+                return false; // refcounting lives in the gateway core; this is a set
             }
         }
         desired.emplace_back(std::string{channel}, std::string{product_id});
+        return true;
     }
 
     Book& book_for(const InstrumentBase& base) {

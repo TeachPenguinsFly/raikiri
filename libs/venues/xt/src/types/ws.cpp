@@ -66,6 +66,10 @@ Topic ticker_topic() noexcept {
     return {.channel = "ticker", .params = {}};
 }
 
+std::string_view Protocol::ping_frame() noexcept {
+    return "ping";
+}
+
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::method_frame(std::string_view method, std::span<const Subscription> subscriptions) {
     if (subscriptions.empty()) {

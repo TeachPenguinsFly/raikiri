@@ -55,7 +55,26 @@ struct Subscription {
     std::string_view params;
 };
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
+// What ONE connection carries. XT documents no such number, AND IT NEVER
+// REFUSES A SUBSCRIPTION EITHER: every ask was acked `code: 0` at every count
+// tried, up to the whole catalogue on one socket. A socket asked for too much
+// is RESET instead — no close frame, no error, WsCloseReason Transport — and
+// everything it carried goes silent until the reconnect has re-asked for it.
+//
+// MEASURED 2026-09-08 against both trees, 90 s a run, counting the distinct
+// instruments that ever delivered and the resets each geometry cost:
+//
+//     keys/socket   sockets   resets in 90 s   spot bbo
+//         1458          1           2           20 386
+//          512          3           3           18 981
+//          256          6           2           35 341
+//          192          8           0           41 944
+//          128         12           0           41 702
+//
+// 192 is the largest that held the plateau; 256 does not, and the 1024 this
+// used to claim cost 342 of 486 spot pairs and 256 of 657 perpetuals — refused
+// by the adapter's own arithmetic before XT was asked anything.
+inline constexpr std::size_t k_max_subscriptions_per_connection = 192;
 // XT documents no per-frame ceiling and refused none up to five; this is a
 // self-imposed bound so one malformed batch cannot cost every subscription.
 inline constexpr std::size_t k_max_subscriptions_per_frame = 32;
@@ -66,6 +85,13 @@ public:
         std::string_view text;
         std::size_t consumed{0};
     };
+
+    // A TEXT frame, not a websocket ping, and the PUBLIC socket needs it as
+    // much as the private one: MEASURED against stream.xt.com/public, a
+    // connection answering XT's own control pings and receiving a push every
+    // few hundred milliseconds was still closed with 1000 "Bye" at 30.6 s. It
+    // is what the client SENDS that resets the timer.
+    [[nodiscard]] static std::string_view ping_frame() noexcept;
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const Subscription> subscriptions);

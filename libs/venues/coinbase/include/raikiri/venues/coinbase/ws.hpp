@@ -46,8 +46,26 @@ struct Subscription {
 // Coinbase caps subscribe/unsubscribe traffic at 8 messages per second per
 // IP, so subscriptions batch: one frame per instrument would spend that
 // budget on eight symbols.
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
 inline constexpr std::size_t k_max_subscriptions_per_frame = 64;
+
+// What ONE socket in the pool is given, and it is not a number Coinbase
+// publishes — it documents no per-connection subscription ceiling, and
+// MEASUREMENT found none either. On 2026-09-08 a single connection to
+// ws-feed.exchange.coinbase.com was asked for 1566 keys, every one of the 522
+// online products on ticker, matches and level2_batch: the venue acked 522 on
+// each channel and SERVED all of them — 522 distinct products delivered a
+// ticker frame and 522 delivered a level2 snapshot inside 60 s, with no error
+// and no close. Padded to 2610 keys with heartbeat and ticker_batch the same
+// socket still acked 522 per channel and dropped nothing.
+//
+// So 512 is a SHARE of a socket, not its limit, and what decides the share is
+// the 8 frames a second the IP is allowed: the pool paces per connection, so
+// spreading the catalogue over four sockets spends that budget four ways and
+// has the whole of it subscribed in a quarter of the time one socket takes.
+// A reopened socket also drags only its own quarter of the books down with
+// it. The number this replaced was 1024, read off nothing, and applied to the
+// PROCESS — which is what refused 180 of 522 products.
+inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
 
 class Protocol {
 public:
