@@ -53,6 +53,57 @@ struct ChannelBinding {
     SymbolText symbol{};
 };
 
+// THE CHANNEL IDS OF ONE CONNECTION, AND OF NO OTHER.
+//
+// Bitfinex answers a subscription with a number and keys every later data
+// frame by that number alone — no symbol, no channel name — so this map is
+// what turns a frame into an instrument. The number belongs to the SERVER the
+// socket landed on rather than to the socket: MEASURED 2026-09-08 over
+// eighteen simultaneous connections, two of them shared a server and were
+// handed 215923..215925 and 215926..215940 out of one sequence, while sockets
+// on other servers drew blocks as close as 329 apart from a range spanning
+// 109k to 288k. Nothing keeps two of those counters from meeting.
+//
+// So one registry for a pool of sockets is a registry that will one day answer
+// a book frame with another instrument's name. One per connection, and the
+// handler that owns it is its only reader.
+struct ChannelRegistry {
+    std::array<ChannelBinding, k_max_subscriptions_per_connection> entries{};
+    std::size_t count{0};
+
+    [[nodiscard]] std::span<const ChannelBinding> bound() const noexcept {
+        return {entries.data(), count};
+    }
+
+    void bind(std::int64_t chan_id, ChannelKind kind, SymbolText symbol) noexcept {
+        const ChannelBinding entry{.chan_id = chan_id, .kind = kind, .symbol = symbol};
+        for (auto& existing : std::span<ChannelBinding>{entries.data(), count}) {
+            if (existing.chan_id == chan_id) {
+                existing = entry;
+                return;
+            }
+        }
+        if (count == entries.size()) {
+            return;
+        }
+        entries[count] = entry;
+        ++count;
+    }
+
+    [[nodiscard]] const ChannelBinding* find(std::int64_t chan_id) const noexcept {
+        for (const auto& existing : bound()) {
+            if (existing.chan_id == chan_id) {
+                return &existing;
+            }
+        }
+        return nullptr;
+    }
+
+    // Ids are reissued on every open of this socket and after the coded `info`
+    // notices, and the ids that stood before describe nothing now.
+    void clear() noexcept { count = 0; }
+};
+
 // State every bitfinex connection shares within one gateway process. Single
 // threaded by contract: the gateway loop is the only caller, which is why
 // nothing here synchronises.
@@ -69,12 +120,11 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    std::array<OwnedSubscription, k_max_subscriptions_per_connection> desired{};
-    std::size_t desired_count{0};
-
-    // THE MAP NO OTHER ADAPTER IN THIS REPO NEEDS.
-    std::array<ChannelBinding, k_max_subscriptions_per_connection> channels{};
-    std::size_t bound_count{0};
+    // Every key asked for ACROSS the pool's sockets, which is the set that
+    // answers "have we asked for this already" and nothing else. It was an
+    // array of thirty — one socket's worth — and that one number refused 173
+    // of bitfinex's 183 spot pairs a subscription.
+    std::vector<OwnedSubscription> desired;
 
     std::unordered_map<std::uint64_t, Book> books;
 
@@ -136,68 +186,21 @@ struct VenueState {
         return it == by_cid.end() ? ExchangeClientOrderId{} : it->second;
     }
 
-    [[nodiscard]] std::span<const OwnedSubscription> subscriptions() const noexcept {
-        return {desired.data(), desired_count};
-    }
-
-    [[nodiscard]] std::span<ChannelBinding> bindings() noexcept {
-        return {channels.data(), bound_count};
-    }
-
-    [[nodiscard]] std::span<const ChannelBinding> bindings() const noexcept {
-        return {channels.data(), bound_count};
-    }
-
-    bool add_subscription(ChannelKind kind, SymbolText symbol) noexcept {
-        for (const auto& existing : subscriptions()) {
+    // False when the key is already asked for: refcounting lives in the gateway
+    // core, and this is a set.
+    [[nodiscard]] bool add_subscription(ChannelKind kind, SymbolText symbol) {
+        for (const auto& existing : desired) {
             if (existing.kind == kind && existing.symbol == symbol) {
-                return true; // refcounting lives in the gateway core; this is a set
+                return false;
             }
         }
-        if (desired_count == desired.size()) {
-            return false;
-        }
-        desired[desired_count] = OwnedSubscription{.kind = kind, .symbol = symbol};
-        ++desired_count;
+        desired.push_back(OwnedSubscription{.kind = kind, .symbol = symbol});
         return true;
-    }
-
-    void bind(std::int64_t chan_id, ChannelKind kind, SymbolText symbol) noexcept {
-        const ChannelBinding entry{.chan_id = chan_id, .kind = kind, .symbol = symbol};
-        for (auto& existing : bindings()) {
-            if (existing.chan_id == chan_id) {
-                existing = entry;
-                return;
-            }
-        }
-        if (bound_count == channels.size()) {
-            return;
-        }
-        channels[bound_count] = entry;
-        ++bound_count;
-    }
-
-    // Channel ids are reissued on a reconnect and on the coded `info` notices,
-    // and the book that stood behind the old ids describes nothing now.
-    void rebind_from_scratch() noexcept {
-        bound_count = 0;
-        for (auto& [id, book] : books) {
-            book.invalidate();
-        }
     }
 
     Book& book_for(const InstrumentBase& base) {
         return books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
             .first->second;
-    }
-
-    [[nodiscard]] const ChannelBinding* binding(std::int64_t chan_id) const noexcept {
-        for (const auto& existing : bindings()) {
-            if (existing.chan_id == chan_id) {
-                return &existing;
-            }
-        }
-        return nullptr;
     }
 };
 

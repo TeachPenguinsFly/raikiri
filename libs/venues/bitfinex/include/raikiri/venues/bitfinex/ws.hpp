@@ -5,9 +5,8 @@
 //
 // THERE IS NO BATCH SUBSCRIBE. One `{"event":"subscribe",...}` object carries
 // exactly one channel, so a frame builder that takes a span would be lying
-// about what it can send. 40 ticker subscriptions on one socket were accepted
-// without a refusal (verified live), so the ceiling below is our own
-// conservatism rather than an observed wall.
+// about what it can send — and a connection's whole ask therefore costs its
+// channel count in sends, paced.
 //
 // UNSUBSCRIBE IS BY CHANNEL ID, not by name: `{"event":"unsubscribe",
 // "chanId":17470}`. The venue never accepts the symbol back, which is the
@@ -64,10 +63,9 @@ enum class ChannelKind : std::uint8_t {
 // way okx's bbo-tbt or binance's bookTicker are: over one minute on tBTCUSD it
 // pushed 5 frames while `book` at P0/F0 pushed 1261, and both are the same top
 // of book. So a BBO sourced here is roughly a 12-second sample, not a quote
-// stream. `book` is the fix and this adapter already parses it; what it also
-// needs is a local book kept per instrument, which is state no other adapter
-// here carries and is out of scope for market data. Recorded so the next
-// person measures the alternative instead of rediscovering the number.
+// stream. THE FAST ONE ARRIVES ANYWAY: the depth subscription keeps a local
+// book per instrument and publishes its touch as a BBO beside this one, so
+// what the ticker channel alone still carries is the 24-hour figure.
 [[nodiscard]] ChannelKind kind_for(exec::SubKind kind) noexcept;
 
 // "deriv:tBTCF0:USTF0" -> "tBTCF0:USTF0"; empty for any other key prefix. The
@@ -80,9 +78,21 @@ struct Subscription {
     std::string_view symbol; // "tBTCUSD"
 };
 
-// Bitfinex documents a per-connection channel limit; 40 were accepted live, so
-// this is a safety valve rather than the venue's number.
-inline constexpr std::size_t k_max_subscriptions_per_connection = 30;
+// WHAT ONE CONNECTION IS SERVED, MEASURED RATHER THAN READ.
+//
+// Bitfinex documents 25 on one page of its own reference and 30 on another.
+// Neither is what it serves: on 2026-09-08 nine sockets were each asked for
+// more than either, and six stopped at exactly 36 while three took 56, every
+// one of them answering the rest with `10305 subscribe: limit`. Which tier a
+// socket gets is the venue's choice of server — the connections were opened
+// the same way, seconds apart — so the FLOOR is the only number that can be
+// asked for.
+//
+// The refusal is loud, which is what makes 36 safe to take rather than merely
+// plausible: a server stingier than the floor answers 10305, counted in
+// VenueState::subscribe_refusals, instead of accepting the ask and serving
+// nothing the way kucoin's 100-channel wall did.
+inline constexpr std::size_t k_max_subscriptions_per_connection = 36;
 
 class Protocol {
 public:
