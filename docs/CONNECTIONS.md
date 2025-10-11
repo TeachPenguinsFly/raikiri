@@ -238,17 +238,37 @@ are REFUSED out loud instead of dropped by the venue in silence.
 
 ### What is still missing, per venue
 
-**coinbase, xt, hyperliquid, bitfinex — the pool, and nothing else.** All four
-run one `net::WsClient` with a per-connection ceiling, and all four hit it
-exactly: coinbase 342 x 3 channels = 1026 against a 1024 cap; xt the
-same 342 x 3, because its `depth` topic answers the quote and the book
-together; hyperliquid 250 x 4 = 1000 against the venue's documented 1000;
-bitfinex 10 x 3 = 30 against a 30-channel socket. Nothing is wrong with their dialects —
-what they subscribe to works, and the instruments below the cut are simply never
-asked for. Each needs the `net::WsPool` migration that gate, okx, bybit, kucoin,
-bingx, bitget and mexc have already had. Bitfinex needs it most: 183 pairs at 30
-channels a socket is ~19 connections, and it is currently watching 5% of its
-catalogue.
+**coinbase, xt, hyperliquid and bitfinex are on the pool now**, measured
+2026-09-08. Every one of the four was refusing its own catalogue to a number
+nobody had measured, and every one hid a different second defect behind that:
+
+| venue | before | after | what the ceiling was hiding |
+| --- | ---: | ---: | --- |
+| coinbase | 342 of 522 | **522** | 1024 read off nothing, applied to the PROCESS |
+| xt spot | 342 of 486 | **486** | the public socket closed every 30 s, unnoticed |
+| xt perp | 256 of 657 | **657** | the same |
+| hyperliquid | 250 of 326 | **326** | a 256-slot send queue ate 74% of the ask |
+| bitfinex | 10 of 183 | **183** | `desired` was a 30-slot array used as a process cap |
+
+**Three of the four answer an over-subscription in a way nothing above could
+see.** XT never refuses at all — it RESETS the socket, so a ceiling set too high
+appears only as reconnect churn and lost throughput. hyperliquid refuses on a
+channel called `error` and keeps serving the thousand it took. bitfinex answers
+`10305` on some servers and not others, because a connection's tier is the
+server's choice and each reports a different `serverId`. Only a count of
+DISTINCT INSTRUMENTS DELIVERING separates any of them from a quiet market.
+
+Two findings worth carrying beyond their venues:
+
+- **bitfinex channel ids belong to a SERVER, not to a socket.** Two connections
+  landing on one server draw from one sequence, and connections on different
+  servers were measured 329 apart. A registry shared across a pool would
+  eventually serve one instrument's book under another's name, so the adapter
+  runs one pool per socket and each keeps its own registry.
+- **hyperliquid's `l2Book` is a heartbeat, not an event** — a full snapshot
+  every ~5 s whether the book moved or not — and `trades` replays a backlog on
+  subscribe. Neither channel's rate says anything about activity, which is how
+  a sample of the catalogue's dormant end read as a working venue.
 
 **mexc — the pool, but more of it.** 16 sockets at the venue's real 30 keys is
 480 keys, which is 160 of 375 pairs. Covering the catalogue needs 38 sockets and

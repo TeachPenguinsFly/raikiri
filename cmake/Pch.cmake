@@ -35,23 +35,32 @@ function(_raikiri_pch_targets dir out)
   set(${out} "${targets}" PARENT_SCOPE)
 endfunction()
 
+# ANCHORED TO RAIKIRI, NOT TO THE BUILD'S ROOT.
+#
+# `CMAKE_SOURCE_DIR` is the top of whatever build is running, and raikiri is
+# meant to be added as a subproject by a repository that keeps its own code
+# private. Under such a build every path below resolved into the OTHER
+# repository, and the PCH failed on a header that was never there — which is
+# the framework breaking exactly the consumer it exists for.
+set(RAIKIRI_PCH_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
+
 function(raikiri_enable_pch)
   set(stub "${CMAKE_BINARY_DIR}/raikiri_pch.cpp")
   file(WRITE "${stub}" "// generated: carrier TU for the shared precompiled headers\n")
 
   add_library(raikiri_pch STATIC "${stub}")
-  target_precompile_headers(raikiri_pch PRIVATE "${CMAKE_SOURCE_DIR}/cmake/pch_std.hpp")
+  target_precompile_headers(raikiri_pch PRIVATE "${RAIKIRI_PCH_ROOT}/cmake/pch_std.hpp")
 
   add_library(raikiri_pch_json STATIC "${stub}")
   target_link_libraries(raikiri_pch_json PRIVATE simdjson::simdjson)
-  target_precompile_headers(raikiri_pch_json PRIVATE "${CMAKE_SOURCE_DIR}/cmake/pch_json.hpp")
+  target_precompile_headers(raikiri_pch_json PRIVATE "${RAIKIRI_PCH_ROOT}/cmake/pch_json.hpp")
 
   add_library(raikiri_pch_tests STATIC "${stub}")
   target_link_libraries(raikiri_pch_tests PRIVATE GTest::gtest)
-  target_precompile_headers(raikiri_pch_tests PRIVATE "${CMAKE_SOURCE_DIR}/cmake/pch_tests.hpp")
+  target_precompile_headers(raikiri_pch_tests PRIVATE "${RAIKIRI_PCH_ROOT}/cmake/pch_tests.hpp")
 
   set(carriers raikiri_pch raikiri_pch_json raikiri_pch_tests)
-  _raikiri_pch_targets("${CMAKE_SOURCE_DIR}" all_targets)
+  _raikiri_pch_targets("${RAIKIRI_PCH_ROOT}" all_targets)
   foreach(t IN LISTS all_targets)
     if(t IN_LIST carriers)
       continue()
@@ -62,7 +71,7 @@ function(raikiri_enable_pch)
     endif()
     get_target_property(src_dir ${t} SOURCE_DIR)
     get_target_property(links ${t} LINK_LIBRARIES)
-    if(src_dir MATCHES "^${CMAKE_SOURCE_DIR}/tests")
+    if(src_dir MATCHES "/tests")
       target_precompile_headers(${t} REUSE_FROM raikiri_pch_tests)
     elseif(links MATCHES "simdjson")
       target_precompile_headers(${t} REUSE_FROM raikiri_pch_json)
