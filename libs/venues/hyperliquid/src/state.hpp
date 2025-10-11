@@ -74,13 +74,18 @@ struct VenueState {
 
     std::uint64_t subscribe_refusals{0};
 
-    void add_subscription(std::string_view channel, std::string_view coin) {
+    // False when the pair was already asked for, so a caller does not place a
+    // second pool key for it: Funding and MarkPrice both name activeAssetCtx,
+    // and a set that answered the same to both would spend two of a
+    // connection's thousand on one subscription.
+    [[nodiscard]] bool add_subscription(std::string_view channel, std::string_view coin) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.coin == coin) {
-                return; // refcounting lives in the gateway core; this is a set
+                return false; // refcounting lives in the gateway core; this is a set
             }
         }
         desired.emplace_back(std::string{channel}, std::string{coin});
+        return true;
     }
 };
 

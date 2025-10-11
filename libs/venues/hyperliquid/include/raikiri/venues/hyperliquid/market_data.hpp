@@ -45,6 +45,12 @@ parse_trades(std::string_view frame, TradeBuffer& storage);
 // against a CEX's 8h rate is a factor of eight, the most expensive misreading
 // available on this venue. mid_price is null on a delisted asset (MATIC), and
 // there is NO timestamp on either transport, so ts_event falls back to ingest.
+//
+// A SPOT pair's context is the same object minus the fields a spot market has
+// no answer for — funding, open interest and the oracle price are absent, not
+// zero — so the mapper declines to publish a rate for it and publishes only the
+// turnover and the mark. It arrives on `activeSpotAssetCtx`, which is a channel
+// name and not a second shape.
 struct WireAssetCtx {
     std::string_view coin; // empty on the REST rows: see parse_asset_ctxs
     std::string_view funding;

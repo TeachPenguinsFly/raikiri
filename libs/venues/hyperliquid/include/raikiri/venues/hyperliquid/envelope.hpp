@@ -23,7 +23,7 @@ enum class EventKind : std::uint8_t {
     Bbo,      // bbo — tick-by-tick top of book
     Trade,    // trades
     Book,     // l2Book — full depth SNAPSHOTS, never deltas
-    AssetCtx, // activeAssetCtx — mark, funding, oracle and open interest
+    AssetCtx, // activeAssetCtx and activeSpotAssetCtx — mark, funding, turnover
     SubscribeAck,
     Pong,
     Error,

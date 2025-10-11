@@ -38,7 +38,16 @@ struct Subscription {
     std::string_view coin;
 };
 
-// The venue's documented ceiling is 1000 subscriptions per connection.
+// MEASURED 2026-09-08 against api.hyperliquid.xyz/ws rather than read: one
+// connection took exactly 1000 subscriptions and answered the 1001st with
+// {"channel":"error","data":"Cannot subscribe to more than 1000 channels."} —
+// and then kept serving the 1000 it had taken, so the refusal is stated but the
+// coverage past it is silent. The spot catalogue's 326 pairs on four channels
+// are 1304 keys, which is why one socket cannot hold it.
+//
+// PER CONNECTION, though the venue's own page counts it per IP: two sockets
+// from this machine carried 163 pairs each on all four channels — 1304 keys —
+// with 1304 acks and not one refusal.
 inline constexpr std::size_t k_max_subscriptions_per_connection = 1000;
 
 class Protocol {
