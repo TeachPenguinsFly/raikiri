@@ -1027,12 +1027,13 @@ TEST(HyperliquidMap, SpotPairsLoadFromTheirBaseTokenPrecision) {
     const auto body = fixture("rest_spot_meta.json");
     const auto pairs = parse_spot_meta(body, *storage);
     ASSERT_TRUE(pairs.has_value());
-    ASSERT_EQ(pairs->size(), 3U);
+    ASSERT_EQ(pairs->size(), 7U);
 
     // The pair row names its tokens by index and carries no precision of its
     // own; szDecimals lives on the base TOKEN.
     EXPECT_EQ((*pairs)[1].name, "@107");
     EXPECT_EQ((*pairs)[1].base, "HYPE");
+    EXPECT_EQ((*pairs)[1].quote, "USDC");
     EXPECT_EQ((*pairs)[1].index, 107);
     EXPECT_EQ((*pairs)[1].sz_decimals, 2);
 
@@ -1054,6 +1055,100 @@ TEST(HyperliquidMap, SpotPairsLoadFromTheirBaseTokenPrecision) {
     EXPECT_EQ(base_of(*purr).exchange_symbol.view(), "PURR/USDC");
     EXPECT_EQ(base_of(*purr).lot_size.raw, parse_decimal_e9("1")->raw);
     EXPECT_EQ(base_of(*purr).tick_size.raw, parse_decimal_e9("0.00000001")->raw);
+}
+
+TEST(HyperliquidMap, SpotPairsAreNamedByBothTokensAndNotByTheBaseAlone) {
+    // HYPE is listed FOUR times against four different quote tokens, and they
+    // are four separate books at four separate prices — 85.8975 on @107 against
+    // 85.912 on @207 the day this fixture was captured. A name taken from the
+    // base token alone calls all four "HYPE/USDC", and local_symbol is the join
+    // key a cross-venue board pairs on: four candidates for one leg.
+    auto storage = std::make_unique<SpotAssetBuffer>();
+    const auto body = fixture("rest_spot_meta.json");
+    const auto pairs = parse_spot_meta(body, *storage);
+    ASSERT_TRUE(pairs.has_value());
+
+    const auto name_of = [&pairs](std::string_view coin) {
+        std::string found;
+        for (const auto& pair : *pairs) {
+            if (pair.name != coin) {
+                continue;
+            }
+            const auto instrument = map_spot_instrument(pair);
+            EXPECT_TRUE(instrument.has_value()) << coin;
+            if (instrument.has_value()) {
+                found = std::string{base_of(*instrument).local_symbol.view()};
+            }
+        }
+        return found;
+    };
+    EXPECT_EQ(name_of("@107"), "HYPE/USDC");
+    EXPECT_EQ(name_of("@207"), "HYPE/USDT0");
+    EXPECT_EQ(name_of("@232"), "HYPE/USDH");
+    EXPECT_EQ(name_of("@255"), "HYPE/USDE");
+    // AXL lists against USDH and against nothing else, so refusing the rows
+    // that do not quote USDC would hide a market rather than de-duplicate one.
+    EXPECT_EQ(name_of("@252"), "AXL/USDH");
+    // The quote token names the pair and nothing else: both steps still come
+    // from the BASE token, whose szDecimals is 2 on all five of these rows.
+    const auto usdh = map_spot_instrument((*pairs)[3]);
+    ASSERT_TRUE(usdh.has_value());
+    EXPECT_EQ(base_of(*usdh).exchange_symbol.view(), "@232");
+    EXPECT_EQ(base_of(*usdh).lot_size.raw, parse_decimal_e9("0.01")->raw);
+    EXPECT_EQ(base_of(*usdh).tick_size.raw, parse_decimal_e9("0.000001")->raw);
+}
+
+TEST(HyperliquidMap, NoTwoSpotListingsShareOneCanonicalSymbol) {
+    // The invariant, over the whole catalogue rather than over the rows that
+    // broke it: one account cannot list one canonical symbol twice. A duplicate
+    // here is not a cosmetic repeat — a scanner pairing venues on local_symbol
+    // has several candidates for one leg and no rule that picks between them.
+    auto storage = std::make_unique<SpotAssetBuffer>();
+    const auto body = fixture("rest_spot_meta.json");
+    const auto pairs = parse_spot_meta(body, *storage);
+    ASSERT_TRUE(pairs.has_value());
+
+    std::vector<std::string> canonical;
+    std::vector<std::string> wire;
+    for (const auto& pair : *pairs) {
+        const auto instrument = map_spot_instrument(pair);
+        ASSERT_TRUE(instrument.has_value()) << pair.name;
+        canonical.emplace_back(base_of(*instrument).local_symbol.view());
+        wire.emplace_back(base_of(*instrument).exchange_symbol.view());
+    }
+    ASSERT_EQ(canonical.size(), pairs->size());
+    for (std::size_t i = 0; i < canonical.size(); ++i) {
+        for (std::size_t j = i + 1; j < canonical.size(); ++j) {
+            EXPECT_NE(canonical[i], canonical[j])
+                << "wire " << wire[i] << " and " << wire[j] << " collapse into one canonical name";
+        }
+    }
+}
+
+TEST(HyperliquidWire, ASpotPairNamingAnUncarriedTokenIsDropped) {
+    // Not a venue response: the live body carries every token its pairs name.
+    // A pair the mapper cannot name in full is dropped whichever SIDE is
+    // missing — loading it under a half-name would put a second "HYPE/" in the
+    // catalogue that no order could ever be routed by.
+    constexpr std::string_view k_body =
+        R"({"universe":[{"tokens":[1,0],"name":"@1","index":1,"isCanonical":false},)"
+        R"({"tokens":[1,9],"name":"@2","index":2,"isCanonical":false},)"
+        R"({"tokens":[9,0],"name":"@3","index":3,"isCanonical":false}],)"
+        R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
+        R"({"name":"PURR","szDecimals":0,"index":1}]})";
+    auto storage = std::make_unique<SpotAssetBuffer>();
+    const auto pairs = parse_spot_meta(k_body, *storage);
+    ASSERT_TRUE(pairs.has_value());
+    ASSERT_EQ(pairs->size(), 1U);
+    EXPECT_EQ((*pairs)[0].name, "@1");
+
+    // A row that is not [base, quote] is a pair model this adapter cannot name,
+    // and it fails the read rather than being skipped past quietly.
+    constexpr std::string_view k_three =
+        R"({"universe":[{"tokens":[1,0,1],"name":"@1","index":1,"isCanonical":false}],)"
+        R"("tokens":[{"name":"USDC","szDecimals":8,"index":0},)"
+        R"({"name":"PURR","szDecimals":0,"index":1}]})";
+    EXPECT_FALSE(parse_spot_meta(k_three, *storage).has_value());
 }
 
 TEST(HyperliquidMap, SpotAssetIdsSitTenThousandAboveThePerpSpace) {

@@ -75,7 +75,7 @@ naming a public address, and none of the responses echoes it back.
 | `rest_order_status.json` | `{"type":"orderStatus","user":"0x…","oid":527278286739}` |
 | `rest_order_status_unknown.json` | the same request with an oid the venue has never minted |
 | `rest_user_fills.json` | `{"type":"userFills","user":"0x…"}`, trimmed to five rows |
-| `rest_spot_meta.json` | `{"type":"spotMeta"}`, trimmed to three pairs and the four tokens behind them |
+| `rest_spot_meta.json` | `{"type":"spotMeta"}` (326 pairs, 500 tokens) trimmed to seven pairs and the eight tokens behind them |
 
 What each one is here to prove:
 
@@ -121,6 +121,17 @@ What each one is here to prove:
   spelled everywhere the venue mentions them. Their `index` is **not** their
   position in the array, and the asset id an order names is `10000 + index` —
   a different space, in which asset 107 is an unrelated perpetual.
+
+  The four `HYPE` rows are the reason this file grew. `tokens` is
+  `[base, quote]` and **the quote is not always USDC**: 17 of the 326 live pairs
+  settle in `USDH`, `USDT0` or `USDE`, and twelve of those bases also list
+  against USDC. `@107`, `@207`, `@232` and `@255` are one base token against
+  four quote tokens — four separate books at four separate prices, 85.8975 and
+  85.912 on the first two when this was captured — so a canonical name built
+  from the base alone gives one account four listings of "HYPE/USDC" and a
+  cross-venue join four candidates for one leg. `@252` is `AXL/USDH`, which
+  lists against **nothing else**: refusing the rows that do not quote USDC would
+  hide a market rather than de-duplicate one.
 
 ## REST — `POST /exchange`
 

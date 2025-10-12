@@ -130,24 +130,46 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (!members.has_value()) {
                 return std::unexpected(members.error());
             }
-            std::int64_t base = -1;
+            // [base, quote], and BOTH are read: the quote is NOT always USDC.
+            // Seventeen pairs settle in USDH, USDT0 or USDE, twelve of those
+            // bases also list against USDC, and a name taken from the first
+            // member alone calls four separate HYPE books "HYPE/USDC".
+            std::array<std::int64_t, 2> members_at{};
+            std::size_t read = 0;
             for (auto member : *members) {
-                std::int64_t value = 0;
-                if (const auto ec = member.get_int64().get(value); ec != simdjson::SUCCESS) {
+                if (read == members_at.size()) {
+                    return std::unexpected(WireError::TooManyEntries);
+                }
+                if (const auto ec = member.get_int64().get(members_at[read]);
+                    ec != simdjson::SUCCESS) {
                     return std::unexpected(detail::map_error(ec));
                 }
-                base = value;
-                break; // [base, quote]; the quote is USDC on every pair listed
+                ++read;
             }
-            if (base < 0 || static_cast<std::size_t>(base) >= tokens.size() ||
-                !tokens[static_cast<std::size_t>(base)].present) {
-                continue; // a pair whose base token this body did not carry
+            // A row that is not exactly two tokens is a pair model this adapter
+            // cannot name, not one row to skip past.
+            if (read != members_at.size()) {
+                return std::unexpected(WireError::MissingField);
             }
-            const auto& token = tokens[static_cast<std::size_t>(base)];
+            const auto resolve = [&](std::int64_t at) -> const Token* {
+                if (at < 0 || static_cast<std::size_t>(at) >= tokens.size()) {
+                    return nullptr;
+                }
+                const auto& token = tokens[static_cast<std::size_t>(at)];
+                return token.present ? &token : nullptr;
+            };
+            const auto* base = resolve(members_at[0]);
+            const auto* quote = resolve(members_at[1]);
+            if (base == nullptr || quote == nullptr) {
+                continue; // a pair naming a token this body did not carry
+            }
+            // Both steps derive from the BASE token's precision; the quote is
+            // carried for the name and nothing else.
             storage.assets[count] = {.name = *name,
-                                     .base = token.name,
+                                     .base = base->name,
+                                     .quote = quote->name,
                                      .index = *index,
-                                     .sz_decimals = token.sz_decimals};
+                                     .sz_decimals = base->sz_decimals};
             ++count;
         }
         return std::span<const WireSpotAsset>{storage.assets.data(), count};

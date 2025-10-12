@@ -467,18 +467,22 @@ std::optional<Instrument> map_spot_instrument(const WireSpotAsset& wire) {
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    // Every listed pair quotes USDC, so the readable name is the base token's.
-    // `name` is an index no human or sibling catalogue would recognise.
-    constexpr std::string_view k_quote = "/USDC";
+    // The readable name is BOTH token names, because the quote is not always
+    // USDC. HYPE lists against USDC, USDT0, USDH and USDE — four books at four
+    // prices — and naming them all "HYPE/USDC" hands a board joining venues on
+    // local_symbol four candidates for one leg with no way to choose. The wire
+    // `name` cannot stand in: it is an index no sibling catalogue would know.
     std::array<char, sizeof(SymbolText::data)> local{};
-    if (wire.base.size() + k_quote.size() > local.size()) {
+    if (wire.base.empty() || wire.quote.empty() ||
+        wire.base.size() + 1 + wire.quote.size() > local.size()) {
         return std::nullopt;
     }
     std::size_t at = 0;
     for (const char c : wire.base) {
         local[at++] = c;
     }
-    for (const char c : k_quote) {
+    local[at++] = '/';
+    for (const char c : wire.quote) {
         local[at++] = c;
     }
     const auto local_symbol = SymbolText::from(std::string_view{local.data(), at});

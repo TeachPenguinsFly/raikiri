@@ -44,18 +44,23 @@ struct AssetBuffer {
 [[nodiscard]] std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view body,
                                                                               AssetBuffer& storage);
 
-// One tradable spot pair with the BASE token's szDecimals already resolved.
-// The pair row names its tokens by INDEX and the size precision lives on the
-// token, so a mapper handed only the pair would have to guess the step.
+// One tradable spot pair with BOTH its token names and the BASE token's
+// szDecimals already resolved. The pair row names its tokens by INDEX and the
+// size precision lives on the token, so a mapper handed only the pair would
+// have to guess the step.
 //
 // `name` is the wire coin, and it is NOT the pair's human name: every pair but
 // the canonical PURR/USDC is spelled "@<index>" everywhere the venue mentions
 // it — l2Book, openOrders, userFills. Using "HYPE/USDC" as a key finds nothing.
 struct WireSpotAsset {
     std::string_view name;
-    std::string_view base; // base token name, for the local symbol
-    std::int64_t index{0}; // pair index; the ASSET id for orders is 10000 + this
-    std::int64_t sz_decimals{0};
+    std::string_view base; // base token name
+    // Quote token name, and it is NOT always USDC: 17 of 326 pairs settle in
+    // USDH, USDT0 or USDE, and twelve of those bases ALSO have a USDC pair.
+    // Dropping this field names four separate HYPE books "HYPE/USDC".
+    std::string_view quote;
+    std::int64_t index{0};       // pair index; the ASSET id for orders is 10000 + this
+    std::int64_t sz_decimals{0}; // the BASE token's; both steps derive from it
 };
 
 // 326 pairs today and a deployer adds one whenever it likes.
@@ -65,9 +70,10 @@ struct SpotAssetBuffer {
     std::array<WireSpotAsset, k_max_spot_assets> assets{};
 };
 
-// Reads a {"type":"spotMeta"} body, joining universe[] to tokens[] by index.
-// A pair naming a token the response did not carry is DROPPED rather than
-// loaded at a guessed precision.
+// Reads a {"type":"spotMeta"} body, joining universe[] to tokens[] by index —
+// BOTH members, because the pair's canonical name needs both. A pair naming a
+// token the response did not carry is DROPPED rather than loaded at a guessed
+// precision under a name that cannot say which market it is.
 [[nodiscard]] std::expected<std::span<const WireSpotAsset>, WireError>
 parse_spot_meta(std::string_view body, SpotAssetBuffer& storage);
 
