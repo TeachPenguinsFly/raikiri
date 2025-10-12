@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -52,11 +53,49 @@ constexpr std::size_t k_max_connections = 4;
 // weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
 // the queue from arriving as one burst; what actually bounds it is the admit
 // gate installed in the constructor.
+//
+// That was a claim and not a fact until the seed pool was widened: two warm
+// connections bounded it at seven a second instead, and the gate never refused
+// anything. See VenueState::depth_rest for the measurement.
 constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
+
+// How often a gateway whose books are still cold says so. Long enough to be
+// silence on a healthy start, short enough to answer someone who is looking at
+// an empty depth column and about to go hunting for a bug.
+constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
 // A 24-hour rolling figure barely moves in a minute, and the whole table
 // costs weight 40 against the funding read's 1. Slow on purpose.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+
+// THE VENUE'S OWN REFUSAL, APPLIED TO THE POOL EVERY MARKET-DATA CALL DRAWS
+// FROM.
+//
+// The private half of this adapter has always done this — see rest/api.hpp —
+// and the market-data half never did, so a 429 on a book seed was read as one
+// failed snapshot and the budget went on believing it had weight to sell. That
+// is the path that earned this IP a ban twice on 2026-09-06: binance sends 429
+// before it sends 418, and nothing here was listening to the first.
+//
+// The STATUS is read as well as the body, because a ban arrives as 418 with a
+// body carrying a deadline rather than a code this parser knows, and an unread
+// ban is the whole failure.
+//
+// One second, matching what the private half holds for. It drains the bucket,
+// so what resumes afterwards is the refill rate — forty weight a second, or
+// eight seeds — which is the pace binance will actually sell.
+void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
+    if (state.budget == nullptr) {
+        return;
+    }
+    const auto err = parse_rest_error(response.body);
+    const bool refused = response.status == 429 || response.status == 418 ||
+                         (err.has_value() && classify(err->code) == exec::ErrorClass::RateLimited);
+    if (!refused) {
+        return;
+    }
+    state.budget->penalize(exec::RateBucket::Shared, state.clock->mono(), 1'000'000'000ULL);
+}
 
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send that the
@@ -77,6 +116,7 @@ constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
         }
         if (const auto err = parse_rest_error(response.body);
             err.has_value() && err->code != k_ok) {
+            heed_rate_refusal(*owner, response);
             target.seed_failed();
             return;
         }
@@ -255,6 +295,7 @@ public:
     }
 
     void stop() override {
+        report_final();
         pool_.stop();
         state_->depth_rest.stop();
         started_ = false;
@@ -306,6 +347,7 @@ public:
         state_->io.poll();
         pool_.poll(now);
         drain_seeds(now);
+        report_books(now);
         poll_funding(now);
         poll_ticker(now);
         if (state_->tick_hook) {
@@ -314,6 +356,83 @@ public:
     }
 
 private:
+    // A BOOK THAT NEVER SEEDS IS SILENT, AND SILENCE READS AS A DEAD VENUE.
+    //
+    // The whole catalogue is 571 seeds at weight 5 — 2855 against an allowance
+    // of 2400 a minute — so a full-catalogue start CANNOT have its books up
+    // inside one minute's allowance whatever it does, and spends that minute
+    // with most instruments publishing no ladder. That is what the venue
+    // sells and not a fault. What WAS a fault is that nothing said so: every
+    // depth column on the board was blank, `depth=` in the shutdown line was
+    // already in the hundreds of thousands from the handful of books that had
+    // come up, and gaps() and reseeds() were counted here and read by nobody.
+    // A warming gateway and a stopped one looked identical.
+    void report_books(UnixNanos now) noexcept {
+        if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
+            return;
+        }
+        report_due_ns_ = now.ns + k_book_report_interval_ns;
+        // BEHIND, NOT MERELY RESYNCHRONISING. A book that lost its chain is
+        // cold for one round trip, and saying so every fifteen seconds is the
+        // check that cries wolf — and an ignored check is worse than none. The
+        // venue is BEHIND when seeds are still queued, or when something was
+        // cold at the previous look too and has therefore been cold for a
+        // quarter of a minute.
+        const auto cold = cold_books();
+        const bool behind = cold != 0 && (!state_->pending_seeds.empty() || cold_before_ != 0);
+        cold_before_ = cold;
+        if (!behind) {
+            if (warned_) {
+                warned_ = false;
+                RLOG_INFO("binance: every one of {} depth books is seeded", state_->books.size());
+            }
+            return;
+        }
+        warned_ = true;
+        RLOG_WARN("binance: {} of {} depth books have no seed yet, {} still queued — those "
+                  "instruments publish no ladder until they do",
+                  cold,
+                  state_->books.size(),
+                  state_->pending_seeds.size());
+    }
+
+    // The last word on the books, and the only reader gaps() and reseeds() have.
+    void report_final() const noexcept {
+        if (state_->books.empty() || !has_logger()) {
+            return;
+        }
+        std::uint64_t gaps = 0;
+        std::uint64_t reseeds = 0;
+        for (const auto& [packed, book] : state_->books) {
+            gaps += book.gaps();
+            reseeds += book.reseeds();
+        }
+        const auto cold = cold_books();
+        if (cold == 0) {
+            RLOG_INFO("binance: {} depth books, all seeded — {} chain gap(s), {} reseed(s)",
+                      state_->books.size(),
+                      gaps,
+                      reseeds);
+            return;
+        }
+        RLOG_WARN("binance: {} of {} depth books NEVER SEEDED — {} chain gap(s), {} reseed(s)",
+                  cold,
+                  state_->books.size(),
+                  gaps,
+                  reseeds);
+    }
+
+    [[nodiscard]] std::size_t cold_books() const noexcept {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            state_->books, [](const auto& entry) { return !entry.second.live(); }));
+    }
+
+    // A LIBRARY MAY NOT ASSUME THE PROCESS INSTALLED A LOGGER, and RLOG_*
+    // dereferences it. Every other library here reports through a callback the
+    // app hands it, and there is none for this: the gateway asks an adapter to
+    // subscribe, hears the refusal, and then never asks it anything again.
+    [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }
+
     // One book seed per tick, and only while the budget will still sell one.
     // A refused seed keeps its place in the queue AND leaves `next_seed_ns`
     // where it was, so the next tick asks again rather than the book waiting
@@ -391,6 +510,7 @@ private:
     void on_ticker(const net::RestResponse& response) noexcept {
         ticker_in_flight_ = false;
         if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
             return;
         }
         static thread_local Ticker24hBuffer storage;
@@ -420,6 +540,7 @@ private:
     void on_funding(const net::RestResponse& response) noexcept {
         in_flight_ = false;
         if (response.transport_failed() || response.status != 200) {
+            heed_rate_refusal(*state_, response);
             return;
         }
         static thread_local PremiumBuffer storage;
@@ -487,7 +608,10 @@ private:
     bool started_{false};
     bool in_flight_{false};
     bool ticker_in_flight_{false};
+    bool warned_{false};
     std::uint64_t next_ticker_poll_ns_{0};
+    std::uint64_t report_due_ns_{0};
+    std::size_t cold_before_{0};
 };
 
 } // namespace

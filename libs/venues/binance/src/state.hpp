@@ -49,7 +49,19 @@ struct VenueState {
     // The depth seed rides its own pool: a book resynchronising must never
     // queue behind an order, and an order must never queue behind a 40 kB
     // snapshot body.
-    net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}}};
+    //
+    // SIX WARM CONNECTIONS, AND THE NUMBER IS THE POINT. RestConfig defaults to
+    // two, which is right for order entry — one order in flight and a spare —
+    // and wrong for a catalogue that wants 571 snapshots at once: two
+    // connections against a 290 ms round trip is under seven requests a second,
+    // so the ROUND TRIP decided how long the venue stayed blind and the budget
+    // below never got a word in. Measured on a full-catalogue start before this
+    // was widened: 46 283 of 46 917 seed attempts refused by the connection
+    // pool before the admit gate was ever asked, `x-mbx-used-weight-1m` peaking
+    // at 554 of 2400, and ninety seconds during which most of the catalogue
+    // published no ladder at all.
+    net::RestClient depth_rest{
+        io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
