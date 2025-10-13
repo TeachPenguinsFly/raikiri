@@ -274,7 +274,13 @@ echo "  admind → http://127.0.0.1:$PORT  (stream :$STREAM_PORT)"
 sleep 2
 
 if [[ -d frontend/node_modules ]]; then
-    (cd frontend && npm run dev -- --port "$WEB_PORT" > "$RAIKIRI_DATA_DIR/web.log" 2>&1) &
+    # --host 127.0.0.1 IS NOT DECORATION. Vite binds the name `localhost`,
+    # which on macOS resolves to ::1 first, so the dev server answered on IPv6
+    # and refused every check that names 127.0.0.1 — both smoke scripts and the
+    # whole Playwright suite, which failed with "no terminal on 127.0.0.1:5173"
+    # while the page was open in a browser. Naming the address binds that one.
+    (cd frontend && npm run dev -- --host 127.0.0.1 --port "$WEB_PORT" \
+        > "$RAIKIRI_DATA_DIR/web.log" 2>&1) &
     pids+=($!)
     sleep 3
     echo

@@ -47,12 +47,34 @@ only = set(sys.argv[4:])
 health = json.load(urllib.request.urlopen(f"http://{api}/v1/health", timeout=10))
 dead = {g["account"] for g in health.get("gateways", []) if not g["gateway"]["alive"]}
 
-markets = json.load(urllib.request.urlopen(f"http://{api}/v1/markets?limit=4000", timeout=30))
+# THE WHOLE CATALOGUE, AND CHECKED THAT IT IS. A fixed `limit=4000` asked for
+# a number that was generous with five gateways and short with eighteen: the
+# server returned exactly 4000 of 5664 symbols and this file measured the
+# truncation, reporting hyperliquid-spot as "177 listed" against a catalogue of
+# 326. Every share it printed for a cut venue was a share of the part it
+# happened to receive.
+#
+# So the count each gateway declares in /v1/health is the check. It is the same
+# number the venue's own log prints at startup, and a listing set short of it
+# means this file is looking at less than the venue serves.
+markets = json.load(urllib.request.urlopen(f"http://{api}/v1/markets?limit=100000", timeout=60))
 listed = collections.defaultdict(list)
 for market in markets:
     for listing in market.get("listings", []):
         if not only or listing["account"] in only:
             listed[listing["account"]].append(listing["instrument_id"])
+
+declared = {g["account"]: g["gateway"]["instruments"] for g in health.get("gateways", [])}
+short = sorted(
+    f"{account} ({len(ids)} of {declared[account]})"
+    for account, ids in listed.items()
+    if account in declared and len(ids) < declared[account]
+)
+if short:
+    print(f"FAIL: the catalogue arrived truncated: {', '.join(short)}", file=sys.stderr)
+    print("      every share below would be a share of the part that arrived, not of the venue",
+          file=sys.stderr)
+    raise SystemExit(1)
 if not listed:
     print("FAIL: no listings to measure — is a gateway attached?", file=sys.stderr)
     raise SystemExit(1)
@@ -82,11 +104,18 @@ def frame(text):
     header += bytes(c ^ mask[i % 4] for i, c in enumerate(body))
     return bytes(header)
 
-# IN BATCHES. One subscribe naming several thousand instruments is answered
-# with nothing at all, which reads exactly like a dead venue — this script
-# reported 0 of 1020 for a venue that was serving 531 of them.
+# IN BATCHES, AND THE BATCH IS THE SERVER'S OWN CEILING. One subscribe naming
+# several thousand instruments is answered with nothing at all, which reads
+# exactly like a dead venue — this script reported 0 of 1020 for a venue that
+# was serving 531 of them.
+#
+# 500, NOT 200, and the difference is a second ceiling: admind holds at most 64
+# feeds per client and every batch costs one. At 200 a stack of eighteen
+# gateways needs 73 of them, so the last nine batches were refused with a 429
+# this script never read — and hyperliquid, xt-spot and mexc-spot were reported
+# dead while their gateways were streaming normally.
 owner = {}
-batch = 200
+batch = 500
 for account, ids in listed.items():
     owner.update(dict.fromkeys(ids, account))
     for start in range(0, len(ids), batch):
@@ -106,9 +135,18 @@ while time.time() < deadline:
         break
     buf += chunk
 
+text = buf.decode("utf-8", "replace")
+# WHAT THE SERVER REFUSED, read before anything is counted — see the batch size
+# above for what a refusal looks like when nobody reads it.
+refused = re.findall(r'"type":"problem".*?"title":"([^"]+)"', text)
+if refused:
+    print(f"\nFAIL: admind refused a subscription: {'; '.join(sorted(set(refused)))}",
+          file=sys.stderr)
+    print("      the shares below would be the refusal, not the venues", file=sys.stderr)
+    raise SystemExit(1)
+
 priced = collections.defaultdict(set)
-for iid, bid in re.findall(r'"instrument_id":"(\d+)","bid":"([^"]+)"',
-                           buf.decode("utf-8", "replace")):
+for iid, bid in re.findall(r'"instrument_id":"(\d+)","bid":"([^"]+)"', text):
     account = owner.get(iid)
     if account is None:
         continue

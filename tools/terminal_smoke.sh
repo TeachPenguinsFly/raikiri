@@ -87,7 +87,16 @@ def frame(text):
     header += bytes(c ^ mask[i % 4] for i, c in enumerate(body))
     return bytes(header)
 
-sock.send(frame(json.dumps({"op": "subscribe", "id": "smoke", "quotes": list(watched)})))
+# IN BATCHES, BECAUSE ONE SUBSCRIBE HAS A CEILING. admind refuses more than
+# 512 instruments in a single message, and eighteen gateways at forty apiece is
+# 720 — so the whole subscription was refused and every venue in this table read
+# zero. A check that reports a refusal as a dead venue is worse than no check.
+batch = 500
+ids = list(watched)
+for start in range(0, len(ids), batch):
+    sock.send(frame(json.dumps({"op": "subscribe", "id": f"smoke-{start}",
+                                "quotes": ids[start:start + batch]})))
+    time.sleep(0.2)
 
 sock.settimeout(watch)
 buf = b""
@@ -102,6 +111,17 @@ while time.time() < deadline:
     buf += chunk
 
 text = buf.decode("utf-8", "replace")
+# WHAT THE SERVER REFUSED, read before anything is counted. A refused subscribe
+# looks from here exactly like a venue that went quiet, and this file reported
+# eighteen dead venues over one message that was four ids too long.
+refused = re.findall(r'"type":"problem".*?"title":"([^"]+)"', text)
+if refused:
+    print(f"\nFAIL: admind refused the subscription: {'; '.join(sorted(set(refused)))}",
+          file=sys.stderr)
+    print("      nothing below measures the venues — it measures the refusal",
+          file=sys.stderr)
+    raise SystemExit(1)
+
 # A QUOTE WITH A REAL NUMBER, not merely a frame. A row whose bid is absent is
 # what the screen shows as a dash, and counting frames would call that a pass.
 priced = collections.Counter()
