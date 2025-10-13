@@ -40,6 +40,50 @@ declare -A MARKET=(
   [bybit]=perp [gate]=perp [binance]=perp [kucoin]=perp [xt]=perp
   [okx]=perp [bingx]=perp [bitget]=perp [deribit-opt]=option [deribit]=perp
 )
+
+# WHICH VENUES ACTUALLY STREAM SPOT, measured rather than read off the caps
+# table: a caps row says what the adapter serves, and the only way to know a
+# venue answers a spot subscription is to ask it. Distinct instruments that put
+# a real bid on the stream, tools/coverage_smoke.sh, 2026-09-10:
+#
+#   okx 1405/1406  kucoin 960/960  mexc 375/375  bingx 615/616  bybit 529/533
+#   xt 483/486     hyperliquid 289/326    gate 1778/2174 at 180 s, still climbing
+#
+# gate is the thin-tail case the perpetual side already shows — a long list of
+# altcoin pairs that do not trade inside the window — and not a venue dropping
+# a chunk in silence.
+SPOT_CAPABLE="bybit okx kucoin xt hyperliquid bingx gate mexc"
+
+# A SPOT GATEWAY IS HERE FOR THE CARRY BOARD, which reads a quote and a
+# turnover and nothing else. Subscribing the ladder and the tape as well is
+# three keys an instrument instead of one, and the sockets are what runs out
+# first: MEXC's spot pool carries 480 keys, so at three apiece it covered 160 of
+# 375 pairs and said so — 215 REFUSED, in its own log, while the same venue's
+# perpetual arm carried all 1185.
+SPOT_CHANNELS="bbo,funding"
+
+# HYPERLIQUID SPOT NEEDS THE LADDER, and is the one exception. Its `bbo` channel
+# sends no snapshot and fires only when the top of book MOVES, so a pair nobody
+# is quoting delivers nothing at all: 54 of 326 priced without depth, 289 with
+# it. The adapter reads level zero of each side off l2Book, which restates the
+# whole ladder on a timer — so here the depth subscription is what carries the
+# quote.
+#
+# AND THE TWO HYPERLIQUID GATEWAYS SHARE ONE BUDGET, which is why 289 is not
+# what it reaches when the perpetual arm is up beside it. The venue answers a
+# subscription past its ceiling with, in its own words:
+#
+#     Cannot subscribe to more than 1000 channels.
+#
+# PER IP, not per socket and not per process — so every hyperliquid gateway on
+# this host spends from the same thousand. 178 perpetuals and 326 spot pairs at
+# two to three channels each ask for around 1700, the venue grants the first
+# thousand and refuses the rest, and spot is the one that loses: it measures
+# 100% perp and 49% spot together against 89% spot alone. Nothing is wrong with
+# either gateway. There is no channel set that fits both whole, so the choice is
+# which one is served, and it is made here rather than by whichever process
+# happened to subscribe first.
+declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding )
 # EMPTY MEANS EVERY LISTING, and that is the default on purpose: the markets
 # tab lets a person open any of a thousand markets, and a gateway only streams
 # what it subscribed to at startup. Narrow subscriptions would leave every row
@@ -130,6 +174,23 @@ fi
 
 VENUES="${VENUES:-bybit gate kucoin binance deribit-opt}"
 
+# A SPOT GATEWAY IS ONLY WORTH STARTING WHERE THE PERPETUAL IS UP, because the
+# carry board pairs one against the other and a spot leg with nothing to pair
+# against is a process that costs a core share for no row. So the spot set is
+# derived from VENUES rather than named separately, and follows it.
+#
+#   SPOT=none make up            # perpetuals only, no carry board
+#   SPOT="okx bybit" make up     # exactly these, whatever VENUES says
+SPOT="${SPOT-auto}"
+if [[ "$SPOT" == auto ]]; then
+    SPOT=""
+    for venue in $VENUES; do
+        [[ " $SPOT_CAPABLE " == *" $venue "* ]] && SPOT+=" $venue"
+    done
+fi
+[[ "$SPOT" == none ]] && SPOT=""
+for venue in $SPOT; do VENUES+=" ${venue}-spot"; done
+
 have_credentials=no
 if [[ -f "$ENV_FILE" ]]; then
     # ONLY BEFORE `op run` HAS RESOLVED THEM. This script re-execs itself
@@ -142,7 +203,7 @@ if [[ -f "$ENV_FILE" ]]; then
         set -a; source "$ENV_FILE"; set +a
     fi
     for venue in $VENUES; do
-        upper="$(echo "${venue%-opt}" | tr '[:lower:]' '[:upper:]')"
+        upper="$(echo "${venue%%-*}" | tr '[:lower:]' '[:upper:]')"
         for field in API_KEY API_SECRET PASSPHRASE; do
             name="${upper}_${field}"
             # Still an op:// reference means `op run` did not resolve it —
@@ -164,13 +225,21 @@ echo "raikiri dev — preset $PRESET, data $RAIKIRI_DATA_DIR"
 [[ "$have_credentials" == yes ]] || echo "no credentials: market data only, no balances or positions"
 
 for venue in $VENUES; do
-    market="${MARKET[$venue]:-perp}"
-    # deribit-opt is one account name for the same adapter on another market.
-    adapter="${venue%-opt}"
+    # The suffix names the market, and wins over the table: one adapter serves
+    # several and the account name is what tells the two processes apart.
+    case "$venue" in
+        *-spot) adapter="${venue%-spot}"; market=spot ;;
+        *-opt)  adapter="${venue%-opt}";  market=option ;;
+        *-fut)  adapter="${venue%-fut}";  market=future ;;
+        *)      adapter="$venue";         market="${MARKET[$venue]:-perp}" ;;
+    esac
     upper="$(echo "$adapter" | tr '[:lower:]' '[:upper:]')"
     key="${upper}_API_KEY"; secret="${upper}_API_SECRET"; phrase="${upper}_PASSPHRASE"
 
     args=(--venue="$adapter" --market="$market")
+    channels="${CHANNELS[$venue]:-}"
+    [[ -z "$channels" && "$market" == spot ]] && channels="$SPOT_CHANNELS"
+    [[ -n "$channels" ]] && args+=(--channels="$channels")
     override="SYMBOLS_${venue//-/_}"
     for symbol in ${!override:-${SYMBOLS[$venue]:-}}; do args+=(--symbol="$symbol"); done
     # env: REFERENCES, never the values. After `op run` these variables hold the
