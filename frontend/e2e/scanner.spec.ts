@@ -36,6 +36,26 @@ test.describe('an upstream table', () => {
     expect(await rows(page).count()).toBeGreaterThan(1)
   })
 
+  test('a second table the upstream names also draws rows', async ({ page }) => {
+    // BY POSITION, NOT BY NAME. What the tables are called is the upstream's
+    // business and naming one here would put its model in a public test — but
+    // that a tab OTHER than the first draws a table is this screen's business,
+    // and it is the half nothing checked. The second one sat on "no gateway is
+    // attached" for as long as none was, and no test could tell that from a
+    // tab that simply does not work.
+    await expect(rows(page).first()).toBeVisible({ timeout: k_ready_ms })
+    const tabs = page.getByRole('tab')
+    test.skip((await tabs.count()) < 2, 'the upstream serves a single table')
+    await tabs.nth(1).click()
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+
+    await expect(
+      rows(page).first(),
+      'the second table drew no row — is every gateway it needs attached?',
+    ).toBeVisible({ timeout: k_ready_ms })
+    expect(await headers(page).count()).toBeGreaterThan(1)
+  })
+
   test('every declared column becomes a header, and every row fills them all', async ({ page }) => {
     await expect(rows(page).first()).toBeVisible({ timeout: k_ready_ms })
     const columns = await headers(page).count()

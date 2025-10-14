@@ -138,6 +138,13 @@ export function ScannerPage() {
                 <button
                   key={t.path}
                   type="button"
+                  // ROLE AND STATE, not just styling. These select between the
+                  // upstream's tables, which is what a tab is; a screen reader
+                  // was told they were plain buttons, and a test asking for the
+                  // second tab got the header's gateway counter instead — and
+                  // passed, because clicking it changes nothing.
+                  role="tab"
+                  aria-selected={t.path === active}
                   onClick={() => {
                     setTab(t.path)
                     setSort({ key: '', desc: true })
