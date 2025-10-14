@@ -276,6 +276,24 @@ export function MarketsPage() {
  *
  *  Three facts on two lines rather than five chips on one: what the pair is,
  *  what kind of contract it is, and how many venues are answering. */
+/** The quote half of a pair, dimmed so the eye reads down the base column.
+ *
+ *  READ OFF THE SYMBOL, never assumed. This used to strip a literal '/USDT'
+ *  and print one back, which is right only while every listing is USDT-quoted
+ *  — and the moment spot gateways joined, AAVE/BTC was drawn "AAVE/BTC/USDT",
+ *  AAVE/EUR "AAVE/EUR/USDT", and hyperliquid's bare AAVE "AAVE/USDT". A label
+ *  that names the wrong quote currency names a different market.
+ */
+function quote(symbol: string): string {
+  const cut = symbol.lastIndexOf('/')
+  return cut < 0 ? '' : symbol.slice(cut)
+}
+
+function base(symbol: string): string {
+  const cut = symbol.lastIndexOf('/')
+  return cut < 0 ? symbol : symbol.slice(0, cut)
+}
+
 function MarketHeader({ symbol, venues }: { symbol: string; venues: number }) {
   return (
     <div className="flex h-9 shrink-0 items-center gap-2.5 px-3">
@@ -403,8 +421,8 @@ function MarketList({
                 )}
               >
                 <span className={cn('truncate text-sm', active && 'font-medium')}>
-                  {m.symbol.replace('/USDT', '')}
-                  <span className="text-fg-dim">/USDT</span>
+                  {base(m.symbol)}
+                  <span className="text-fg-dim">{quote(m.symbol)}</span>
                 </span>
                 <span className="flex shrink-0 items-baseline gap-3">
                   {/* The count is why this view exists: a market four venues
