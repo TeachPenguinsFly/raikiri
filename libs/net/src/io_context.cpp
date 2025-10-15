@@ -12,6 +12,7 @@ namespace raikiri::net {
 // whichever policy was configured first.
 struct IoContext::Impl {
     boost::asio::io_context ioc{1};
+    bool pumping{false};
 };
 
 IoContext::IoContext() : impl_{std::make_unique<Impl>()} {}
@@ -32,10 +33,22 @@ IoContext::~IoContext() = default;
 // pass, which is the very next thing the caller does.
 constexpr std::size_t k_max_handlers_per_poll = 256;
 
+// Set for exactly as long as a handler may be running, including when one of
+// them throws.
+struct Pumping {
+    explicit Pumping(bool& flag) noexcept : flag_{flag} { flag_ = true; }
+    ~Pumping() { flag_ = false; }
+    Pumping(const Pumping&) = delete;
+    Pumping& operator=(const Pumping&) = delete;
+
+    bool& flag_;
+};
+
 std::size_t IoContext::poll() noexcept {
     if (impl_->ioc.stopped()) {
         impl_->ioc.restart();
     }
+    const Pumping guard{impl_->pumping};
     std::size_t ran = 0;
     try {
         while (ran < k_max_handlers_per_poll) {
@@ -56,12 +69,17 @@ std::size_t IoContext::run_for(std::size_t timeout_ms) noexcept {
     if (impl_->ioc.stopped()) {
         impl_->ioc.restart();
     }
+    const Pumping guard{impl_->pumping};
     try {
         return impl_->ioc.run_for(
             std::chrono::milliseconds{static_cast<std::chrono::milliseconds::rep>(timeout_ms)});
     } catch (...) {
         return 0;
     }
+}
+
+bool IoContext::pumping() const noexcept {
+    return impl_->pumping;
 }
 
 void IoContext::stop() noexcept {

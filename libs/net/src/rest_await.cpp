@@ -24,6 +24,18 @@ std::optional<RestResponse> await_response(IoContext& io,
                                            RestClient& rest,
                                            const RestRequest& request,
                                            std::uint64_t timeout_ms) {
+    // NOT FROM INSIDE A HANDLER. The loop below pumps the reactor, and pumping
+    // one that is already running executes OTHER handlers — re-entering state
+    // the caller above is halfway through changing. asio documents the same
+    // hazard for nested run(); poll() merely makes it quiet instead of
+    // deadlocking, which is worse.
+    //
+    // Refused rather than asserted, because the caller already handles "no
+    // answer" and an assert in a release build is no guard at all. A caller
+    // that reaches this is a caller that must be made asynchronous.
+    if (io.pumping()) {
+        return std::nullopt;
+    }
     auto landing = std::make_shared<Landing>();
     // BY VALUE. Capturing the shared_ptr is the whole safety property: the
     // callback keeps the cell alive for as long as the pool keeps the callback,

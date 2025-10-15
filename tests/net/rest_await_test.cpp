@@ -246,5 +246,37 @@ TEST(RestAwait, ARequestBehindAConnectionThatNeverOpensIsFailedOnItsOwnDeadline)
 }
 
 
+// The shape the crash's own fix cannot prevent: a helper that pumps, called
+// from inside a handler that the pump is running. Nothing crashes — it quietly
+// re-enters, which is how a venue's reopen came to hold the gateway loop for
+// ten seconds and how half-changed state gets read.
+TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
+    IoContext io;
+    EXPECT_FALSE(io.pumping()) << "idle before anything runs it";
+
+    bool nested_was_refused = false;
+    bool handler_ran = false;
+
+    // Posted so it runs from INSIDE poll(), which is exactly where a completion
+    // handler runs.
+    auto* ioc = static_cast<boost::asio::io_context*>(io.native());
+    boost::asio::post(*ioc, [&] {
+        handler_ran = true;
+        EXPECT_TRUE(io.pumping()) << "a handler runs while the reactor is pumping";
+        RestClient rest{io, loopback_config(test::reserve_closed_port())};
+        rest.start();
+        RestRequest request;
+        request.target = "/nested";
+        nested_was_refused =
+            !await_response(io, LiveClock{}, rest, request, 50).has_value();
+        rest.stop();
+    });
+
+    io.poll();
+    EXPECT_TRUE(handler_ran) << "the posted handler never ran, so nothing was tested";
+    EXPECT_TRUE(nested_was_refused) << "a nested await pumped the reactor from inside a handler";
+    EXPECT_FALSE(io.pumping()) << "the flag is cleared when poll() returns";
+}
+
 } // namespace
 } // namespace raikiri::net

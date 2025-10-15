@@ -29,6 +29,13 @@ public:
 
     void stop() noexcept;
 
+    // True while this thread is inside poll() or run_for(), i.e. while a
+    // handler may be running. Asking a reactor to run while it is already
+    // running is what asio's own documentation warns about, and the danger is
+    // not the reactor: it is that a handler which pumps runs OTHER handlers,
+    // re-entering state its caller is halfway through changing.
+    [[nodiscard]] bool pumping() const noexcept;
+
     // Escape hatch for code inside this library that needs the real type.
     [[nodiscard]] void* native() noexcept;
 
