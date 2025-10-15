@@ -36,7 +36,12 @@ void detail::sync_clock(VenueState& state, net::RestClient& rest) {
     request.target = ep::k_server_time;
 
     const auto before = state.clock->wall();
-    const auto response = await_response(state, rest, request, 5'000);
+    // DERIVED FROM THE TRANSPORT'S OWN BOUND, never a number typed beside it: a
+    // deadline equal to the client's leaves the answer to whichever timer fires
+    // first, and losing that flip calls a venue silent while the pool still
+    // holds its request. The extra second is the wait loop's granularity — it
+    // tests its deadline only between turns of the reactor.
+    const auto response = await_response(state, rest, request, rest.max_wait_ms() + 1'000);
     if (!response.has_value() || response->transport_failed()) {
         return; // no correction is better than a wrong one
     }

@@ -6,6 +6,7 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitfinex/book.hpp>
@@ -208,18 +209,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
                                                        const net::RestRequest& request,
                                                        std::uint64_t timeout_ms = 10'000) {
-    std::optional<net::RestResponse> result;
-    if (!rest.send(request,
-                   [&result](net::RestResponse&& response) { result = std::move(response); })) {
-        return std::nullopt;
-    }
-    const auto deadline = state.clock->mono().ns + timeout_ms * 1'000'000ULL;
-    while (!result.has_value() && state.clock->mono().ns < deadline) {
-        if (state.io.poll() == 0) {
-            state.io.run_for(5);
-        }
-    }
-    return result;
+    return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
 } // namespace raikiri::venues::bitfinex::detail

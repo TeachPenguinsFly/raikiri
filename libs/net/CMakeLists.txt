@@ -2,6 +2,7 @@ add_library(raikiri_net STATIC
   src/inflater.cpp
   src/io_context.cpp
   src/json_writer.cpp
+  src/rest_await.cpp
   src/rest_client.cpp
   src/signer.cpp
   src/trust_store.cpp

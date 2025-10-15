@@ -34,6 +34,17 @@ struct RestConfig {
     std::uint32_t timeout_ms{5'000};
     std::uint32_t connect_timeout_ms{3'000};
     bool verify_tls{true};
+
+    // The longest a send() that returned true can take to reach its callback.
+    //
+    // Two bounds in series, each of them timeout_ms: the wait for a free
+    // connection, then the round trip on it. A caller that waits for the answer
+    // under a deadline of its own MUST allow more than this. An equal deadline
+    // is a coin flip between the two timers, and the half this one loses
+    // abandons a request the pool is still holding.
+    [[nodiscard]] constexpr std::uint64_t max_wait_ms() const noexcept {
+        return std::uint64_t{timeout_ms} * 2;
+    }
 };
 
 struct HttpHeader {
@@ -137,6 +148,10 @@ public:
     void set_admit(Admit admit);
 
     [[nodiscard]] std::size_t in_flight() const noexcept;
+
+    // RestConfig::max_wait_ms, for the callers that hold a client and not the
+    // config it was built from.
+    [[nodiscard]] std::uint64_t max_wait_ms() const noexcept;
 
     void keepalive(UnixNanos now);
 

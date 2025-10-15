@@ -10,6 +10,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/host_name_verification.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/http/field.hpp>
@@ -145,7 +146,7 @@ class RestPool : public std::enable_shared_from_this<RestPool> {
 public:
     RestPool(asio::io_context& ioc, RestConfig config)
         : ioc_{ioc}, cfg_{std::move(config)}, tls_{ssl::context::tls_client}, resolver_{ioc},
-          slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
+          queue_timer_{ioc}, slots_(cfg_.pool_size == 0 ? std::size_t{1} : cfg_.pool_size) {
         if (cfg_.verify_tls) {
             const auto trust = resolve_trust_store();
             boost::system::error_code ec;
@@ -177,6 +178,7 @@ public:
     void stop() {
         started_ = false;
         resolver_.cancel();
+        queue_timer_.cancel();
         for (std::size_t i = 0; i < slots_.size(); ++i) {
             release_slot(i);
         }
@@ -208,11 +210,14 @@ public:
             return false;
         }
         queue_.push_back(std::move(pending));
+        arm_queue_timer();
         ensure_connections(false);
         return true;
     }
 
     [[nodiscard]] std::size_t in_flight() const noexcept { return dispatched_ + queue_.size(); }
+
+    [[nodiscard]] const RestConfig& config() const noexcept { return cfg_; }
 
     // Whether a send would be taken at all. Asked BEFORE the admission gate,
     // so a request the pool was always going to refuse never spends a venue's
@@ -243,9 +248,11 @@ public:
 
 private:
     struct Conn {
-        Conn(asio::io_context& ioc, ssl::context& tls) : stream{ioc.get_executor(), tls} {}
+        Conn(asio::io_context& ioc, ssl::context& tls)
+            : stream{ioc.get_executor(), tls}, resolve_timer{ioc} {}
 
         TlsStream stream;
+        asio::steady_timer resolve_timer;
         beast::flat_buffer buffer;
         http::request<http::string_body> req;
         http::response<http::string_body> res;
@@ -318,6 +325,26 @@ private:
         slots_[idx].generation = gen;
         auto conn = std::make_shared<Conn>(ioc_, tls_);
         slots_[idx].conn = conn;
+        // THE NAME LOOKUP IS THE ONE LEG NOTHING ELSE BOUNDS. The stream's own
+        // timer only starts at the connect, so a resolver that never answers
+        // parks this slot at ready == false for as long as the system resolver
+        // takes to give up — and everything sent meanwhile queues behind it,
+        // with the pool holding every one of those callbacks the whole time.
+        //
+        // The resolve itself cannot be cancelled: it is a getaddrinfo on a
+        // thread this process does not own. What the timer does is release the
+        // slot, which bumps its generation, so the answer that eventually
+        // arrives is no longer current and is dropped.
+        conn->resolve_timer.expires_after(std::chrono::milliseconds{cfg_.connect_timeout_ms});
+        conn->resolve_timer.async_wait([self = shared_from_this(), idx, gen, conn](
+                                           const beast::error_code& ec) {
+            if (ec || !self->current(idx, gen, conn)) {
+                return;
+            }
+            self->release_slot(idx);
+            self->fail_queue(self->describe("name lookup did not answer in " +
+                                            std::to_string(self->cfg_.connect_timeout_ms) + "ms"));
+        });
         resolver_.async_resolve(
             cfg_.host,
             cfg_.port,
@@ -332,6 +359,7 @@ private:
                     const std::shared_ptr<Conn>& conn,
                     const beast::error_code& ec,
                     const tcp::resolver::results_type& results) {
+        conn->resolve_timer.cancel();
         if (!current(idx, gen, conn)) {
             return;
         }
@@ -512,6 +540,66 @@ private:
         }
     }
 
+    // A QUEUED REQUEST'S OWN DEADLINE, which nothing else supplies: the
+    // stream's timer starts at the dispatch, so until a slot frees there is no
+    // clock on the request at all. A slot that never becomes ready therefore
+    // held its queue — and the caller's callback with it — for as long as the
+    // venue's name or its socket took to fail, which is how a completion came
+    // to be delivered into a frame that had long since returned.
+    //
+    // Same allowance as the wire: a request may wait timeout_ms for a
+    // connection and then spend timeout_ms on it. RestConfig::max_wait_ms is
+    // that sum, and it is what a blocking caller must outlast.
+    [[nodiscard]] std::uint64_t queue_budget_ns() const noexcept {
+        return std::uint64_t{cfg_.timeout_ms} * 1'000'000ULL;
+    }
+
+    [[nodiscard]] static std::uint64_t waited_ns(const Pending& item, UnixNanos now) noexcept {
+        return now.ns > item.queued.ns ? now.ns - item.queued.ns : 0;
+    }
+
+    // The queue is in arrival order, so its front always holds the nearest
+    // deadline and one timer covers the whole of it.
+    void arm_queue_timer() {
+        if (dead_ || queue_timer_armed_ || queue_.empty()) {
+            return;
+        }
+        const auto budget = queue_budget_ns();
+        const auto waited = waited_ns(queue_.front(), clock_.wall());
+        queue_timer_armed_ = true;
+        queue_timer_.expires_after(
+            std::chrono::nanoseconds{waited >= budget ? 0 : budget - waited});
+        queue_timer_.async_wait([self = shared_from_this()](const beast::error_code& ec) {
+            self->queue_timer_armed_ = false;
+            if (ec || self->dead_) {
+                return;
+            }
+            self->expire_queue();
+            self->arm_queue_timer();
+        });
+    }
+
+    void expire_queue() {
+        const auto now = clock_.wall();
+        const auto budget = queue_budget_ns();
+        std::vector<Pending> expired;
+        while (!queue_.empty() && waited_ns(queue_.front(), now) >= budget) {
+            expired.push_back(std::move(queue_.front()));
+            queue_.pop_front();
+        }
+        // Drained before the first callback runs: one of them may send again,
+        // and a callback that re-enters this must not find the queue mid-edit.
+        for (auto& item : expired) {
+            RestResponse response;
+            response.status = 0;
+            response.error =
+                describe("waited " + std::to_string(cfg_.timeout_ms) + "ms for a free connection");
+            response.sent = item.queued;
+            response.received = now;
+            invoke(item.cb, std::move(response));
+        }
+    }
+
     void pump() {
         while (!queue_.empty()) {
             const std::size_t idx = find_free_slot();
@@ -522,6 +610,7 @@ private:
             queue_.pop_front();
             dispatch(idx, std::move(pending));
         }
+        arm_queue_timer();
         ensure_connections(false);
     }
 
@@ -536,7 +625,11 @@ private:
     }
 
     [[nodiscard]] std::string describe(const beast::error_code& ec) const {
-        return cfg_.host + ":" + cfg_.port + " " + ec.message();
+        return describe(ec.message());
+    }
+
+    [[nodiscard]] std::string describe(std::string_view what) const {
+        return cfg_.host + ":" + cfg_.port + " " + std::string{what};
     }
 
     static void invoke(const RestCallback& callback, RestResponse&& response) noexcept {
@@ -553,6 +646,7 @@ private:
     RestConfig cfg_;
     ssl::context tls_;
     tcp::resolver resolver_;
+    asio::steady_timer queue_timer_;
     LiveClock clock_;
 
     std::vector<Slot> slots_;
@@ -562,6 +656,7 @@ private:
     std::uint64_t generation_{0};
     bool started_{false};
     bool dead_{false};
+    bool queue_timer_armed_{false};
 };
 
 } // namespace detail
@@ -617,6 +712,10 @@ void RestClient::set_admit(Admit admit) {
 
 std::size_t RestClient::in_flight() const noexcept {
     return impl_->pool->in_flight();
+}
+
+std::uint64_t RestClient::max_wait_ms() const noexcept {
+    return impl_->pool->config().max_wait_ms();
 }
 
 void RestClient::keepalive(UnixNanos now) {

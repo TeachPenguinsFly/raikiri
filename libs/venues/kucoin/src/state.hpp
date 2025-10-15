@@ -7,6 +7,7 @@
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
@@ -35,6 +36,12 @@ constexpr std::uint64_t k_default_ping_ms = 18'000;
 // Long enough that a venue outage does not turn into a bullet-public flood,
 // short enough that a token rejection costs one second of data.
 constexpr std::uint64_t k_reopen_delay_ns = 1'000'000'000ULL;
+
+// How long a runtime reopen waits for its bullet token before asking again.
+// Ten seconds is what the blocking version allowed, and it is kept — the
+// difference is that the gateway loop now runs throughout instead of standing
+// still for it.
+constexpr std::uint64_t k_bullet_deadline_ns = 10'000'000'000ULL;
 
 struct OwnedSubscription {
     std::string topic;
@@ -182,18 +189,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
                                                        const net::RestRequest& request,
                                                        std::uint64_t timeout_ms = 10'000) {
-    std::optional<net::RestResponse> result;
-    if (!rest.send(request,
-                   [&result](net::RestResponse&& response) { result = std::move(response); })) {
-        return std::nullopt;
-    }
-    const auto deadline = state.clock->mono().ns + timeout_ms * 1'000'000ULL;
-    while (!result.has_value() && state.clock->mono().ns < deadline) {
-        if (state.io.poll() == 0) {
-            state.io.run_for(5);
-        }
-    }
-    return result;
+    return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
 // Turns a REST answer into a usable body, or into the classified failure the
