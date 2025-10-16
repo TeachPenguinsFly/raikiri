@@ -423,10 +423,10 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     const auto who =
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
-    if (!adapter.caps.order_pull) {
+    if (!adapter.caps.order_pull.has(market)) {
         if (!announced) {
             announced = true;
-            RLOG_INFO("gatewayd[{}]: open-order reconciliation unavailable for this venue", who);
+            RLOG_INFO("gatewayd[{}]: open-order reconciliation unavailable on this market", who);
         }
         return;
     }
@@ -482,10 +482,10 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
     const auto who =
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
-    if (!adapter.caps.funding_charge) {
+    if (!adapter.caps.funding_charge.has(market)) {
         if (!announced) {
             announced = true;
-            RLOG_INFO("gatewayd[{}]: this venue reports no funding charges", who);
+            RLOG_INFO("gatewayd[{}]: this venue reports no funding charges on this market", who);
         }
         return;
     }
@@ -539,13 +539,13 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
     static bool answered = false;
-    if (!adapter.caps.position_pull) {
+    if (!adapter.caps.position_pull.has(market)) {
         if (!announced) {
             // Said once, at start, and never again: a venue that cannot answer
             // is a standing condition, not an event, and repeating it every
             // 30s would train an operator to ignore the line that matters.
             announced = true;
-            RLOG_INFO("gatewayd[{}]: position reconciliation unavailable for this venue", who);
+            RLOG_INFO("gatewayd[{}]: position reconciliation unavailable on this market", who);
         }
         return;
     }
@@ -612,10 +612,10 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
         {.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
     static bool announced = false;
     static bool answered = false;
-    if (!adapter.caps.balance_pull) {
+    if (!adapter.caps.balance_pull.has(market)) {
         if (!announced) {
             announced = true;
-            RLOG_INFO("gatewayd[{}]: balances unavailable for this venue", who);
+            RLOG_INFO("gatewayd[{}]: balances unavailable on this market", who);
         }
         return;
     }
@@ -938,7 +938,7 @@ int main(int argc, char** argv) {
         // Defaulting to spot when a venue lists no perpetuals keeps
         // `--venue=coinbase` working without a flag; it is a default, not a
         // guess, because the caps row is the thing being read.
-        market = caps.perp ? MarketType::Perp : MarketType::Spot;
+        market = caps.markets.perp ? MarketType::Perp : MarketType::Spot;
     } else {
         fmt::print(stderr, "gatewayd: --market must be spot, perp, future or option\n");
         return 2;

@@ -41,7 +41,7 @@ TEST_F(BybitVenue, RegistersAndBuildsWithoutCredentials) {
         exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
     EXPECT_EQ(adapter->caps.venue, VenueId::Bybit);
-    EXPECT_TRUE(adapter->caps.perp);
+    EXPECT_TRUE(adapter->caps.markets.perp);
     EXPECT_NE(adapter->data, nullptr);
     EXPECT_NE(adapter->execution, nullptr);
     EXPECT_NE(adapter->instruments, nullptr);
@@ -110,12 +110,20 @@ TEST_F(BybitVenue, StopIsIdempotent) {
     SUCCEED() << "teardown calls stop more than once";
 }
 
-TEST(BybitCaps, ClaimsThePullsItImplements) {
+TEST(BybitCaps, ClaimsThePullsItImplementsOnTheMarketsThatAnswer) {
     // The reconciler reads this row instead of calling and guessing from an
-    // empty vector. Bybit answers, so it says so.
-    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).position_pull);
-    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).fill_pull);
-    EXPECT_TRUE(exec::caps_of(VenueId::Bybit).balance_pull);
+    // empty vector. Bybit answers, so it says so — per market, because the
+    // position endpoint takes the product category and has no spot category to
+    // take. A spot gateway reading a venue-wide bit asked anyway and was told
+    // "category only support linear or option" every pass for as long as it ran.
+    const auto& caps = exec::caps_of(VenueId::Bybit);
+    EXPECT_TRUE(caps.position_pull.has(MarketType::Perp));
+    EXPECT_FALSE(caps.position_pull.has(MarketType::Spot));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Spot));
+    // One unified wallet behind both markets, and the read takes no category.
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Spot));
 }
 
 } // namespace

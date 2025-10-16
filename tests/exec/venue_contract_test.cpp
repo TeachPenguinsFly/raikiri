@@ -194,12 +194,13 @@ TEST_F(VenueContract, AVenueThatSignsWithThreeCredentialsRefusesOnTwo) {
         // A market the row actually serves — coinbase lists no perpetuals, and
         // an UnsupportedMarket refusal would pass this loop for the wrong
         // reason.
-        const auto refused = make_venue({.venue = id,
-                                         .market = caps.perp ? MarketType::Perp : MarketType::Spot,
-                                         .api_key_env = "env:KEY",
-                                         .api_secret_env = "env:SECRET"},
-                                        sink,
-                                        clock);
+        const auto refused =
+            make_venue({.venue = id,
+                        .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot,
+                        .api_key_env = "env:KEY",
+                        .api_secret_env = "env:SECRET"},
+                       sink,
+                       clock);
         ASSERT_FALSE(refused.has_value()) << to_string(id);
         // UnsupportedMarket would mean the row does not serve perp at all,
         // which is a different complaint and must not be mistaken for this one.
@@ -218,7 +219,9 @@ TEST_F(VenueContract, MarketDataAloneNeedsNoPassphrase) {
             continue;
         }
         const auto built = make_venue(
-            {.venue = id, .market = caps.perp ? MarketType::Perp : MarketType::Spot}, sink, clock);
+            {.venue = id, .market = caps.markets.perp ? MarketType::Perp : MarketType::Spot},
+            sink,
+            clock);
         if (!built.has_value()) {
             // No factory registered in this binary is fine; a passphrase
             // complaint is not.
@@ -237,14 +240,14 @@ TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         const auto id = static_cast<VenueId>(v);
         const auto& caps = caps_of(id);
-        if (caps.option) {
+        if (caps.markets.option) {
             with_options.push_back(to_string(id));
         }
-        if (caps.future) {
+        if (caps.markets.future) {
             with_futures.push_back(to_string(id));
         }
         // Nothing may serve a market with no market at all behind it.
-        EXPECT_TRUE(caps.spot || caps.perp || caps.future || caps.option) << to_string(id);
+        EXPECT_TRUE(caps.markets.any()) << to_string(id);
     }
     EXPECT_EQ(with_options, (std::vector<std::string_view>{"deribit"}));
     EXPECT_EQ(with_futures, (std::vector<std::string_view>{"deribit"}));
@@ -270,17 +273,21 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
     std::vector<std::string_view> claiming;
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         const auto id = static_cast<VenueId>(v);
-        if (caps_of(id).position_pull) {
+        if (caps_of(id).position_pull.any()) {
             claiming.push_back(to_string(id));
         }
         // The two are independent. HTX is the case that proves it: it reports
         // positions, but its trade history is windowed by contract while the
         // pull names only a market, so fills genuinely have no answer. What
         // must hold is the other direction — a venue that cannot report
-        // positions has nothing to reconcile against.
-        if (caps_of(id).fill_pull) {
-            EXPECT_TRUE(caps_of(id).position_pull)
-                << to_string(id) << ": fills without positions leaves nothing to compare";
+        // positions has nothing to reconcile against. Asked PER MARKET, and of
+        // the derivative markets alone: a spot fill is reconciled against a
+        // balance, and no venue here reports a spot position at all.
+        for (const auto market : {MarketType::Perp, MarketType::Future, MarketType::Option}) {
+            if (caps_of(id).fill_pull.has(market)) {
+                EXPECT_TRUE(caps_of(id).position_pull.has(market))
+                    << to_string(id) << ": fills without positions leaves nothing to compare";
+            }
         }
     }
     // Sorted: this asserts WHICH venues claim the pull, not where they happen
@@ -303,6 +310,95 @@ TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {
                                              "okx",
                                              "sim",
                                              "xt"}));
+}
+
+TEST_F(VenueContract, NoRowClaimsAPositionPullOnSpot) {
+    // The bug this shape exists to prevent, kept as a tripwire: a spot account
+    // holds coins and has no position to report, every adapter here refuses one
+    // — and while the claim was a single bit per venue, seven spot gateways
+    // asked anyway, once every thirty seconds, for as long as they ran. Each
+    // ask is a SIGNED call out of the same per-IP budget the market-data half
+    // spends, and each failure line hides one that means something.
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        EXPECT_FALSE(caps_of(id).position_pull.has(MarketType::Spot))
+            << to_string(id) << ": a spot account holds balances, not positions";
+    }
+}
+
+TEST_F(VenueContract, NoPullReachesPastTheMarketsItsAdapterServes) {
+    // A pull claimed on a market the adapter does not serve cannot be reached
+    // by a gateway — make_venue refuses the config first — so the claim would
+    // never be tested by anything but a reader believing it.
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        const auto id = static_cast<VenueId>(v);
+        const auto& caps = caps_of(id);
+        for (const auto market :
+             {MarketType::Spot, MarketType::Perp, MarketType::Future, MarketType::Option}) {
+            if (caps.serves(market)) {
+                continue;
+            }
+            EXPECT_FALSE(caps.position_pull.has(market)) << to_string(id);
+            EXPECT_FALSE(caps.order_pull.has(market)) << to_string(id);
+            EXPECT_FALSE(caps.fill_pull.has(market)) << to_string(id);
+            EXPECT_FALSE(caps.balance_pull.has(market)) << to_string(id);
+            EXPECT_FALSE(caps.funding_charge.has(market)) << to_string(id);
+        }
+    }
+}
+
+TEST_F(VenueContract, TheSpotFleetIsLeftWithThePullsThatAnswer) {
+    // Naming them: silencing the pulls that cannot answer must not silence the
+    // ones that can. Spot open orders REST on every one of these venues, and a
+    // row that dropped them would age the open-order table out on a live book —
+    // the failure the order pull's own comment calls the worse one.
+    for (const auto id : {VenueId::Bybit,
+                          VenueId::Okx,
+                          VenueId::Gate,
+                          VenueId::Kucoin,
+                          VenueId::Bingx,
+                          VenueId::Xt,
+                          VenueId::Htx,
+                          VenueId::Coinbase}) {
+        EXPECT_TRUE(caps_of(id).order_pull.has(MarketType::Spot)) << to_string(id);
+    }
+    // ...and the two that genuinely have no account-wide spot form say so.
+    EXPECT_FALSE(caps_of(VenueId::Mexc).order_pull.has(MarketType::Spot));
+    EXPECT_FALSE(caps_of(VenueId::Kucoin).fill_pull.has(MarketType::Spot));
+}
+
+TEST_F(VenueContract, EveryPerpPullTheAdaptersHadIsStillClaimed) {
+    // The other half of the fix, and the one worth a test: making the claim
+    // per-market must not have quietly dropped a market that works. A perp
+    // position pull read as absent is a position the reconciler believes is
+    // flat, which is worse than the failures this change removed.
+    for (const auto id : {VenueId::Binance,
+                          VenueId::Bybit,
+                          VenueId::Okx,
+                          VenueId::Gate,
+                          VenueId::Kucoin,
+                          VenueId::Bingx,
+                          VenueId::Xt,
+                          VenueId::Mexc,
+                          VenueId::Deribit,
+                          VenueId::Hyperliquid,
+                          VenueId::Kraken,
+                          VenueId::Bitmex,
+                          VenueId::Bitget,
+                          VenueId::Htx,
+                          VenueId::Bitfinex,
+                          VenueId::Sim}) {
+        EXPECT_TRUE(caps_of(id).position_pull.has(MarketType::Perp)) << to_string(id);
+        EXPECT_TRUE(caps_of(id).order_pull.has(MarketType::Perp)) << to_string(id);
+    }
+    for (const auto id : {VenueId::Binance, VenueId::Gate, VenueId::Kucoin, VenueId::Xt}) {
+        EXPECT_TRUE(caps_of(id).balance_pull.has(MarketType::Perp)) << to_string(id);
+    }
+    EXPECT_TRUE(caps_of(VenueId::Bybit).balance_pull.has(MarketType::Spot));
+    for (const auto id :
+         {VenueId::Binance, VenueId::Bybit, VenueId::Okx, VenueId::Gate, VenueId::Xt}) {
+        EXPECT_TRUE(caps_of(id).funding_charge.has(MarketType::Perp)) << to_string(id);
+    }
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {

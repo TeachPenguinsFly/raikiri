@@ -21,19 +21,21 @@ enum class UserStreamModel : std::uint8_t {
     None,
 };
 
-struct VenueCaps {
-    VenueId venue{VenueId::Invalid};
-    // The markets this ADAPTER serves, which is not the same as the markets
-    // the venue lists: a row says true only where the code has been written
-    // and run. Dated futures and options default false because almost nothing
-    // implements them, and a row that claimed one would be accepted at load
-    // and then fail one call at a time.
+// The markets one claim holds for. Empty by default, so a row states a market
+// only where it means to.
+//
+// Some capabilities are facts about a venue; the reconciliation pulls are facts
+// about a venue AND a market. The same adapter reports positions on perp and
+// has no position to report on spot, and a single bit per venue makes the
+// reconciler ask what cannot be answered — once a pass, forever, out of the
+// same signed rate budget the order path spends.
+struct MarketSet {
     bool spot{false};
     bool perp{false};
     bool future{false};
     bool option{false};
 
-    [[nodiscard]] constexpr bool serves(MarketType market) const noexcept {
+    [[nodiscard]] constexpr bool has(MarketType market) const noexcept {
         switch (market) {
         case MarketType::Spot:
             return spot;
@@ -47,6 +49,22 @@ struct VenueCaps {
         return false;
     }
 
+    [[nodiscard]] constexpr bool any() const noexcept { return spot || perp || future || option; }
+};
+
+struct VenueCaps {
+    VenueId venue{VenueId::Invalid};
+    // The markets this ADAPTER serves, which is not the same as the markets
+    // the venue lists: a row says true only where the code has been written
+    // and run. Dated futures and options default false because almost nothing
+    // implements them, and a row that claimed one would be accepted at load
+    // and then fail one call at a time.
+    MarketSet markets{};
+
+    [[nodiscard]] constexpr bool serves(MarketType market) const noexcept {
+        return markets.has(market);
+    }
+
     bool ws_order_entry{false};  // orders placeable over a WS trade API
     bool fix_order_entry{false}; // FIX offered at any access tier
     bool cancel_by_client_order_id{false};
@@ -55,27 +73,33 @@ struct VenueCaps {
     bool native_post_only{false}; // venue-enforced maker-only
     bool book_checksum{false};    // venue pushes book checksums (okx-style)
 
-    // Whether the reconciliation pulls are implemented. Default false, and the
-    // reconciler consults this BEFORE the call: without it, an adapter that
-    // answers "no positions" and an adapter that cannot answer at all look
-    // identical, and the reconciler reads the second as the first.
-    bool position_pull{false};
-    // Whether the adapter can list what the venue still has WORKING. Same rule
-    // as position_pull, and the stakes are higher: "no open orders" read off a
-    // venue that cannot answer would close a desk's whole book.
-    bool order_pull{false};
-    bool fill_pull{false};
-    // Whether the adapter reads what the account holds. Same rule as the two
-    // above: absence of a balance and an inability to ask are different facts,
-    // and a margin model built on the wrong one is built on nothing.
-    bool balance_pull{false};
-    // Whether the adapter reads the venue's own record of what funding it
-    // charged. Same rule again, and it matters most here: funding is the one
-    // number a caller is tempted to reconstruct from the public rate, and a
-    // reconstruction disagrees with the venue's books in an append-only
-    // ledger. False means this venue contributes no funding PnL, which is the
+    // Which markets the reconciliation pulls are implemented FOR. Empty by
+    // default, and the reconciler consults this BEFORE the call: without it, an
+    // adapter that answers "no positions" and an adapter that cannot answer at
+    // all look identical, and the reconciler reads the second as the first.
+    //
+    // Per market and not per venue, because that is the question asked. A
+    // market left out says this adapter cannot ASK on that market — never that
+    // the account is flat there.
+    MarketSet position_pull{};
+    // The markets on which the adapter can list what the venue still has
+    // WORKING. Same rule as position_pull, and the stakes are higher: "no open
+    // orders" read off a venue that cannot answer would close a desk's whole
+    // book.
+    MarketSet order_pull{};
+    MarketSet fill_pull{};
+    // The markets on which the adapter reads what the account holds. Same rule
+    // as the two above: absence of a balance and an inability to ask are
+    // different facts, and a margin model built on the wrong one is built on
+    // nothing.
+    MarketSet balance_pull{};
+    // The markets on which the adapter reads the venue's own record of what
+    // funding it charged. Same rule again, and it matters most here: funding is
+    // the one number a caller is tempted to reconstruct from the public rate,
+    // and a reconstruction disagrees with the venue's books in an append-only
+    // ledger. Empty means this venue contributes no funding PnL, which is the
     // honest state rather than a wrong one.
-    bool funding_charge{false};
+    MarketSet funding_charge{};
 
     // The venue publishes a rolling 24-hour turnover on its ticker AND this
     // adapter reads it. False means the board has no volume for this venue —

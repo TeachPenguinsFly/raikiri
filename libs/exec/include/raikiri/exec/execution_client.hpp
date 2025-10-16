@@ -100,7 +100,8 @@ public:
 
     // What the venue CHARGED for funding, from its own ledger — never derived
     // from the public rate. Declining by default and gated by
-    // `VenueCaps::funding_charge` for the reason position_pull exists: an
+    // `VenueCaps::funding_charge` on the market asked for, for the reason
+    // position_pull exists: an
     // adapter that returns nothing because it cannot ask, and one that returns
     // nothing because nothing was charged, are different facts, and booking
     // the second when the first is true loses money silently.
@@ -114,9 +115,10 @@ public:
 
     // What the account HOLDS, as opposed to what it is long or short. Defaulted
     // to a refusal rather than made pure: an adapter opts in, and `caps
-    // .balance_pull` is what a caller consults BEFORE calling — without it an
-    // adapter that answers "no balances" and one that cannot answer at all look
-    // identical, which is the same trap position_pull exists to avoid.
+    // .balance_pull` is what a caller consults BEFORE calling, FOR THE MARKET it
+    // is about to name — without it an adapter that answers "no balances" and
+    // one that cannot answer at all look identical, which is the same trap
+    // position_pull exists to avoid.
     [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError>
     balance_reports(MarketType market) {
         (void)market;

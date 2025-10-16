@@ -119,17 +119,19 @@ TEST(WeexVenue, TheCapsRowClaimsMarketDataAndNothingElse) {
     // The row is what a caller consults BEFORE acting. Claiming an order path
     // this adapter does not have would be discovered one command at a time.
     const auto& caps = exec::caps_of(VenueId::Weex);
-    EXPECT_TRUE(caps.perp);
-    EXPECT_FALSE(caps.spot);
-    EXPECT_FALSE(caps.future);
-    EXPECT_FALSE(caps.option);
+    EXPECT_TRUE(caps.markets.perp);
+    EXPECT_FALSE(caps.markets.spot);
+    EXPECT_FALSE(caps.markets.future);
+    EXPECT_FALSE(caps.markets.option);
     EXPECT_FALSE(caps.ws_order_entry);
     EXPECT_FALSE(caps.fix_order_entry);
-    EXPECT_FALSE(caps.position_pull);
-    EXPECT_FALSE(caps.order_pull);
-    EXPECT_FALSE(caps.fill_pull);
-    EXPECT_FALSE(caps.balance_pull);
-    EXPECT_FALSE(caps.funding_charge);
+    // Not on the market it serves, and not on any other: this adapter has no
+    // private REST at all.
+    EXPECT_FALSE(caps.position_pull.any());
+    EXPECT_FALSE(caps.order_pull.any());
+    EXPECT_FALSE(caps.fill_pull.any());
+    EXPECT_FALSE(caps.balance_pull.any());
+    EXPECT_FALSE(caps.funding_charge.any());
     EXPECT_EQ(caps.user_stream, exec::UserStreamModel::None);
     // The one public capability that IS claimed, and the ticker channel is
     // what delivers it.

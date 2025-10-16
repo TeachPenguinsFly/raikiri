@@ -1621,6 +1621,33 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
               exec::not_implemented("gate spot position pull").message.view());
 }
 
+TEST(GateExecClient, TheCapsRowRefusesTheSameSpotPullsTheAdapterDoes) {
+    // The row is read BEFORE the call, so a refusal the row does not know about
+    // is a request sent every pass and failed every pass. These three refuse
+    // here; the two below answer, and dropping them would age out a live book.
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    auto adapter =
+        exec::make_venue({.venue = VenueId::Gate, .market = MarketType::Spot}, sink, clock);
+    ASSERT_TRUE(adapter.has_value());
+    auto& exec_client = *adapter->execution;
+
+    const auto& caps = exec::caps_of(VenueId::Gate);
+    EXPECT_FALSE(caps.position_pull.has(MarketType::Spot));
+    EXPECT_FALSE(exec_client.position_reports(MarketType::Spot).has_value());
+    EXPECT_FALSE(caps.balance_pull.has(MarketType::Spot));
+    EXPECT_FALSE(exec_client.balance_reports(MarketType::Spot).has_value());
+    EXPECT_FALSE(caps.funding_charge.has(MarketType::Spot));
+
+    EXPECT_TRUE(caps.order_pull.has(MarketType::Spot));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Spot));
+    // And nothing perp was given up in the trade.
+    EXPECT_TRUE(caps.position_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.funding_charge.has(MarketType::Perp));
+}
+
 // ----------------------------------------------------- private wire ----
 
 TEST(GateWirePrivate, FuturesPseudoStatesAreNotTerminalReasons) {

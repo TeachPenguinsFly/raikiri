@@ -181,8 +181,10 @@ TEST(CoinbaseVenue, PullsThisApiCannotPerformAreRefusedByName) {
     EXPECT_FALSE(adapter->execution->position_reports(MarketType::Spot).has_value());
     // GET /fills demands order_id or product_id, and this call names a market.
     EXPECT_FALSE(adapter->execution->fill_reports(MarketType::Spot, UnixNanos{0}).has_value());
-    EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).position_pull);
-    EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).fill_pull);
+    EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).position_pull.any());
+    EXPECT_FALSE(exec::caps_of(VenueId::Coinbase).fill_pull.any());
+    // The one pull it does have, on the one market it serves.
+    EXPECT_TRUE(exec::caps_of(VenueId::Coinbase).order_pull.has(MarketType::Spot));
 
     // ...and the markets this entity does not list are refused on every pull,
     // not just on order entry.
