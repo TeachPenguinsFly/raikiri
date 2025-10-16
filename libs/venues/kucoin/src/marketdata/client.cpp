@@ -294,6 +294,9 @@ public:
     }
 
     void stop() override {
+        // Dropped, not waited for: the callback co-owns the cell, so an answer
+        // after this writes into something only it still points at.
+        bullet_.reset();
         if (pool_) {
             pool_->stop();
             pool_.reset();
@@ -358,6 +361,7 @@ public:
             state_->reopen_due = false;
             reopen();
         }
+        collect_reopen(now);
         state_->io.poll();
         if (pool_) {
             pool_->poll(now);
@@ -523,12 +527,16 @@ private:
 
     void reopen() noexcept {
         try {
-            (void)open_stream().has_value(); // failures schedule their own retry
+            begin_reopen();
         } catch (...) {
             state_->schedule_reopen();
         }
     }
 
+    // BOOT ONLY. Blocking here is the bootstrap case asio documents: nothing is
+    // running yet, and a gateway that streams before it has a socket is worse
+    // than one that takes a second to start. A reopen at RUNTIME must not come
+    // through here — see begin_reopen.
     std::expected<void, exec::VenueError> open_stream() {
         const auto body =
             usable_body(await_response(*state_, rest_, state_->builder.bullet_public(), 10'000));
@@ -536,7 +544,61 @@ private:
             state_->schedule_reopen();
             return std::unexpected{body.error()};
         }
-        const auto bullet = parse_bullet(*body);
+        return open_stream_with(*body);
+    }
+
+    // A RUNTIME REOPEN MUST NOT STOP THE GATEWAY LOOP. This ran inside poll()
+    // and blocked it for up to ten seconds while KuCoin minted a bullet token —
+    // ten seconds in which no book moved and no cancel could leave, on every
+    // reconnect. It was the only call in the tree that broke the reactor's own
+    // promise that no venue's silence can delay a cancel (io_context.hpp).
+    //
+    // So the mint is asked for here and collected on a later pass. The landing
+    // is a cell the callback co-owns: giving up on the deadline below is not
+    // cancelling, and the pool still holds the callback.
+    void begin_reopen() noexcept {
+        if (bullet_ != nullptr) {
+            return; // a mint is already in flight; its answer reopens us
+        }
+        auto landing = std::make_shared<std::optional<net::RestResponse>>();
+        if (!rest_.send(state_->builder.bullet_public(),
+                        [landing](net::RestResponse&& response) {
+                            *landing = std::move(response);
+                        })) {
+            state_->schedule_reopen();
+            return;
+        }
+        bullet_ = std::move(landing);
+        bullet_due_ns_ = state_->clock->mono().ns + k_bullet_deadline_ns;
+    }
+
+    // OWN DEADLINE, not the transport's. RestClient ages its queue and bounds
+    // its name lookup, so an answer does arrive — but a venue left waiting on a
+    // mint that never lands is a venue that never reconnects, and that must not
+    // depend on a guarantee made in another library.
+    void collect_reopen(UnixNanos now) noexcept {
+        if (bullet_ == nullptr) {
+            return;
+        }
+        if (!bullet_->has_value()) {
+            if (now.ns >= bullet_due_ns_) {
+                bullet_.reset();
+                state_->schedule_reopen();
+            }
+            return;
+        }
+        const auto answer = std::move(*bullet_);
+        bullet_.reset();
+        const auto body = usable_body(answer);
+        if (!body.has_value()) {
+            state_->schedule_reopen();
+            return;
+        }
+        (void)open_stream_with(*body).has_value(); // failures schedule their own retry
+    }
+
+    std::expected<void, exec::VenueError> open_stream_with(const std::string& body) {
+        const auto bullet = parse_bullet(body);
         if (!bullet.has_value()) {
             state_->schedule_reopen();
             return std::unexpected{
@@ -630,6 +692,9 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
+    // The mint a runtime reopen is waiting on, and when to give up on it.
+    std::shared_ptr<std::optional<net::RestResponse>> bullet_;
+    std::uint64_t bullet_due_ns_{0};
     PublicHandler handler_;
     net::RestClient rest_;
     std::vector<InstrumentId> wanted_;
