@@ -13,7 +13,14 @@
 //   md_events    BroadcastRing  stream: lossy-with-gap-detect -> resync
 //   exec_events  BroadcastRing  critical: overrun => halt venue + reconcile
 //   positions    SeqlockTable   state: what the VENUE says it holds
+//   funding_charges BroadcastRing ledger: the ACCOUNT POLLER writes it, alone
 //   cmd_*        SpscRing       command: lossless; Full = venue down
+//
+// EVERY CHANNEL HAS ONE WRITER, and which one is part of the layout rather
+// than a convention. funding_charges was the exception and was missing from
+// this list, which is how it acquired a second: the gateway thread published
+// what the private socket delivered while the poller thread published what it
+// pulled, onto a ring that is single-producer by construction.
 
 #include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/ledger_entry.hpp>

@@ -289,14 +289,23 @@ public:
                   error.venue_code);
     }
 
-    // THE LIVE LEG, straight off the private socket. The poller's REST pull
-    // publishes onto this same ring, and the two legs mint DIFFERENT venue ids
-    // for one settlement — so nothing downstream may key on that id. The
-    // ledger keys on (venue, symbol, settlement time), which both legs agree
-    // on, and the second arrival is dropped there rather than here.
-    void on_funding_charge(const raikiri::LedgerEntry& charge) noexcept override {
+    // COUNTED HERE, PUBLISHED BY THE POLLER. This runs on the gateway thread
+    // and `publish_funding_charges` runs on the account poller's, and
+    // BroadcastRing is single-producer (broadcast_ring.hpp): two threads
+    // picking the same sequence stamp one slot's version twice, interleave
+    // their word stores, and a reader re-validates a torn record as good — a
+    // settlement the ledger books at an amount neither leg reported. `published`
+    // can also move backwards, which resets a reader's cursor with no gap.
+    //
+    // The poller is the leg that keeps it, and losing this one costs only
+    // latency: it re-publishes the whole window on a timer (see there for why),
+    // so a charge the private socket saw first is booked on the next pass
+    // rather than never. Funding settles a few times a day.
+    //
+    // The count stays, because it is the only place that says the private
+    // socket is delivering charges at all.
+    void on_funding_charge(const raikiri::LedgerEntry&) noexcept override {
         ++counts_.funding_charges;
-        ch_.funding_charges->publish({charge});
     }
 
     void on_order_event(const raikiri::OrderEvent& event) noexcept override {
