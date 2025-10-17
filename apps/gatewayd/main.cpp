@@ -226,9 +226,26 @@ public:
         if (idx < raikiri::shm::k_funding_cells) {
             ch_.funding->write(idx, funding);
         }
-        // The shm cell holds only the latest rate; a perp position pays or
-        // receives at every settlement, so the history is what a PnL
-        // attribution is reconstructed from and it has to be durable.
+        // ONLY WHEN IT SAYS SOMETHING NEW. A perp position pays or receives at
+        // every settlement, so the history of RATES is what a PnL attribution
+        // is reconstructed from and it does have to be durable — but a venue
+        // restates its rate on a timer whether or not it moved. Measured on
+        // okx, three minutes, 477 instruments: 419 936 records written, 971 of
+        // them carrying a rate or a settlement time that had changed. The other
+        // 99.77% filled 256 MiB every three minutes — 120 GB a day from one
+        // venue, on a gateway that had never placed an order.
+        //
+        // The latest value is in the shm cell for anyone who wants it. What has
+        // to survive a restart is the CHANGE.
+        if (idx < raikiri::shm::k_funding_cells) {
+            const Stated now{.rate = funding.rate.raw,
+                             .next = funding.next_funding_time.ns,
+                             .interval_s = funding.interval_s};
+            if (stated_[idx] == now) {
+                return;
+            }
+            stated_[idx] = now;
+        }
         (void)raikiri::schema::append_msg<msgs::FundingMsg>(
             *journal_, funding.ts_init.ns, [&](auto m) {
                 namespace jt = raikiri_journal::types;
@@ -364,6 +381,18 @@ private:
     raikiri::VenueId venue_;
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
+
+    // The last rate journalled per instrument, so a restatement of the same one
+    // is not written again. Deliberately NOT the shm cell: that holds the
+    // latest published value, which is updated whether or not this wrote it.
+    struct Stated {
+        std::int64_t rate{raikiri::FixedE9{}.raw};
+        std::uint64_t next{0};
+        std::uint32_t interval_s{0};
+
+        [[nodiscard]] bool operator==(const Stated&) const noexcept = default;
+    };
+    std::array<Stated, raikiri::shm::k_funding_cells> stated_{};
     std::uint64_t md_seq_{0};
     Counts counts_{};
 };
