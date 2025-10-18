@@ -33,8 +33,23 @@ public:
     JournalWriter& operator=(JournalWriter&&) = delete;
     ~JournalWriter();
 
+    // HOW MANY SEALED SEGMENTS SURVIVE A ROTATE, this one not counted.
+    //
+    // ZERO — KEEP EVERYTHING — IS THE DEFAULT ON PURPOSE. Rotation without
+    // retention fills a disk, and a gateway seals a segment and opens the next
+    // forever; but this class cannot see how far any reader has drained,
+    // because that cursor lives in the reader's own store. A segment pruned
+    // before it was persisted is gone. So the library keeps what it is given
+    // and the DEPLOYMENT decides what it can afford to drop, which is the only
+    // place that knows whether a persister is running and how far behind it is.
+    //
+    // `pruned()` says how many went, so a process can report it rather than
+    // discover it.
     [[nodiscard]] static std::expected<JournalWriter, JournalError>
-    open(std::string dir, std::string prefix, std::size_t segment_bytes = k_default_segment_bytes);
+    open(std::string dir,
+         std::string prefix,
+         std::size_t segment_bytes = k_default_segment_bytes,
+         std::size_t retain_segments = 0);
 
     [[nodiscard]] std::expected<std::uint64_t, JournalError>
     append(std::uint16_t schema_id,
@@ -47,6 +62,9 @@ public:
 
     [[nodiscard]] std::uint64_t next_seq() const noexcept { return next_seq_; }
 
+    // Sealed segments deleted since this writer opened.
+    [[nodiscard]] std::uint64_t pruned() const noexcept { return pruned_; }
+
     [[nodiscard]] std::uint64_t segment_seq() const noexcept { return segment_seq_; }
 
 private:
@@ -55,6 +73,7 @@ private:
     [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq,
                                                                  bool recover) noexcept;
     void close_segment() noexcept;
+    void prune_sealed() noexcept;
     // Whole-journal exclusion, held for this writer's life. Not per segment:
     // the writer rolls segments, and a lock that moves with the current file
     // leaves a window during the roll where a second writer can take over.
@@ -64,6 +83,8 @@ private:
     std::string dir_;
     std::string prefix_;
     std::size_t segment_bytes_{0};
+    std::size_t retain_segments_{0};
+    std::uint64_t pruned_{0};
 
     FileHeader* header_{nullptr};
     std::byte* base_{nullptr};

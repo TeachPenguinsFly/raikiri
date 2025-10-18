@@ -260,5 +260,53 @@ TEST(JournalSchema, EveryVenueIdIsEncodable) {
     EXPECT_FALSE(absent.known);
 }
 
+// Counts segment files a writer left behind.
+std::size_t segments_in(const std::string& dir) {
+    std::size_t n = 0;
+    for (std::uint64_t seq = 0; seq < 1000; ++seq) {
+        char path[512];
+        std::snprintf(path, sizeof path, "%s/j.%06llu.rj", dir.c_str(),
+                      static_cast<unsigned long long>(seq));
+        struct ::stat st{};
+        if (::stat(path, &st) == 0) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+TEST(JournalWriter, SealedSegmentsBeyondTheRetentionAreDeleted) {
+    // ROTATION WITHOUT RETENTION IS A DISK THAT FILLS. A gateway sealed a
+    // segment and opened the next, forever, and nothing ever deleted one: okx
+    // filled 256 MiB every three minutes, which is 120 GB a day from one venue.
+    const FreshDir dir{"retain"};
+    constexpr std::size_t k_tiny = 8192; // a handful of records per segment
+    constexpr std::size_t k_retain = 2;
+
+    auto writer = JournalWriter::open(dir, "j", k_tiny, k_retain);
+    ASSERT_TRUE(writer.has_value());
+    for (std::uint64_t i = 0; i < 400; ++i) {
+        append_bbo(*writer, i);
+    }
+
+    EXPECT_GT(writer->pruned(), 0U) << "rotated many times and deleted nothing";
+    // The live segment plus exactly the retained ones, and no more.
+    EXPECT_LE(segments_in(dir), k_retain + 1)
+        << "sealed segments are accumulating past the retention";
+}
+
+TEST(JournalWriter, RetentionZeroKeepsEverything) {
+    // The opt-out, because a deployment that has not yet arranged to ship
+    // sealed segments off the box would rather fill a disk than lose a record.
+    const FreshDir dir{"retain-none"};
+    auto writer = JournalWriter::open(dir, "j", 8192, 0);
+    ASSERT_TRUE(writer.has_value());
+    for (std::uint64_t i = 0; i < 400; ++i) {
+        append_bbo(*writer, i);
+    }
+    EXPECT_EQ(writer->pruned(), 0U);
+    EXPECT_GT(segments_in(dir), 3U) << "nothing should have been deleted";
+}
+
 } // namespace
 } // namespace raikiri::journal

@@ -1013,8 +1013,22 @@ int main(int argc, char** argv) {
 
     const char* data_dir_env = std::getenv("RAIKIRI_DATA_DIR");
     const std::string data_dir = data_dir_env != nullptr ? data_dir_env : "raikiri-data";
+    // WHAT THIS DEPLOYMENT CAN AFFORD TO DROP. The library keeps everything by
+    // default because it cannot see how far a reader has drained; this process
+    // can at least bound the disk. Eight segments is two gibibytes an account —
+    // and a persister further behind than that loses what it had not read, so a
+    // box that keeps its history must ship a sealed segment off it faster than
+    // eight fill. RAIKIRI_JOURNAL_RETAIN=0 keeps the old unbounded behaviour.
+    constexpr std::size_t k_retain_segments = 8;
+    auto retain = k_retain_segments;
+    if (const char* env = std::getenv("RAIKIRI_JOURNAL_RETAIN"); env != nullptr && *env != '\0') {
+        retain = static_cast<std::size_t>(std::strtoull(env, nullptr, 10));
+    }
     auto journal_writer =
-        journal::JournalWriter::open(data_dir + "/journal/gatewayd-" + account_name, "journal");
+        journal::JournalWriter::open(data_dir + "/journal/gatewayd-" + account_name,
+                                     "journal",
+                                     journal::k_default_segment_bytes,
+                                     retain);
     if (!journal_writer.has_value()) {
         // AlreadyWriting is the interesting one: another gatewayd for this
         // same account is live, and the segment did not catch it because that
@@ -1444,7 +1458,7 @@ int main(int argc, char** argv) {
     requests.report(account_name);
     rates.report(account_name);
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-              "ticker={} order-events={} refusals={}",
+              "ticker={} charges={} order-events={} refusals={} journal-pruned={}",
               account_name,
               counts.bbo,
               counts.depth,
@@ -1453,7 +1467,9 @@ int main(int argc, char** argv) {
               counts.funding,
               counts.greeks,
               counts.ticker_stats,
+              counts.funding_charges,
               counts.order_events,
-              counts.order_errors);
+              counts.order_errors,
+              journal_writer->pruned());
     return 0;
 }

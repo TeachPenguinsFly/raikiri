@@ -18,7 +18,13 @@ namespace raikiri::journal {
 
 JournalWriter::JournalWriter(JournalWriter&& other) noexcept
     : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)},
-      segment_bytes_{other.segment_bytes_}, header_{std::exchange(other.header_, nullptr)},
+      segment_bytes_{other.segment_bytes_},
+      // MOVED TOO. Left out, these silently reverted to their defaults the
+      // moment open() returned by value — a writer asked to retain two
+      // segments kept eight, which is the shape this omission always takes:
+      // correct at the call site, wrong by the first use.
+      retain_segments_{other.retain_segments_}, pruned_{other.pruned_},
+      header_{std::exchange(other.header_, nullptr)},
       base_{std::exchange(other.base_, nullptr)}, fd_{std::exchange(other.fd_, -1)},
       lock_fd_{std::exchange(other.lock_fd_, -1)}, write_off_{other.write_off_},
       segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_} {}
@@ -54,6 +60,23 @@ std::expected<void, JournalError> JournalWriter::claim(const std::string& dir,
     return {};
 }
 
+// Deletes sealed segments beyond `retain_segments_`. A failure to unlink is
+// left alone: the disk filling is a worse outcome than a stale file, and there
+// is nowhere here to report it to — see the header for who may lose what.
+void JournalWriter::prune_sealed() noexcept {
+    if (retain_segments_ == 0 || segment_seq_ <= retain_segments_) {
+        return;
+    }
+    const auto oldest_kept = segment_seq_ - retain_segments_;
+    for (std::uint64_t seq = oldest_kept; seq-- > 0;) {
+        const auto path = detail::segment_path(dir_, prefix_, seq);
+        if (::unlink(path.c_str()) != 0) {
+            break; // already gone, and everything older with it
+        }
+        ++pruned_;
+    }
+}
+
 void JournalWriter::close_segment() noexcept {
     if (base_ != nullptr) {
         ::munmap(base_, segment_bytes_);
@@ -67,11 +90,15 @@ void JournalWriter::close_segment() noexcept {
 }
 
 std::expected<JournalWriter, JournalError>
-JournalWriter::open(std::string dir, std::string prefix, std::size_t segment_bytes) {
+JournalWriter::open(std::string dir,
+                    std::string prefix,
+                    std::size_t segment_bytes,
+                    std::size_t retain_segments) {
     JournalWriter w;
     w.dir_ = std::move(dir);
     w.prefix_ = std::move(prefix);
     w.segment_bytes_ = segment_bytes;
+    w.retain_segments_ = retain_segments;
 
     if (!detail::mkdir_p(w.dir_)) {
         return std::unexpected{JournalError::OpenFailed};
@@ -161,6 +188,9 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
         if (auto r = open_segment(segment_seq_ + 1, /*recover=*/false); !r.has_value()) {
             return std::unexpected{JournalError::RotateFailed};
         }
+        // AFTER the new segment exists, never before: a rotate that failed to
+        // open one must not also have shortened the history for nothing.
+        prune_sealed();
     }
 
     const std::uint64_t seq = next_seq_;
