@@ -19,16 +19,38 @@ namespace {
 using msgs = raikiri_journal::schema::messages;
 namespace jt = raikiri_journal::types;
 
-std::string fresh_dir(const char* name) {
-    const auto dir = "/tmp/raikiri-persist-test-" + std::to_string(::getpid()) + "-" + name;
-    (void)std::system(("rm -rf " + dir).c_str());
-    return dir;
-}
+// A directory of this test's own, removed when the test leaves it.
+//
+// CLEANED AT BOTH ENDS. The pid is in the name so `ctest -j` can run these in
+// parallel, which also means the wipe below never matches a PREVIOUS run's
+// directory — so every run left its journal behind. A hundred and ten of them
+// had accumulated in /tmp, 370 MB, where nobody would think to look.
+class FreshDir {
+public:
+    explicit FreshDir(const char* name)
+        : path_{"/tmp/raikiri-persist-test-" + std::to_string(::getpid()) + "-" + name} {
+        wipe();
+    }
+
+    ~FreshDir() { wipe(); }
+
+    FreshDir(const FreshDir&) = delete;
+    FreshDir& operator=(const FreshDir&) = delete;
+
+    [[nodiscard]] const std::string& path() const noexcept { return path_; }
+    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
+
+private:
+    void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
+
+    std::string path_;
+};
 
 // Writes one full-fill OrderEvent + one funding + one BBO into a journal and
 // returns the frames via a reader.
-std::string build_journal(const char* name) {
-    const auto dir = fresh_dir(name);
+// TAKES the directory rather than making one: the caller uses the path after
+// this returns, so the guard that wipes it has to outlive the call.
+std::string build_journal(const std::string& dir) {
     auto writer = journal::JournalWriter::open(dir, "journal");
     EXPECT_TRUE(writer.has_value());
 
@@ -107,7 +129,8 @@ std::string build_journal(const char* name) {
 }
 
 TEST(Mapper, FillProducesEventUpsertAndExecution) {
-    const auto dir = build_journal("fill");
+    const FreshDir scratch{"fill"};
+    const auto dir = build_journal(scratch);
     auto reader = journal::JournalReader::open(dir, "journal");
     ASSERT_TRUE(reader.has_value());
 
@@ -145,7 +168,7 @@ TEST(Mapper, FillProducesEventUpsertAndExecution) {
 }
 
 TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
-    const auto dir = fresh_dir("partial");
+    const FreshDir dir{"partial"};
     auto writer = journal::JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
 
@@ -190,7 +213,7 @@ TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
 // key that changes between replays is money booked twice. Nothing asserted it
 // until this test.
 TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
-    const auto dir = fresh_dir("pnl");
+    const FreshDir dir{"pnl"};
     auto writer = journal::JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
 
@@ -241,7 +264,8 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     if (dsn == nullptr || *dsn == '\0') {
         GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
     }
-    const auto dir = build_journal("pg");
+    const FreshDir scratch{"pg"};
+    const auto dir = build_journal(scratch);
 
     PgSink sink{dsn};
     for (const auto* migration : {"/migrations/0001_init.sql", "/migrations/0002_positions.sql"}) {
@@ -301,7 +325,7 @@ TEST(Mapper, PositionRowsCarryCostRatherThanAnAverage) {
     // An average is cost over size and can be recomputed whenever it is asked
     // for. Storing it instead would fix it to the size it was computed at, and
     // every later partial close would drift away from it.
-    const auto dir = fresh_dir("position");
+    const FreshDir dir{"position"};
     auto writer = journal::JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
 

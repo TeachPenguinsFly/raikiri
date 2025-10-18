@@ -19,11 +19,34 @@ namespace {
 
 using msgs = raikiri_journal::schema::messages;
 
-std::string fresh_dir(const char* name) {
-    const auto dir = "/tmp/raikiri-journal-test-" + std::to_string(::getpid()) + "-" + name;
-    (void)std::system(("rm -rf " + dir).c_str());
-    return dir;
-}
+// A directory of this test's own, removed when the test leaves it.
+//
+// CLEANED AT BOTH ENDS, and the second end is the one that was missing. The pid
+// is in the name so `ctest -j` can run these in parallel — which also means the
+// `rm -rf` below never matches a PREVIOUS run's directory, so every run left
+// its segments behind. Segments are preallocated at 256 MiB; four runs of the
+// SIGKILL test had left 1.1 GB in /tmp, on a machine where nobody would think
+// to look for it.
+class FreshDir {
+public:
+    explicit FreshDir(const char* name)
+        : path_{"/tmp/raikiri-journal-test-" + std::to_string(::getpid()) + "-" + name} {
+        wipe();
+    }
+
+    ~FreshDir() { wipe(); }
+
+    FreshDir(const FreshDir&) = delete;
+    FreshDir& operator=(const FreshDir&) = delete;
+
+    [[nodiscard]] const std::string& path() const noexcept { return path_; }
+    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
+
+private:
+    void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
+
+    std::string path_;
+};
 
 std::uint64_t append_bbo(JournalWriter& writer, std::uint64_t i) {
     const auto seq = schema::append_msg<msgs::BboMsg>(writer, /*ts_ns=*/i, [&](auto m) {
@@ -40,7 +63,7 @@ std::uint64_t append_bbo(JournalWriter& writer, std::uint64_t i) {
 }
 
 TEST(Journal, WriteReadRoundTrip) {
-    const auto dir = fresh_dir("roundtrip");
+    const FreshDir dir{"roundtrip"};
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
 
@@ -64,7 +87,7 @@ TEST(Journal, WriteReadRoundTrip) {
 }
 
 TEST(Journal, RotationIsSeamlessForTheReader) {
-    const auto dir = fresh_dir("rotation");
+    const FreshDir dir{"rotation"};
     // Tiny segments force several rotations.
     auto writer = JournalWriter::open(dir, "journal", /*segment_bytes=*/8192);
     ASSERT_TRUE(writer.has_value());
@@ -86,7 +109,7 @@ TEST(Journal, RotationIsSeamlessForTheReader) {
 }
 
 TEST(Journal, TailFollowSeesLiveAppends) {
-    const auto dir = fresh_dir("tail");
+    const FreshDir dir{"tail"};
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
     append_bbo(*writer, 1);
@@ -103,7 +126,7 @@ TEST(Journal, TailFollowSeesLiveAppends) {
 }
 
 TEST(Journal, OpenAfterResumesAtCursor) {
-    const auto dir = fresh_dir("cursor");
+    const FreshDir dir{"cursor"};
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
     for (std::uint64_t i = 1; i <= 10; ++i) {
@@ -118,7 +141,7 @@ TEST(Journal, OpenAfterResumesAtCursor) {
 }
 
 TEST(Journal, RecoveryTruncatesCorruptTail) {
-    const auto dir = fresh_dir("recovery");
+    const FreshDir dir{"recovery"};
     std::uint64_t last_valid = 0;
     {
         auto writer = JournalWriter::open(dir, "journal");
@@ -129,7 +152,7 @@ TEST(Journal, RecoveryTruncatesCorruptTail) {
     }
     // Machine-crash simulation: flip a byte inside the LAST frame's payload.
     // (committed_bytes still claims it is valid — recovery must not care.)
-    const auto path = dir + "/journal.000000.rj";
+    const auto path = dir.path() + "/journal.000000.rj";
     const int fd = ::open(path.c_str(), O_RDWR);
     ASSERT_GE(fd, 0);
     // committed_bytes sits at offset 40 in the file header (magic 8 + abi 4 +
@@ -167,7 +190,7 @@ TEST(Journal, RecoveryTruncatesCorruptTail) {
 // SIGKILL. Whatever it managed to commit must read back as a dense,
 // CRC-clean prefix — no torn frame ever visible to a reader.
 TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
-    const auto dir = fresh_dir("kill9");
+    const FreshDir dir{"kill9"};
 
     const pid_t child = ::fork();
     ASSERT_GE(child, 0);
@@ -211,7 +234,7 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
 // the first run is guarded by O_EXCL, and every run after it is not, because
 // both processes take the recovery path over files that already exist.
 TEST(JournalWriterLock, ASecondWriterIsRefusedOnTheRecoveryPathToo) {
-    const auto dir = fresh_dir("writer-lock");
+    const FreshDir dir{"writer-lock"};
 
     {
         auto first = JournalWriter::open(dir, "journal");
