@@ -1,0 +1,31 @@
+# The API and the terminal's back end. One per box.
+[Unit]
+Description=raikiri admind
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raikiri
+WorkingDirectory=/opt/raikiri
+Restart=always
+RestartSec=5s
+
+RuntimeDirectory=raikiri
+RuntimeDirectoryPreserve=yes
+Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
+Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
+EnvironmentFile=-/etc/raikiri/raikiri.env
+
+# BINDS LOOPBACK. It has no authentication yet, so nothing but the reverse proxy
+# in front of it may reach it — see deploy/Caddyfile.
+ExecStart=/opt/raikiri/bin/admind --port 8787 --stream-port 8788 $RAIKIRI_ADMIND_ARGS
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/raikiri /run/raikiri
+
+[Install]
+WantedBy=multi-user.target

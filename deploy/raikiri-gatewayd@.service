@@ -1,0 +1,53 @@
+# One gateway, one account. `systemctl start raikiri-gatewayd@okx-spot`.
+#
+# TEMPLATED ON THE ACCOUNT NAME, not the venue: one adapter serves several
+# markets and the account name is what tells two processes apart, in the segment
+# they own and in the journal they write. tools/venue_args.sh turns the name
+# back into arguments, so the channel decisions live in one file rather than in
+# every unit.
+[Unit]
+Description=raikiri gateway — %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raikiri
+WorkingDirectory=/opt/raikiri
+
+# RESTARTED, ALWAYS. Six of eighteen gateways died in one five-minute window on
+# 2026-09-10 and nothing brought them back: the terminal kept serving their last
+# prices for 200 ms and then called them dead, and the boards simply lost those
+# venues until a person noticed. A gateway is a process that must be up, and
+# supervision is the only thing that makes that true.
+Restart=always
+RestartSec=5s
+# Long enough that a venue rejecting our key does not become a restart loop
+# hammering it — a burst of 5 in 60 s stops the unit and says so.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# SHARED MEMORY BELONGS ON A tmpfs. Eighteen segments of 64 MiB, rewritten
+# continuously, are pointless writes on a network disk and will eat an IOPS
+# budget for nothing. RuntimeDirectory gives /run/raikiri, which is tmpfs.
+RuntimeDirectory=raikiri
+RuntimeDirectoryPreserve=yes
+Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
+Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
+
+# Credentials are REFERENCES on the command line and values only in this file,
+# which is 0600 and owned by root: a secret in argv is a secret in `ps` for
+# every account on the box.
+EnvironmentFile=-/etc/raikiri/credentials.env
+EnvironmentFile=-/etc/raikiri/raikiri.env
+
+ExecStart=/opt/raikiri/bin/gateway-run %i
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/raikiri /run/raikiri
+
+[Install]
+WantedBy=multi-user.target

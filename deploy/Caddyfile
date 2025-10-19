@@ -1,0 +1,26 @@
+# What vite's dev server did, minus vite.
+#
+# `npm run dev` is a COMPILER THAT STAYS RUNNING: it serves source files,
+# transpiles each module as the browser asks for it, watches the tree and pushes
+# hot reloads over a websocket — and, in `server.proxy`, forwards /v1 to admind
+# so the browser talks to one origin. None of that survives `npm run build`,
+# which is a compiler that writes dist/ and exits. The proxy was configuration
+# of the dev server, so in production something else has to be the origin.
+#
+# That is this file. Six lines, no node on the box.
+
+:80 {
+	encode zstd gzip
+
+	# The stream has a port of its own because an upgrade served from the HTTP
+	# acceptor needs a hand-off admind's server does not have. Listed FIRST:
+	# these match in order and /v1 would otherwise swallow it.
+	reverse_proxy /v1/stream* 127.0.0.1:8788
+	reverse_proxy /v1* 127.0.0.1:8787
+
+	# The board the scanner draws comes from a service this repository does not
+	# contain; admind forwards it and knows nothing about what answers.
+	root * /opt/raikiri/web
+	try_files {path} /index.html
+	file_server
+}

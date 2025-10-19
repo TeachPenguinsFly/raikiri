@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Turns an account name into a running gateway. Called by the systemd template.
+#
+#   gateway-run okx-spot
+#
+# The venue mapping is NOT repeated here: tools/venue_args.sh holds it, and the
+# same file answers for the desk. A gateway started with the wrong channel set
+# does not fail — it quietly carries a fraction of its catalogue.
+set -uo pipefail
+
+ACCOUNT="${1:?usage: gateway-run <account>}"
+ROOT="${RAIKIRI_ROOT:-/opt/raikiri}"
+
+# shellcheck source=../tools/venue_args.sh
+source "$ROOT/share/venue_args.sh"
+
+read -r -a args <<< "$(venue_argv "$ACCOUNT")"
+
+# HOW THE SECRET REACHES THE PROCESS, and why it is this shape.
+#
+# `exec:` hands gatewayd a COMMAND, and it runs that command and reads the value
+# off stdout itself. So the secret is:
+#
+#   not in argv        — `ps` shows the fetch, not the key
+#   not in the environment — nothing a child process can inherit, and a gateway
+#                        started from a shell that also launched a web dev server
+#                        HAS leaked a venue key that way; this removes the class
+#   not on disk        — no file to read, no volume to snapshot
+#
+# and once read it lives in config::Secret, whose pages are mlock'd out of swap
+# and zeroized on destruction, in a process that has already disabled core dumps.
+#
+# WHAT AUTHENTICATES THE FETCH IS THE MACHINE ITSELF. Secret Manager trusts the
+# instance's own identity through the metadata server, so there is no long-lived
+# token anywhere on the box to steal — unlike a vault token, which is a
+# credential for everything the vault holds, sitting on one host.
+#
+# A secret the machine may not read simply fails, and the gateway comes up on
+# public market data and says so — the same outcome as a missing key today.
+secret_ref() {
+    printf 'exec:gcloud secrets versions access latest --secret=%s --quiet' "$1"
+}
+
+venue="${ACCOUNT%%-*}"
+if gcloud secrets describe "${venue}-api-key" >/dev/null 2>&1; then
+    args+=(--api-key="$(secret_ref "${venue}-api-key")")
+    args+=(--api-secret="$(secret_ref "${venue}-api-secret")")
+    if gcloud secrets describe "${venue}-passphrase" >/dev/null 2>&1; then
+        args+=(--passphrase="$(secret_ref "${venue}-passphrase")")
+    fi
+fi
+
+exec "$ROOT/bin/gatewayd" "${args[@]}"
