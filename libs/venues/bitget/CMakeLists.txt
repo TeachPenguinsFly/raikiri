@@ -2,6 +2,7 @@ add_library(raikiri_venue_bitget STATIC
   src/venue.cpp
   src/exec_client.cpp
   src/instruments.cpp
+  src/types/account.cpp
   src/types/book.cpp
   src/types/catalogue.cpp
   src/types/envelope.cpp

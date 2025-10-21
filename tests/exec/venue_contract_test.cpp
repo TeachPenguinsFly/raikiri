@@ -391,14 +391,37 @@ TEST_F(VenueContract, EveryPerpPullTheAdaptersHadIsStillClaimed) {
         EXPECT_TRUE(caps_of(id).position_pull.has(MarketType::Perp)) << to_string(id);
         EXPECT_TRUE(caps_of(id).order_pull.has(MarketType::Perp)) << to_string(id);
     }
-    for (const auto id : {VenueId::Binance, VenueId::Gate, VenueId::Kucoin, VenueId::Xt}) {
+    for (const auto id : {VenueId::Binance,
+                          VenueId::Okx,
+                          VenueId::Gate,
+                          VenueId::Kucoin,
+                          VenueId::Bingx,
+                          VenueId::Xt}) {
         EXPECT_TRUE(caps_of(id).balance_pull.has(MarketType::Perp)) << to_string(id);
     }
+    // The two whose wallet is ONE account behind both markets, so the spot arm
+    // answers off the same read rather than refusing.
     EXPECT_TRUE(caps_of(VenueId::Bybit).balance_pull.has(MarketType::Spot));
-    for (const auto id :
-         {VenueId::Binance, VenueId::Bybit, VenueId::Okx, VenueId::Gate, VenueId::Xt}) {
+    EXPECT_TRUE(caps_of(VenueId::Okx).balance_pull.has(MarketType::Spot));
+    for (const auto id : {VenueId::Binance,
+                          VenueId::Bybit,
+                          VenueId::Okx,
+                          VenueId::Gate,
+                          VenueId::Bingx,
+                          VenueId::Xt,
+                          VenueId::Bitget,
+                          VenueId::Htx,
+                          VenueId::Hyperliquid,
+                          VenueId::Mexc}) {
         EXPECT_TRUE(caps_of(id).funding_charge.has(MarketType::Perp)) << to_string(id);
     }
+    // ...and the two whose ledger cannot answer the question this pull asks:
+    // KuCoin's funding history is per-SYMBOL where the pull names a market,
+    // and a Bitfinex ledger row names its wallet currency and no contract at
+    // all. False here means "contributes no funding PnL", which is the honest
+    // state rather than a wrong one.
+    EXPECT_FALSE(caps_of(VenueId::Kucoin).funding_charge.has(MarketType::Perp));
+    EXPECT_FALSE(caps_of(VenueId::Bitfinex).funding_charge.has(MarketType::Perp));
 }
 
 TEST_F(VenueContract, DefaultSubscribeDeclinesUnsupportedKinds) {

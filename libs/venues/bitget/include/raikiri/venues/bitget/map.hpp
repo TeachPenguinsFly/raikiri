@@ -2,10 +2,12 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/bitget/account.hpp>
 #include <raikiri/venues/bitget/book.hpp>
 #include <raikiri/venues/bitget/catalogue.hpp>
 #include <raikiri/venues/bitget/market_data.hpp>
@@ -76,6 +78,17 @@ map_open_order(const WireOrderUpdate& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// One settlement the venue charged, taken VERBATIM: `amount` is already signed
+// the way the account moved, and deriving a direction from the position and the
+// public rate would give this ledger a second opinion about its own rows.
+//
+// nullopt for any businessType but `contract_settle_fee` — the open/close rows
+// are realised PnL and commission, both of which the fill that caused them has
+// already booked — for a symbol outside the table, and for a figure that will
+// not read. An unreadable amount is not a zero charge.
+[[nodiscard]] std::optional<LedgerEntry>
+map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // Catalogue ---------------------------------------------------------------
 

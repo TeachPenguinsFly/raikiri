@@ -8,6 +8,7 @@
 // order may never do.
 
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/venues/bitget/account.hpp>
 #include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/errors.hpp>
 #include <raikiri/venues/bitget/map.hpp>
@@ -142,6 +143,52 @@ public:
             }
         }
         return reports;
+    }
+
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) {
+        switch (market) {
+        case MarketType::Perp:
+            break;
+        case MarketType::Spot:
+            // A spot pair pays no funding, and /api/v2/spot/account/bills is
+            // another row shape carrying none. Answering with the mix ledger
+            // would book a perpetual's charges against a spot gateway.
+            return std::unexpected{exec::not_implemented("bitget spot funding charges")};
+        case MarketType::Future:
+            return std::unexpected{exec::not_implemented("bitget delivery futures funding pull")};
+        case MarketType::Option:
+            return std::unexpected{exec::not_implemented("bitget options order entry")};
+        }
+
+        const auto request =
+            builder_.settle_bills(market, state_->product(), since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error()))};
+        }
+        const auto body = fetch_checked(*state_, rest_, *request, k_pull_timeout_ms);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        auto storage = std::make_unique<BillBuffer>();
+        const auto rows = parse_mix_bills(*body, *storage);
+        if (!rows.has_value()) {
+            // A ledger we cannot read is NOT an empty one: answering "no
+            // funding" would book zero against a position that paid some.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+        }
+        const auto received = state_->clock->wall();
+        std::vector<LedgerEntry> charges;
+        charges.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (const auto charge = map_bill(wire, state_->instruments, received);
+                charge.has_value()) {
+                charges.push_back(*charge);
+            }
+        }
+        return charges;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>

@@ -32,6 +32,9 @@ constexpr std::string_view k_margin_mode = "crossed";
 // Bitget caps a page at 100 on every list endpoint here.
 constexpr std::string_view k_page_limit = "100";
 
+// The one funding value in the classic v2 businessType enum.
+constexpr std::string_view k_settle_fee_type = "contract_settle_fee";
+
 // Fills the builder's target buffer. A part that would overflow is dropped
 // rather than truncated mid-token, so an over-long symbol yields a request
 // Bitget refuses with 40034 instead of one that names a different contract.
@@ -570,6 +573,37 @@ RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos sin
         return signed_get(ep::k_mix_fills, query.view(), now);
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};
+    case MarketType::Option:
+        return std::unexpected{BuildError::UnsupportedMarket};
+    }
+    return std::unexpected{BuildError::UnsupportedMarket};
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::settle_bills(MarketType market,
+                                                                         std::string_view product,
+                                                                         UnixNanos since,
+                                                                         UnixNanos now) {
+    switch (market) {
+    case MarketType::Perp: {
+        // Keys ascend, like every other signed read here. `businessType`
+        // narrows at the venue: `contract_settle_fee` is the only funding
+        // value classic v2 has, and asking for it keeps the page from filling
+        // with the open/close rows this never books.
+        Appender query{body_};
+        query << "businessType=" << k_settle_fee_type << "&limit=" << k_page_limit
+              << "&productType=" << product;
+        // Bitget refuses a window wider than 30 days. Omitting startTime asks
+        // for the newest page instead, which is what a cursor of zero means.
+        if (since.ns != 0) {
+            query << "&startTime=" << since.ns / 1'000'000ULL;
+        }
+        if (!query.ok()) {
+            return std::unexpected{BuildError::BufferTooSmall};
+        }
+        return signed_get(ep::k_mix_account_bill, query.view(), now);
+    }
+    case MarketType::Spot:
+    case MarketType::Future:
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
     }

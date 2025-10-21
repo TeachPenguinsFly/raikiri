@@ -122,6 +122,13 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     positions(MarketType market, std::string_view product, UnixNanos now);
 
+    // The mix wallet's funding rows, filtered at the venue to
+    // `contract_settle_fee`. Spot is refused rather than pointed at
+    // /api/v2/spot/account/bills: that ledger is a different row shape and a
+    // spot pair pays no funding for it to carry.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    settle_bills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now);
+
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 

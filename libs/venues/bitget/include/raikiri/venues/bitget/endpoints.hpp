@@ -49,6 +49,9 @@ inline constexpr std::string_view k_spot_fills = "/api/v2/spot/trade/fills";
 inline constexpr std::string_view k_mix_orders_pending = "/api/v2/mix/order/orders-pending";
 inline constexpr std::string_view k_mix_fills = "/api/v2/mix/order/fills";
 inline constexpr std::string_view k_mix_positions = "/api/v2/mix/position/all-position";
+// The mix wallet's own ledger. Singular `bill` in the path, plural `bills` in
+// the body — and there is no /account-bill beside it.
+inline constexpr std::string_view k_mix_account_bill = "/api/v2/mix/account/bill";
 
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_mix_contracts = "/api/v2/mix/market/contracts";

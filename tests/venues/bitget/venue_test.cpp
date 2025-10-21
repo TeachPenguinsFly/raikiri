@@ -1,3 +1,5 @@
+#include <raikiri/net/signer.hpp>
+#include <raikiri/venues/bitget/account.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
 #include <raikiri/venues/bitget/book.hpp>
 #include <raikiri/venues/bitget/catalogue.hpp>
@@ -701,6 +703,98 @@ TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
     silent.volume_24h_base = {};
     silent.volume_24h_quote = {};
     EXPECT_FALSE(map_ticker_stats(silent, table, k_ingest).has_value());
+}
+
+// ----------------------------------------------------------- ledger -----
+
+TEST(BitgetWire, BillsSitUnderDataBillsBesideTheEndIdCursor) {
+    auto storage = std::make_unique<BillBuffer>();
+    const auto body = fixture("rest_mix_account_bill.json");
+    const auto rows = parse_mix_bills(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    EXPECT_EQ((*rows)[0].bill_id, "1204387519231889409");
+    EXPECT_EQ((*rows)[0].symbol, "BTCUSDT");
+    EXPECT_EQ((*rows)[0].business_type, "contract_settle_fee");
+    EXPECT_EQ((*rows)[0].amount, "-0.004992");
+    EXPECT_EQ((*rows)[0].coin, "USDT");
+    // `cTime` is a QUOTED millisecond stamp here, unlike the unquoted
+    // `requestTime` in the envelope above it.
+    EXPECT_EQ((*rows)[0].c_time_ms, 1'695'715'200'654ULL);
+}
+
+TEST(BitgetMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
+    // THE BUG THIS EXISTS FOR: `amount` is the signed balance move, and a
+    // mapper that took its magnitude would report every payment as income.
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<BillBuffer>();
+    const auto body = fixture("rest_mix_account_bill.json");
+    const auto rows = parse_mix_bills(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::vector<LedgerEntry> booked;
+    for (const auto& wire : *rows) {
+        if (const auto charge = map_bill(wire, table, UnixNanos{7}); charge.has_value()) {
+            booked.push_back(*charge);
+        }
+    }
+    // `open_long` is a trade: its money is realised PnL and a commission the
+    // fill already booked. SOLUSDT is not in this catalogue.
+    ASSERT_EQ(booked.size(), 2U);
+
+    EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[0].amount.raw, -4'992'000) << "0.004992 paid away";
+    EXPECT_EQ(booked[1].amount.raw, 12'810'000) << "0.01281 received, and NOT flipped";
+    EXPECT_EQ(booked[0].settled_at.ns, 1'695'715'200'654ULL * 1'000'000ULL);
+    // The venue's own row id: two settlements on one contract are told apart
+    // by this and not by the stamp.
+    EXPECT_EQ(booked[0].reference.view(), "1204387519231889409");
+    EXPECT_EQ(booked[0].ts_init.ns, 7U);
+}
+
+TEST(BitgetMap, ATradeRowIsRefusedEvenThoughTheQueryAsksForSettlementsOnly) {
+    // The businessType filter is a query PARAMETER, and a parser that trusted
+    // it would book realised PnL as funding the day the parameter is dropped.
+    const auto table = table_from_catalogue();
+    auto storage = std::make_unique<BillBuffer>();
+    const auto body = fixture("rest_mix_account_bill.json");
+    const auto rows = parse_mix_bills(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ((*rows)[2].business_type, "open_long");
+    EXPECT_FALSE(map_bill((*rows)[2], table, UnixNanos{7}).has_value());
+}
+
+TEST(BitgetRest, TheBillReadNarrowsAtTheVenueAndCarriesTheCursorItWasGiven) {
+    net::Signer signer;
+    signer.set_api_key("bitget-test-key");
+    ASSERT_TRUE(signer.secret().assign("bitget-test-secret").has_value());
+    RequestBuilder builder;
+    builder.set_credentials(signer, "bitget-test-passphrase");
+
+    constexpr UnixNanos now{1'700'000'000'000'000'000ULL};
+    const auto since = UnixNanos{1'695'715'200'654ULL * 1'000'000ULL};
+    const auto request = builder.settle_bills(MarketType::Perp, product_type(false), since, now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Get);
+    // Keys ascend, because the signature covers the query as it is sent.
+    EXPECT_EQ(request->target,
+              "/api/v2/mix/account/bill?businessType=contract_settle_fee&limit=100"
+              "&productType=USDT-FUTURES&startTime=1695715200654");
+
+    // A zero cursor names no window: Bitget refuses one wider than 30 days,
+    // and its own default page is the newest rows it will answer.
+    const auto from_zero =
+        builder.settle_bills(MarketType::Perp, product_type(false), UnixNanos{0}, now);
+    ASSERT_TRUE(from_zero.has_value());
+    EXPECT_EQ(from_zero->target,
+              "/api/v2/mix/account/bill?businessType=contract_settle_fee&limit=100"
+              "&productType=USDT-FUTURES");
+
+    // Spot bills are another row shape, and a spot pair pays no funding.
+    for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
+        EXPECT_EQ(builder.settle_bills(market, product_type(false), since, now).error(),
+                  BuildError::UnsupportedMarket);
+    }
 }
 
 // ----------------------------------------------------------- errors -----

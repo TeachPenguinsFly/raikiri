@@ -93,6 +93,35 @@ row inside the test (`pricePlace` 2, `priceEndStep` 5 → 0.05), and it is
 labelled as constructed there. That is precisely why the factor is easy to drop
 and impossible to notice until a row changes it.
 
+## Built from the API reference
+
+No credentials exist here, so the signed bodies below are assembled from
+Bitget's own reference. Field NAMES and TYPES are the doc's; the symbols were
+changed to ones `rest_contracts.json` actually carries, so the mapper divides
+by real steps.
+
+| file | reference shape |
+|---|---|
+| `rest_mix_account_bill.json` | `GET /api/v2/mix/account/bill` — the doc's two rows, re-symbolled, plus two written here |
+
+Four rows, each isolating one mapper decision:
+
+- a `contract_settle_fee` on `BTCUSDT` with `amount` **negative** — the doc's
+  own row, verbatim but for the symbol and the bill id;
+- the same businessType on `ETHUSDT` with `amount` **positive**. The pair is the
+  whole point: `amount` is the signed balance move, and a reader taking its
+  magnitude reports every payment as income;
+- an `open_long` row carrying `amount: "0"` and `fee: "-0.222012"` — also the
+  doc's. It must be **refused**. Its money is realised PnL and a commission the
+  fill already booked, and the businessType filter that would normally keep it
+  off the page is a query parameter, not a guarantee;
+- a `contract_settle_fee` on `SOLUSDT`, which this catalogue does not carry, so
+  the mapper is seen dropping it rather than guessing.
+
+The `fee` column is read by nothing. A commission is compared, not booked, and
+the comparison keys on the venue's id for the TRADE — which a bill row does not
+carry at all.
+
 ## Not captured
 
 No `books5` fixture. The channel exists and `kind_from_channel` claims it, but

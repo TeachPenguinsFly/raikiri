@@ -51,6 +51,13 @@ std::optional<FixedE9> turnover_of(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
+// A settlement figure, read the same tolerant way and named apart because the
+// reason differs: an exact read refuses a whole row over a tail below 1e-9,
+// and a refused row is a charge the ledger never books at all.
+std::optional<FixedE9> settlement_of(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // Counts. Zero is a legitimate pricePlace (one live row quotes in whole
 // units), which is why this accepts it where okx's equivalent does not.
 std::optional<std::int64_t> whole_number(std::string_view text) {
@@ -570,6 +577,38 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         interval_s = static_cast<std::uint32_t>(*hours * 3600);
     }
     return PerpInstrument{base, interval_s};
+}
+
+std::optional<LedgerEntry>
+map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    if (wire.business_type != "contract_settle_fee") {
+        // Every other row is a trade, a transfer or a margin move: money this
+        // process already booked from the fill, or not trading money at all.
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    // VERBATIM. Bitget signs the settlement itself; taking a magnitude here
+    // would report every payment as income.
+    const auto amount = settlement_of(wire.amount);
+    if (!amount.has_value()) {
+        return std::nullopt; // an unreadable figure is not a zero charge
+    }
+
+    LedgerEntry charge{};
+    charge.instrument = base_of(*instrument).id;
+    charge.amount = *amount;
+    charge.kind = LedgerKind::Funding;
+    charge.settled_at = ms_to_unix(wire.c_time_ms, UnixNanos{});
+    // Bitget mints an id per row, which is what tells two settlements on one
+    // contract apart when the stamps collide.
+    if (const auto id = ExecId::from(wire.bill_id); id.has_value()) {
+        charge.reference = *id;
+    }
+    charge.ts_init = ts_init;
+    return charge;
 }
 
 } // namespace raikiri::venues::bitget

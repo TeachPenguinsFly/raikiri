@@ -415,6 +415,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // and carry no productType, so neither borrows the other's parameter.
         .order_pull = {.spot = true, .perp = true},
         .fill_pull = {.spot = true, .perp = true},
+        // PERP ONLY: /api/v2/mix/account/bill, narrowed at the venue to
+        // businessType `contract_settle_fee`. The spot ledger beside it is a
+        // different row shape and a spot pair pays no funding for it to carry.
+        .funding_charge = {.perp = true},
         .ticker_stats = true, // baseVolume / quoteVolume, on the ticker channel
         .needs_passphrase = true,
         .user_stream = UserStreamModel::AuthSubscribe,
