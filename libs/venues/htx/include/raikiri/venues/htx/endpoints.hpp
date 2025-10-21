@@ -55,6 +55,11 @@ inline constexpr std::string_view k_swap_open_orders = "/linear-swap-api/v1/swap
 inline constexpr std::string_view k_swap_order_info = "/linear-swap-api/v1/swap_cross_order_info";
 inline constexpr std::string_view k_swap_position_info =
     "/linear-swap-api/v1/swap_cross_position_info";
+// The account's own ledger, and the ONE private swap path with no `_cross` in
+// it: cross and isolated are selected by the `mar_acct` body field here, not
+// by a parallel endpoint family. There is no swap_cross_financial_record.
+inline constexpr std::string_view k_swap_financial_record =
+    "/linear-swap-api/v3/swap_financial_record";
 inline constexpr std::string_view k_spot_open_orders = "/v1/order/openOrders";
 inline constexpr std::string_view k_spot_order_by_client_id = "/v1/order/orders/getClientOrder";
 // Every spot order needs the account id this returns, so it is fetched before

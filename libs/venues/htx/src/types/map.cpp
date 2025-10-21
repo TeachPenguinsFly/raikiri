@@ -2,6 +2,7 @@
 #include <raikiri/common/int128.hpp>
 #include <raikiri/venues/htx/map.hpp>
 
+#include <array>
 #include <charconv>
 #include <limits>
 #include <optional>
@@ -738,6 +739,49 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
     }
     out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
     return out;
+}
+
+std::optional<LedgerEntry> map_financial_record(const WireFinancialRecord& wire,
+                                                const exec::InstrumentTable& table,
+                                                UnixNanos ts_init) {
+    if (wire.type != k_type_funding_income && wire.type != k_type_funding_expenditure) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.contract_code);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    // rate_e9, not exact_e9: HTX pads this to eighteen fractional digits and an
+    // exact read would refuse the whole row over a tail no order divides by.
+    const auto amount = rate_e9(wire.amount);
+    if (!amount.has_value() || amount->raw == 0) {
+        return std::nullopt; // an unreadable or absent figure is not a zero charge
+    }
+    // The two statements of direction must agree — see map.hpp.
+    const bool expenditure = wire.type == k_type_funding_expenditure;
+    if (expenditure != (amount->raw < 0)) {
+        return std::nullopt;
+    }
+
+    LedgerEntry charge{};
+    charge.instrument = base_of(*instrument).id;
+    charge.amount = *amount;
+    charge.kind = LedgerKind::Funding;
+    charge.settled_at = ms_to_unix(wire.ts_ms, UnixNanos{});
+    // query_id, not `id`: HTX documents `id` as unique per CONTRACT, so two
+    // contracts can carry the same one and a ledger keyed on it would drop the
+    // second as a replay.
+    std::array<char, 24> buf{};
+    if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.query_id);
+        ec == std::errc{}) {
+        if (const auto id = ExecId::from(
+                std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())});
+            id.has_value()) {
+            charge.reference = *id;
+        }
+    }
+    charge.ts_init = ts_init;
+    return charge;
 }
 
 } // namespace raikiri::venues::htx

@@ -96,3 +96,30 @@ than the string "error".
 | `SHIB-USDT` | `price_tick` `1.000000000E-9` — scientific notation the mapper must ACCEPT, exactly at FixedE9's finest |
 | `PEPE-USDT` | `price_tick` `1.00000000E-10` — must be REFUSED; representing it needs a scale the domain does not have |
 | `CYBER-USDT` | `contract_status` 3 with perfectly usable numbers — must be REFUSED on status alone |
+
+## Built from the API reference
+
+`rest_swap_financial_record.json` is the one signed body here, and no
+credentials exist to capture it: it is assembled from HTX's own
+`POST /linear-swap-api/v3/swap_financial_record_exact` example. Field NAMES and
+TYPES are the doc's — including the float padding on `amount`, which is what a
+typed read would lose — and the contract codes were changed to ones
+`rest_contracts.json` carries.
+
+Five rows, each isolating one decision:
+
+- `type: 31` with a **negative** `amount` — the doc's own row. Funding
+  expenditure;
+- `type: 30` with a **positive** `amount`. The pair is the whole point: a
+  reader taking the magnitude reports every payment as income;
+- `type: 5`, an opening fee. Refused: the fill that incurred it already booked
+  it, and this copy would charge the commission twice;
+- `type: 31` with a **positive** amount. HTX states the direction twice and
+  states neither convention in prose, so a row where the two disagree is
+  refused rather than resolved by preferring one;
+- a `DOGE-USDT` row this catalogue does not carry, so the mapper is seen
+  dropping it.
+
+The envelope is v3's: `code: 200`, not the `status: "ok"` every other body in
+this directory carries, and `data` is a flat array where v1 wrapped it in
+`data.financial_record` beside page counters.

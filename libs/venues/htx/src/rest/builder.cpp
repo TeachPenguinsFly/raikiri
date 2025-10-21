@@ -23,6 +23,10 @@ constexpr std::string_view k_signature_version = "2";
 // endpoints cap at 500 and default to 100.
 constexpr std::string_view k_spot_page_limit = "500";
 
+// The widest window the financial-record read answers. HTX refuses a start
+// further back than this, so it is a clamp and not a preference.
+constexpr std::uint64_t k_financial_record_window_ms = 48ULL * 60 * 60 * 1000;
+
 // Appends into a fixed buffer, reporting overflow rather than truncating: a
 // truncated body says something we did not mean to say.
 class Appender {
@@ -203,6 +207,8 @@ std::string_view to_string(BuildError err) noexcept {
         return "cancel batch larger than the venue accepts";
     case BuildError::SpotHasNoPositions:
         return "htx spot reports balances, not positions";
+    case BuildError::SpotHasNoFunding:
+        return "htx spot pays no funding";
     case BuildError::AmendUnsupported:
         return "htx has no modify: cancel and replace";
     case BuildError::OptionsUnsupported:
@@ -661,6 +667,50 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
         return std::unexpected{BuildError::OptionsUnsupported};
     }
     if (!json.ok() || !path.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    sign::Query query;
+    return sign(net::HttpMethod::Post, market, path.view(), query, json.view(), now);
+}
+
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::financial_record(MarketType market, UnixNanos since, UnixNanos now) {
+    switch (market) {
+    case MarketType::Perp:
+        break;
+    case MarketType::Spot:
+        // A spot pair pays no funding, and this ledger is the SWAP account's.
+        // Answering with it would book a perpetual's charges against a spot
+        // gateway.
+        return std::unexpected{BuildError::SpotHasNoFunding};
+    case MarketType::Future:
+        return std::unexpected{BuildError::DatedFuturesUnsupported};
+    case MarketType::Option:
+        return std::unexpected{BuildError::OptionsUnsupported};
+    }
+
+    // 48 hours is the widest window HTX answers, so the cursor is a floor
+    // rather than a promise — see rest.hpp.
+    const auto now_ms = now.ns / 1'000'000ULL;
+    const auto floor_ms =
+        now_ms > k_financial_record_window_ms ? now_ms - k_financial_record_window_ms : 0;
+    const auto since_ms = since.ns / 1'000'000ULL;
+
+    net::JsonWriter json{body_};
+    // contract_code omitted: the whole margin account in one call, which is
+    // what makes this pull answerable where the per-contract trade history is
+    // not.
+    json.obj_begin()
+        .str("mar_acct", k_cross_margin_account)
+        .str("type", k_funding_record_types)
+        .num("start_time", static_cast<std::int64_t>(since_ms > floor_ms ? since_ms : floor_ms))
+        .obj_end();
+    if (!json.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    Appender path{path_};
+    path << ep::k_swap_financial_record;
+    if (!path.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     sign::Query query;

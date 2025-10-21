@@ -50,6 +50,16 @@ namespace raikiri::venues::htx {
 // endpoints.hpp and ws.hpp with it, not switching this constant alone.
 inline constexpr std::string_view k_margin_mode = "cross";
 
+// The margin account cross mode settles in, and the `mar_acct` every ledger
+// read names. Isolated margin spells this as the contract code instead, which
+// is the same widening k_margin_mode above describes.
+inline constexpr std::string_view k_cross_margin_account = "USDT";
+
+// `type` codes 30 and 31 are funding income and funding expenditure. The rest
+// of the table is fees, transfers and realised PnL — money this process either
+// already booked from the fill or never touched.
+inline constexpr std::string_view k_funding_record_types = "30,31";
+
 // HTX requires lever_rate on every swap order and refuses one that disagrees
 // with the leverage of an open position on the same contract. Nothing in
 // OrderCmd or VenueConfig expresses leverage, so every order asks for this
@@ -79,6 +89,7 @@ enum class BuildError : std::uint8_t {
     MixedBatch,         // one cancel batch straddling instruments
     BatchTooLarge,      // more ids than the endpoint accepts in one call
     SpotHasNoPositions, // a spot balance is not a position HTX can report
+    SpotHasNoFunding,   // a spot pair pays none, and the swap ledger is not its
     // Neither API offers a modify: a live order is cancelled and replaced.
     AmendUnsupported,
     OptionsUnsupported,      // HTX lists options; this adapter does not trade them
@@ -164,6 +175,15 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
+
+    // The account's funding rows, account-wide: `contract` is optional on this
+    // endpoint, unlike on the trade history the fill pull cannot use.
+    //
+    // HTX refuses a window WIDER THAN 48 HOURS, so `since` is a floor and not
+    // a promise — a cursor further back than that is clamped, and the rows
+    // between are reachable only through the venue's own web download.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    financial_record(MarketType market, UnixNanos since, UnixNanos now);
 
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

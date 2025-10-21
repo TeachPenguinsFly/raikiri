@@ -2,10 +2,12 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/htx/account.hpp>
 #include <raikiri/venues/htx/book.hpp>
 #include <raikiri/venues/htx/catalogue.hpp>
 #include <raikiri/venues/htx/market_data.hpp>
@@ -127,5 +129,20 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// One settlement the venue charged, taken VERBATIM: `amount` is already signed
+// the way the account moved.
+//
+// THE 30/31 SPLIT IS READ AS A CHECK, NOT AS THE SIGN. HTX states the
+// direction twice — once in the type code and once in the amount — and states
+// neither convention in prose, so a row where the two disagree is dropped
+// rather than resolved by preferring one. Booking a disagreement either way
+// puts a number in an append-only ledger that the venue's own books contradict.
+//
+// nullopt for any type but funding, for a contract outside the table, for a
+// figure that will not read, and for that disagreement.
+[[nodiscard]] std::optional<LedgerEntry> map_financial_record(const WireFinancialRecord& wire,
+                                                              const exec::InstrumentTable& table,
+                                                              UnixNanos ts_init);
 
 } // namespace raikiri::venues::htx

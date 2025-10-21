@@ -1,3 +1,5 @@
+#include <raikiri/net/signer.hpp>
+#include <raikiri/venues/htx/account.hpp>
 #include <raikiri/venues/htx/envelope.hpp>
 #include <raikiri/venues/htx/errors.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
@@ -12,6 +14,8 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace raikiri::venues::htx {
 namespace {
@@ -829,6 +833,106 @@ TEST(HtxRest, BuildsUnauthenticatedReads) {
     EXPECT_EQ(RequestBuilder::contracts().method, net::HttpMethod::Get);
     // Outside both market-data families, hence the bare path.
     EXPECT_EQ(RequestBuilder::server_time().target, "/api/v1/timestamp");
+}
+
+// ------------------------------------------------------------- ledger ----
+
+TEST(HtxWire, FinancialRecordsSitInAFlatDataArrayWithNoPageWrapper) {
+    static thread_local FinancialRecordBuffer storage;
+    const auto body = load("rest_swap_financial_record.json");
+    const auto rows = parse_financial_records(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U) << "v3 dropped the data.financial_record wrapper v1 had";
+    EXPECT_EQ((*rows)[0].contract_code, "BTC-USDT");
+    EXPECT_EQ((*rows)[0].type, 31);
+    EXPECT_EQ((*rows)[0].query_id, 138'798'248ULL);
+    EXPECT_EQ((*rows)[0].ts_ms, 1'638'758'435'635ULL);
+    // The raw token, padded the way HTX's own serialiser pads it: a typed read
+    // through a double would not come back the same number.
+    EXPECT_EQ((*rows)[0].amount, "-0.024464850000000000");
+    EXPECT_EQ((*rows)[0].asset, "USDT");
+}
+
+TEST(HtxMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
+    // THE BUG THIS EXISTS FOR: `amount` is the signed balance move, and a
+    // mapper that took its magnitude would report every payment as income.
+    const auto table = catalogue();
+    static thread_local FinancialRecordBuffer storage;
+    const auto body = load("rest_swap_financial_record.json");
+    const auto rows = parse_financial_records(body, storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::vector<LedgerEntry> booked;
+    for (const auto& wire : *rows) {
+        if (const auto charge = map_financial_record(wire, table, UnixNanos{7});
+            charge.has_value()) {
+            booked.push_back(*charge);
+        }
+    }
+    // Type 5 is an opening fee the fill already booked; the contradictory row
+    // and the contract this catalogue does not carry are dropped below.
+    ASSERT_EQ(booked.size(), 2U);
+
+    EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[0].amount.raw, -24'464'850) << "type 31, expenditure";
+    EXPECT_EQ(booked[1].amount.raw, 13'820'000) << "type 30, income, and NOT flipped";
+    EXPECT_EQ(booked[0].settled_at.ns, 1'638'758'435'635ULL * 1'000'000ULL);
+    // query_id, not `id`: HTX documents `id` as unique per CONTRACT, so two
+    // contracts can carry the same one.
+    EXPECT_EQ(booked[0].reference.view(), "138798248");
+    EXPECT_EQ(booked[0].ts_init.ns, 7U);
+}
+
+TEST(HtxMap, ARowWhoseTypeAndAmountDisagreeAboutDirectionIsDropped) {
+    // HTX states the direction TWICE — once as 30/31, once as the amount's
+    // sign — and states neither convention in prose. Resolving a disagreement
+    // by preferring one puts a number in an append-only ledger that the
+    // venue's own books contradict, so the row is refused instead.
+    const auto table = catalogue();
+    static thread_local FinancialRecordBuffer storage;
+    const auto body = load("rest_swap_financial_record.json");
+    const auto rows = parse_financial_records(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ((*rows)[3].type, 31);
+    ASSERT_EQ((*rows)[3].amount, "0.009900000000000000") << "an expenditure that credited";
+    EXPECT_FALSE(map_financial_record((*rows)[3], table, UnixNanos{7}).has_value());
+
+    // And a contract this gateway never loaded maps to nothing rather than to
+    // a neighbour.
+    ASSERT_EQ((*rows)[4].contract_code, "DOGE-USDT");
+    EXPECT_FALSE(map_financial_record((*rows)[4], table, UnixNanos{7}).has_value());
+}
+
+TEST(HtxRest, TheLedgerReadNamesTheMarginAccountAndClampsToTheVenuesWindow) {
+    net::Signer signer;
+    signer.set_api_key("htx-test-key");
+    ASSERT_TRUE(signer.secret().assign("htx-test-secret").has_value());
+    SignedRequestBuilder builder{signer};
+
+    // 48 hours before this instant, to the millisecond.
+    constexpr UnixNanos now{1'700'000'000'000'000'000ULL};
+    constexpr std::uint64_t floor_ms = 1'700'000'000'000ULL - (48ULL * 60 * 60 * 1000);
+
+    const auto inside = UnixNanos{1'699'900'000'000ULL * 1'000'000ULL};
+    const auto request = builder.financial_record(MarketType::Perp, inside, now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Post);
+    EXPECT_TRUE(std::string_view{request->target}.starts_with(
+        "/linear-swap-api/v3/swap_financial_record?"));
+    // No contract_code: the whole margin account in one call, which is what
+    // makes this pull answerable where the per-contract trade history is not.
+    EXPECT_EQ(request->body, R"({"mar_acct":"USDT","type":"30,31","start_time":1699900000000})");
+
+    // A cursor older than the window HTX answers is CLAMPED, not sent: a wider
+    // start is refused outright, and a refused call reports no funding at all.
+    const auto clamped = builder.financial_record(MarketType::Perp, UnixNanos{0}, now);
+    ASSERT_TRUE(clamped.has_value());
+    EXPECT_EQ(clamped->body,
+              R"({"mar_acct":"USDT","type":"30,31","start_time":)" + std::to_string(floor_ms) +
+                  "}");
+
+    EXPECT_EQ(builder.financial_record(MarketType::Spot, inside, now).error(),
+              BuildError::SpotHasNoFunding);
 }
 
 // ------------------------------------------------------------- errors ----

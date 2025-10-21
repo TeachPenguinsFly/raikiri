@@ -440,6 +440,13 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // names only a market; a sweep over every instrument is a different
         // call the reconciler does not make. Positions answer, fills do not.
         .fill_pull = {},
+        // PERP ONLY, and unlike the fills above this one genuinely answers:
+        // /linear-swap-api/v3/swap_financial_record takes `contract` as an
+        // OPTIONAL parameter and windows by MARGIN ACCOUNT instead, which for
+        // cross margin is the whole USDT wallet in one call. It answers at
+        // most 48 hours per request, so the cursor is a floor and not a
+        // promise — rows older than that are web-download only.
+        .funding_charge = {.perp = true},
         // market.{code}.detail: `amount` (base) / `trade_turnover` (quote).
         // NOT `vol` on the same tick, which counts contracts.
         .ticker_stats = true,
