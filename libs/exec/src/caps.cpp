@@ -317,6 +317,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // both markets genuinely answer.
         .order_pull = {.spot = true, .perp = true},
         .fill_pull = {.spot = true, .perp = true},
+        // PERP ONLY: `userFunding` holds perpetual settlements and a spot pair
+        // pays none. The sibling `userNonFundingLedgerUpdates` carries
+        // deposits and transfers, which is money nothing here books.
+        .funding_charge = {.perp = true},
         .ticker_stats = true, // activeAssetCtx dayBaseVlm / dayNtlVlm
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 34, // `cloid`: 0x + 32 hex, exactly 128 bits

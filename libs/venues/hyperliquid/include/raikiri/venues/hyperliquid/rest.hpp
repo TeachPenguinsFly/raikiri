@@ -73,6 +73,13 @@ public:
     [[nodiscard]] net::RestRequest user_fills_by_time(std::string_view user,
                                                       std::uint64_t start_ms) noexcept;
 
+    // The account's own funding ledger. `startTime` is MANDATORY here, unlike
+    // on the fills read, and the answer is capped at 500 rows — so a zero
+    // start asks from the account's first settlement and the caller walks
+    // forward from what comes back rather than seeing the newest page.
+    [[nodiscard]] net::RestRequest user_funding(std::string_view user,
+                                                std::uint64_t start_ms) noexcept;
+
     // By venue order id. There is a by-cloid form too, but a cloid the venue
     // never saw and one it has forgotten answer identically, so the id we were
     // given back is the one worth asking about.

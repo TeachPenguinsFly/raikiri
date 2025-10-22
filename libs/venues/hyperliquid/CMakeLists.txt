@@ -5,6 +5,7 @@ add_library(raikiri_venue_hyperliquid STATIC
   src/instruments.cpp
   src/keccak.cpp
   src/sign.cpp
+  src/types/account.cpp
   src/types/book.cpp
   src/types/catalogue.cpp
   src/types/envelope.cpp

@@ -1,5 +1,6 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/int128.hpp>
+#include <raikiri/venues/hyperliquid/account.hpp>
 #include <raikiri/venues/hyperliquid/book.hpp>
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
@@ -7,6 +8,7 @@
 #include <raikiri/venues/hyperliquid/orders.hpp>
 #include <raikiri/venues/hyperliquid/positions.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <optional>
@@ -584,6 +586,48 @@ std::optional<exec::OrderStatusReport> map_order_status(const WireOrderStatus& w
     }
     out->ts_venue = ms_to_unix(wire.ts_ms, out->ts_venue);
     return out;
+}
+
+std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
+                                              const exec::InstrumentTable& table,
+                                              UnixNanos ts_init) {
+    if (wire.type != "funding") {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.coin);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    // VERBATIM. The venue signs `usdc` itself — negative was paid away — and
+    // `szi` beside it only restates which way the position pointed. Taking a
+    // magnitude here would report every payment as income.
+    const auto amount = to_amount_e9(wire.usdc);
+    if (!amount.has_value()) {
+        return std::nullopt; // an unreadable figure is not a zero charge
+    }
+
+    LedgerEntry charge{};
+    charge.instrument = base_of(*instrument).id;
+    charge.amount = *amount;
+    charge.kind = LedgerKind::Funding;
+    charge.settled_at = ms_to_unix(wire.time_ms, UnixNanos{});
+    // Built rather than carried — map.hpp says why the venue's `hash` cannot
+    // be. Funding settles once an hour per coin, so the pair is unique, and it
+    // is the same text on every replay of the same page.
+    std::array<char, 48> key{};
+    if (wire.coin.size() + 2 <= key.size()) {
+        auto* cursor = std::copy(wire.coin.begin(), wire.coin.end(), key.data());
+        *cursor++ = ':';
+        if (const auto [stop, ec] = std::to_chars(cursor, key.data() + key.size(), wire.time_ms);
+            ec == std::errc{}) {
+            const std::string_view text{key.data(), static_cast<std::size_t>(stop - key.data())};
+            if (const auto id = ExecId::from(text); id.has_value()) {
+                charge.reference = *id;
+            }
+        }
+    }
+    charge.ts_init = ts_init;
+    return charge;
 }
 
 } // namespace raikiri::venues::hyperliquid

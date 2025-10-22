@@ -10,6 +10,7 @@
 // order may never do.
 
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/venues/hyperliquid/account.hpp>
 #include <raikiri/venues/hyperliquid/exchange.hpp>
 #include <raikiri/venues/hyperliquid/map.hpp>
 #include <raikiri/venues/hyperliquid/orders.hpp>
@@ -183,6 +184,50 @@ public:
             }
         }
         return reports;
+    }
+
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // A spot pair pays no funding, and this ledger holds perpetual
+            // settlements alone. Answering with it would book a perp's charges
+            // against a spot gateway.
+            return std::unexpected{exec::not_implemented("hyperliquid spot funding charges")};
+        }
+        if (state_->address.empty()) {
+            return std::unexpected{no_address()};
+        }
+        // `startTime` is INCLUSIVE, so the settlement the cursor sits on comes
+        // back once more; the caller drops it by stamp. A zero start asks from
+        // the account's first settlement, and the venue caps the answer at 500
+        // rows — the cursor walks forward one page per pass rather than
+        // skipping to the newest.
+        const auto body = read_info(
+            *state_, rest_, requests_.user_funding(state_->address, since.ns / 1'000'000ULL));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+
+        static thread_local FundingChargeBuffer storage;
+        const auto rows = parse_user_funding(*body, storage);
+        if (!rows.has_value()) {
+            // A ledger we cannot read is NOT an empty one: answering "no
+            // funding" would book zero against a position that paid some.
+            return std::unexpected{unreadable(rows.error())};
+        }
+        const auto received = state_->clock->wall();
+        std::vector<LedgerEntry> charges;
+        charges.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (const auto charge = map_funding_charge(wire, state_->instruments, received);
+                charge.has_value()) {
+                charges.push_back(*charge);
+            }
+        }
+        return charges;
     }
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>

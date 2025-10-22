@@ -1,3 +1,4 @@
+#include <raikiri/venues/hyperliquid/account.hpp>
 #include <raikiri/venues/hyperliquid/book.hpp>
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/venues/hyperliquid/envelope.hpp>
@@ -1417,6 +1418,81 @@ TEST(HyperliquidMap, FillsKeepTheRebateSignAndTheLiquiditySide) {
 
     EXPECT_EQ(mapped[1].liquidity, Liquidity::Taker);
     EXPECT_GT(mapped[1].fee.raw, 0);
+}
+
+TEST(HyperliquidWire, FundingRowsCarryTheMoneyUnderDeltaAndTheStampBesideIt) {
+    auto storage = std::make_unique<FundingChargeBuffer>();
+    const auto body = fixture("rest_user_funding.json");
+    const auto rows = parse_user_funding(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+    EXPECT_EQ((*rows)[0].coin, "BTC");
+    EXPECT_EQ((*rows)[0].type, "funding");
+    EXPECT_EQ((*rows)[0].usdc, "-0.185819");
+    EXPECT_EQ((*rows)[0].time_ms, 1'789'239'600'008ULL);
+    // Two coins settle on ONE stamp, which is why the key below is the pair.
+    EXPECT_EQ((*rows)[1].time_ms, (*rows)[0].time_ms);
+}
+
+TEST(HyperliquidMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
+    // THE BUG THIS EXISTS FOR: `usdc` is the signed delta to the wallet, and a
+    // mapper that took its magnitude would report every payment as income.
+    const auto table = loaded_table();
+    auto storage = std::make_unique<FundingChargeBuffer>();
+    const auto body = fixture("rest_user_funding.json");
+    const auto rows = parse_user_funding(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::vector<LedgerEntry> booked;
+    for (const auto& wire : *rows) {
+        if (const auto charge = map_funding_charge(wire, table, UnixNanos{7}); charge.has_value()) {
+            booked.push_back(*charge);
+        }
+    }
+    // SOL is not in this catalogue: a coin we never loaded is dropped rather
+    // than booked against a guess.
+    ASSERT_EQ(booked.size(), 2U);
+
+    EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[0].amount.raw, -185'819'000) << "0.185819 paid away";
+    EXPECT_EQ(booked[1].amount.raw, 583'839'000) << "0.583839 received, and NOT flipped";
+    EXPECT_EQ(booked[0].settled_at.ns, 1'789'239'600'008ULL * 1'000'000ULL);
+    EXPECT_EQ(booked[0].ts_init.ns, 7U);
+}
+
+TEST(HyperliquidMap, TheFundingReferenceIsBuiltBecauseTheHashIsAllZeros) {
+    // MEASURED: `hash` is 0x000...0 on every funding row, so it identifies
+    // nothing, and it is 66 characters against ExecId's 40 besides. The key is
+    // therefore the coin and the settlement stamp — which is what stops a
+    // replayed page double-booking, so it must differ per coin on one stamp.
+    const auto table = loaded_table();
+    auto storage = std::make_unique<FundingChargeBuffer>();
+    const auto body = fixture("rest_user_funding.json");
+    const auto rows = parse_user_funding(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+
+    const auto btc = map_funding_charge((*rows)[0], table, UnixNanos{7});
+    const auto eth = map_funding_charge((*rows)[1], table, UnixNanos{7});
+    ASSERT_TRUE(btc.has_value());
+    ASSERT_TRUE(eth.has_value());
+    EXPECT_EQ(btc->reference.view(), "BTC:1789239600008");
+    EXPECT_EQ(eth->reference.view(), "ETH:1789239600008");
+}
+
+TEST(HyperliquidRest, TheFundingReadCarriesTheCursorItWasAskedFor) {
+    // `startTime` is MANDATORY on this read, unlike on the fills one, so there
+    // is no form of it that means "whatever the venue defaults to".
+    constexpr std::string_view address = "0x1719884eb866cb12b2287399b15f7db5e7d775ea";
+    UserRequestBuilder builder;
+    const auto request = builder.user_funding(address, 1'789'239'600'008ULL);
+    EXPECT_EQ(request.method, net::HttpMethod::Post);
+    EXPECT_EQ(request.target, "/info");
+    EXPECT_EQ(request.body,
+              R"({"type":"userFunding","user":"0x1719884eb866cb12b2287399b15f7db5e7d775ea",)"
+              R"("startTime":1789239600008})");
+
+    const auto from_zero = builder.user_funding(address, 0);
+    EXPECT_NE(std::string{from_zero.body}.find(R"("startTime":0)"), std::string::npos);
 }
 
 TEST(HyperliquidMap, AUlidAndItsCloidAreTheSameNumber) {

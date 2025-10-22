@@ -2,9 +2,11 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/hyperliquid/account.hpp>
 #include <raikiri/venues/hyperliquid/book.hpp>
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/venues/hyperliquid/market_data.hpp>
@@ -124,5 +126,20 @@ map_open_order(const WireOpenOrder& wire, const exec::InstrumentTable& table);
 // cannot read would resurrect a dead order.
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_order_status(const WireOrderStatus& wire, const exec::InstrumentTable& table);
+
+// One settlement the venue charged, taken VERBATIM: `usdc` is already signed
+// the way the account moved. nullopt for a row whose `type` is not funding, for
+// a coin outside the table, and for a figure that will not read — an
+// unreadable amount is not a zero charge.
+//
+// `reference` is BUILT, not carried. MEASURED over 500 consecutive rows: the
+// `hash` beside every funding delta is 0x000…0, so it identifies nothing — and
+// it is 66 characters against ExecId's 40 besides. The key is the coin and the
+// settlement stamp instead: unique because funding settles once an hour per
+// coin, and the same text on every replay, which is what stops a page the
+// poller re-reads from double-booking.
+[[nodiscard]] std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
+                                                            const exec::InstrumentTable& table,
+                                                            UnixNanos ts_init);
 
 } // namespace raikiri::venues::hyperliquid

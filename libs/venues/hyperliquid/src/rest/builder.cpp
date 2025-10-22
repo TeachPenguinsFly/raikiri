@@ -114,6 +114,13 @@ net::RestRequest UserRequestBuilder::user_fills_by_time(std::string_view user,
     return info(body.view());
 }
 
+net::RestRequest UserRequestBuilder::user_funding(std::string_view user,
+                                                  std::uint64_t start_ms) noexcept {
+    Appender body{body_};
+    body << R"({"type":"userFunding","user":")" << user << R"(","startTime":)" << start_ms << "}";
+    return info(body.view());
+}
+
 net::RestRequest UserRequestBuilder::order_status(std::string_view user,
                                                   std::uint64_t oid) noexcept {
     Appender body{body_};

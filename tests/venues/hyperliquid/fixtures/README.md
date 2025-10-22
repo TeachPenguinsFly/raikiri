@@ -76,6 +76,7 @@ naming a public address, and none of the responses echoes it back.
 | `rest_order_status_unknown.json` | the same request with an oid the venue has never minted |
 | `rest_user_fills.json` | `{"type":"userFills","user":"0x…"}`, trimmed to five rows |
 | `rest_spot_meta.json` | `{"type":"spotMeta"}` (326 pairs, 500 tokens) trimmed to seven pairs and the eight tokens behind them |
+| `rest_user_funding.json` | **PARTLY ASSEMBLED**: `{"type":"userFunding","user":"0x…","startTime":…}`. The `BTC` and `ETH` rows are live (2026-09-13); the `SOL` row was written here |
 
 What each one is here to prove:
 
@@ -114,6 +115,15 @@ What each one is here to prove:
   rows are a builder-deployed perp DEX: they are real fills on a real account
   and belong to a catalogue this adapter never loads, so they resolve to
   nothing.
+- `rest_user_funding.json` — the sign is the whole of it. The `BTC` row is a
+  short paying on a negative rate (`usdc` **negative**) and the `ETH` row a
+  short receiving on a positive one (`usdc` **positive**): a mapper that read
+  the magnitude would book both as income. `hash` is `0x000…0` on both, and it
+  was all-zero on 500 of 500 live rows, so it identifies nothing — which is why
+  the ledger key is built from the coin and the stamp instead. The two rows
+  share ONE `time`, which is what makes the coin part of that key load-bearing.
+  The `SOL` row is the written one: it names a coin `rest_meta.json` does not
+  carry, and exists so the mapper is seen dropping it rather than guessing.
 - `rest_spot_meta.json` — the pair rows name their tokens by **index** and carry
   no precision of their own; `szDecimals` lives on the base token, so a mapper
   handed only the pair would have to guess the step. `PURR/USDC` is the one
