@@ -96,6 +96,7 @@ enum class BuildError : std::uint8_t {
     NeedsSymbol,             // spot reads are per-symbol; the caller must name one
     SpotBatchCancelUnsupported,
     SpotPositionsUnsupported,
+    SpotFundingUnsupported, // a spot pair pays none, and there is no ledger of one
 };
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
@@ -170,6 +171,12 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
+
+    // The futures funding ledger, account-wide. Spot is refused rather than
+    // pointed anywhere: a spot pair pays no funding, and MEXC's spot tree has
+    // no ledger of one.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError>
+    funding_records(MarketType market, UnixNanos since, UnixNanos now);
 
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;

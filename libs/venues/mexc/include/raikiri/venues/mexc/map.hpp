@@ -13,10 +13,12 @@
 // (verified: 90 s of silence), so the rate arrives with the ticker — which
 // carries no settlement boundary, hence the separate REST overload.
 
+#include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/mexc/account.hpp>
 #include <raikiri/venues/mexc/book.hpp>
 #include <raikiri/venues/mexc/catalogue.hpp>
 #include <raikiri/venues/mexc/market_data.hpp>
@@ -149,5 +151,22 @@ map_spot_open_order(const WireSpotOrder& wire, const exec::InstrumentTable& tabl
                                                        const exec::InstrumentTable& table,
                                                        QtyLots leaves,
                                                        UnixNanos ts_init);
+
+// One settlement the venue charged.
+//
+// THE DIRECTION COMES OFF `positionType` AND `rate`, NOT OFF THE AMOUNT.
+// MEXC documents `funding` only as "Fee" and never states whether it is signed
+// — see account.hpp — while it does document that 1 is long, 2 is short, and
+// that a positive rate has longs paying shorts. So the magnitude is the
+// venue's and the sign is the venue's too, just read off the fields it commits
+// to. A reading that trusted the amount's own sign would invert every payment
+// on the day MEXC ships a magnitude.
+//
+// nullopt for a symbol outside the table, for a figure that will not read, and
+// for a row whose rate is zero — nothing was charged either way, and there is
+// no direction to take from it.
+[[nodiscard]] std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
+                                                            const exec::InstrumentTable& table,
+                                                            UnixNanos ts_init);
 
 } // namespace raikiri::venues::mexc

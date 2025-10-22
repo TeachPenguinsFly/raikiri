@@ -245,6 +245,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .order_pull = {.perp = true},
         // PERP ONLY for the same reason: the spot trade history is per-symbol.
         .fill_pull = {.perp = true},
+        // PERP ONLY: /api/v1/private/position/funding_records, which takes
+        // `symbol` as an OPTIONAL parameter and so answers account-wide.
+        // MEXC never states whether its `funding` is signed, so the adapter
+        // takes the magnitude and the direction MEXC does document —
+        // positionType beside the settlement's own rate.
+        .funding_charge = {.perp = true},
         // push.ticker's `amount24`, in the QUOTE currency. The base column
         // stays ZERO: the `volume24` beside it counts CONTRACTS, which
         // compares with nothing.

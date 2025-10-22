@@ -170,6 +170,7 @@ above actually carry, so the mapper has real tick and lot sizes to divide by.
 | `rest_futures_open_orders.json` | `GET /api/v1/private/order/list/open_orders` |
 | `rest_futures_order_deals.json` | `GET /api/v1/private/order/list/order_deals` (`taker`, not `isTaker`) |
 | `rest_futures_positions.json` | `GET /api/v1/private/position/open_positions` |
+| `rest_funding_records.json` | `GET /api/v1/private/position/funding_records` — the reference's own two rows plus two written here |
 | `rest_futures_cancel_partial.json` | the cancel response example, VERBATIM — a per-order `errorCode` 2040 beside a 0 |
 | `rest_spot_order_new.json` | `POST /api/v3/order` |
 | `rest_spot_open_orders.json` | `GET /api/v3/openOrders` |
@@ -183,6 +184,15 @@ stream. `push.personal.order.deal` follows the mapping the other three
 establish. It is also a strict SUFFIX extension of `push.personal.order`, which
 is exactly the hazard `push.depth` / `push.depth.full` already posed here, so
 the dispatch test pins that the two do not collapse.
+
+`rest_funding_records.json` carries the doc's example row verbatim
+(`id` 328033, a LONG settled at rate `-0.002` with `funding` positive) and its
+sibling re-symbolled onto `SUSHI_USDT`, which this catalogue does not carry so
+the mapper is seen dropping it. The two written rows are the ones that pin the
+DIRECTION: a long at a POSITIVE rate, and a short at that same rate. MEXC calls
+`funding` only "Fee" and never states whether it is signed, and its own example
+is the one case where signed and unsigned agree — so the sign is read off
+`positionType` and `rate` instead, and those two rows are what prove it.
 
 `ws_personal_order_filled.json` keeps the doc's own `externalOid`,
 `_m_95bc2b72d3784bce8f9efecbdef9fe35` — 35 characters, which is what MEXC's own

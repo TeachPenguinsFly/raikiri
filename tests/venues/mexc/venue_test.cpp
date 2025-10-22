@@ -1,4 +1,5 @@
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/mexc/account.hpp>
 #include <raikiri/venues/mexc/book.hpp>
 #include <raikiri/venues/mexc/catalogue.hpp>
 #include <raikiri/venues/mexc/envelope.hpp>
@@ -674,6 +675,93 @@ TEST(MexcRest, SymbolGoesInThePathForDepthAndFundingButInTheQueryForTicker) {
     // 403s a private POST at the CDN, api.mexc.com answers it.
     EXPECT_EQ(private_rest_host(), "api.mexc.com");
     EXPECT_NE(private_rest_host(), rest_host());
+}
+
+// ------------------------------------------------------ ledger ---------
+
+TEST(MexcWire, FundingRowsSitUnderResultListWithTheirOwnPagingCounters) {
+    static thread_local FundingRecordBuffer storage;
+    const auto body = fixture("rest_funding_records.json");
+    const auto rows = parse_funding_records(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    EXPECT_EQ((*rows)[0].symbol, "BTC_USDT");
+    EXPECT_EQ((*rows)[0].id, 328'033U);
+    EXPECT_EQ((*rows)[0].position_type, 1);
+    // Bare JSON numbers on this endpoint, kept as their tokens: the trailing
+    // zero of row 1 survives, which an integer read would not.
+    EXPECT_EQ((*rows)[0].funding, "0.0837798");
+    EXPECT_EQ((*rows)[0].rate, "-0.002");
+    EXPECT_EQ((*rows)[1].funding, "0.0125670");
+    EXPECT_EQ((*rows)[0].settle_ms, 1'606'435'200'000ULL);
+}
+
+TEST(MexcMap, TheFundingDirectionComesOffThePositionAndTheRateNotTheAmountsSign) {
+    // THE BUG THIS EXISTS FOR: MEXC documents `funding` only as "Fee" and
+    // never states whether it is signed, and its own worked example is a long
+    // settled at a NEGATIVE rate — the case where a long receives — so the
+    // positive figure it shows discriminates nothing. A reader that trusted
+    // that sign would report every payment as income on the day MEXC ships a
+    // magnitude. The direction is taken from the two fields MEXC does document.
+    const auto table = catalogue();
+    static thread_local FundingRecordBuffer storage;
+    const auto body = fixture("rest_funding_records.json");
+    const auto rows = parse_funding_records(body, storage);
+    ASSERT_TRUE(rows.has_value());
+
+    std::vector<LedgerEntry> booked;
+    for (const auto& wire : *rows) {
+        if (const auto charge = map_funding_record(wire, table, UnixNanos{7}); charge.has_value()) {
+            booked.push_back(*charge);
+        }
+    }
+    // SUSHI_USDT is not in this catalogue: a contract we never loaded is
+    // dropped rather than booked against a guess.
+    ASSERT_EQ(booked.size(), 3U);
+
+    // A long at a NEGATIVE rate receives — MEXC's own documented example.
+    EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
+    EXPECT_EQ(booked[0].amount.raw, 83'779'800);
+    // The same long at a POSITIVE rate pays, and the amount MEXC states is
+    // positive on both rows.
+    EXPECT_EQ(booked[1].amount.raw, -12'567'000);
+    // A SHORT at that same positive rate is on the other side of it.
+    EXPECT_EQ(booked[2].amount.raw, 10'279'600);
+
+    EXPECT_EQ(booked[0].settled_at.ns, 1'606'435'200'000ULL * 1'000'000ULL);
+    EXPECT_EQ(booked[0].reference.view(), "328033");
+    EXPECT_EQ(booked[1].reference.view(), "328034");
+    EXPECT_EQ(booked[0].ts_init.ns, 7U);
+}
+
+TEST(MexcRest, TheFundingReadIsAccountWideAndCarriesTheCursorItWasGiven) {
+    // `symbol` is OPTIONAL on this endpoint, which is the whole reason a pull
+    // naming only a market can ask it: the sibling trade history is
+    // per-symbol and is refused for exactly that reason.
+    net::Signer signer;
+    signer.set_api_key("mexc-test-key");
+    ASSERT_TRUE(signer.secret().assign("mexc-test-secret").has_value());
+    SignedRequestBuilder builder{signer};
+
+    constexpr UnixNanos now{1'700'000'000'000'000'000ULL};
+    const auto since = UnixNanos{1'606'435'200'000ULL * 1'000'000ULL};
+    const auto request = builder.funding_records(MarketType::Perp, since, now);
+    ASSERT_TRUE(request.has_value()) << to_string(request.error());
+    EXPECT_EQ(request->method, net::HttpMethod::Get);
+    EXPECT_EQ(request->target,
+              "/api/v1/private/position/funding_records"
+              "?page_num=1&page_size=100&start_time=1606435200000");
+
+    // A zero cursor names no window at all rather than the epoch: the venue's
+    // own default page is the whole window it will answer.
+    const auto from_zero = builder.funding_records(MarketType::Perp, UnixNanos{0}, now);
+    ASSERT_TRUE(from_zero.has_value());
+    EXPECT_EQ(from_zero->target,
+              "/api/v1/private/position/funding_records?page_num=1&page_size=100");
+
+    // Spot pays no funding and has no ledger of one.
+    EXPECT_EQ(builder.funding_records(MarketType::Spot, since, now).error(),
+              BuildError::SpotFundingUnsupported);
 }
 
 // ------------------------------------------------- spot market data ----

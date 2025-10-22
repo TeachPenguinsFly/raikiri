@@ -2,6 +2,8 @@
 #include <raikiri/domain/symbol.hpp>
 #include <raikiri/venues/mexc/map.hpp>
 
+#include <array>
+#include <charconv>
 #include <optional>
 
 namespace raikiri::venues::mexc {
@@ -14,6 +16,10 @@ constexpr std::int64_t k_state_enabled = 0;
 
 // FixedE9 carries nine fractional digits.
 constexpr std::int64_t k_max_scale = 9;
+
+// `positionType` on both the position rows and the funding ledger.
+constexpr std::int64_t k_position_long = 1;
+constexpr std::int64_t k_position_short = 2;
 
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means MEXC changed an instrument's precision, so the message is
@@ -649,7 +655,8 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
     exec::PositionReport out{};
     out.instrument = base->id;
     // holdVol is UNSIGNED; positionType is the only thing that says which way.
-    out.net_qty = QtyLots::from_raw(wire.position_type == 2 ? -size->raw : size->raw);
+    out.net_qty =
+        QtyLots::from_raw(wire.position_type == k_position_short ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.hold_avg_price, *base); entry.has_value()) {
         out.avg_entry = *entry;
     }
@@ -795,6 +802,52 @@ std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
+}
+
+std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
+                                              const exec::InstrumentTable& table,
+                                              UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    if (wire.position_type != k_position_long && wire.position_type != k_position_short) {
+        return std::nullopt; // a direction we cannot read is not one to guess at
+    }
+    const auto amount = to_amount(wire.funding);
+    if (!amount.has_value()) {
+        return std::nullopt; // an unreadable figure is not a zero charge
+    }
+    const auto magnitude = amount->raw < 0 ? -amount->raw : amount->raw;
+    if (magnitude == 0) {
+        return std::nullopt; // a settlement that moved nothing is nothing to book
+    }
+    // A positive rate has longs paying shorts, which is the convention MEXC
+    // states and its own worked example follows. The rate's sign is read off
+    // the TOKEN rather than off a parsed value: a rate padded below 1e-9
+    // truncates to zero, and which way the money went must not depend on a
+    // digit the reader threw away.
+    const bool rate_negative = wire.rate.starts_with('-');
+    const bool paid_away = (wire.position_type == k_position_long) != rate_negative;
+
+    LedgerEntry charge{};
+    charge.instrument = base->id;
+    charge.amount = FixedE9::from_raw(paid_away ? -magnitude : magnitude);
+    charge.kind = LedgerKind::Funding;
+    charge.settled_at = ms_to_unix(wire.settle_ms, UnixNanos{});
+    // MEXC mints an id per row, which is what tells two settlements on one
+    // contract apart when the stamps collide.
+    std::array<char, 24> buf{};
+    if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.id);
+        ec == std::errc{}) {
+        if (const auto id = ExecId::from(
+                std::string_view{buf.data(), static_cast<std::size_t>(stop - buf.data())});
+            id.has_value()) {
+            charge.reference = *id;
+        }
+    }
+    charge.ts_init = ts_init;
+    return charge;
 }
 
 } // namespace raikiri::venues::mexc

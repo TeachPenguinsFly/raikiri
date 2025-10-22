@@ -193,6 +193,8 @@ std::string_view to_string(BuildError err) noexcept {
         return "mexc spot batch cancel by id";
     case BuildError::SpotPositionsUnsupported:
         return "mexc spot position pull";
+    case BuildError::SpotFundingUnsupported:
+        return "mexc spot funding charges";
     }
     return "unknown";
 }
@@ -748,6 +750,37 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
         // A spot balance is not a position. Answering "flat" would be a claim
         // about a concept this API does not have.
         return std::unexpected{BuildError::SpotPositionsUnsupported};
+    case MarketType::Future:
+        return std::unexpected{BuildError::DatedFuturesUnsupported};
+    case MarketType::Option:
+        return std::unexpected{BuildError::OptionsUnsupported};
+    }
+    return std::unexpected{BuildError::UnknownInstrument};
+}
+
+std::expected<net::RestRequest, BuildError>
+SignedRequestBuilder::funding_records(MarketType market, UnixNanos since, UnixNanos now) {
+    switch (market) {
+    case MarketType::Perp: {
+        // Sorted by parameter name ascending, like every other futures read:
+        // the digest covers the query string in that order.
+        Appender query{query_};
+        query << "page_num=1&page_size=" << k_page_size;
+        if (const auto since_ms = static_cast<std::int64_t>(since.ns / 1'000'000ULL);
+            since_ms > 0) {
+            query << "&start_time=" << since_ms;
+        }
+        if (!query.ok()) {
+            return std::unexpected{BuildError::BufferTooSmall};
+        }
+        return sign_futures(
+            net::HttpMethod::Get, ep::k_futures_funding_records, query.view(), {}, now);
+    }
+    case MarketType::Spot:
+        // A spot pair pays no funding, and this ledger is the FUTURES
+        // account's. Answering with it would book a perpetual's charges
+        // against a spot gateway.
+        return std::unexpected{BuildError::SpotFundingUnsupported};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:

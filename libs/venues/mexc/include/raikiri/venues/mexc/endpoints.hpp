@@ -50,6 +50,10 @@ inline constexpr std::string_view k_futures_open_orders = "/api/v1/private/order
 inline constexpr std::string_view k_futures_order_by_client_id = "/api/v1/private/order/external";
 inline constexpr std::string_view k_futures_order_deals = "/api/v1/private/order/list/order_deals";
 inline constexpr std::string_view k_futures_positions = "/api/v1/private/position/open_positions";
+// The account's own funding ledger. `symbol` is OPTIONAL on this one, which is
+// what lets a pull that names only a market ask it at all.
+inline constexpr std::string_view k_futures_funding_records =
+    "/api/v1/private/position/funding_records";
 inline constexpr std::string_view k_spot_open_orders = "/api/v3/openOrders";
 inline constexpr std::string_view k_spot_my_trades = "/api/v3/myTrades";
 
