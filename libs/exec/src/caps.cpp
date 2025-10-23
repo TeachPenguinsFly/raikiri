@@ -153,6 +153,17 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // — its sibling is refused without a symbol in this same adapter — and
         // this pull names a market and no symbol.
         .fill_pull = {.perp = true},
+        // NEITHER MARKET, and this venue is the one where that is a decision
+        // rather than an absence. /api/v1/funding-history exists, states its
+        // sign convention outright and mints a row id — but `symbol` is
+        // REQUIRED on it, and this pull names a market and no symbol. The
+        // sweeps that would fill the gap both lie: over the whole catalogue it
+        // is ~500 signed calls a pass, and over the open positions it silently
+        // misses every contract closed since the cursor, which is funding paid
+        // and never booked. The account-wide form is UTA-only
+        // (/api/ua/v2/position/funding-history), carries no per-row id and
+        // states no sign, and nothing here knows whether the account is UTA.
+        .funding_charge = {},
         // FUTURES ONLY, and off the catalogue rather than a stream:
         // volumeOf24h / turnoverOf24h on /api/v1/contracts/active. A spot
         // instrument gets no volume at all, which is not a zero.
@@ -480,6 +491,17 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // the asked market afterwards — so both markets genuinely answer.
         .order_pull = {.spot = true, .perp = true},
         .fill_pull = {.spot = true, .perp = true},
+        // NEITHER MARKET, and the ledger is not the reason — the ROW is.
+        // /v2/auth/r/ledgers/hist does report derivatives funding, under
+        // category 29, but a ledger row names only its wallet currency
+        // (USTF0) and its wallet (margin): there is no contract field
+        // anywhere in it, and a LedgerEntry has to name an instrument. The
+        // only place a symbol could appear is the free-text DESCRIPTION,
+        // whose content for that category Bitfinex publishes nowhere, and a
+        // parser built on an unverified string would attribute funding to
+        // whatever it guessed. Positions carry a live FUNDING field, but that
+        // is accrual on an open position and not a history of charges.
+        .funding_charge = {},
         // The ticker's VOLUME slot, in the BASE asset. The quote column stays
         // ZERO: no channel here states a turnover, funding's included.
         .ticker_stats = true,
