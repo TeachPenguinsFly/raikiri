@@ -195,6 +195,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // without a side cannot be netted. Live fills carry both; the pull does
         // not. Spot has no account-wide form at all — its trades are per-symbol.
         .fill_pull = {},
+        // PERP ONLY, both of these. The margin wallet and the account book are
+        // swap paths; the spot tree states `free` and `locked` per asset and no
+        // total of its own, and a sum of those two is not a figure BingX ever
+        // stated. Spot has no funding to charge either.
+        .balance_pull = {.perp = true},
+        .funding_charge = {.perp = true},
         // {sym}@ticker: `v` (base) / `q` (quote), on the swap and spot trees
         // alike. Funding, on the same SubKind, stays a REST poll.
         .ticker_stats = true,

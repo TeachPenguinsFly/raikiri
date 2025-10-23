@@ -859,6 +859,9 @@ constexpr std::string_view k_key = "bingx-test-key";
 constexpr std::string_view k_secret = "bingx-test-secret";
 constexpr UnixNanos k_now{1'700'000'000'000ULL * 1'000'000ULL};
 
+// The ledger cursor the income fixture's rows sit after.
+constexpr UnixNanos k_since{1'702'713'600'000ULL * 1'000'000ULL};
+
 void load_credentials(net::Signer& signer) {
     signer.set_api_key(k_key);
     ASSERT_TRUE(signer.secret().assign(k_secret).has_value());
@@ -1092,8 +1095,38 @@ TEST(BingxSign, EveryCanonicalStringIsAsciiSorted) {
     check("positions");
     ASSERT_TRUE(builder.position_mode(k_now).has_value());
     check("positionSide/dual");
+    ASSERT_TRUE(builder.balance(k_now).has_value());
+    check("balance");
+    ASSERT_TRUE(builder.funding_income(k_since, k_now).has_value());
+    check("income");
     ASSERT_TRUE(builder.listen_key_keepalive("abc123", k_now).has_value());
     check("listenKey");
+}
+
+TEST(BingxSign, AsksTheWalletAndTheBookOnTheSwapTree) {
+    net::Signer signer;
+    load_credentials(signer);
+    SignedRequestBuilder builder{signer};
+
+    const auto wallet = builder.balance(k_now);
+    ASSERT_TRUE(wallet.has_value());
+    EXPECT_EQ(wallet->method, net::HttpMethod::Get);
+    // v3 for the wallet and v2 for the book, which is BingX's own spelling:
+    // v3 states every settlement asset where v2 states one.
+    EXPECT_TRUE(wallet->target.starts_with("/openApi/swap/v3/user/balance?"));
+
+    const auto book = builder.funding_income(k_since, k_now);
+    ASSERT_TRUE(book.has_value());
+    EXPECT_TRUE(book->target.starts_with("/openApi/swap/v2/user/income?"));
+    EXPECT_NE(builder.last_sign_message().find("startTime=1702713600000"), std::string_view::npos);
+    // No incomeType filter: the same call states TRADING_FEE beside
+    // FUNDING_FEE, and asking twice would read the two halves at two instants.
+    EXPECT_EQ(builder.last_sign_message().find("incomeType="), std::string_view::npos);
+
+    // A cursor of zero is no cursor at all, and startTime=0 would ask BingX
+    // for the whole retained window on every pass.
+    ASSERT_TRUE(builder.funding_income(UnixNanos{}, k_now).has_value());
+    EXPECT_EQ(builder.last_sign_message().find("startTime="), std::string_view::npos);
 }
 
 // -------------------------------------------------------- request shape ----
@@ -1618,6 +1651,77 @@ TEST(BingxErrors, ClassifiesWhatTheVenueActuallySaid) {
     EXPECT_EQ(classify(k_bad_timestamp), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_funding_settling), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_order_system_busy), exec::ErrorClass::Retryable);
+}
+
+// ------------------------------------------- the wallet and the book ----
+
+TEST(BingxWire, ReadsTheMarginWalletAndTheAccountBook) {
+    const auto wallet_body = load("rest_balance.json");
+    static thread_local BalanceBuffer wallet;
+    const auto balances = parse_balances(wallet_body, wallet);
+    ASSERT_TRUE(balances.has_value()) << to_string(balances.error());
+    ASSERT_EQ(balances->size(), 2U);
+    EXPECT_EQ((*balances)[0].asset, "USDT");
+    EXPECT_EQ((*balances)[0].balance, "194.8212");
+    EXPECT_EQ((*balances)[0].available_margin, "193.7609");
+    EXPECT_EQ((*balances)[0].unrealized_profit, "1.9219");
+    EXPECT_EQ((*balances)[1].asset, "USDC");
+
+    const auto book_body = load("rest_income.json");
+    static thread_local IncomeBuffer book;
+    const auto rows = parse_income(book_body, book);
+    ASSERT_TRUE(rows.has_value()) << to_string(rows.error());
+    ASSERT_EQ(rows->size(), 3U);
+    EXPECT_EQ((*rows)[0].income_type, "FUNDING_FEE");
+    // NEGATIVE, and the minus is the whole point: the account paid this one.
+    EXPECT_EQ((*rows)[0].income, "-0.0292");
+    EXPECT_EQ((*rows)[0].time_ms, 1'702'713'615'000ULL);
+    // Underscored and masked: neither id reads as a number.
+    EXPECT_EQ((*rows)[0].tran_id, "170***6*2_3*9_20***97");
+    EXPECT_EQ((*rows)[1].income_type, "TRADING_FEE");
+    EXPECT_EQ((*rows)[1].trade_id, "83956769");
+}
+
+TEST(BingxMap, BalanceKeepsEveryFigureBingxStated) {
+    const auto body = load("rest_balance.json");
+    static thread_local BalanceBuffer wallet;
+    const auto balances = parse_balances(body, wallet);
+    ASSERT_TRUE(balances.has_value());
+    const auto report = map_balance((*balances)[0], k_now);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->asset.view(), "USDT");
+    EXPECT_EQ(report->total.raw, 194'821'200'000);
+    // Its own per-asset free figure, not an account-wide one repeated: the
+    // margin already committed is in usedMargin and freezedMargin.
+    EXPECT_EQ(report->available.raw, 193'760'900'000);
+    EXPECT_EQ(report->unrealized.raw, 1'921'900'000);
+    EXPECT_EQ(report->ts_venue.ns, k_now.ns);
+    // `equity` is 196.7431 — balance plus the open pnl — and is read nowhere:
+    // publishing it as the total would count that pnl twice.
+    EXPECT_NE(report->total.raw, 196'743'100'000);
+}
+
+TEST(BingxMap, BalanceLeavesAFieldBingxDidNotSendUndef) {
+    WireBalance wire{};
+    wire.asset = "USDT";
+    wire.balance = "1200.0000";
+    const auto report = map_balance(wire, k_now);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->total.raw, 1'200'000'000'000);
+    // Not zero, and not the total: repeating either invites a caller to spend
+    // margin that is already committed.
+    EXPECT_TRUE(report->available.is_undef());
+    EXPECT_TRUE(report->unrealized.is_undef());
+}
+
+TEST(BingxMap, BalanceWithoutAnAssetIsDropped) {
+    // A wallet figure with no unit is not a balance, and a truncated ticker
+    // would attribute the money to an asset that does not exist.
+    WireBalance wire{};
+    wire.balance = "12.5000";
+    EXPECT_FALSE(map_balance(wire, k_now).has_value());
+    wire.asset = "TWENTYONECHARACTERSXX";
+    EXPECT_FALSE(map_balance(wire, k_now).has_value());
 }
 
 TEST(BingxErrors, ReadsARefusalOutOfABodyThatCameBackWithHttp200) {

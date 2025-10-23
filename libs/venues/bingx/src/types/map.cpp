@@ -43,6 +43,15 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
+// A wallet figure, not a price: a balance is reported at the VENUE's own
+// resolution, and the exact reader refuses a whole number over a tail it
+// cannot hold — which reads as an account holding nothing. What is dropped is
+// the dust below 1e-9, toward zero, so no figure here can be misstated by as
+// much as a nanocoin.
+std::optional<FixedE9> to_amount(std::string_view text) {
+    return text.empty() ? std::nullopt : parse_amount_e9(text);
+}
+
 // Rates are venue-scale decimals, not instrument-scaled, so they keep their
 // 1e9 representation rather than becoming ticks.
 std::optional<FixedE9> to_e9(std::string_view text) {
@@ -488,6 +497,32 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
             out.exec_id = *id;
         }
     }
+    return out;
+}
+
+std::optional<BalanceReport> map_balance(const WireBalance& wire, UnixNanos ts_venue) {
+    const auto asset = to_asset_code(wire.asset);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field stays UNDEF where BingX sent nothing, or sent something this
+    // cannot read. A zero would claim the account holds none of the asset,
+    // which is not what an absent field says.
+    //
+    // `equity` is read nowhere: it is `balance` plus `unrealizedProfit`, and
+    // publishing it as the total would count the open pnl beside it twice.
+    if (const auto total = to_amount(wire.balance); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto available = to_amount(wire.available_margin); available.has_value()) {
+        out.available = *available;
+    }
+    if (const auto unrealized = to_amount(wire.unrealized_profit); unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    out.ts_venue = ts_venue;
     return out;
 }
 

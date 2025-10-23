@@ -11,10 +11,12 @@
 // last of 64161 reconciles only if the quantity is BTC.
 
 #include <raikiri/common/fixed_point.hpp>
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/bingx/account.hpp>
 #include <raikiri/venues/bingx/book.hpp>
 #include <raikiri/venues/bingx/catalogue.hpp>
 #include <raikiri/venues/bingx/market_data.hpp>
@@ -102,5 +104,16 @@ map_order_update(const WireOrderUpdate& wire,
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// One settlement asset of the margin wallet, as one balance row. Nullopt when
+// BingX named no asset: a balance without one is a number with no unit.
+//
+// `ts_venue` is the caller's, because this answer carries no stamp of its own —
+// BingX states a timestamp on a REFUSAL and none on a success.
+//
+// Nothing is dropped for reading empty: this endpoint names the SETTLEMENT
+// assets of the margin wallet and not every asset the venue would accept, so a
+// zero here is BingX saying the wallet is empty rather than padding.
+[[nodiscard]] std::optional<BalanceReport> map_balance(const WireBalance& wire, UnixNanos ts_venue);
 
 } // namespace raikiri::venues::bingx

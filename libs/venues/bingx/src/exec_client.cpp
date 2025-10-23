@@ -179,6 +179,16 @@ public:
         return api_.position_reports(market);
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        return api_.balance_reports(market);
+    }
+
+    std::expected<std::vector<LedgerEntry>, exec::VenueError>
+    funding_charges(MarketType market, UnixNanos since) override {
+        return api_.funding_charges(market, since);
+    }
+
 private:
     // What a command is asking the venue to do. The three share one path
     // because they share one failure: an unanswered request.

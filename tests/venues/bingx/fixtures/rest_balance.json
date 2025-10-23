@@ -1,0 +1,28 @@
+{
+  "code": 0,
+  "msg": "",
+  "data": [
+    {
+      "userId": "116***295",
+      "asset": "USDT",
+      "balance": "194.8212",
+      "equity": "196.7431",
+      "unrealizedProfit": "1.9219",
+      "realisedProfit": "-109.2504",
+      "availableMargin": "193.7609",
+      "usedMargin": "1.0602",
+      "freezedMargin": "0.0000"
+    },
+    {
+      "userId": "116***295",
+      "asset": "USDC",
+      "balance": "50.0000",
+      "equity": "50.0000",
+      "unrealizedProfit": "0.0000",
+      "realisedProfit": "0.0000",
+      "availableMargin": "50.0000",
+      "usedMargin": "0.0000",
+      "freezedMargin": "0.0000"
+    }
+  ]
+}

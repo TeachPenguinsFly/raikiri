@@ -1,0 +1,36 @@
+{
+  "code": 0,
+  "msg": "",
+  "data": [
+    {
+      "symbol": "BTC-USDT",
+      "incomeType": "FUNDING_FEE",
+      "income": "-0.0292",
+      "asset": "USDT",
+      "info": "Funding Fee",
+      "time": 1702713615000,
+      "tranId": "170***6*2_3*9_20***97",
+      "tradeId": "170***6*2_3*9_20***97"
+    },
+    {
+      "symbol": "BTC-USDT",
+      "incomeType": "TRADING_FEE",
+      "income": "-0.0141",
+      "asset": "USDT",
+      "info": "Trading Fee",
+      "time": 1702713620000,
+      "tranId": "170***6*2_3*9_20***98",
+      "tradeId": "83956769"
+    },
+    {
+      "symbol": "BTC-USDT",
+      "incomeType": "REALIZED_PNL",
+      "income": "1.2500",
+      "asset": "USDT",
+      "info": "Realized Pnl",
+      "time": 1702713620000,
+      "tranId": "170***6*2_3*9_20***99",
+      "tradeId": "83956769"
+    }
+  ]
+}

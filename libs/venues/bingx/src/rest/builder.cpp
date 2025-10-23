@@ -23,6 +23,11 @@ constexpr std::string_view k_recv_window = "5000";
 // since the last sync still lands inside it.
 constexpr std::int64_t k_clock_backdate_ms = 500;
 
+// Rows asked for per ledger read. Two hundred against BingX's maximum of a
+// thousand: the poller runs every thirty seconds, and a window that needs more
+// than two hundred settlements is a restore rather than a reconciliation.
+constexpr std::string_view k_income_limit = "200";
+
 // Fills the unsigned builder's target buffer, dropping any part that would
 // overflow rather than truncating mid-token: an over-long symbol must not name
 // a different one.
@@ -582,6 +587,33 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::position_mode(
         return std::unexpected{BuildError::BufferTooSmall};
     }
     return sign(net::HttpMethod::Get, ep::k_position_mode, query.view());
+}
+
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::balance(UnixNanos now) {
+    const auto ts = static_cast<std::int64_t>(now.ns / 1'000'000ULL) - k_clock_backdate_ms;
+    Query query{query_};
+    query.put("recvWindow", k_recv_window).put("timestamp", ts);
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, ep::k_perp_balance, query.view());
+}
+
+std::expected<net::RestRequest, BuildError> SignedRequestBuilder::funding_income(UnixNanos since,
+                                                                                 UnixNanos now) {
+    const auto ts = static_cast<std::int64_t>(now.ns / 1'000'000ULL) - k_clock_backdate_ms;
+    Query query{query_};
+    // Parameters in ASCII order, which is BingX's documented convention; the
+    // digest and the wire are the same bytes out of this one buffer either way.
+    query.put("limit", k_income_limit).put("recvWindow", k_recv_window);
+    if (since.ns != 0) {
+        query.put("startTime", static_cast<std::int64_t>(since.ns / 1'000'000ULL));
+    }
+    query.put("timestamp", ts);
+    if (!query.ok()) {
+        return std::unexpected{BuildError::BufferTooSmall};
+    }
+    return sign(net::HttpMethod::Get, ep::k_perp_income, query.view());
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::listen_key_create(UnixNanos now) {

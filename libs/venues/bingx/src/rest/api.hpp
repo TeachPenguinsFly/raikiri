@@ -198,6 +198,123 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // The spot tree states `free` and `locked` per asset and no total
+            // of its own, so a total read there would be a sum this process
+            // made up rather than a figure BingX stated.
+            return std::unexpected{
+                exec::not_implemented("bingx spot balance pull (the tree states no total)")};
+        }
+        const auto request = builder_.balance(state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local BalanceBuffer storage;
+        const auto rows = parse_balances(*body, storage);
+        if (!rows.has_value()) {
+            // An unreadable wallet is refused rather than reported as an empty
+            // vector, which reads as an account holding nothing.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+        }
+        // This answer carries no stamp of its own, so the read's own time is
+        // what the rows are dated by.
+        const auto ts = state_->clock->wall();
+        std::vector<BalanceReport> reports;
+        reports.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (const auto report = map_balance(wire, ts); report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
+    std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
+                                                                              UnixNanos since) {
+        if (const auto refusal = refuse_market(market); refusal.has_value()) {
+            return std::unexpected{*refusal};
+        }
+        if (market == MarketType::Spot) {
+            // The book is a swap path. Spot has no funding to charge, and its
+            // fees are already booked off the fill that incurred them.
+            return std::unexpected{exec::not_implemented("bingx spot funding charges")};
+        }
+        const auto request = builder_.funding_income(since, state_->venue_now());
+        if (!request.has_value()) {
+            return std::unexpected{build_failure(request.error())};
+        }
+        const auto body = fetch(*request);
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local IncomeBuffer storage;
+        const auto rows = parse_income(*body, storage);
+        if (!rows.has_value()) {
+            // A book we cannot read is NOT an empty one: answering "no
+            // funding" books zero against a position that paid some.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+        }
+        std::vector<LedgerEntry> charges;
+        charges.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            LedgerKind kind{};
+            if (wire.income_type == "FUNDING_FEE") {
+                kind = LedgerKind::Funding;
+            } else if (wire.income_type == "TRADING_FEE") {
+                kind = LedgerKind::Fee;
+            } else {
+                // REALIZED_PNL, the transfers and the liquidation kinds are
+                // derived from fills this process already booked, so taking
+                // the venue's copy would count the same money twice.
+                continue;
+            }
+            const auto* instrument = state_->instruments.find(wire.symbol);
+            if (instrument == nullptr) {
+                continue;
+            }
+            // BingX spells a spot pair and a perpetual IDENTICALLY, so the
+            // by-symbol lookup answers with whichever market loaded first.
+            // This book is a swap path, and a charge attributed to the spot
+            // pair would be booked against a position that does not exist.
+            const auto& base = base_of(*instrument);
+            if (base.id.market() != MarketType::Perp) {
+                continue;
+            }
+            // SIGNED AS SENT. BingX writes a payment negative and a receipt
+            // positive, which is already the ledger's convention — taking the
+            // magnitude here would report every funding payment as income.
+            const auto amount = parse_decimal_e9(wire.income);
+            if (!amount.has_value()) {
+                continue; // an unreadable figure is not a zero charge
+            }
+            LedgerEntry charge{};
+            charge.instrument = base.id;
+            charge.amount = *amount;
+            charge.kind = kind;
+            charge.settled_at = UnixNanos{wire.time_ms * 1'000'000ULL};
+            // A fee names the trade it was charged on, which is what the
+            // comparison keys on; the book's own row id is the fallback.
+            const auto reference =
+                kind == LedgerKind::Fee && !wire.trade_id.empty() ? wire.trade_id : wire.tran_id;
+            if (const auto id = ExecId::from(reference); id.has_value()) {
+                charge.reference = *id;
+            }
+            charge.ts_init = state_->clock->wall();
+            charges.push_back(charge);
+        }
+        return charges;
+    }
+
 private:
     // A refusal arrives at HTTP 200 with the verdict in the body, so the status
     // is checked for transport health and the ENVELOPE decides the outcome.

@@ -41,6 +41,12 @@ inline constexpr std::string_view k_spot_cancel = "/openApi/spot/v1/trade/cancel
 inline constexpr std::string_view k_perp_open_orders = "/openApi/swap/v2/trade/openOrders";
 inline constexpr std::string_view k_spot_open_orders = "/openApi/spot/v1/trade/openOrders";
 inline constexpr std::string_view k_perp_positions = "/openApi/swap/v2/user/positions";
+// The margin wallet, and the account's own book three months deep. The two
+// sit on DIFFERENT VERSIONS of the same tree and that is BingX's spelling, not
+// a typo: v2/user/balance still answers and states one asset under `data
+// .balance`, where v3 states every settlement asset as an array.
+inline constexpr std::string_view k_perp_balance = "/openApi/swap/v3/user/balance";
+inline constexpr std::string_view k_perp_income = "/openApi/swap/v2/user/income";
 inline constexpr std::string_view k_position_mode = "/openApi/swap/v1/positionSide/dual";
 // POST opens, PUT keeps alive, DELETE closes — and it serves both markets.
 inline constexpr std::string_view k_listen_key = "/openApi/user/auth/userDataStream";

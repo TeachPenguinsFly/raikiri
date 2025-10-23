@@ -148,6 +148,17 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_mode(UnixNanos now);
 
+    // The margin wallet. Perpetual only and takes no market: the spot tree
+    // answers a different shape on a different path, and the caller refuses
+    // there rather than reading the wrong wallet under a spot label.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> balance(UnixNanos now);
+
+    // Funding settlements from the account's own book. No incomeType filter:
+    // the same call states TRADING_FEE beside FUNDING_FEE, and the fee rows
+    // are what a fee reconciliation compares against.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> funding_income(UnixNanos since,
+                                                                             UnixNanos now);
+
     // POST mints, PUT extends by an hour, DELETE closes. BingX documents these
     // as signed and its own curl example sends no signature; signing is the
     // strict superset, so they are signed here.
