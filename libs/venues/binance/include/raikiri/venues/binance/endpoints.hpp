@@ -45,10 +45,21 @@ inline constexpr std::string_view k_open_orders = "/fapi/v1/openOrders";
 inline constexpr std::string_view k_income = "/fapi/v1/income";
 inline constexpr std::string_view k_user_trades = "/fapi/v1/userTrades";
 inline constexpr std::string_view k_position_risk = "/fapi/v3/positionRisk";
+// THE WALLET IS READ HERE AND NOT FROM /fapi/v2/balance, because this is the
+// only answer that also states `multiAssetsMargin` — and without the mode, the
+// per-asset `availableBalance` on either endpoint cannot be published at all:
+// in multi-assets mode binance repeats ONE account-wide figure on every row.
+//
+// v3 of this path exists and is the newer revision of the same read, and it
+// DROPPED multiAssetsMargin; /fapi/v1/accountConfig still states it, but as a
+// second call. The mode and the figures it qualifies have to come out of one
+// snapshot — two reads can straddle a mode switch, and the row that lands on
+// the wrong side of it claims a whole account's margin as free BTC.
+//
 // Asked at v2 while positionRisk above is asked at v3: binance versions these
 // endpoints one at a time, and the mismatch is the current shape of the API
 // rather than a stale path.
-inline constexpr std::string_view k_balance = "/fapi/v2/balance";
+inline constexpr std::string_view k_account = "/fapi/v2/account";
 // POST opens, PUT keeps alive, DELETE closes.
 inline constexpr std::string_view k_listen_key = "/fapi/v1/listenKey";
 

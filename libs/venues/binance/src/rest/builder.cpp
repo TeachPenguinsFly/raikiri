@@ -348,7 +348,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::position_risk(UnixNa
     return finish(net::HttpMethod::Get, ep::k_position_risk, q.size());
 }
 
-std::expected<net::RestRequest, BuildError> RequestBuilder::balance(UnixNanos now) {
+std::expected<net::RestRequest, BuildError> RequestBuilder::account(UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
@@ -357,7 +357,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::balance(UnixNanos no
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
-    return finish(net::HttpMethod::Get, ep::k_balance, q.size());
+    return finish(net::HttpMethod::Get, ep::k_account, q.size());
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::listen_key_create() {

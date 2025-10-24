@@ -461,21 +461,13 @@ namespace {
 
 } // namespace
 
-std::optional<BalanceReport> map_balance(const WireBalance& wire) {
+std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool multi_assets_margin) {
     const auto asset = to_asset_code(wire.asset);
     if (!asset.has_value() || asset->empty()) {
         return std::nullopt;
     }
-    const auto total = to_amount(wire.balance);
-    const auto unrealized = to_amount(wire.cross_unpnl);
-    // `availableBalance` IS NOT A PER-ASSET FIGURE and is deliberately dropped.
-    // In multi-assets mode binance repeats one account-wide available margin on
-    // every row: a live account reading 827 USDT held returned ~826 as the
-    // "available" of BTC, ETH and BNB alike. Published per asset that is 826
-    // free BTC, which is exactly the double-count `balance.hpp` warns about —
-    // and this endpoint does not say which mode the account is in, so there is
-    // no row where the number can be trusted. Undef says the venue gave no
-    // per-asset free figure, which is the truth.
+    const auto total = to_amount(wire.wallet_balance);
+    const auto unrealized = to_amount(wire.unrealized_profit);
     // Dropped only when binance REPORTED the wallet and it is empty, with no
     // pnl riding on it: a collateral asset it lists because it would accept
     // one, not an asset the account holds. The snapshot carries 64 rows and a
@@ -499,6 +491,24 @@ std::optional<BalanceReport> map_balance(const WireBalance& wire) {
     }
     if (unrealized.has_value()) {
         out.unrealized = *unrealized;
+    }
+    // `availableBalance` MEANS TWO DIFFERENT THINGS AND THE MODE IS WHICH.
+    //
+    // In single-asset mode each asset is its own margin pool, so the figure on
+    // this row is this asset's own free margin and answers the question the
+    // field asks. In multi-assets mode binance repeats ONE account-wide margin
+    // on every row: a live account holding 827 USDT returned ~826 as the
+    // "available" of BTC, ETH and BNB alike, and published per asset that is
+    // 826 free BTC — exactly the double-count balance.hpp warns about.
+    //
+    // So it stays undef there. The account-wide number is real and is stated
+    // at the top of this same answer, USD-denominated in that mode — but a
+    // BalanceReport is keyed by AssetCode and that figure belongs to no asset,
+    // so there is no row it could honestly ride on.
+    if (!multi_assets_margin) {
+        if (const auto available = to_amount(wire.available_balance); available.has_value()) {
+            out.available = *available;
+        }
     }
     out.ts_venue = ms_to_unix(wire.update_ms, UnixNanos{0});
     return out;

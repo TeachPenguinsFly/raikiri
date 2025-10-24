@@ -219,7 +219,7 @@ public:
             // wallet would report the wrong money under a spot label.
             return std::unexpected{exec::not_implemented("binance spot balance pull")};
         }
-        const auto request = builder().balance(state_->venue_now());
+        const auto request = builder().account(state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
         }
@@ -228,17 +228,20 @@ public:
             return std::unexpected{body.error()};
         }
         static thread_local BalanceBuffer storage;
-        const auto wire = parse_balances(*body, storage);
+        const auto wire = parse_account(*body, storage);
         if (!wire.has_value()) {
+            // An unreadable account is refused rather than reported as an
+            // empty vector, which reads as an account holding nothing.
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<BalanceReport> out;
-        out.reserve(wire->size());
-        for (const auto& entry : *wire) {
+        out.reserve(wire->assets.size());
+        for (const auto& entry : wire->assets) {
             // Most rows map to nothing: binance names every collateral asset
             // it accepts, held or not.
-            if (const auto report = map_balance(entry); report.has_value()) {
+            if (const auto report = map_balance(entry, wire->multi_assets_margin);
+                report.has_value()) {
                 out.push_back(*report);
             }
         }

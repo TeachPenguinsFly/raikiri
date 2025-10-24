@@ -655,14 +655,17 @@ TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
 
 TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     auto storage = std::make_unique<BalanceBuffer>();
-    const auto body = fixture("rest_balance.json");
-    const auto rows = parse_balances(body, *storage);
-    ASSERT_TRUE(rows.has_value());
-    ASSERT_EQ(rows->size(), 20U);
+    const auto body = fixture("rest_account.json");
+    const auto account = parse_account(body, *storage);
+    ASSERT_TRUE(account.has_value());
+    ASSERT_EQ(account->assets.size(), 20U);
+    // Single-asset mode, and the rows below are readable only because of it.
+    EXPECT_FALSE(account->multi_assets_margin);
 
     std::vector<BalanceReport> held;
-    for (const auto& row : *rows) {
-        if (const auto report = map_balance(row); report.has_value()) {
+    for (const auto& row : account->assets) {
+        if (const auto report = map_balance(row, account->multi_assets_margin);
+            report.has_value()) {
             held.push_back(*report);
         }
     }
@@ -672,58 +675,107 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     ASSERT_EQ(held.size(), 2U);
     EXPECT_EQ(held[0].asset.view(), "USDT");
     EXPECT_EQ(held[0].total.raw, 12'425'260'592'170);
-    // NOT read from `availableBalance`: in multi-assets mode binance repeats
-    // one account-wide available margin on every row, so publishing it per
-    // asset claims that much free BTC and BNB as well.
-    EXPECT_TRUE(held[0].available.is_undef());
+    // Published, because the account margins each asset out of itself here:
+    // 11982.40 free against 12425.26 held, the difference being the margin the
+    // open position already committed.
+    EXPECT_EQ(held[0].available.raw, 11'982'402'392'170);
+    EXPECT_LT(held[0].available.raw, held[0].total.raw);
     EXPECT_EQ(held[0].unrealized.raw, -18'429'100'000);
     EXPECT_EQ(held[0].ts_venue.ns, 1'787'841'486'006'000'000ULL);
     // Flat unrealised pnl does not make a row empty: the BNB is held.
     EXPECT_EQ(held[1].asset.view(), "BNB");
     EXPECT_EQ(held[1].total.raw, 1'550'100'000);
     EXPECT_EQ(held[1].unrealized.raw, 0);
+    // And the free figure is this asset's own, not the USDT one repeated.
+    EXPECT_EQ(held[1].available.raw, 1'550'100'000);
+}
+
+TEST(BinanceMap, BalanceWithholdsAvailableInMultiAssetsMode) {
+    // The failure this endpoint was chosen to prevent. In multi-assets mode
+    // binance repeats ONE account-wide margin on every row, so an account
+    // holding 827 USDT answers ~826 as the "available" of BTC as well —
+    // published per asset that is 826 free BTC.
+    const std::string body =
+        R"({"multiAssetsMargin":true,"assets":[)"
+        R"({"asset":"USDT","walletBalance":"827.00000000","unrealizedProfit":"0.00000000",)"
+        R"("availableBalance":"826.00000000","updateTime":1787841486006},)"
+        R"({"asset":"BTC","walletBalance":"0.01000000","unrealizedProfit":"0.00000000",)"
+        R"("availableBalance":"826.00000000","updateTime":1787841486006}],"positions":[]})";
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto account = parse_account(body, *storage);
+    ASSERT_TRUE(account.has_value());
+    ASSERT_TRUE(account->multi_assets_margin);
+    ASSERT_EQ(account->assets.size(), 2U);
+
+    for (const auto& row : account->assets) {
+        const auto report = map_balance(row, account->multi_assets_margin);
+        ASSERT_TRUE(report.has_value());
+        // Undef, not 826 and not zero: the venue gave no per-asset free
+        // figure, and undef is what says so.
+        EXPECT_TRUE(report->available.is_undef()) << report->asset.view();
+        // The total and the pnl are per asset in either mode, so withholding
+        // the one figure must not withhold the other two.
+        EXPECT_FALSE(report->total.is_undef()) << report->asset.view();
+    }
+}
+
+TEST(BinanceMap, AModeBinanceDidNotStateWithholdsTheAvailable) {
+    // v3 of this endpoint already drops `multiAssetsMargin`. A reader that
+    // took an absent flag for `false` would publish one account-wide margin as
+    // the free balance of every asset — so absence withholds instead.
+    const std::string body = R"({"assets":[{"asset":"USDT","walletBalance":"827.00000000",)"
+                             R"("unrealizedProfit":"0.00000000","availableBalance":"826.00000000",)"
+                             R"("updateTime":1787841486006}],"positions":[]})";
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto account = parse_account(body, *storage);
+    ASSERT_TRUE(account.has_value());
+    EXPECT_TRUE(account->multi_assets_margin);
+    ASSERT_EQ(account->assets.size(), 1U);
+    const auto report = map_balance(account->assets[0], account->multi_assets_margin);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_TRUE(report->available.is_undef());
 }
 
 TEST(BinanceMap, BalanceIsDroppedOnlyWhenTheWalletWasReportedAndIsEmpty) {
-    WireBalance wire{};
+    WireAssetBalance wire{};
     wire.asset = "USDC";
-    wire.balance = "0.00000000";
-    wire.available_balance = "826.00000000"; // account-wide; not this asset's
-    wire.cross_unpnl = "0.00000000";
+    wire.wallet_balance = "0.00000000";
+    wire.available_balance = "826.00000000";
+    wire.unrealized_profit = "0.00000000";
     // Binance names every asset it would accept as collateral. An empty wallet
     // with no pnl on it is one of those, not a holding.
-    EXPECT_FALSE(map_balance(wire).has_value());
+    EXPECT_FALSE(map_balance(wire, false).has_value());
 
     // Unrealised pnl on an empty wallet IS a holding: the position is open.
-    wire.cross_unpnl = "-1.50000000";
-    EXPECT_TRUE(map_balance(wire).has_value());
+    wire.unrealized_profit = "-1.50000000";
+    EXPECT_TRUE(map_balance(wire, false).has_value());
 
     // A wallet figure binance did not send is not an empty wallet. Reading it
     // as one would drop a balance nobody was told about.
-    wire.cross_unpnl = "0.00000000";
-    wire.balance = {};
-    EXPECT_TRUE(map_balance(wire).has_value());
+    wire.unrealized_profit = "0.00000000";
+    wire.wallet_balance = {};
+    EXPECT_TRUE(map_balance(wire, false).has_value());
 }
 
 TEST(BinanceMap, BalanceWithoutAnAssetIsDropped) {
     // A wallet figure with no unit is not a balance, and a truncated ticker
     // would attribute the money to an asset that does not exist.
-    WireBalance wire{};
-    wire.balance = "12.50000000";
-    EXPECT_FALSE(map_balance(wire).has_value());
+    WireAssetBalance wire{};
+    wire.wallet_balance = "12.50000000";
+    EXPECT_FALSE(map_balance(wire, false).has_value());
     wire.asset = "TWENTYONECHARACTERSXX";
-    EXPECT_FALSE(map_balance(wire).has_value());
+    EXPECT_FALSE(map_balance(wire, false).has_value());
 }
 
 TEST(BinanceMap, BalanceLeavesAFieldBinanceDidNotSendUndef) {
-    WireBalance wire{};
+    WireAssetBalance wire{};
     wire.asset = "USDT";
-    wire.balance = "1200.00000000";
-    const auto report = map_balance(wire);
+    wire.wallet_balance = "1200.00000000";
+    const auto report = map_balance(wire, false);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->total.raw, 1'200'000'000'000);
-    // Not zero: repeating the total into `available` invites a caller to spend
-    // margin that is already committed.
+    // Not zero, and never the total: repeating the total into `available`
+    // invites a caller to spend margin that is already committed.
     EXPECT_TRUE(report->available.is_undef());
     EXPECT_TRUE(report->unrealized.is_undef());
 }
@@ -732,10 +784,10 @@ TEST(BinanceMap, BalanceReadsMorePrecisionThanItStores) {
     // Not what binance sends today — eight fractional digits is. The exact
     // reader refuses a number past nine outright, and one refused balance is
     // an account reading as empty, so the wallet reader truncates instead.
-    WireBalance wire{};
+    WireAssetBalance wire{};
     wire.asset = "USDT";
-    wire.balance = "1200.123456789012";
-    const auto report = map_balance(wire);
+    wire.wallet_balance = "1200.123456789012";
+    const auto report = map_balance(wire, false);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->total.raw, 1'200'123'456'789);
 }

@@ -82,7 +82,7 @@ TEST(BinanceRest, WithoutCredentialsEverySignedPathRefuses) {
               BuildError::NoCredentials);
     EXPECT_EQ(builder.open_orders(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.position_risk(now).error(), BuildError::NoCredentials);
-    EXPECT_EQ(builder.balance(now).error(), BuildError::NoCredentials);
+    EXPECT_EQ(builder.account(now).error(), BuildError::NoCredentials);
     EXPECT_EQ(builder.listen_key_create().error(), BuildError::NoCredentials);
 }
 
@@ -270,14 +270,16 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
     ASSERT_TRUE(trades.has_value());
     EXPECT_EQ(param_of(trades->target, "startTime"), "1699000000000");
 
-    const auto balances = builder.balance(now);
-    ASSERT_TRUE(balances.has_value());
-    EXPECT_EQ(balances->method, net::HttpMethod::Get);
-    // v2, while positionRisk above is v3. Binance versions these endpoints one
-    // at a time, so the two paths do not move together.
-    EXPECT_NE(balances->target.find("/fapi/v2/balance?"), std::string_view::npos);
-    EXPECT_EQ(param_of(balances->target, "timestamp"), "1700000000000");
-    EXPECT_NE(balances->target.find("&signature="), std::string_view::npos);
+    const auto account = builder.account(now);
+    ASSERT_TRUE(account.has_value());
+    EXPECT_EQ(account->method, net::HttpMethod::Get);
+    // /fapi/v2/account, not /fapi/v2/balance: the wallet rows are on both and
+    // only this one also states the margin mode that says how to read them.
+    // v2, while positionRisk above is v3 — binance versions these endpoints
+    // one at a time, so the two paths do not move together.
+    EXPECT_NE(account->target.find("/fapi/v2/account?"), std::string_view::npos);
+    EXPECT_EQ(param_of(account->target, "timestamp"), "1700000000000");
+    EXPECT_NE(account->target.find("&signature="), std::string_view::npos);
 }
 
 } // namespace

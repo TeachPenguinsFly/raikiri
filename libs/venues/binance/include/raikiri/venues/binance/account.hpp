@@ -14,16 +14,19 @@
 
 namespace raikiri::venues::binance {
 
-// One row of GET /fapi/v2/balance. Binance lists every asset it accepts as
-// margin, not the ones the account holds, so most rows are zero across the
-// board and the reply is mostly padding — which is a mapping decision, not a
-// parsing one, and is made in map_balance.
-struct WireBalance {
+// One row of `assets[]` on GET /fapi/v2/account. Binance lists every asset it
+// accepts as margin, not the ones the account holds, so most rows are zero
+// across the board and the reply is mostly padding — which is a mapping
+// decision, not a parsing one, and is made in map_balance.
+struct WireAssetBalance {
     std::string_view asset;             // asset
-    std::string_view balance;           // wallet total
-    std::string_view available_balance; // availableBalance: committable now
-    std::string_view cross_unpnl;       // crossUnPnl
-    std::uint64_t update_ms{0};         // 0 on an asset never held
+    std::string_view wallet_balance;    // walletBalance: the total, pnl excluded
+    std::string_view unrealized_profit; // unrealizedProfit: cross AND isolated
+    // availableBalance. READABLE ONLY IN SINGLE-ASSET MODE, and the flag that
+    // says which mode arrives beside these rows rather than on them — see
+    // WireAccount below and map_balance.
+    std::string_view available_balance;
+    std::uint64_t update_ms{0}; // 0 on an asset never held
 };
 
 // Binance answers ~30 rows today and adds one whenever it accepts another
@@ -33,11 +36,23 @@ struct WireBalance {
 inline constexpr std::size_t k_max_balances = 256;
 
 struct BalanceBuffer {
-    std::array<WireBalance, k_max_balances> balances{};
+    std::array<WireAssetBalance, k_max_balances> balances{};
 };
 
-[[nodiscard]] std::expected<std::span<const WireBalance>, WireError>
-parse_balances(std::string_view body, BalanceBuffer& storage);
+// The account as one answer: the per-asset rows and the one fact about them
+// that is not on them.
+//
+// `multi_assets_margin` DEFAULTS TO TRUE, and that is the safe default rather
+// than the common one: it is the mode in which the per-asset available figure
+// must not be published, so a flag this failed to read withholds the number
+// instead of publishing an account-wide one per asset.
+struct WireAccount {
+    bool multi_assets_margin{true};
+    std::span<const WireAssetBalance> assets;
+};
+
+[[nodiscard]] std::expected<WireAccount, WireError> parse_account(std::string_view body,
+                                                                  BalanceBuffer& storage);
 
 // One row of /fapi/v1/income, narrowed to settlements.
 //

@@ -76,7 +76,9 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> position_risk(UnixNanos now);
 
-    [[nodiscard]] std::expected<net::RestRequest, BuildError> balance(UnixNanos now);
+    // The whole account: the per-asset wallet rows AND the margin mode that
+    // says how the free figure on them is to be read.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account(UnixNanos now);
 
     // --- listen key (header auth only, never signed) ---
     [[nodiscard]] std::expected<net::RestRequest, BuildError> listen_key_create();

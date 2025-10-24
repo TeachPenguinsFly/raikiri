@@ -84,7 +84,13 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 //
 // A row where any figure is UNDEF is neither of those and is kept: not having
 // been told is not the same as having been told zero.
-[[nodiscard]] std::optional<BalanceReport> map_balance(const WireBalance& wire);
+//
+// `multi_assets_margin` is the account's own mode, read off the SAME answer
+// these rows came from, and it decides whether `available` is published at
+// all — see the mapper. Passing it rather than reading it here keeps the mode
+// and the rows it qualifies from being taken at two different instants.
+[[nodiscard]] std::optional<BalanceReport> map_balance(const WireAssetBalance& wire,
+                                                       bool multi_assets_margin);
 
 // Catalogue ---------------------------------------------------------------
 
