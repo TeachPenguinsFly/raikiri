@@ -1,3 +1,4 @@
+#include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
@@ -793,6 +794,78 @@ TEST(OkxMapFunding, ARateFrameDoesNotEraseAMarkAlreadyStated) {
     const auto after = map_funding(rate, table, memo, k_ingest);
     ASSERT_TRUE(after.has_value());
     EXPECT_EQ(after->mark_price.raw, held.raw) << "the mark survives a frame that omitted it";
+}
+
+// ------------------------------------------------------------ balances ----
+
+TEST(OkxMap, BalanceTakesTheCashTotalAndNotTheEquity) {
+    const auto body = fixture("rest_balance.json");
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto rows = parse_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+
+    const auto report = map_balance((*rows)[0], AccountMode::Futures, k_ingest);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->asset.view(), "USDT");
+    // cashBal, truncated below a nanocoin. `eq` is 4992.890093622894 — the
+    // same money plus the open pnl reported beside it — and reading that as
+    // the total would count the pnl twice.
+    EXPECT_EQ(report->total.raw, 4'850'435'693'622);
+    EXPECT_EQ(report->available.raw, 4'834'317'093'622);
+    EXPECT_EQ(report->unrealized.raw, -7'545'600'000);
+    EXPECT_EQ(report->ts_venue.ns, 1'705'449'605'015'000'000ULL);
+}
+
+TEST(OkxMap, BalanceWithholdsAvailableWhereTheAccountMarginsAcrossCurrencies) {
+    const auto body = fixture("rest_balance.json");
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto rows = parse_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_FALSE(rows->empty());
+    const auto& wire = (*rows)[0];
+    // Spot and futures mode margin each currency out of itself, so availBal is
+    // this currency's own free amount.
+    EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest)->available.is_undef());
+    EXPECT_FALSE(map_balance(wire, AccountMode::Futures, k_ingest)->available.is_undef());
+    // The other two check an order against the ACCOUNT's adjusted equity in
+    // USD, so every currency's availBal reads as free while the account may
+    // have no margin left at all. Undef says the venue gave no per-currency
+    // figure this can trust, which is the truth.
+    EXPECT_TRUE(map_balance(wire, AccountMode::MultiCurrency, k_ingest)->available.is_undef());
+    EXPECT_TRUE(map_balance(wire, AccountMode::Portfolio, k_ingest)->available.is_undef());
+    // A config read that failed is not a mode, and must not be read as one.
+    EXPECT_TRUE(map_balance(wire, AccountMode::Unknown, k_ingest)->available.is_undef());
+    // The total and the pnl are the venue's own per-currency figures in every
+    // mode, so withholding the available must not withhold those.
+    const auto pooled = map_balance(wire, AccountMode::Portfolio, k_ingest);
+    EXPECT_EQ(pooled->total.raw, 4'850'435'693'622);
+    EXPECT_EQ(pooled->unrealized.raw, -7'545'600'000);
+}
+
+TEST(OkxMap, BalanceLeavesAFieldOkxDidNotSendUndef) {
+    WireCurrencyBalance wire{};
+    wire.ccy = "BTC";
+    wire.cash_bal = "0.25";
+    const auto report = map_balance(wire, AccountMode::Spot, k_ingest);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->total.raw, 250'000'000);
+    // Not zero: an empty string is OKX declining, and a zero would claim the
+    // account has nothing free and no pnl open.
+    EXPECT_TRUE(report->available.is_undef());
+    EXPECT_TRUE(report->unrealized.is_undef());
+    // No uTime either, so the row is dated by the caller rather than by 1970.
+    EXPECT_EQ(report->ts_venue.ns, k_ingest.ns);
+}
+
+TEST(OkxMap, BalanceWithoutACurrencyIsDropped) {
+    // A wallet figure with no unit is not a balance, and a truncated ticker
+    // would attribute the money to an asset that does not exist.
+    WireCurrencyBalance wire{};
+    wire.cash_bal = "12.5";
+    EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());
+    wire.ccy = "TWENTYONECHARACTERSXX";
+    EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());
 }
 
 } // namespace

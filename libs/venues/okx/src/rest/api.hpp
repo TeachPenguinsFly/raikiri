@@ -264,6 +264,44 @@ public:
         return reports;
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
+        // ONE TRADING ACCOUNT behind both markets: OKX funds a spot fill and a
+        // swap's margin out of the same currencies, so the answer does not
+        // vary by market and narrowing it to one would be an invention.
+        (void)market;
+        // ASKED FIRST, and not fatal when it fails: the mode is what makes a
+        // per-currency available figure readable, and a balance set without it
+        // is still worth publishing with that one field undef.
+        auto mode = AccountMode::Unknown;
+        if (const auto config = pull(builder_.account_config(state_->venue_now()));
+            config.has_value()) {
+            if (const auto read = parse_account_mode(*config); read.has_value()) {
+                mode = *read;
+            }
+        }
+        const auto body = pull(builder_.balances(state_->venue_now()));
+        if (!body.has_value()) {
+            return std::unexpected{body.error()};
+        }
+        static thread_local BalanceBuffer storage;
+        const auto rows = parse_balances(*body, storage);
+        if (!rows.has_value()) {
+            // An unreadable wallet is refused rather than reported as an empty
+            // vector, which reads as an account holding nothing.
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
+        }
+        std::vector<BalanceReport> reports;
+        reports.reserve(rows->size());
+        for (const auto& wire : *rows) {
+            if (const auto report = map_balance(wire, mode, state_->clock->wall());
+                report.has_value()) {
+                reports.push_back(*report);
+            }
+        }
+        return reports;
+    }
+
 private:
     VenueState* state_;
     net::RestClient rest_;

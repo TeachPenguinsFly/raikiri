@@ -91,6 +91,10 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .position_pull = {.perp = true},
         .order_pull = {.spot = true, .perp = true},
         .fill_pull = {.spot = true, .perp = true},
+        // No instrument type on this one: ONE trading account funds a spot
+        // fill and a swap's margin out of the same currencies, so the same
+        // read answers for either market.
+        .balance_pull = {.spot = true, .perp = true},
         // /api/v5/account/bills: type 8 funding, 2 fees. The spot instrument
         // type is legal on the same endpoint and carries the fee rows only.
         .funding_charge = {.spot = true, .perp = true},

@@ -1,3 +1,4 @@
+#include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
@@ -951,6 +952,40 @@ TEST(OkxWs, PrivateSubscribeNamesAnInstrumentTypeAndPublicNamesAnInstrument) {
     // Neither key set is a subscription to everything; OKX answers 60018.
     const std::array<Subscription, 1> empty{Subscription{.channel = "orders"}};
     EXPECT_FALSE(protocol.subscribe_frame(empty).has_value());
+}
+
+TEST(OkxWire, ReadsTheTradingAccountAndTheModeItRunsUnder) {
+    const auto body = fixture("rest_balance.json");
+    auto storage = std::make_unique<BalanceBuffer>();
+    const auto rows = parse_balances(body, *storage);
+    ASSERT_TRUE(rows.has_value()) << to_string(rows.error());
+    ASSERT_EQ(rows->size(), 2U);
+    EXPECT_EQ((*rows)[0].ccy, "USDT");
+    EXPECT_EQ((*rows)[0].cash_bal, "4850.435693622894");
+    EXPECT_EQ((*rows)[0].avail_bal, "4834.317093622894");
+    EXPECT_EQ((*rows)[0].upl, "-7.545600000000006");
+    EXPECT_EQ((*rows)[0].u_time_ms, 1'705'449'605'015ULL);
+    // The rows live under data[0].details, not under data itself, and a
+    // reader that stopped at the account object would find no currency at all.
+    EXPECT_EQ((*rows)[1].ccy, "BTC");
+    // An absent value arrives as an EMPTY STRING here, which is the venue
+    // declining to answer rather than a parse that missed the field.
+    EXPECT_TRUE((*rows)[1].upl.empty());
+
+    const auto config = fixture("rest_account_config.json");
+    const auto mode = parse_account_mode(config);
+    ASSERT_TRUE(mode.has_value());
+    EXPECT_EQ(*mode, AccountMode::Futures);
+
+    // A level this does not know reads as Unknown rather than as the nearest
+    // one: guessing which side of the per-currency line a new mode falls on
+    // is how a wrong available gets published.
+    const auto future_level =
+        parse_account_mode(R"({"code":"0","msg":"","data":[{"acctLv":"9"}]})");
+    ASSERT_TRUE(future_level.has_value());
+    EXPECT_EQ(*future_level, AccountMode::Unknown);
+    // And an answer with no account in it is a failure, not a mode.
+    EXPECT_FALSE(parse_account_mode(R"({"code":"0","msg":"","data":[]})").has_value());
 }
 
 } // namespace

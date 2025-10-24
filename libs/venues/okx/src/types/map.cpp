@@ -54,13 +54,17 @@ std::optional<FixedE9> rate_of(std::string_view text) {
     return parse_rate_e9(text);
 }
 
-// A 24-hour turnover is a magnitude, not a price and not a size, so it is read
-// the way a balance is: truncating below 1e-9 rather than refusing the whole
-// figure. MEASURED 2026-09-04: 284 of 1388 live SPOT rows pad volCcy24h past
-// nine fractional digits, and an exact reader answers nullopt for every one of
+// A magnitude — a 24-hour turnover or a wallet figure — and neither a price
+// nor a size, so it is read at the VENUE's own resolution: the dust below 1e-9
+// is dropped toward zero where the exact reader would refuse the whole number,
+// which can misstate nothing here by as much as a nanocoin.
+//
+// MEASURED 2026-09-04: 284 of 1388 live SPOT rows pad volCcy24h past nine
+// fractional digits, and an exact reader answers nullopt for every one of
 // them — which the caller then writes as a zero, reading as "this market did
-// not trade" on a market that traded all day.
-std::optional<FixedE9> turnover_of(std::string_view text) {
+// not trade" on a market that traded all day. A balance refused the same way
+// reads as an account holding nothing.
+std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
@@ -305,8 +309,8 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
-    out.volume_24h_base = turnover_of(base_text).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = turnover_of(quote_text).value_or(FixedE9::from_raw(0));
+    out.volume_24h_base = to_amount(base_text).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = to_amount(quote_text).value_or(FixedE9::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -515,6 +519,43 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         out.avg_entry = *avg;
     }
     out.ts_venue = ms_to_unix(wire.u_ms, UnixNanos{});
+    return out;
+}
+
+std::optional<BalanceReport>
+map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallback) {
+    const auto asset = to_asset_code(wire.ccy);
+    if (!asset.has_value() || asset->empty()) {
+        return std::nullopt;
+    }
+    BalanceReport out{};
+    out.asset = *asset;
+    // Each field stays UNDEF where OKX sent an empty string; a zero would be a
+    // claim rather than a silence.
+    if (const auto total = to_amount(wire.cash_bal); total.has_value()) {
+        out.total = *total;
+    }
+    if (const auto unrealized = to_amount(wire.upl); unrealized.has_value()) {
+        out.unrealized = *unrealized;
+    }
+    // PUBLISHED IN TWO MODES OF FOUR, and undef in the other two.
+    //
+    // In spot and futures mode OKX margins each currency out of itself, so
+    // `availBal` is this currency's own free amount and answers the question.
+    // In multi-currency margin and portfolio margin the order check runs on
+    // the ACCOUNT's adjusted equity in USD, after per-currency haircuts: every
+    // currency's availBal then reads as free while the account may have no
+    // margin left at all, which is the double-count balance.hpp warns about.
+    // An account-wide figure in USD belongs to no AssetCode, so there is no
+    // honest row to put it on either.
+    //
+    // Unknown lands here too: a config read that failed is not a mode.
+    if (mode == AccountMode::Spot || mode == AccountMode::Futures) {
+        if (const auto available = to_amount(wire.avail_bal); available.has_value()) {
+            out.available = *available;
+        }
+    }
+    out.ts_venue = ms_to_unix(wire.u_time_ms, fallback);
     return out;
 }
 

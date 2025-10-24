@@ -89,15 +89,17 @@ that are assembled and say so.
 | `rest_orders_pending.json` | `GET /api/v5/trade/orders-pending` response — one `state: "live"` post-only order, `accFillSz "0"`, and `fillTime ""` rather than absent |
 | `rest_fills.json` | `GET /api/v5/trade/fills` response |
 | `rest_positions.json` | `GET /api/v5/account/positions` response |
+| `rest_account_config.json` | `GET /api/v5/account/config` response — `acctLv "2"`, futures mode |
 
-**Assembled, and only these two:**
+**Assembled, and only these three:**
 
 | file | how it was built |
 |---|---|
+| `rest_balance.json` | `GET /api/v5/account/balance`, OKX's published response with a SECOND currency added under `data[0].details`. The USDT row is verbatim, down to `eq` (4992.890093622894) being `cashBal` plus `upl` — which is why the mapper reads `cashBal` and not `eq`. The added BTC row is a spot holding, and it carries `upl` and `availEq` as EMPTY STRINGS, which is how OKX states a field that does not apply in the account's mode. One row could not have shown either: that the rows live under `details` rather than under `data`, or that an inapplicable field arrives empty rather than absent |
 | `rest_order_reject.json` | the REST envelope shape OKX documents for a refused order (`code "1"`, reason in `data[].sCode`) carrying the per-order object verbatim from the docs' `51008` example, with `clOrdId` set to a ULID so the ack-to-order match has something to match on |
 | `ws_orders_partial_expiry.json` | the `ws_orders_fill.json` object, re-valued on `BTC-USDT-SWAP` as a 5-contract IOC that filled 2 and was then killed: `state: "canceled"` with `cancelSource: "14"` **and** a `tradeId` in the same message |
 
-That second file exists because it is the case a reader gets wrong. OKX sends
+That last file exists because it is the case a reader gets wrong. OKX sends
 the last fill and the cancel that ended the order as ONE object, so an adapter
 that maps state or fills but not both loses either the money or the terminal
 event. Every number in it divides exactly by the `BTC-USDT-SWAP` tick (0.1)

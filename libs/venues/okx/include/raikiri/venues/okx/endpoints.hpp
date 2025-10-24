@@ -50,6 +50,12 @@ inline constexpr std::string_view k_positions = "/api/v5/account/positions";
 // and is not used, because a gap longer than a week is a restore, not a
 // reconciliation.
 inline constexpr std::string_view k_bills = "/api/v5/account/bills";
+// What the account holds, per currency. ONE call for both markets: OKX funds a
+// spot fill and a swap's margin out of the same trading account.
+inline constexpr std::string_view k_balance = "/api/v5/account/balance";
+// The account MODE, which the balance above does not state and which decides
+// whether a per-currency available figure answers anything — see map_balance.
+inline constexpr std::string_view k_account_config = "/api/v5/account/config";
 
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";

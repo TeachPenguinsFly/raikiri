@@ -120,6 +120,11 @@ public:
         return api_.position_reports(market);
     }
 
+    std::expected<std::vector<BalanceReport>, exec::VenueError>
+    balance_reports(MarketType market) override {
+        return api_.balance_reports(market);
+    }
+
 private:
     // The order path's heartbeat. The REST pool drops a connection the venue
     // has already closed only if something sweeps it; nothing did, so an idle

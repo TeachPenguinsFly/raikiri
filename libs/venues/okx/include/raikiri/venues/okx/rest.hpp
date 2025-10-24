@@ -135,6 +135,17 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     funding_book(MarketType market, UnixNanos since, UnixNanos now);
 
+    // What the account holds. No `ccy` filter and no market: the trading
+    // account funds a spot fill and a swap's margin out of the same currencies,
+    // so narrowing either would be an invention.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> balances(UnixNanos now);
+
+    // The account mode, without which the balance above cannot say what may be
+    // committed. Read beside it rather than once at start: a mode switched
+    // mid-session would otherwise leave a per-currency figure published under
+    // a mode where it means nothing.
+    [[nodiscard]] std::expected<net::RestRequest, BuildError> account_config(UnixNanos now);
+
     // Exposed for tests: the exact bytes that went into the last HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 

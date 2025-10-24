@@ -2,10 +2,12 @@
 
 // Wire types -> domain types.
 
+#include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
+#include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
 #include <raikiri/venues/okx/market_data.hpp>
@@ -86,6 +88,15 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
+
+// One currency of the trading account, as one balance row. Nullopt when OKX
+// named no currency: a balance without an asset is a number with no unit.
+//
+// THE MODE DECIDES WHETHER `available` IS PUBLISHED AT ALL, which is why it is
+// a parameter rather than something this could read off the balance itself —
+// the balance endpoint does not state it.
+[[nodiscard]] std::optional<BalanceReport>
+map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallback);
 
 // Catalogue ---------------------------------------------------------------
 

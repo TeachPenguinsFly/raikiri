@@ -547,6 +547,14 @@ RequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos now) 
     return signed_get(ep::k_bills, query.view(), now);
 }
 
+std::expected<net::RestRequest, BuildError> RequestBuilder::balances(UnixNanos now) {
+    return signed_get(ep::k_balance, {}, now);
+}
+
+std::expected<net::RestRequest, BuildError> RequestBuilder::account_config(UnixNanos now) {
+    return signed_get(ep::k_account_config, {}, now);
+}
+
 std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType market,
                                                                       UnixNanos now) {
     Appender query{body_};
