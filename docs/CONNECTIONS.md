@@ -316,3 +316,46 @@ records for the perpetual side, arrived at again from the other direction.
 The seventh pooled venue, mexc, is the reminder that a pool is only as good as
 the per-connection number it is given: 512 was measured on the wrong tree, and
 16 sockets times the right number is still short of the catalogue.
+
+## Four venues are parked, and it is a decision rather than a gap
+
+deribit, coinbase, kraken and bitmex are not being developed further for now.
+Their adapters stay in the tree, keep compiling and keep their tests: parking is
+not deleting, and each is a working market-data connection that costs nothing to
+leave alone. What stops is new work — no new pulls, no new markets, no place in
+the deployed venue set.
+
+The reasons differ and are worth keeping apart, because three of them could
+reverse and one probably will not:
+
+**deribit** is the only adapter serving dated futures and options, and the only
+reason to grow it would be an options business. That question was answered with
+measurement rather than taste on 2026-09-13, against the venue's own public
+endpoints: put-call parity against the listed future deviates 1-10 bp with a
+median near 5, while a conversion costs ~9.5 bp in fees alone before crossing two
+option books; across 448 instruments matched by strike and expiry against a
+second venue, the median implied-vol gap was 0.33 vol points against a median
+2.62 vol points to cross both books, and the gap beat the cost in one instrument
+of 448. The edge this framework is shaped for — breadth, latency, cost — is
+inverted here by an order of magnitude. The adapter stays because it is already
+written and costs nothing; the business does not follow.
+
+**coinbase** serves spot only, and its perpetuals live on an entity this adapter
+does not reach. It contributes a spot catalogue and nothing the carry board
+cannot get elsewhere.
+
+**kraken** is futures-only here — its spot exchange is another host, another
+symbology and another signature — and it still writes `funding_interval_s = 0`
+unconditionally, which the scanner refuses rather than assuming eight hours. That
+refusal is correct and the fix is a stated constant, not a rewrite; it simply has
+not been worth the pass.
+
+**bitmex** carries the original inverse perpetual, whose quote turnover is in the
+quote currency and therefore not dollars — the board ranks on it only where the
+quote is a stablecoin. Its depth is also structurally zero here: the sizes it
+publishes are off the grid this book keeps. That is a real defect and the reason
+it is parked rather than deployed.
+
+What would unpark one: deribit, a maker rebate or a second venue with genuine
+open interest; kraken, the funding interval; bitmex, the depth grid; coinbase, a
+reason to want its spot that gate and okx do not already answer.
