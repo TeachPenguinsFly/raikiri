@@ -20,9 +20,12 @@
 
 #include <raikiri/venues/weex/errors.hpp>
 #include <raikiri/wire/error.hpp>
+#include <raikiri/wire/json.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string_view>
 
 namespace raikiri::venues::weex {
@@ -77,5 +80,74 @@ struct RestError {
 // Returns the error when the body is one; absence is expressed as a zero code,
 // meaning "this body is a success payload".
 [[nodiscard]] std::expected<RestError, WireError> parse_rest_error(std::string_view body);
+
+// {"serverTime":<ms>}. Read once by the signed half, because WEEX refuses a
+// signature stamped more than 30 seconds from ITS clock and a laptop that has
+// drifted wears the face of a revoked key. Zero when the body does not say.
+[[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
+
+// A BARE ARRAY body, read into caller storage.
+//
+// The private reads answer with the array itself and no wrapper at all —
+// positions, balances, open orders and fills are each a top-level `[...]` —
+// so the shape that wants a key is the exception here rather than the rule.
+// A template because only the row reader differs: the capacity refusal and the
+// per-row object walk are the same for every one of them.
+template <typename Entry, typename Read>
+[[nodiscard]] std::expected<std::span<const Entry>, WireError>
+read_array(std::string_view body, std::span<Entry> storage, Read&& read) {
+    auto root = wire::session().open_array(body);
+    if (!root.has_value()) {
+        return std::unexpected{root.error()};
+    }
+    std::size_t count = 0;
+    for (auto item : *root) {
+        if (count == storage.size()) {
+            return std::unexpected{WireError::TooManyEntries};
+        }
+        wire::ondemand::object entry_obj;
+        if (item.get_object().get(entry_obj) != simdjson::SUCCESS) {
+            return std::unexpected{WireError::WrongType};
+        }
+        Entry entry{};
+        if (auto ok = read(entry_obj, entry); !ok.has_value()) {
+            return std::unexpected{ok.error()};
+        }
+        storage[count++] = entry;
+    }
+    return std::span<const Entry>{storage.data(), count};
+}
+
+// The same rows under a named key. One private read is shaped this way —
+// the account ledger, whose rows sit under `items` beside its cursor.
+template <typename Entry, typename Read>
+[[nodiscard]] std::expected<std::span<const Entry>, WireError>
+read_list(std::string_view body, std::string_view key, std::span<Entry> storage, Read&& read) {
+    auto root = wire::session().open_object(body);
+    if (!root.has_value()) {
+        return std::unexpected{root.error()};
+    }
+    auto obj = *root;
+    auto rows = wire::req_array(obj, key);
+    if (!rows.has_value()) {
+        return std::unexpected{rows.error()};
+    }
+    std::size_t count = 0;
+    for (auto item : *rows) {
+        if (count == storage.size()) {
+            return std::unexpected{WireError::TooManyEntries};
+        }
+        wire::ondemand::object entry_obj;
+        if (item.get_object().get(entry_obj) != simdjson::SUCCESS) {
+            return std::unexpected{WireError::WrongType};
+        }
+        Entry entry{};
+        if (auto ok = read(entry_obj, entry); !ok.has_value()) {
+            return std::unexpected{ok.error()};
+        }
+        storage[count++] = entry;
+    }
+    return std::span<const Entry>{storage.data(), count};
+}
 
 } // namespace raikiri::venues::weex

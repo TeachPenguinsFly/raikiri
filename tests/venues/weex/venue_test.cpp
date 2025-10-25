@@ -1,3 +1,5 @@
+#include <raikiri/net/signer.hpp>
+#include <raikiri/venues/weex/account.hpp>
 #include <raikiri/venues/weex/book.hpp>
 #include <raikiri/venues/weex/catalogue.hpp>
 #include <raikiri/venues/weex/endpoints.hpp>
@@ -5,6 +7,8 @@
 #include <raikiri/venues/weex/errors.hpp>
 #include <raikiri/venues/weex/map.hpp>
 #include <raikiri/venues/weex/market_data.hpp>
+#include <raikiri/venues/weex/orders.hpp>
+#include <raikiri/venues/weex/positions.hpp>
 #include <raikiri/venues/weex/rest.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/weex/ws.hpp>
@@ -47,6 +51,16 @@ const std::string& fixture(std::string_view name) {
         text.pop_back();
     }
     return held.emplace(std::string{name}, std::move(text)).first->second;
+}
+
+// A one-value edit, used only where the venue has never PRINTED the shape a
+// rule exists to handle. Each caller says what it changed and why.
+std::string replacing(std::string_view body, std::string_view from, std::string_view to) {
+    std::string out{body};
+    const auto at = out.find(from);
+    EXPECT_NE(at, std::string::npos) << from;
+    out.replace(at, from.size(), to);
+    return out;
 }
 
 // A one-field edit of real bytes, used only where the venue has never sent the
@@ -115,33 +129,84 @@ TEST(WeexVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->instruments, nullptr);
 }
 
-TEST(WeexVenue, TheCapsRowClaimsMarketDataAndNothingElse) {
-    // The row is what a caller consults BEFORE acting. Claiming an order path
-    // this adapter does not have would be discovered one command at a time.
+TEST(WeexVenue, TheCapsRowClaimsNothingNoCredentialHasProven) {
+    // THE POINT OF THIS TEST IS THE FALSE. Every private path below is
+    // implemented and compiled and exercised against the venue's own documented
+    // bodies — and none of it is claimed, because no WEEX credential exists on
+    // this machine and no signature written here has ever been accepted. A bit
+    // set true on an unexercised path makes a reconciler trust an answer nobody
+    // has seen; caps.cpp names, bit by bit, what evidence would flip each one.
     const auto& caps = exec::caps_of(VenueId::Weex);
     EXPECT_TRUE(caps.markets.perp);
+    // Not because spot is another company — it is the same exchange behind the
+    // same key — but because it is another host serving another path prefix and
+    // nothing here addresses it.
     EXPECT_FALSE(caps.markets.spot);
     EXPECT_FALSE(caps.markets.future);
     EXPECT_FALSE(caps.markets.option);
     EXPECT_FALSE(caps.ws_order_entry);
     EXPECT_FALSE(caps.fix_order_entry);
-    // Not on the market it serves, and not on any other: this adapter has no
-    // private REST at all.
+    EXPECT_FALSE(caps.cancel_by_client_order_id);
+    EXPECT_FALSE(caps.batch_cancel);
+    // This one is false for a DIFFERENT reason, and the difference matters: WEEX
+    // publishes no modify for a resting order at all, so no credential would
+    // ever flip it.
+    EXPECT_FALSE(caps.amend_order);
+    EXPECT_FALSE(caps.native_post_only);
     EXPECT_FALSE(caps.position_pull.any());
     EXPECT_FALSE(caps.order_pull.any());
     EXPECT_FALSE(caps.fill_pull.any());
     EXPECT_FALSE(caps.balance_pull.any());
     EXPECT_FALSE(caps.funding_charge.any());
+    // WEEX publishes a private socket; this adapter does not open one, so a
+    // fill reaches this process through the reconciliation pull and nowhere
+    // else.
     EXPECT_EQ(caps.user_stream, exec::UserStreamModel::None);
     // The one public capability that IS claimed, and the ticker channel is
     // what delivers it.
     EXPECT_TRUE(caps.ticker_stats);
+
+    // These two are facts about the VENUE rather than claims about this
+    // adapter, and both are stated in its documentation: three credentials, and
+    // 36 characters in `newClientOrderId`.
+    EXPECT_TRUE(caps.needs_passphrase);
+    EXPECT_EQ(caps.max_client_order_id_len, k_max_client_order_id);
+    EXPECT_GE(caps.max_client_order_id_len, exec::k_min_client_order_id_len);
+    // NOT STATED IN ANY UNIT THIS FIELD CAN CARRY. WEEX publishes 300 orders a
+    // MINUTE per account and no per-second figure anywhere, so this stays zero
+    // rather than holding a quotient the venue never quoted.
+    EXPECT_EQ(caps.headline_order_rate_per_s, 0U);
 }
 
-TEST(WeexVenue, EveryCommandIsRefusedLocallyRatherThanLeftOpen) {
+TEST(WeexVenue, TwoOfThreeCredentialsIsRefusedAtStartupRatherThanPerOrder) {
+    // WEEX signs with a passphrase beside the key and the secret, and without
+    // one it answers -1049 — which is not the code a missing key produces and
+    // reads as a revoked key for as long as nobody looks. The caps row's
+    // needs_passphrase is what turns that into a refusal at load.
+    register_adapter();
+    CaptureSink sink;
+    const LiveClock clock;
+    const auto refused = exec::make_venue({.venue = VenueId::Weex,
+                                           .market = MarketType::Perp,
+                                           .api_key_env = "env:WEEX_API_KEY",
+                                           .api_secret_env = "env:WEEX_API_SECRET"},
+                                          sink,
+                                          clock);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error(), exec::MakeError::PassphraseRequired);
+
+    // A gateway that names NO credential is asking for market data and is
+    // refused nothing.
+    EXPECT_TRUE(exec::make_venue({.venue = VenueId::Weex, .market = MarketType::Perp}, sink, clock)
+                    .has_value());
+}
+
+TEST(WeexVenue, WithNoCredentialEveryCommandIsRefusedLocallyRatherThanLeftOpen) {
     // Silence is the one answer an order may never get: a command that vanishes
     // sits open in the store forever, indistinguishable from one the venue is
-    // still thinking about.
+    // still thinking about. Nothing here reaches a socket — the request cannot
+    // be built, let alone signed — so every verdict below is local and
+    // immediate.
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -862,6 +927,652 @@ TEST(WeexWs, EveryAddressIsSpelledOnceAndTheBuilderUsesIt) {
     EXPECT_EQ(builder.instruments().target, ep::k_exchange_info);
     // NO `symbol`: the bare path answers for every contract in one body.
     EXPECT_EQ(builder.premium_index().target, ep::k_premium_index);
+}
+
+// ----------------------------------------------------------- private ----
+//
+// NOTHING BELOW HAS SEEN A LIVE SUCCESSFUL ANSWER. There are no WEEX
+// credentials on this machine, so the fixtures these tests read are the venue's
+// own documented bodies rather than captures, and they are labelled as such in
+// fixtures/README.md. What IS measured is every refusal: the 401 and the 400
+// were pulled off production unauthenticated on 2026-09-13, and they are the
+// only proof this adapter has that its private paths are addresses at all.
+
+// A signer holding test credentials. The secret is not a WEEX secret and never
+// was: what these tests pin is the MESSAGE the adapter signs, which is the half
+// that cannot be checked against the venue without a key.
+struct TestSigner {
+    net::Signer signer;
+
+    TestSigner() {
+        signer.set_api_key("weex-test-key");
+        EXPECT_TRUE(signer.secret().assign("weex-test-secret").has_value());
+    }
+};
+
+constexpr std::string_view k_passphrase = "weextestpass";
+constexpr std::string_view k_ulid = "01JQ8ZK9F4M2N7P5R3T1V6W8XA";
+constexpr UnixNanos k_signed_at{1'764'505'800'123'000'000ULL};
+constexpr std::string_view k_signed_at_ms = "1764505800123";
+
+[[nodiscard]] std::string_view header_of(const net::RestRequest& request, std::string_view name) {
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] OrderCmd limit_order(const exec::InstrumentTable& table) {
+    OrderCmd cmd{};
+    cmd.kind = CmdKind::Create;
+    cmd.instrument = listed(table, "BTCUSDT").id;
+    cmd.side = Side::Buy;
+    cmd.order_type = OrderType::Limit;
+    cmd.tif = TimeInForce::Gtc;
+    cmd.client_order_id = ClientOrderId::make(1, 42);
+    cmd.exchange_client_order_id = *ExchangeClientOrderId::from(k_ulid);
+    cmd.qty = QtyLots::from_raw(200);          // 0.02 BTC against a 0.0001 lot
+    cmd.price = PriceTicks::from_raw(690'000); // 69000 against a 0.1 tick
+    return cmd;
+}
+
+TEST(WeexSign, TheSignedMessageIsTimestampMethodPathQueryBody) {
+    // The venue's own rule, and the one thing about this adapter that cannot be
+    // checked against WEEX without a key: a GET that signs a bare path while
+    // sending a query, or a POST that signs a query it never sends, produces a
+    // digest wrong by bytes nobody can see — and WEEX answers both with the
+    // generic refusal a revoked key draws.
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+
+    const auto get = builder.open_orders(MarketType::Perp, k_signed_at);
+    ASSERT_TRUE(get.has_value());
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_signed_at_ms} + "GET" + std::string{ep::k_open_orders} +
+                  "?limit=100&page=0");
+    // The "?" belongs to the signer and appears exactly once, in the message and
+    // in the target alike.
+    EXPECT_EQ(get->target, std::string{ep::k_open_orders} + "?limit=100&page=0");
+
+    const auto table = load_table();
+    const auto post = builder.create_order(limit_order(table), table, k_signed_at);
+    ASSERT_TRUE(post.has_value());
+    const auto message = std::string{builder.last_sign_message()};
+    EXPECT_EQ(message,
+              std::string{k_signed_at_ms} + "POST" + std::string{ep::k_order} +
+                  std::string{post->body});
+    // AN EMPTY QUERY TAKES NO "?" AT ALL, which is the half of the rule a
+    // careless signer gets wrong in the other direction.
+    EXPECT_EQ(message.find('?'), std::string::npos);
+}
+
+TEST(WeexSign, TheHeaderCarriesABase64DigestOfExactlyThatMessage) {
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+
+    const auto request = builder.positions(MarketType::Perp, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+
+    std::array<char, net::k_base64_bytes> expected{};
+    const auto digest =
+        net::hmac_sha256_base64("weex-test-secret", builder.last_sign_message(), expected);
+    EXPECT_EQ(header_of(*request, "ACCESS-SIGN"), digest);
+    // BASE64, not the hex most of this fleet uses: 32 digest bytes become 44
+    // characters ending in the one pad the length forces.
+    EXPECT_EQ(digest.size(), net::k_base64_bytes);
+    EXPECT_EQ(digest.back(), '=');
+
+    EXPECT_EQ(header_of(*request, "ACCESS-KEY"), "weex-test-key");
+    EXPECT_EQ(header_of(*request, "ACCESS-TIMESTAMP"), k_signed_at_ms);
+    EXPECT_EQ(header_of(*request, "ACCESS-PASSPHRASE"), k_passphrase);
+    // The venue answers -1045 to anything else, on a GET with no body as much
+    // as on a POST with one.
+    EXPECT_EQ(request->content_type, "application/json");
+}
+
+TEST(WeexSign, TheDigestFollowsTheREQUESTAndNotTheOtherWayRound) {
+    // A signature that did not change with the request would authenticate one
+    // call for another — the failure a constant or a stale buffer produces, and
+    // the one a venue cannot tell us about.
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+
+    ASSERT_TRUE(builder.positions(MarketType::Perp, k_signed_at).has_value());
+    const std::string positions{builder.last_sign_message()};
+    ASSERT_TRUE(builder.balances(k_signed_at).has_value());
+    const std::string balances{builder.last_sign_message()};
+    EXPECT_NE(positions, balances);
+
+    // And the same request at the same millisecond signs the same bytes: a
+    // digest that wandered would make every retry a new request.
+    ASSERT_TRUE(builder.positions(MarketType::Perp, k_signed_at).has_value());
+    EXPECT_EQ(builder.last_sign_message(), positions);
+}
+
+TEST(WeexSign, HalfACredentialIsNoCredential) {
+    // WEEX signs with THREE, and a key and secret without a passphrase answer
+    // -1049 rather than the code a missing key produces — which reads as a
+    // revoked key for as long as nobody looks. Refused before the request
+    // exists instead.
+    TestSigner credentials;
+    RequestBuilder without_passphrase{credentials.signer, {}};
+    const auto refused = without_passphrase.positions(MarketType::Perp, k_signed_at);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error(), BuildError::NotSigned);
+
+    // And a builder holding nothing at all — the market-data half — refuses the
+    // same way rather than signing with an empty key.
+    RequestBuilder unsigned_builder;
+    EXPECT_FALSE(unsigned_builder.balances(k_signed_at).has_value());
+    // Its public calls still work, which is the whole point of the split.
+    EXPECT_EQ(unsigned_builder.instruments().target, ep::k_exchange_info);
+}
+
+TEST(WeexSign, EveryPrivatePathAddressesTheContractHost) {
+    // WEEX's spot exchange is api-spot.weex.com serving /api/v3/..., and this
+    // host serves /capi/v3/... — neither answers the other's paths, verified
+    // live on 2026-09-13 (both cross-host reads were 404). So a private path
+    // that lost its `capi` would be a spot call made with contract permissions.
+    EXPECT_EQ(rest_host(), "api-contract.weex.com");
+    for (const auto path : {ep::k_order,
+                            ep::k_batch_orders,
+                            ep::k_open_orders,
+                            ep::k_user_trades,
+                            ep::k_all_positions,
+                            ep::k_balance,
+                            ep::k_income,
+                            ep::k_server_time}) {
+        EXPECT_TRUE(path.starts_with("/capi/v3/")) << path;
+    }
+}
+
+TEST(WeexOrders, TheUlidTravelsUnchangedAndFitsTheVenuesField) {
+    // WEEX states 1-36 characters matching ^[\.A-Z\:/a-z0-9_-]{1,36}$ on
+    // `newClientOrderId`. A 26-character Crockford ULID is digits and upper-case
+    // letters, so it fits both and needs no re-encoding — and an id that
+    // arrived re-encoded would come back as something this process cannot
+    // recognise.
+    static_assert(k_max_client_order_id >= 26);
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    const auto request = builder.create_order(limit_order(table), table, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_NE(request->body.find(R"("newClientOrderId":"01JQ8ZK9F4M2N7P5R3T1V6W8XA")"),
+              std::string_view::npos)
+        << request->body;
+    EXPECT_LE(k_ulid.size(), k_max_client_order_id);
+}
+
+TEST(WeexOrders, ARequiredFieldTheVenueWouldRefuseIsRefusedHere) {
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    // UNDEF IS NOT ZERO. A quantity the OMS never filled in must not be
+    // rendered as "0": WEEX would refuse it on a good day and take it on a bad
+    // one.
+    auto no_qty = limit_order(table);
+    no_qty.qty = QtyLots::undef();
+    ASSERT_FALSE(builder.create_order(no_qty, table, k_signed_at).has_value());
+    EXPECT_EQ(builder.create_order(no_qty, table, k_signed_at).error(), BuildError::BadValue);
+
+    auto no_price = limit_order(table);
+    no_price.price = PriceTicks::undef();
+    EXPECT_EQ(builder.create_order(no_price, table, k_signed_at).error(), BuildError::BadValue);
+
+    // `newClientOrderId` is REQUIRED on this venue, and an order sent without
+    // one would come back unattributable.
+    auto no_id = limit_order(table);
+    no_id.exchange_client_order_id = {};
+    EXPECT_EQ(builder.create_order(no_id, table, k_signed_at).error(), BuildError::NoOrderTarget);
+
+    // The contract tree and nothing else, answered before a request exists.
+    EXPECT_EQ(builder.positions(MarketType::Spot, k_signed_at).error(),
+              BuildError::UnsupportedMarket);
+}
+
+TEST(WeexOrders, AReduceOnlyOrderFacesThePositionItCloses) {
+    // WEEX requires a positionSide on every order and its vocabulary is LONG
+    // and SHORT with no "both", so the field is DERIVED — and this is the most
+    // likely thing in the adapter to be wrong the first time a credential
+    // reaches the venue. An opening order faces the way it trades; a
+    // reduce-only order faces the position it is closing, which is the
+    // opposite.
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    const auto side_in_body = [&](Side side, OrderFlags flags) {
+        auto cmd = limit_order(table);
+        cmd.side = side;
+        cmd.flags = flags;
+        const auto request = builder.create_order(cmd, table, k_signed_at);
+        EXPECT_TRUE(request.has_value());
+        return std::string{request.has_value() ? request->body : std::string_view{}};
+    };
+
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::None).find(R"("positionSide":"LONG")"),
+              std::string::npos);
+    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::None).find(R"("positionSide":"SHORT")"),
+              std::string::npos);
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("positionSide":"SHORT")"),
+              std::string::npos);
+    EXPECT_NE(side_in_body(Side::Sell, OrderFlags::ReduceOnly).find(R"("positionSide":"LONG")"),
+              std::string::npos);
+    // And the flag itself still travels, because positionSide alone does not
+    // stop an order opening the opposite leg.
+    EXPECT_NE(side_in_body(Side::Buy, OrderFlags::ReduceOnly).find(R"("reduceOnly":true)"),
+              std::string::npos);
+}
+
+TEST(WeexOrders, PostOnlyIsATimeInForceAndAMarketOrderCarriesNone) {
+    // Sending post-only as a boolean is ignored on this venue and the order
+    // crosses; timeInForce is where it lives.
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    auto maker = limit_order(table);
+    maker.flags = OrderFlags::PostOnly;
+    const auto post_only = builder.create_order(maker, table, k_signed_at);
+    ASSERT_TRUE(post_only.has_value());
+    EXPECT_NE(post_only->body.find(R"("timeInForce":"POST_ONLY")"), std::string_view::npos);
+    EXPECT_EQ(post_only->body.find("postOnly"), std::string_view::npos);
+
+    auto ioc = limit_order(table);
+    ioc.tif = TimeInForce::Ioc;
+    const auto immediate = builder.create_order(ioc, table, k_signed_at);
+    ASSERT_TRUE(immediate.has_value());
+    EXPECT_NE(immediate->body.find(R"("timeInForce":"IOC")"), std::string_view::npos);
+
+    // `timeInForce` and `price` are required only for a LIMIT, and a market
+    // order carrying either is a request this venue has no reason to accept.
+    auto market = limit_order(table);
+    market.order_type = OrderType::Market;
+    const auto taker = builder.create_order(market, table, k_signed_at);
+    ASSERT_TRUE(taker.has_value());
+    EXPECT_NE(taker->body.find(R"("type":"MARKET")"), std::string_view::npos);
+    EXPECT_EQ(taker->body.find("timeInForce"), std::string_view::npos);
+    EXPECT_EQ(taker->body.find(R"("price")"), std::string_view::npos);
+}
+
+TEST(WeexOrders, ACancelNamesTheVenuesOwnIdWhereItHasOneAndTheUlidOtherwise) {
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    auto by_ulid = limit_order(table);
+    by_ulid.kind = CmdKind::Cancel;
+    const auto client = builder.cancel_order(by_ulid, k_signed_at);
+    ASSERT_TRUE(client.has_value());
+    EXPECT_EQ(client->method, net::HttpMethod::Delete);
+    EXPECT_EQ(client->target,
+              std::string{ep::k_order} + "?origClientOrderId=" + std::string{k_ulid});
+
+    auto by_venue_id = by_ulid;
+    by_venue_id.target_exchange_order_id = *ExchangeOrderId::from("702345678901234567");
+    const auto venue = builder.cancel_order(by_venue_id, k_signed_at);
+    ASSERT_TRUE(venue.has_value());
+    EXPECT_EQ(venue->target, std::string{ep::k_order} + "?orderId=702345678901234567");
+
+    // A cancel naming nothing is refused rather than sent as a cancel of
+    // everything.
+    auto nameless = by_ulid;
+    nameless.exchange_client_order_id = {};
+    EXPECT_EQ(builder.cancel_order(nameless, k_signed_at).error(), BuildError::NoOrderTarget);
+}
+
+TEST(WeexOrders, ABatchCancelNamesEveryOrderAndStopsAtTheVenuesTen) {
+    TestSigner credentials;
+    RequestBuilder builder{credentials.signer, k_passphrase};
+    const auto table = load_table();
+
+    std::vector<OrderCmd> batch;
+    for (std::size_t i = 0; i < k_max_cancel_batch; ++i) {
+        auto cmd = limit_order(table);
+        cmd.kind = CmdKind::Cancel;
+        std::string id{k_ulid};
+        id.back() = static_cast<char>('A' + static_cast<char>(i));
+        cmd.exchange_client_order_id = *ExchangeClientOrderId::from(id);
+        batch.push_back(cmd);
+    }
+    const auto request = builder.cancel_batch(batch, k_signed_at);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->method, net::HttpMethod::Delete);
+    EXPECT_EQ(request->target, ep::k_batch_orders);
+    for (const auto& cmd : batch) {
+        EXPECT_NE(request->body.find(cmd.exchange_client_order_id.view()), std::string_view::npos);
+    }
+    // A DELETE that signs its BODY: the rule is the same one every other verb
+    // follows, and the query is empty so no "?" appears.
+    EXPECT_EQ(builder.last_sign_message(),
+              std::string{k_signed_at_ms} + "DELETE" + std::string{ep::k_batch_orders} +
+                  std::string{request->body});
+
+    // Eleven is not ten. WEEX cancels the first ten and says nothing about the
+    // rest, so the request is refused here and the caller chunks.
+    batch.push_back(batch.front());
+    EXPECT_EQ(builder.cancel_batch(batch, k_signed_at).error(), BuildError::NoOrderTarget);
+    EXPECT_EQ(builder.cancel_batch({}, k_signed_at).error(), BuildError::NoOrderTarget);
+}
+
+TEST(WeexWire, TheRefusalsThisAdapterHasActuallySeenAreClassified) {
+    // Both captured from production on 2026-09-13 with no credentials at all —
+    // the only WEEX private answers that exist anywhere in this repository.
+    const auto unauthorized = parse_rest_error(fixture("rest_error_unauthorized.json"));
+    ASSERT_TRUE(unauthorized.has_value());
+    EXPECT_EQ(unauthorized->code, k_access_key_invalid);
+    // AuthFailure halts the whole venue, which is right for a credential that
+    // is wrong for every request this process will make.
+    EXPECT_EQ(classify(unauthorized->code), exec::ErrorClass::AuthFailure);
+
+    const auto bad_body = parse_rest_error(fixture("rest_error_bad_body.json"));
+    ASSERT_TRUE(bad_body.has_value());
+    EXPECT_EQ(bad_body->code, k_invalid_json);
+    EXPECT_EQ(classify(bad_body->code), exec::ErrorClass::Terminal);
+
+    // A refusal about ONE contract may not halt the other nine hundred.
+    EXPECT_EQ(classify(k_symbol_not_api_tradable), exec::ErrorClass::Terminal);
+    EXPECT_EQ(classify(k_key_not_bound_to_symbol), exec::ErrorClass::Terminal);
+    // The venue bans for ten seconds after a breach it notices.
+    EXPECT_EQ(classify(k_order_rate_limited), exec::ErrorClass::RateLimited);
+    EXPECT_EQ(classify(k_system_error), exec::ErrorClass::Retryable);
+    // A cancel for an order the venue no longer has got what it asked for.
+    EXPECT_TRUE(is_benign_cancel_failure(k_order_not_found));
+    EXPECT_FALSE(is_benign_cancel_failure(k_param_invalid));
+}
+
+TEST(WeexWire, AnOrderIdSurvivesAsTextWhicheverJsonTypeItArrivesAs) {
+    // WEEX quotes the same id as a STRING on a place answer and as an 18-digit
+    // NUMBER on a read — and its own documentation prints 702345678901234600
+    // for the order its place example called 702345678901234567, having lost
+    // the last digits to a double on the way to the page.
+    const auto ack = parse_order_ack(fixture("rest_order_ack.json"));
+    ASSERT_TRUE(ack.has_value());
+    EXPECT_EQ(ack->order_id, "702345678901234567");
+
+    static thread_local OrderBuffer storage;
+    const auto listed_orders = parse_orders(fixture("rest_open_orders.json"), storage);
+    ASSERT_TRUE(listed_orders.has_value());
+    ASSERT_FALSE(listed_orders->empty());
+    // The same id, quoted as a bare 18-digit number this time, and not one
+    // digit short.
+    EXPECT_EQ((*listed_orders)[0].order_id, "702345678901234567");
+}
+
+TEST(WeexWire, AnAcknowledgementIsReadForItsVerdictAndNotItsStatusLine) {
+    // A 200 IS NOT AN ACCEPTANCE on this venue: a refused order arrives inside
+    // a successful HTTP response with `success` false and a NAMED errorCode.
+    const auto placed = parse_order_ack(fixture("rest_order_ack.json"));
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_TRUE(placed->success);
+    EXPECT_EQ(placed->client_order_id, k_ulid);
+
+    // The cancel answer spells the same field `origClientOrderId`.
+    const auto canceled = parse_order_ack(fixture("rest_cancel_ack.json"));
+    ASSERT_TRUE(canceled.has_value());
+    EXPECT_TRUE(canceled->success);
+    EXPECT_EQ(canceled->client_order_id, k_ulid);
+
+    static thread_local OrderAckBuffer storage;
+    const auto batch = parse_order_acks(fixture("rest_cancel_batch.json"), storage);
+    ASSERT_TRUE(batch.has_value());
+    ASSERT_EQ(batch->size(), 2U);
+    EXPECT_TRUE((*batch)[0].success);
+    // One entry saying no beside one saying yes is the NORMAL shape of a batch,
+    // not a failure of the request.
+    EXPECT_FALSE((*batch)[1].success);
+    EXPECT_TRUE(is_benign_cancel_error((*batch)[1].error_code));
+    EXPECT_FALSE(is_benign_cancel_error((*batch)[0].error_code));
+}
+
+TEST(WeexWire, LeavesIsASubtractionBecauseTheStatusWordWillNotSayIt) {
+    // WEEX's status vocabulary has NO PartiallyFilled. A half-filled order is
+    // reported "NEW", and only executedQty against origQty says otherwise — a
+    // reader that trusted the word would report a working order as untouched
+    // while it filled.
+    const auto table = load_table();
+    static thread_local OrderBuffer storage;
+    const auto orders = parse_orders(fixture("rest_open_orders.json"), storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_EQ(orders->size(), 2U);
+    EXPECT_EQ((*orders)[0].status, WireOrderStatus::New);
+    EXPECT_EQ((*orders)[1].status, WireOrderStatus::New);
+
+    const auto untouched = map_open_order((*orders)[0], table);
+    ASSERT_TRUE(untouched.has_value());
+    EXPECT_EQ(untouched->status, OrderStatus::Accepted);
+    EXPECT_EQ(untouched->qty.raw, 200);
+    EXPECT_EQ(untouched->leaves.raw, 200);
+    EXPECT_EQ(untouched->side, Side::Sell);
+    EXPECT_EQ(untouched->price.raw, 695'000);
+    EXPECT_EQ(untouched->exchange_order_id.view(), "702345678901234567");
+    EXPECT_EQ(untouched->exchange_client_order_id.view(), k_ulid);
+
+    // 0.008 of 0.02 filled, against a 0.0001 lot: 80 of 200, so 120 are left —
+    // and the venue still calls it NEW.
+    const auto working = map_open_order((*orders)[1], table);
+    ASSERT_TRUE(working.has_value());
+    EXPECT_EQ(working->status, OrderStatus::PartiallyFilled);
+    EXPECT_EQ(working->leaves.raw, 120);
+
+    // And the word does not stop a FULL fill being read as one. WEEX prints no
+    // such example, because it would still be calling the order "NEW"; this is
+    // that row with its cumulative quantity brought up to its original.
+    const auto complete = replacing(
+        fixture("rest_open_orders.json"), R"("executedQty":"0.008")", R"("executedQty":"0.02")");
+    const auto finished = parse_orders(complete, storage);
+    ASSERT_TRUE(finished.has_value());
+    const auto done = map_open_order((*finished)[1], table);
+    ASSERT_TRUE(done.has_value());
+    EXPECT_EQ(done->status, OrderStatus::Filled);
+    EXPECT_EQ(done->leaves.raw, 0);
+}
+
+TEST(WeexWire, AnOrderStatingNoFilledQuantityLeavesTheRemainderUndef) {
+    // UNDEF IS NOT ZERO, and here it is the difference between "nothing is
+    // working" and "this adapter could not tell". The edit is one field wide
+    // because no capture of a WEEX order exists at all — see fixtures/README.md.
+    const auto table = load_table();
+    const auto edited = without(fixture("rest_open_orders.json"), R"("executedQty":"0",)");
+    static thread_local OrderBuffer storage;
+    const auto orders = parse_orders(edited, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_FALSE(orders->empty());
+
+    const auto report = map_open_order((*orders)[0], table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->qty.raw, 200);
+    EXPECT_TRUE(report->leaves.is_undef());
+    // The order is still reported as WORKING: the row came back from the
+    // open-order list, and dropping it would read downstream as an order the
+    // venue no longer has.
+    EXPECT_EQ(report->status, OrderStatus::Accepted);
+}
+
+TEST(WeexWire, AWordThisAdapterDoesNotKnowFallsBackToTheQuantities) {
+    // WEEX has added status words before and will again; a row carrying one is
+    // read for what its numbers say rather than dropped, because dropping it
+    // reads downstream as an order the venue no longer has.
+    const auto table = load_table();
+    const auto edited =
+        replacing(fixture("rest_open_orders.json"), R"("status":"NEW")", R"("status":"WHATEVER")");
+    static thread_local OrderBuffer storage;
+    const auto orders = parse_orders(edited, storage);
+    ASSERT_TRUE(orders.has_value());
+    ASSERT_FALSE(orders->empty());
+    EXPECT_EQ((*orders)[0].status, WireOrderStatus::Unknown);
+
+    const auto report = map_open_order((*orders)[0], table);
+    ASSERT_TRUE(report.has_value());
+    // Nothing has filled, so it is working — the same reading the known word
+    // would have produced.
+    EXPECT_EQ(report->status, OrderStatus::Accepted);
+    EXPECT_EQ(report->leaves.raw, 200);
+}
+
+TEST(WeexWire, AFillCarriesItsFeeItsLiquidityAndTheOrderItBelongsTo) {
+    const auto table = load_table();
+    static thread_local FillBuffer storage;
+    const auto fills = parse_fills(fixture("rest_user_trades.json"), storage);
+    ASSERT_TRUE(fills.has_value());
+    ASSERT_EQ(fills->size(), 1U);
+
+    const auto report = map_fill((*fills)[0], table);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->instrument, listed(table, "BTCUSDT").id);
+    EXPECT_EQ(report->side, Side::Buy);
+    EXPECT_EQ(report->price.raw, 690'000);
+    EXPECT_EQ(report->qty.raw, 100); // 0.01 against a 0.0001 lot
+    EXPECT_EQ(report->fee.raw, 138'000'000);
+    EXPECT_EQ(report->liquidity, Liquidity::Taker);
+    EXPECT_EQ(report->exec_id.view(), "801234567890123456");
+    EXPECT_EQ(report->exchange_order_id.view(), "702345678901234567");
+    // NO CLIENT ORDER ID RIDES A FILL on this venue, and an empty id here is
+    // the venue declining to say rather than an id this adapter guessed.
+    EXPECT_TRUE(report->exchange_client_order_id.empty());
+    EXPECT_EQ(report->ts_venue.ns, 1'764'505'701'456ULL * 1'000'000ULL);
+}
+
+TEST(WeexWire, AFillStatingNoCommissionLeavesTheFeeUndef) {
+    const auto table = load_table();
+    const auto edited = without(fixture("rest_user_trades.json"), R"("commission":"0.138",)");
+    static thread_local FillBuffer storage;
+    const auto fills = parse_fills(edited, storage);
+    ASSERT_TRUE(fills.has_value());
+    const auto report = map_fill((*fills)[0], table);
+    ASSERT_TRUE(report.has_value());
+    // A fee of zero is a claim that the fill was free.
+    EXPECT_TRUE(report->fee.is_undef());
+    EXPECT_EQ(report->qty.raw, 100);
+}
+
+TEST(WeexWire, PositionsAreSignedByTheirSideAndNettedPerInstrument) {
+    // `size` is UNSIGNED here and `side` is the only thing that says which way
+    // the account faces. And under `separatedMode` SEPARATED one contract
+    // carries a row per direction: everything downstream keys a position on the
+    // instrument alone, so two rows published raw become whichever arrived
+    // last — a hedged book reported as one naked leg.
+    const auto table = load_table();
+    static thread_local PositionBuffer storage;
+    const auto rows = parse_positions(fixture("rest_positions.json"), storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    const auto reports = map_positions(*rows, table);
+    ASSERT_EQ(reports.size(), 2U);
+
+    const auto btc = listed(table, "BTCUSDT").id;
+    const auto doge = listed(table, "DOGEUSDT").id;
+    for (const auto& report : reports) {
+        if (report.instrument == btc) {
+            // 0.02 long and 0.005 short against a 0.0001 lot: 200 - 50.
+            EXPECT_EQ(report.net_qty.raw, 150);
+            // The later of the two rows merged.
+            EXPECT_EQ(report.ts_venue.ns, 1'764'588'999'999ULL * 1'000'000ULL);
+        } else {
+            EXPECT_EQ(report.instrument, doge);
+            EXPECT_EQ(report.net_qty.raw, -15); // 1500 short against a lot of 100
+        }
+        // WEEX STATES NO ENTRY PRICE. openValue over size is a quotient, not a
+        // price the venue quoted, and it need not land on the contract's tick.
+        EXPECT_TRUE(report.avg_entry.is_undef());
+    }
+}
+
+TEST(WeexWire, ABalanceStatesEachColumnOrLeavesItUndef) {
+    static thread_local BalanceBuffer storage;
+    const auto coins = parse_balances(fixture("rest_balance.json"), storage);
+    ASSERT_TRUE(coins.has_value());
+    ASSERT_EQ(coins->size(), 1U);
+
+    const auto report = map_balance((*coins)[0], k_ingest);
+    ASSERT_TRUE(report.has_value());
+    EXPECT_EQ(report->asset.view(), "USDT");
+    EXPECT_EQ(report->total.raw, 5'696'492'888'230);
+    EXPECT_EQ(report->available.raw, 5'413'068'773'690);
+    EXPECT_EQ(report->unrealized.raw, -34'553'000'000);
+    EXPECT_EQ(report->ts_venue, k_ingest);
+
+    // A column the venue did not state is UNDEF, never zero: an available
+    // balance of zero invites a caller to conclude nothing may be committed.
+    const auto edited =
+        without(fixture("rest_balance.json"), R"("availableBalance":"5413.06877369",)");
+    const auto thin = parse_balances(edited, storage);
+    ASSERT_TRUE(thin.has_value());
+    const auto partial = map_balance((*thin)[0], k_ingest);
+    ASSERT_TRUE(partial.has_value());
+    EXPECT_TRUE(partial->available.is_undef());
+    EXPECT_EQ(partial->total.raw, 5'696'492'888'230);
+}
+
+TEST(WeexWire, OnlyFundingRowsAreBookedAndTheSignIsTheAccountsOwn) {
+    // A payment and a receipt differ only by sign, and WEEX already states the
+    // one the ledger wants: `income` is a COLLATERAL CHANGE, so a settlement
+    // received is positive and one paid away negative. Flipping it here would
+    // make every funding series run backwards.
+    const auto table = load_table();
+    static thread_local BillBuffer storage;
+    const auto bills = parse_bills(fixture("rest_income.json"), storage);
+    ASSERT_TRUE(bills.has_value());
+    ASSERT_EQ(bills->size(), 3U);
+
+    const auto received = map_funding_charge((*bills)[0], table, k_ingest);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->amount.raw, 82'666'460);
+    EXPECT_EQ(received->kind, LedgerKind::Funding);
+    EXPECT_EQ(received->reference.view(), "686960019383517338");
+    EXPECT_EQ(received->settled_at.ns, 1'763'784'031'721ULL * 1'000'000ULL);
+    EXPECT_EQ(received->instrument, listed(table, "BTCUSDT").id);
+
+    const auto paid = map_funding_charge((*bills)[1], table, k_ingest);
+    ASSERT_TRUE(paid.has_value());
+    EXPECT_EQ(paid->amount.raw, -119'302'440);
+
+    // The bill list answers every deposit and transfer the account ever made,
+    // and booking one as funding is money invented.
+    EXPECT_FALSE(is_funding_bill((*bills)[2]));
+    EXPECT_FALSE(map_funding_charge((*bills)[2], table, k_ingest).has_value());
+}
+
+TEST(WeexWire, AnUnreadableAmountIsNotAChargeOfZero) {
+    const auto table = load_table();
+    const auto edited = without(fixture("rest_income.json"), R"("income":"0.08266646",)");
+    static thread_local BillBuffer storage;
+    const auto bills = parse_bills(edited, storage);
+    ASSERT_TRUE(bills.has_value());
+    // Absent, not zero: a settlement booked at nothing is a settlement lost.
+    EXPECT_FALSE(map_funding_charge((*bills)[0], table, k_ingest).has_value());
+}
+
+TEST(WeexWire, APrivateBodyThatIsAnErrorIsNeverReadAsAnEmptyAccount) {
+    // The refusal shapes are the ones this adapter has actually seen, and each
+    // of them has to fail the LIST readers rather than look like a flat book.
+    static thread_local PositionBuffer positions;
+    EXPECT_FALSE(parse_positions(fixture("rest_error_unauthorized.json"), positions).has_value());
+    static thread_local BalanceBuffer balances;
+    EXPECT_FALSE(parse_balances(fixture("rest_error_unauthorized.json"), balances).has_value());
+    static thread_local OrderBuffer orders;
+    EXPECT_FALSE(parse_orders(fixture("rest_error_unauthorized.json"), orders).has_value());
+    static thread_local FillBuffer fills;
+    EXPECT_FALSE(parse_fills(fixture("rest_error_bad_body.json"), fills).has_value());
+    static thread_local BillBuffer bills;
+    EXPECT_FALSE(parse_bills(fixture("rest_error_bad_body.json"), bills).has_value());
+}
+
+TEST(WeexWire, TheServerClockIsReadBecauseASignatureExpires) {
+    // WEEX refuses a signature stamped more than 30 s from its own clock, and a
+    // drifting laptop wears the face of a revoked key.
+    const auto now = parse_server_time(R"({"serverTime":1789325256837})");
+    ASSERT_TRUE(now.has_value());
+    EXPECT_EQ(*now, 1'789'325'256'837ULL);
+    // A body that does not say reads as zero, and zero means "no correction",
+    // never "the epoch".
+    EXPECT_EQ(parse_server_time(R"({"noSuchField":1})").value_or(1), 0ULL);
 }
 
 } // namespace

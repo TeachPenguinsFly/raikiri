@@ -523,41 +523,118 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
     table[static_cast<std::size_t>(VenueId::Weex)] = {
         .venue = VenueId::Weex,
         // The USDT-margined CONTRACT tree only. All 1022 rows of its
-        // exchangeInfo are USDT-quoted perpetuals; WEEX spot is a different
-        // exchange behind different hosts and this adapter never reaches it.
+        // exchangeInfo are USDT-quoted perpetuals, and WEEX's spot exchange is
+        // a different HOST serving a different path prefix that nothing here
+        // addresses: api-contract.weex.com answers /capi/v3/..., api-spot
+        // .weex.com answers /api/v3/..., and each was 404 on the other's
+        // prefix when asked on 2026-09-13. One exchange behind one API key —
+        // same key page, same three credentials, same signature rule, a Spot
+        // or a Futures/Contract permission ticked on it — but two hosts, and
+        // this adapter reaches one of them.
         .markets = {.spot = false, .perp = true},
-        // FALSE BECAUSE NOTHING HERE PLACES AN ORDER. There are no WEEX
-        // credentials on this machine, so no signing scheme has ever been
-        // answered by the venue, and an order path nobody has run is worse than
-        // none — it looks like one. Every bit below that would let a caller act
-        // on this venue is false for the same reason, and the execution client
-        // refuses each command locally and immediately.
+        //
+        // ===================================================================
+        // EVERY BIT BELOW THAT WOULD LET A CALLER ACT IS FALSE, AND MOST OF
+        // THEM ARE IMPLEMENTED. That is not a contradiction, it is the whole
+        // job of this table: there are no WEEX credentials on this machine, so
+        // no signature this adapter writes has ever been ACCEPTED by the venue
+        // and no successful private body has ever been seen. The paths are
+        // proven to exist — each answered HTTP 401 {"code":-1044} on
+        // 2026-09-13, which is how a routed path was told from an invented one
+        // — and nothing beyond that is known. A bit set true here makes the
+        // reconciler trust an answer nobody has looked at, and on this venue
+        // there is not even proof the signature is accepted.
+        //
+        // TO FLIP ANY OF THEM, in one place and with one kind of evidence:
+        // put a real WEEX key, secret and passphrase in front of the adapter,
+        // run the path the bit names, and capture the answer into
+        // tests/venues/weex/fixtures (replacing the documented example there,
+        // which is all that stands in for it today). The bit is earned by a
+        // captured SUCCESSFUL body, never by a clean compile and never by a
+        // 401 that only proves the address.
+        // ===================================================================
+        //
+        // Implemented, never exercised — no credential has reached this venue:
+        //   POST /capi/v3/order, with the venue's own prehash
+        //   (timestamp+METHOD+path[+"?"+query]+body, HMAC-SHA256, base64).
+        // WS order entry is false for a second reason that no credential
+        // changes: WEEX's private socket carries pushes only, and places
+        // nothing.
         .ws_order_entry = false,
+        // False on the VENUE's word, not ours: its FAQ states no FIX API at any
+        // tier, so no evidence would flip this.
         .fix_order_entry = false,
+        // Implemented, never exercised — no credential has reached this venue:
+        //   DELETE /capi/v3/order?origClientOrderId=<ULID>.
         .cancel_by_client_order_id = false,
+        // Implemented, never exercised — no credential has reached this venue:
+        //   DELETE /capi/v3/batchOrders with origClientOrderIdList, ten at a
+        //   time, chunked by the execution client.
         .batch_cancel = false,
+        // NOT IMPLEMENTED, AND NOT IMPLEMENTABLE. WEEX publishes no modify for
+        // a resting order — only /capi/v3/modifyTpSlOrder, which moves a
+        // trigger — so a caller cancels and replaces, and the execution client
+        // answers every amend with ModifyRejected at once. No credential would
+        // flip this bit; only a new endpoint would.
         .amend_order = false,
+        // Implemented, never exercised — no credential has reached this venue:
+        //   timeInForce "POST_ONLY" on the create body. It is a time in force
+        //   here and not a boolean, and a boolean would be ignored.
         .native_post_only = false,
         .book_checksum = false, // the depth channel carries no checksum
+        // Implemented, never exercised — no credential has reached this venue:
+        //   GET /capi/v3/account/position/allPosition, netted per instrument
+        //   because separatedMode SEPARATED answers a row per direction.
         .position_pull = {},
+        // Implemented, never exercised — no credential has reached this venue:
+        //   GET /capi/v3/openOrders, with leaves computed as origQty minus a
+        //   cumulative executedQty because WEEX has no PARTIALLY_FILLED status.
         .order_pull = {},
+        // Implemented, never exercised — no credential has reached this venue:
+        //   POST /capi/v3/account/income filtered to incomeType
+        //   "position_funding", whose `income` is already signed the way the
+        //   account moved.
         .funding_charge = {},
+        // Implemented, never exercised — no credential has reached this venue:
+        //   GET /capi/v3/account/balance.
         .balance_pull = {},
+        // Implemented, never exercised — no credential has reached this venue:
+        //   GET /capi/v3/userTrades, windowed to the seven days WEEX allows.
         .fill_pull = {},
         // <sym>@ticker's `v` (base) and `q` (quote). BOTH columns are real
         // here: `v` times the same frame's weighted average `w` reproduced `q`
         // to five figures live, so the sizes on this venue are base amounts and
         // the two figures are the same turnover in two units.
         .ticker_stats = true,
+        // A FACT ABOUT THE SIGNING SCHEME, not a claim that any path works, and
+        // the one bit here that is true because it REFUSES something: WEEX
+        // signs with a passphrase beside the key and the secret, and answers
+        // -1049 without it — a code that reads exactly like a revoked key. This
+        // makes make_venue refuse a config naming two of the three at startup
+        // instead of letting it fail one order at a time.
+        .needs_passphrase = true,
+        // NOT IMPLEMENTED. WEEX publishes a private socket at /v3/ws/private —
+        // authenticated by ACCESS-* headers on the handshake, with no listen
+        // key anywhere, carrying orders, fill, positions and account — and this
+        // adapter does not open it. So a FILL REACHES THIS PROCESS THROUGH THE
+        // RECONCILIATION PULL AND NOWHERE ELSE, and an order accepted over REST
+        // is reported Accepted whatever it did next.
         .user_stream = UserStreamModel::None,
-        // NOT MEASURED, AND NOT A CLAIM. No order path here mints a client
-        // order id, so WEEX has never been asked what it accepts. 26 is the
-        // floor make_venue enforces on every row — a smaller number would
-        // refuse this adapter at registration over a field nothing writes.
-        .max_client_order_id_len = 26,
-        // Its exchangeInfo states 500 request weight per ten minutes per IP,
-        // which is the market-data allowance and not an order rate; no order
-        // rate has been observed, so none is claimed.
+        // THE VENUE'S OWN FIGURE, and the one number here that is not an
+        // absence: every order endpoint states `newClientOrderId` as 1-36
+        // characters matching ^[\.A-Z\:/a-z0-9_-]{1,36}$. A 26-character
+        // Crockford ULID is digits and upper-case letters, so it fits both and
+        // travels unchanged — no re-encoding, and an echo is the id the OMS
+        // minted. (The error table's -1180 text says 40 and names `client_oid`,
+        // a field this API version does not have; 36 is the binding limit.)
+        .max_client_order_id_len = 36,
+        // NOT STATED IN THE UNIT THIS FIELD CARRIES. WEEX's own exchangeInfo
+        // states ORDERS / MINUTE / 1 / limit 300 — read live on 2026-09-13 —
+        // and orders cost zero IP weight, being metered per account instead.
+        // No per-second figure is published anywhere: the X-ORDER-COUNT-10S
+        // bucket exists in the response headers and its ceiling is never named.
+        // So this stays zero rather than carrying 300/60, which would be a
+        // burst claim the venue never made.
         .headline_order_rate_per_s = 0,
     };
 

@@ -1,13 +1,28 @@
 # WEEX fixtures
 
-Everything here was captured from **production WEEX on 2026-09-07**. Nothing is
-hand-written or synthesised. Two files are edited captures and say so; the rest
-are verbatim response bodies and websocket frames, reformatted only by being
-written as one line.
+The **public** files here were captured from production WEEX on **2026-09-07**.
+Nothing in that half is hand-written or synthesised: two files are edited
+captures and say so, and the rest are verbatim response bodies and websocket
+frames, reformatted only by being written as one line.
 
-WEEX runs two exchanges under one brand and every file below is the
-USDT-margined **contract** tree. Spot lives on `api-spot.weex.com` /
-`ws-spot.weex.com` and this adapter never reaches it, so nothing here is spot.
+The **private** files are a different kind of evidence and are kept in a section
+of their own below. There are no WEEX credentials in this repository, so no
+successful private body has ever been seen — those fixtures are WEEX's own
+documented examples, and the file that lists them says which. The only private
+answers that ARE captures are the refusals, taken unauthenticated on
+**2026-09-13**.
+
+Every file below is the USDT-margined **contract** tree on
+`api-contract.weex.com`, which serves `/capi/v3/...`. WEEX's spot exchange is a
+different host with a different prefix — `api-spot.weex.com` serving
+`/api/v3/...` — and the two do not cross. Measured on 2026-09-13: `GET
+api-contract.weex.com/api/v3/ping` → **404** and `GET
+api-spot.weex.com/capi/v3/market/time` → **404**, while each host answers its
+own prefix. It is one exchange behind one API key — the same key page, the same
+three credentials, the same signature rule, with a `Spot` or a
+`Futures/Contract` permission ticked on it — but it is two hosts, and this
+adapter reaches one of them. That is why `caps.markets.spot` stays false: not
+because spot is another company, but because no code here addresses that host.
 
 - REST: `https://api-contract.weex.com`, plain `curl`.
 - WS: `wss://ws-contract.weex.com/v3/ws/public`, subscribed with
@@ -168,9 +183,115 @@ header. `exchangeInfo`'s own `rateLimits` array says `REQUEST_WEIGHT` / interval
 `MINUTE` / `intervalNum` 10 / `limit` 500, which reads as 500 per ten *minutes*
 — sixty times stingier than what the venue enforces.
 
-## Not captured
+## Private
 
-There are no credentials for this venue in this repository, so nothing private
-was captured and nothing private is implemented. The caps row declares order
-entry, the user stream and every reconciliation pull false, and the execution
-client refuses each command locally rather than leaving it open.
+**No credential has reached this venue from this machine.** That fact shapes
+everything in this section, and it is the reason the caps row claims none of the
+private surface however much of it is implemented.
+
+### Captured — the refusals, and only the refusals
+
+Both taken from production on **2026-09-13** with no headers at all. They are
+the only WEEX private answers anywhere in this repository, and what they prove
+is narrow but real: that these paths are ADDRESSES, and what a refusal looks
+like.
+
+| file | provenance |
+| --- | --- |
+| `rest_error_unauthorized.json` | `GET /capi/v3/account/balance` with no ACCESS-* headers: `{"code":-1044,"msg":"Invalid ACCESS_KEY."}` at **HTTP 401**. Every private path listed below answered byte-identically. |
+| `rest_error_bad_body.json` | `POST /capi/v3/order` with an empty body: `{"code":-1135,"msg":"Request parameter format is incorrect"}` at **HTTP 400** — the format check runs BEFORE the credential check, which is how an unsigned probe reached it. |
+
+Every path this adapter signs was probed the same way and answered `-1044` at
+401: `/capi/v3/order` (GET and DELETE), `/capi/v3/openOrders`,
+`/capi/v3/order/history`, `/capi/v3/userTrades`,
+`/capi/v3/account/position/allPosition`, `/capi/v3/account/balance` and
+`/capi/v3/account/income`. A path WEEX does **not** route answers the other
+shape entirely — `{"timestamp","status":404,"error":"Not Found","path":...}` —
+which is how the two were told apart. `/capi/v3/nonsenseEndpointXyz` was the
+control.
+
+The older `/capi/v2/` tree is still live on this host and is a **different API**
+that WEEX's changelog says is being retired. Measured the same day: it answers
+`{"code":"40006","msg":"无效的ACCESS_KEY", ...}` — the code is a STRING, the
+message is Chinese — and `GET /capi/v2/market/contracts` lists `cmt_btcusdt`
+rather than `BTCUSDT`. Nothing here touches it, and a reader who finds a WEEX
+integration elsewhere shaped like that is reading the old API.
+
+### Documented — the success shapes
+
+These are WEEX's own response examples from its endpoint pages, written as one
+line. **They are not captures.** Where a case the venue does not print was
+needed, the row is an edit of the venue's own and says so here.
+
+| file | source page | edited? |
+| --- | --- | --- |
+| `rest_order_ack.json` | Place Order (`POST /capi/v3/order`) | `clientOrderId` replaced with a real 26-char ULID, because attribution is what the test is about |
+| `rest_cancel_ack.json` | Cancel Order (`DELETE /capi/v3/order`) | same, and note the field is `origClientOrderId` here and `clientOrderId` on the place answer |
+| `rest_cancel_batch.json` | Cancel Orders Batch (`DELETE /capi/v3/batchOrders`) | verbatim but for the two ULIDs. **One entry succeeds and one fails with `"errorCode":"ORDER_NOT_FOUND"`** — that is the venue's own example, and it is the normal shape of a batch rather than a failure of the request |
+| `rest_open_orders.json` | Get Current Orders (`GET /capi/v3/openOrders`) | row 1 is the venue's, with a ULID. **Row 2 is an edit**: `executedQty` 0.008 of an `origQty` 0.02, `status` still `"NEW"` — WEEX prints no partially filled example because its status vocabulary has none. This is also where the order-id-as-a-number case lives |
+| `rest_user_trades.json` | Get Trade Details (`GET /capi/v3/userTrades`) | verbatim |
+| `rest_positions.json` | Get All Positions (`GET /capi/v3/account/position/allPosition`) | row 1 is the venue's. **Rows 2 and 3 are edits**: a second BTCUSDT row on the opposite side, which is what `separatedMode` SEPARATED produces and what the netting exists for, and a DOGEUSDT row to prove the lot step of 100 |
+| `rest_balance.json` | Get Account Balance (`GET /capi/v3/account/balance`) | verbatim |
+| `rest_income.json` | Get Account Income (`POST /capi/v3/account/income`) | row 1 is the venue's own `position_funding` example. **Rows 2 and 3 are edits**: a settlement with a NEGATIVE `income`, and a `transfer_in` that must not be booked as funding |
+
+### What the documentation itself gets wrong
+
+Recorded because each one is a trap the adapter is built around:
+
+- **An order id arrives as two JSON types.** The place and cancel answers quote
+  it as a string; the order, open-order and fill reads quote it as an 18-digit
+  number. WEEX's own page shows the cost: its open-order example prints
+  `702345678901234600` for the order its place example called
+  `702345678901234567`, having lost three digits to a double. The adapter reads
+  the id off the raw token as text, never as a float.
+- **There is no `PARTIALLY_FILLED`.** The whole vocabulary is `NEW`, `PENDING`,
+  `UNTRIGGERED`, `UNACTIVATED`, `FILLED`, `CANCELED`, `CANCELING`. A half-filled
+  order is `NEW` and only `executedQty` against `origQty` says otherwise.
+- **The single-order read and the order history answer the same object as the
+  open-order list**, and neither is built: WEEX looks an order up by `orderId`
+  only, and this process does not know the venue's id for an order it has lost.
+  So `query_order` goes through the open-order list, and there is no parser for
+  a shape nothing fetches.
+- **A position states no entry price.** `openValue` and `size` are both there
+  and the quotient is not a price the venue quoted, so `avg_entry` stays UNDEF.
+- **`positionSide` is required and has no "both" value.** The adapter derives it
+  — an opening order faces the way it trades, a reduce-only order faces the
+  position it closes — and that derivation is the single most likely thing here
+  to be wrong the first time a credential reaches the venue.
+- **A 200 is not an acceptance.** A refused order arrives inside a successful
+  HTTP response with `success` false and a NAMED `errorCode` (a string like
+  `ORDER_NOT_FOUND`), not one of the numeric codes.
+- **The `-1180` error text contradicts the endpoint pages**: it says
+  `client_oid` may not exceed 40, naming a field V3 does not have, while every
+  endpoint page states 1-36 and the pattern `^[\.A-Z\:/a-z0-9_-]{1,36}$`. The
+  adapter treats 36 as binding.
+- **The contract `RequestInteraction` page is a copy of the spot page**, with
+  `api-spot.weex.com` and `/api/v3/order` hardcoded in its sample code. The
+  Signature page and the per-endpoint curl examples are the ones to read.
+
+### Order rate
+
+The venue's own `exchangeInfo` states it, read live on 2026-09-13:
+
+```json
+"rateLimits": [
+  {"rateLimitType":"REQUEST_WEIGHT","interval":"MINUTE","intervalNum":10,"limit":500},
+  {"rateLimitType":"ORDERS","interval":"MINUTE","intervalNum":1,"limit":300}
+]
+```
+
+Orders are metered **per account**, cost **zero IP weight**, and are capped at
+**300 a minute**. No per-second figure is published anywhere — the
+`X-ORDER-COUNT-10S` bucket exists in the response headers but its ceiling is
+never stated — which is why the caps row's `headline_order_rate_per_s` stays 0
+rather than carrying a quotient.
+
+### Not implemented
+
+The private **websocket** (`wss://ws-contract.weex.com/v3/ws/private`, with
+`orders`, `fill`, `positions` and `account` channels, authenticated by ACCESS-*
+headers on the handshake and with no listen key anywhere). Nothing here opens
+it, so **a fill reaches this process through the reconciliation pull and nowhere
+else**, and an order accepted over REST is reported Accepted whatever it then
+did. Four push parsers nobody could exercise would be four parsers that are
+wrong when they finally are.

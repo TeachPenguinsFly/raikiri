@@ -144,13 +144,24 @@ venues:
       # 10 / limit 500, which reads as 500 per ten MINUTES — sixty times
       # stingier than what the venue actually enforces. Taking the body would
       # throttle this gateway to a call every 1.2 s for no reason.
+      #
+      # ONE POOL COVERS BOTH HALVES. WEEX meters weight per IP and its market
+      # data and its signed reads come out of the same allowance, so `shared` is
+      # the only bucket configured and the adapter spends it for both.
       shared: { capacity: 500, window_ms: 10000, reserve: 50 }
+      # DELIBERATELY UNCONFIGURED, which reads as unlimited rather than closed.
+      # WEEX charges an order ZERO IP weight — "0 on IP rate limit" in its own
+      # words — and meters orders per ACCOUNT instead, at 300 a minute from its
+      # exchangeInfo `rateLimits`. Nothing in this process counts that budget,
+      # and inventing a number for it would refuse traffic the venue accepts.
       order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
       account: { capacity: 0, window_ms: 0, reserve: 0 }
       ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # Weight 1 per call, measured by reading x-used-weight-10s before and
-      # after each: the 685 KiB exchangeInfo and the 229 KiB premiumIndex each
-      # cost exactly what the 30-byte clock read does. Nothing here places an
-      # order or reads an account, so those rows carry the same 1 rather than a
-      # figure anyone measured.
+      # NOT WHAT THE SIGNED READS SPEND. Every public call is weight 1, measured
+      # by reading x-used-weight-10s before and after each: the 685 KiB
+      # exchangeInfo and the 229 KiB premiumIndex cost exactly what the 30-byte
+      # clock read does. The private reads cost 2, 5 and 10 depending on the
+      # endpoint, which four generic slots cannot express — so they carry the
+      # venue's own figure at their call sites in the adapter and none of them
+      # reads this line.
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }

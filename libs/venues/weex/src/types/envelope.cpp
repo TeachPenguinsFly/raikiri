@@ -141,4 +141,15 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
     });
 }
 
+std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body) {
+    return guarded([&]() -> std::expected<std::uint64_t, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto obj = *root;
+        return detail::opt_u64(obj, "serverTime");
+    });
+}
+
 } // namespace raikiri::venues::weex

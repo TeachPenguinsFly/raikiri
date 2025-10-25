@@ -2,12 +2,15 @@ add_library(raikiri_venue_weex STATIC
   src/venue.cpp
   src/exec_client.cpp
   src/instruments.cpp
+  src/types/account.cpp
   src/types/book.cpp
   src/types/catalogue.cpp
   src/types/envelope.cpp
   src/types/errors.cpp
   src/types/map.cpp
   src/types/market_data.cpp
+  src/types/orders.cpp
+  src/types/positions.cpp
   src/types/ws.cpp
   src/marketdata/client.cpp
   src/rest/builder.cpp
