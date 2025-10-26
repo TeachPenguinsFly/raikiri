@@ -20,10 +20,53 @@ exec::InstrumentTable make_table() {
     btc.tick_size = "0.10";
     btc.qty_step = "0.001";
     btc.min_notional = "5";
+    // 480 minutes is bybit's own figure for this instrument, and it has to be
+    // said here: the funding memo carries the interval down from the interned
+    // perp, so a table built without one describes an instrument whose
+    // schedule the venue never stated.
+    btc.funding_interval_min = 480;
     const auto instrument = map_instrument(btc, MarketType::Perp);
     EXPECT_TRUE(instrument.has_value());
     EXPECT_TRUE(table.add(*instrument).has_value());
     return table;
+}
+
+TEST(BybitMapInstrument, TheSettlementScheduleIsTheVenuesAndNotAConstant) {
+    // Bybit settles 412 of its linear perps every eight hours, 411 every four
+    // and seven every hour. This mapping answered eight hours for all of them.
+    //
+    // The cost is not a mislabelled row. An interval is the denominator that
+    // makes two venues' rates comparable — rate / (interval / 3600) — so
+    // calling a four-hour instrument an eight-hour one reports HALF the funding
+    // it actually pays, and ranks it against a genuine eight-hour venue as
+    // though the two were the same thing.
+    WireInstrument wire{};
+    wire.base_coin = "ARK";
+    wire.quote_coin = "USDT";
+    wire.symbol = "ARKUSDT";
+    wire.contract_type = "LinearPerpetual";
+    wire.status = "Trading";
+    wire.tick_size = "0.00001";
+    wire.qty_step = "1";
+    wire.min_notional = "5";
+    wire.funding_interval_min = 60;
+    const auto hourly = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(hourly.has_value());
+    EXPECT_EQ(std::get<PerpInstrument>(*hourly).funding_interval_s, 3'600U);
+
+    wire.funding_interval_min = 240;
+    const auto four_hourly = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(four_hourly.has_value());
+    EXPECT_EQ(std::get<PerpInstrument>(*four_hourly).funding_interval_s, 14'400U);
+
+    // ZERO STAYS ZERO. Forty rows carry it, and downstream reads it as "this
+    // venue did not say" — which is the one honest answer. Defaulting it to
+    // eight hours here would put a schedule nobody published onto a board that
+    // settles money against it.
+    wire.funding_interval_min = 0;
+    const auto unstated = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(unstated.has_value());
+    EXPECT_EQ(std::get<PerpInstrument>(*unstated).funding_interval_s, 0U);
 }
 
 TEST(BybitMapInstrument, ADatedContractIsNotAPerpetual) {

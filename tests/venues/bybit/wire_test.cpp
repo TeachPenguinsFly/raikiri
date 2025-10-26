@@ -366,7 +366,7 @@ TEST(BybitRest, InstrumentsReachIntoNestedFilters) {
     InstrumentBuffer storage;
     const auto instruments = parse_instruments(body, storage);
     ASSERT_TRUE(instruments.has_value()) << to_string(instruments.error());
-    ASSERT_EQ(instruments->size(), 2U);
+    ASSERT_EQ(instruments->size(), 3U);
 
     EXPECT_EQ((*instruments)[0].symbol, "BTCUSDT");
     EXPECT_EQ((*instruments)[0].status, "Trading");
@@ -377,6 +377,15 @@ TEST(BybitRest, InstrumentsReachIntoNestedFilters) {
     EXPECT_EQ((*instruments)[0].min_notional, "5");
     EXPECT_EQ((*instruments)[1].symbol, "ETHUSDT");
     EXPECT_EQ((*instruments)[1].tick_size, "0.01");
+
+    // MINUTES, AND NOT ALWAYS 480. This field was in the fixture from the day
+    // it was captured and read by nobody, while the map returned eight hours
+    // for every row — which the two rows above cannot catch, because eight
+    // hours is what they settle on. ARKUSDT is one of the seven bybit settles
+    // hourly, and it is here so the constant cannot come back unnoticed.
+    EXPECT_EQ((*instruments)[0].funding_interval_min, 480U);
+    EXPECT_EQ((*instruments)[2].symbol, "ARKUSDT");
+    EXPECT_EQ((*instruments)[2].funding_interval_min, 60U);
 }
 
 TEST(BybitRest, WalletBalanceReachesThroughTheAccountRowIntoItsCoins) {

@@ -89,6 +89,8 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
                         detail::opt_str(filter, "minOrderAmt").value_or(std::string_view{});
                 }
             }
+            entry.reset();
+            out.funding_interval_min = detail::opt_u64(entry, "fundingInterval").value_or(0);
             storage.instruments[count++] = out;
         }
         return std::span<const WireInstrument>{storage.instruments.data(), count};

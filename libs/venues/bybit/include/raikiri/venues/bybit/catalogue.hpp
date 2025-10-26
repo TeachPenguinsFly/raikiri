@@ -28,6 +28,11 @@ struct WireInstrument {
     std::string_view qty_step;
     std::string_view min_order_qty;
     std::string_view min_notional;
+    // MINUTES, AND A JSON NUMBER — the one field here that is not a digit
+    // string. 0 is the venue declining to state it, which is not the same as
+    // eight hours: 40 rows carry it today, and a board that reads 0 as a
+    // default settles an edge against a schedule nobody published.
+    std::uint64_t funding_interval_min{0};
     std::string_view status; // "Trading" for live instruments
 };
 

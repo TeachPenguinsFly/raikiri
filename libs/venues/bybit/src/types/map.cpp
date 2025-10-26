@@ -460,7 +460,15 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }
-    return PerpInstrument{base, /*funding_interval_s=*/28'800};
+    // THE VENUE'S OWN FIGURE, in minutes. It was 28'800 unconditionally here,
+    // and that was wrong for roughly half the catalogue: bybit settles 411 of
+    // its linear perps every four hours and seven every hour. An interval is
+    // the denominator that makes two venues' rates commensurable, so a wrong
+    // one does not merely mislabel a row — it halves or doubles the edge the
+    // board ranks on. 0 stays 0: the venue declining to state it must not
+    // arrive downstream as a schedule.
+    return PerpInstrument{base,
+                          static_cast<std::uint32_t>(wire.funding_interval_min * 60)};
 }
 
 } // namespace raikiri::venues::bybit
