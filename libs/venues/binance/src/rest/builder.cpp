@@ -126,6 +126,10 @@ net::RestRequest RequestBuilder::premium_index() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_premium_index, .body = {}};
 }
 
+net::RestRequest RequestBuilder::funding_info() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_funding_info, .body = {}};
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }

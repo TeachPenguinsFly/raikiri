@@ -301,6 +301,26 @@ TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
     }
 }
 
+TEST(BinanceWire, TheFundingScheduleIsReadFromTheOnlyPlaceBinanceStatesIt) {
+    // exchangeInfo carries every other trading rule for a perp and not this
+    // one, so the catalogue answered eight hours for all 571 of them. Binance
+    // settles 465 every four hours and five every hour.
+    //
+    // The fixture is one row of each interval binance publishes.
+    const auto body = fixture("rest_funding_info.json");
+    FundingInfoBuffer storage;
+    const auto rows = parse_funding_info(body, storage);
+    ASSERT_TRUE(rows.has_value()) << to_string(rows.error());
+    ASSERT_EQ(rows->size(), 3U);
+
+    EXPECT_EQ((*rows)[0].symbol, "GTCUSDT");
+    EXPECT_EQ((*rows)[0].interval_hours, 8U);
+    EXPECT_EQ((*rows)[1].symbol, "LPTUSDT");
+    EXPECT_EQ((*rows)[1].interval_hours, 4U);
+    EXPECT_EQ((*rows)[2].symbol, "ARKUSDT");
+    EXPECT_EQ((*rows)[2].interval_hours, 1U);
+}
+
 TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {
     // The two answers differ by one field. Reading a refusal as an ack turns
     // "the venue rejected this stream" into "this stream is quiet", which is

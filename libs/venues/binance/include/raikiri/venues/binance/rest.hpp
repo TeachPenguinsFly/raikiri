@@ -45,6 +45,9 @@ public:
 
     // --- unauthenticated ---
     [[nodiscard]] net::RestRequest instruments() noexcept;
+    // Asked once beside instruments(): the settlement schedule lives nowhere
+    // else on this venue.
+    [[nodiscard]] net::RestRequest funding_info() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest ticker_24h() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;

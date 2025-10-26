@@ -182,7 +182,14 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
-    return PerpInstrument{base, /*funding_interval_s=*/28'800};
+    // STAMPED FROM fundingInfo BY THE CATALOGUE LOADER, not read off the row
+    // this function was handed — exchangeInfo does not carry a schedule. It
+    // was 28'800 unconditionally here, and binance settles 465 of its 571
+    // perps every four hours: the interval is the denominator that makes two
+    // venues' rates comparable, so a wrong one reports half the funding an
+    // instrument pays rather than merely mislabelling it. 0 is "binance did
+    // not say", and stays 0.
+    return PerpInstrument{base, wire.funding_interval_s};
 }
 
 namespace {

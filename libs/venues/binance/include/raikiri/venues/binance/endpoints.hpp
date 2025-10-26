@@ -71,6 +71,12 @@ inline constexpr std::string_view k_premium_index = "/fapi/v1/premiumIndex";
 inline constexpr std::string_view k_ticker_24h = "/fapi/v1/ticker/24hr";
 inline constexpr std::string_view k_depth = "/fapi/v1/depth";
 inline constexpr std::string_view k_server_time = "/fapi/v1/time";
+// THE SETTLEMENT SCHEDULE, AND THE ONLY PLACE BINANCE STATES IT. exchangeInfo
+// carries every other trading rule for a perp but not how often it funds, and
+// the catalogue answered eight hours for all of them — while binance settles
+// 465 of its 571 perps every four hours and five of them every hour. This
+// endpoint answers all 571 in one call.
+inline constexpr std::string_view k_funding_info = "/fapi/v1/fundingInfo";
 
 // --- what a call costs ---------------------------------------------------
 // Binance meters WEIGHT, not requests, and counts one pool of it per IP:
@@ -149,7 +155,7 @@ inline constexpr std::uint32_t k_max_unsigned_weight = 40;
         return 1;
     }
     // Weight 1 each, and each is asked once per process start.
-    if (path == k_exchange_info || path == k_server_time) {
+    if (path == k_exchange_info || path == k_server_time || path == k_funding_info) {
         return 1;
     }
     return k_max_unsigned_weight;

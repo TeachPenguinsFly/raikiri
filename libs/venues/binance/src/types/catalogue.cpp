@@ -106,4 +106,39 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
+std::expected<std::span<const WireFundingInfo>, WireError>
+parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireFundingInfo>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_funding_info) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireFundingInfo out{};
+            const auto symbol = detail::req_str(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            out.symbol = *symbol;
+            // A JSON NUMBER, unlike every size on an instrument row. A row
+            // that omits it leaves 0, and the caller stamps nothing — a
+            // schedule guessed here would be indistinguishable downstream from
+            // one binance published.
+            out.interval_hours =
+                static_cast<std::uint32_t>(detail::opt_u64(obj, "fundingIntervalHours").value_or(0));
+            storage.rows[count] = out;
+            ++count;
+        }
+        return std::span<const WireFundingInfo>{storage.rows.data(), count};
+    });
+}
+
 } // namespace raikiri::venues::binance

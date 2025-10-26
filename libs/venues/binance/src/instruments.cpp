@@ -1,4 +1,5 @@
 #include <raikiri/config/secret.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -81,10 +82,45 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
+        // THE SETTLEMENT SCHEDULE, WHICH exchangeInfo DOES NOT CARRY. Kept
+        // alive here because the rows below hold views into it.
+        //
+        // A failure leaves every interval at 0 and the catalogue still loads:
+        // the gateway trades the same either way, and the only thing an
+        // unstated interval costs is that a carry board refuses those rows —
+        // which is the honest outcome. Defaulting them to eight hours instead
+        // would put binance's 465 four-hour perps on the board at half the
+        // funding they actually pay.
+        std::unordered_map<std::string_view, std::uint32_t> schedule;
+        const auto funding =
+            await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
+        if (!funding.has_value() || funding->transport_failed()) {
+            RLOG_WARN("binance: no funding schedule — every interval reads unstated");
+        } else {
+            static thread_local FundingInfoBuffer intervals;
+            const auto rows = parse_funding_info(funding->body, intervals);
+            if (!rows.has_value()) {
+                RLOG_WARN("binance: funding schedule unreadable ({}) — every interval reads "
+                          "unstated",
+                          to_string(rows.error()));
+            } else {
+                schedule.reserve(rows->size());
+                for (const auto& row : *rows) {
+                    if (row.interval_hours != 0) {
+                        schedule.emplace(row.symbol, row.interval_hours * 3600U);
+                    }
+                }
+            }
+        }
+
         std::vector<Instrument> loaded;
         loaded.reserve(wire->size());
         state_->instruments.reserve(wire->size());
-        for (const auto& entry : *wire) {
+        for (const auto& row : *wire) {
+            auto entry = row;
+            if (const auto found = schedule.find(entry.symbol); found != schedule.end()) {
+                entry.funding_interval_s = found->second;
+            }
             auto instrument = map_instrument(entry, market);
             if (!instrument.has_value()) {
                 continue; // not trading, not this market, or missing a filter

@@ -39,6 +39,11 @@ exec::InstrumentTable table_with_btc() {
     wire.tick_size = "0.10";
     wire.step_size = "0.001";
     wire.min_notional = "5";
+    // BTCUSDT's own schedule, stamped the way the catalogue loader stamps it
+    // from fundingInfo. It has to be said here: the funding memo carries the
+    // interval down from the interned perp, so a table built without one
+    // describes an instrument whose schedule binance never stated.
+    wire.funding_interval_s = 28'800;
     const auto instrument = map_instrument(wire, MarketType::Perp);
     EXPECT_TRUE(instrument.has_value());
     EXPECT_TRUE(table.add(*instrument).has_value());
