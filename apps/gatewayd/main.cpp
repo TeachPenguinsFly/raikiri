@@ -62,6 +62,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <string>
@@ -497,9 +498,15 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     for (; slot < raikiri::shm::k_open_order_cells; ++slot) {
         table.write(slot, raikiri::shm::OpenOrderCell{});
     }
-    static bool answered = false;
-    if (!answered) {
-        answered = true;
+    // SAID AGAIN WHEN IT CHANGES, and not once per process. Said once, this
+    // line reports the count at boot for the life of the run — a gateway that
+    // printed "0 working" before anybody placed an order goes on saying it
+    // while orders rest at the venue, and an operator reading the log has a
+    // number that was true for one second an hour ago. An unchanged count
+    // stays quiet, which is what the once-only flag was really protecting.
+    static std::size_t said = std::numeric_limits<std::size_t>::max();
+    if (said != reports->size()) {
+        said = reports->size();
         RLOG_INFO(
             "gatewayd[{}]: venue answered its open orders — {} working", who, reports->size());
     }
@@ -576,7 +583,7 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
     const auto who =
         raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
     static bool announced = false;
-    static bool answered = false;
+    static std::size_t answered = std::numeric_limits<std::size_t>::max();
     if (!adapter.caps.position_pull.has(market)) {
         if (!announced) {
             // Said once, at start, and never again: a venue that cannot answer
@@ -597,12 +604,13 @@ void publish_positions(const raikiri::exec::VenueAdapter& adapter,
         return;
     }
 
-    if (!answered) {
-        // The other half of the line above, and said once for the same reason.
-        // Without it an authenticated venue holding nothing looks exactly like
-        // a venue that was never asked, which is the distinction this whole
-        // channel exists to keep.
-        answered = true;
+    // The other half of the line above. Without it an authenticated venue
+    // holding nothing looks exactly like a venue that was never asked, which is
+    // the distinction this whole channel exists to keep.
+    // Said again when it changes, for the reason written over the open-order
+    // count: once-only makes the line describe boot forever.
+    if (answered != reports->size()) {
+        answered = reports->size();
         RLOG_INFO("gatewayd[{}]: venue answered its positions — {} open", who, reports->size());
     }
 
@@ -649,7 +657,7 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
     const auto who = raikiri::format_account(
         {.venue = adapter.caps.venue, .market = market}, buf.data(), buf.size());
     static bool announced = false;
-    static bool answered = false;
+    static std::uint32_t answered = std::numeric_limits<std::uint32_t>::max();
     if (!adapter.caps.balance_pull.has(market)) {
         if (!announced) {
             announced = true;
@@ -681,8 +689,10 @@ void publish_balances(const raikiri::exec::VenueAdapter& adapter,
     }
     table.write(0, snapshot);
 
-    if (!answered) {
-        answered = true;
+    // Said again when it changes, for the reason written over the open-order
+    // count: once-only makes the line describe boot forever.
+    if (answered != snapshot.count) {
+        answered = snapshot.count;
         RLOG_INFO("gatewayd[{}]: venue answered its balances — {} asset(s)", who, snapshot.count);
     }
 }
