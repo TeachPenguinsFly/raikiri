@@ -764,7 +764,14 @@ void reconcile_open_orders(KernelContext& ctx,
                            raikiri::UnixNanos now) {
     using namespace raikiri;
 
-    std::unordered_set<std::string_view> at_venue;
+    // OWNED, NOT VIEWED. `cell` is a stack object rebuilt every iteration, so a
+    // string_view into its id dangles the moment the loop turns over — and the
+    // thousand cleared cells after it reuse that slot. The set then matched
+    // nothing, every working order read as gone, and reconciliation CLOSED
+    // orders the venue was still holding: the book said flat while money rested
+    // at the exchange. Caught with one live order on weex, which the venue
+    // listed and this closed three seconds later.
+    std::unordered_set<std::string> at_venue;
     UnixNanos pulled{};
     for (std::size_t idx = 0; idx < shm::k_open_order_cells; ++idx) {
         shm::OpenOrderCell cell{};
@@ -775,7 +782,7 @@ void reconcile_open_orders(KernelContext& ctx,
             continue; // last pass has aged out
         }
         pulled = UnixNanos{std::max(pulled.ns, cell.ts_pulled.ns)};
-        at_venue.insert(cell.exchange_client_order_id.view());
+        at_venue.emplace(cell.exchange_client_order_id.view());
     }
     if (pulled.ns == 0) {
         return; // the venue said nothing recent; this is Unknown, not empty
@@ -786,7 +793,7 @@ void reconcile_open_orders(KernelContext& ctx,
         if (order.is_terminal() || order.instrument().venue() != venue) {
             return;
         }
-        if (at_venue.contains(order.exchange_client_order_id().view())) {
+        if (at_venue.contains(std::string{order.exchange_client_order_id().view()})) {
             return;
         }
         // `ts_created` is when this process minted the order, which is the

@@ -180,6 +180,49 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
     )
 
 
+def test_a_resting_order_survives_reconciliation_rather_than_being_closed_under_it(
+    stack, sim_instrument
+) -> None:
+    """The venue still holds it, so the book must too.
+
+    strategyd sweeps every five seconds: it reads the ids the gateway pulled
+    out of shm, and closes anything open here that is missing from that list.
+    The read built its set out of `string_view`s pointing into a stack cell
+    that the loop rebuilt on every turn, so the set held dangling views, matched
+    nothing, and every working order looked gone. A live order on weex was
+    listed by the venue and closed here three seconds later — the book reporting
+    flat while money rested at the exchange.
+
+    Nothing about that is venue-specific, and it is invisible to a unit test:
+    one process writes the table and another reads it.
+    """
+    code, accepted = post_order(stack, sim_instrument, side="buy", price="1", qty="1")
+    assert code in (200, 202), accepted
+    coid = accepted["client_order_id"]
+    assert f"desk order {coid} refused" not in stack.log("strategyd"), (
+        f"the order never rested, so nothing was reconciled:\n{stack.refusals('strategyd')}"
+    )
+
+    # A BUY AT 1 RESTS. It is far under any mid the sim venue quotes, so it
+    # joins the book instead of crossing it — and a resting order is the only
+    # kind this sweep can wrongly close.
+    #
+    # Three sweeps' worth at five seconds each. One was enough for the bug,
+    # which fired on the first pass after the venue listed the order; three says
+    # the order is still there after the table has been rewritten several times.
+    time.sleep(18)
+
+    closed = [
+        line
+        for line in stack.log("strategyd").splitlines()
+        if "RECON" in line and "closing" in line
+    ]
+    assert not closed, (
+        "reconciliation closed an order the venue was still holding:\n"
+        + "\n".join(closed[-5:])
+    )
+
+
 def _stream_port(stack) -> int:
     """The stream port the fixture chose, recovered from the process argv so
     the test does not keep a second copy of it."""
