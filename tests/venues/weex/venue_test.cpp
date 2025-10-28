@@ -129,11 +129,16 @@ TEST(WeexVenue, RegistersAndBuilds) {
     EXPECT_NE(adapter->instruments, nullptr);
 }
 
-TEST(WeexVenue, TheCapsRowClaimsNothingNoCredentialHasProven) {
-    // THE POINT OF THIS TEST IS THE FALSE. Every private path below is
-    // implemented and compiled and exercised against the venue's own documented
-    // bodies — and none of it is claimed, because no WEEX credential exists on
-    // this machine and no signature written here has ever been accepted. A bit
+TEST(WeexVenue, TheCapsRowClaimsOnlyWhatALiveCredentialHasProven) {
+    // THIS TEST USED TO BE ALL FALSE, and it was right to be: every private
+    // path was implemented against the venue's documented bodies and none had
+    // ever been answered. A key reached this venue on 2026-09-15, each path was
+    // run against it, and the bits below moved one at a time as a real body
+    // came back for each — a position opened and closed, an order rested and
+    // was cancelled by its ULID, a balance that tracked the margin, thirteen
+    // funding settlements.
+    //
+    // WHAT IS STILL FALSE IS STILL UNTRIED, and that is the point now. A bit
     // set true on an unexercised path makes a reconciler trust an answer nobody
     // has seen; caps.cpp names, bit by bit, what evidence would flip each one.
     const auto& caps = exec::caps_of(VenueId::Weex);
@@ -146,18 +151,30 @@ TEST(WeexVenue, TheCapsRowClaimsNothingNoCredentialHasProven) {
     EXPECT_FALSE(caps.markets.option);
     EXPECT_FALSE(caps.ws_order_entry);
     EXPECT_FALSE(caps.fix_order_entry);
-    EXPECT_FALSE(caps.cancel_by_client_order_id);
+    // Cancelled live by a ULID this process minted; the venue answered success
+    // and dropped the order from its own list.
+    EXPECT_TRUE(caps.cancel_by_client_order_id);
+    // Still false, and for the ordinary reason: nobody has sent one. Ten ids at
+    // a time is what the execution client chunks to, and no batch has run.
     EXPECT_FALSE(caps.batch_cancel);
     // This one is false for a DIFFERENT reason, and the difference matters: WEEX
     // publishes no modify for a resting order at all, so no credential would
     // ever flip it.
     EXPECT_FALSE(caps.amend_order);
+    // Untried: it is a time in force on the create body here, and no order has
+    // carried it.
     EXPECT_FALSE(caps.native_post_only);
-    EXPECT_FALSE(caps.position_pull.any());
-    EXPECT_FALSE(caps.order_pull.any());
-    EXPECT_FALSE(caps.fill_pull.any());
-    EXPECT_FALSE(caps.balance_pull.any());
-    EXPECT_FALSE(caps.funding_charge.any());
+    EXPECT_TRUE(caps.position_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.order_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.fill_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
+    EXPECT_TRUE(caps.funding_charge.has(MarketType::Perp));
+    // PERP AND NOTHING ELSE. The claim is per market, and a bit that leaked
+    // into spot would have seven gateways signing calls at a venue that serves
+    // this account no spot at all.
+    EXPECT_FALSE(caps.position_pull.has(MarketType::Spot));
+    EXPECT_FALSE(caps.order_pull.has(MarketType::Spot));
+    EXPECT_FALSE(caps.balance_pull.has(MarketType::Spot));
     // WEEX publishes a private socket; this adapter does not open one, so a
     // fill reaches this process through the reconciliation pull and nowhere
     // else.
@@ -784,6 +801,34 @@ TEST(WeexCatalogue, EveryRowIsolatesOneMapperDecision) {
         EXPECT_EQ(std::get<PerpInstrument>(*mapped).funding_interval_s, want.interval_s)
             << want.symbol;
     }
+}
+
+TEST(WeexCatalogue, TheSetAnOrderMayNameIsNotTheSetTheVenueLists) {
+    // 290 of 1000 on 2026-09-15. Everything outside it answers -1058 to any
+    // order — including all five contracts WEEX funds hourly, which is how this
+    // was found: an order for one came back refused by the venue with a message
+    // that reads like a defect in this adapter.
+    //
+    // A BARE ARRAY OF NAMES, with no envelope around it, unlike every other
+    // body this venue serves.
+    static thread_local TradableBuffer storage;
+    const auto names = parse_api_trading_symbols(fixture("rest_api_trading_symbols.json"), storage);
+    ASSERT_TRUE(names.has_value());
+    ASSERT_EQ(names->size(), 5U);
+    EXPECT_EQ((*names)[0], "1000BONKUSDT");
+    EXPECT_EQ((*names)[2], "BTCUSDT");
+    EXPECT_EQ((*names)[4], "XRPUSDT");
+}
+
+TEST(WeexCatalogue, AnEmptyTradableSetRefusesNothing) {
+    // The set is read once at start, and a read that fails leaves it empty.
+    // Empty must mean UNKNOWN: refusing every order because a secondary call
+    // did not answer would take the venue down over a missing list, when the
+    // worst the venue itself does is refuse the ones that are not on it.
+    static thread_local TradableBuffer storage;
+    const auto empty = parse_api_trading_symbols("[]", storage);
+    ASSERT_TRUE(empty.has_value());
+    EXPECT_EQ(empty->size(), 0U);
 }
 
 TEST(WeexCatalogue, ASizeStepIsReadAsADecimalAndNeverAsAnExponent) {

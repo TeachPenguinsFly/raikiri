@@ -564,9 +564,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // False on the VENUE's word, not ours: its FAQ states no FIX API at any
         // tier, so no evidence would flip this.
         .fix_order_entry = false,
-        // Implemented, never exercised — no credential has reached this venue:
+        // PROVEN LIVE 2026-09-15: a resting order cancelled by the ULID this
+        // process minted, answered {"success":true}, and gone from the venue's
+        // list on the next pull.
         //   DELETE /capi/v3/order?origClientOrderId=<ULID>.
-        .cancel_by_client_order_id = false,
+        .cancel_by_client_order_id = true,
         // Implemented, never exercised — no credential has reached this venue:
         //   DELETE /capi/v3/batchOrders with origClientOrderIdList, ten at a
         //   time, chunked by the execution client.
@@ -582,25 +584,43 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         //   here and not a boolean, and a boolean would be ignored.
         .native_post_only = false,
         .book_checksum = false, // the depth channel carries no checksum
-        // Implemented, never exercised — no credential has reached this venue:
+        // PROVEN LIVE 2026-09-15: a real ADAUSDT position opened and closed
+        // through this adapter, and the pull read 0 -> 1 -> 0 across it.
         //   GET /capi/v3/account/position/allPosition, netted per instrument
         //   because separatedMode SEPARATED answers a row per direction.
-        .position_pull = {},
-        // Implemented, never exercised — no credential has reached this venue:
+        .position_pull = {.perp = true},
+        // PROVEN LIVE 2026-09-15: a real resting order listed by the venue and
+        // read back 0 -> 1 -> 0 across its life.
         //   GET /capi/v3/openOrders, with leaves computed as origQty minus a
         //   cumulative executedQty because WEEX has no PARTIALLY_FILLED status.
-        .order_pull = {},
-        // Implemented, never exercised — no credential has reached this venue:
+        // The bare path — no `symbol` — answers for every contract; measured
+        // against the account holding one order.
+        .order_pull = {.perp = true},
+        // PROVEN LIVE 2026-09-15: thirteen real settlements came back, signed
+        // both ways, each with its settlement time and the venue's reference.
         //   POST /capi/v3/account/income filtered to incomeType
         //   "position_funding", whose `income` is already signed the way the
         //   account moved.
-        .funding_charge = {},
-        // Implemented, never exercised — no credential has reached this venue:
+        .funding_charge = {.perp = true},
+        // PROVEN LIVE 2026-09-15: one USDT asset, and the figure tracked a
+        // real order's margin out and back.
         //   GET /capi/v3/account/balance.
-        .balance_pull = {},
-        // Implemented, never exercised — no credential has reached this venue:
+        .balance_pull = {.perp = true},
+        // THE ENDPOINT IS PROVEN, THE MAPPING IS HALF PROVEN. 2026-09-15 it
+        // answered two real fills — a taker buy and a maker sell — and
+        // parse_fills read both off the live bytes, which match the fixture
+        // field for field. map_fill was not run against them: the venue's own
+        // trade is not in this public repository, so no test holds those bytes.
         //   GET /capi/v3/userTrades, windowed to the seven days WEEX allows.
-        .fill_pull = {},
+        //
+        // AND NOTHING CALLS IT. fill_reports is implemented by every venue here
+        // and reached from no call site at all; gatewayd's account poller
+        // publishes positions, balances, open orders and funding charges, and
+        // no fills. On sixteen venues that costs nothing, because a fill
+        // arrives as an order event on the private socket. WEEX is the one
+        // venue with no private socket, so a fill's price, fee and exec id
+        // reach this process through NOTHING — only the position moves.
+        .fill_pull = {.perp = true},
         // <sym>@ticker's `v` (base) and `q` (quote). BOTH columns are real
         // here: `v` times the same frame's weighted average `w` reproduced `q`
         // to five figures live, so the sizes on this venue are base amounts and
