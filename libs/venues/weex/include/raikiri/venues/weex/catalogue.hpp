@@ -67,4 +67,14 @@ struct InstrumentBuffer {
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
 parse_exchange_info(std::string_view body, InstrumentBuffer& storage);
 
+// A BARE ARRAY OF NAMES, with no envelope and no object around them — the
+// names of the contracts an order may be sent for, which is a subset of the
+// catalogue and not the catalogue.
+struct TradableBuffer {
+    std::array<std::string_view, k_max_instruments> symbols{};
+};
+
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
+parse_api_trading_symbols(std::string_view body, TradableBuffer& storage);
+
 } // namespace raikiri::venues::weex

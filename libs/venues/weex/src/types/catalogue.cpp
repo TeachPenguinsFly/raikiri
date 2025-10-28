@@ -82,4 +82,26 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
     });
 }
 
+std::expected<std::span<const std::string_view>, WireError>
+parse_api_trading_symbols(std::string_view body, TradableBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == k_max_instruments) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            const auto name = detail::str_of(entry.value());
+            if (!name.has_value()) {
+                return std::unexpected(name.error());
+            }
+            storage.symbols[count++] = *name;
+        }
+        return std::span<const std::string_view>{storage.symbols.data(), count};
+    });
+}
+
 } // namespace raikiri::venues::weex

@@ -84,6 +84,8 @@ public:
 
     // --- public, unsigned -------------------------------------------------
     [[nodiscard]] net::RestRequest instruments() noexcept;
+    // Asked once beside instruments(): the set an order may name.
+    [[nodiscard]] net::RestRequest api_trading_symbols() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
 

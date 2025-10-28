@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace raikiri::venues::weex::detail {
@@ -86,6 +87,23 @@ struct VenueState {
     // gateway that only wants prints.
     std::vector<InstrumentId> funding_instruments;
     std::uint64_t next_funding_poll_ns{0};
+
+    // WHICH CONTRACTS AN ORDER MAY NAME, read once beside the catalogue from
+    // /capi/v3/market/apiTradingSymbols. 290 of 1000 on 2026-09-15.
+    //
+    // The catalogue deliberately keeps the other 710: they stream a real book
+    // and a scanner wants their prices. Only order entry consults this, and it
+    // must — a create for a contract outside the set is answered -1058, which
+    // reads in a log exactly like a bug in the adapter.
+    //
+    // EMPTY MEANS UNKNOWN, NOT EMPTY. If the call fails nothing is refused
+    // locally, because refusing every order on a list that never arrived would
+    // take the venue down over a missing read.
+    std::unordered_set<std::string> api_tradable;
+
+    [[nodiscard]] bool orderable(std::string_view symbol) const noexcept {
+        return api_tradable.empty() || api_tradable.contains(std::string{symbol});
+    }
 
     // Subscriptions the venue refused, and the last thing it said about one.
     // WEEX states no code on the socket, so the reason is prose.

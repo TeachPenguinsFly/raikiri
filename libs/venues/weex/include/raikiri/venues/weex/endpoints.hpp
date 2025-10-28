@@ -51,6 +51,14 @@ inline constexpr std::string_view k_premium_index = "/capi/v3/market/premiumInde
 // drifted wears the same face as a revoked key.
 inline constexpr std::string_view k_server_time = "/capi/v3/market/time";
 
+// WHICH CONTRACTS ORDERS MAY BE SENT FOR, which is not the same set as the
+// catalogue. A bare JSON array of symbol names; 290 of the 1000 rows
+// exchangeInfo lists, measured 2026-09-15. Everything else answers -1058 to
+// any order — including every one of the five contracts WEEX funds hourly —
+// while still streaming a perfectly good book, which is why the catalogue
+// keeps them and only order entry consults this.
+inline constexpr std::string_view k_api_trading_symbols = "/capi/v3/market/apiTradingSymbols";
+
 // --- private -------------------------------------------------------------
 //
 // NOT ONE OF THESE HAS BEEN ANSWERED WITH DATA. There are no WEEX credentials

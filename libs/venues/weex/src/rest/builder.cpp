@@ -161,6 +161,10 @@ net::RestRequest RequestBuilder::instruments() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info};
 }
 
+net::RestRequest RequestBuilder::api_trading_symbols() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_api_trading_symbols};
+}
+
 net::RestRequest RequestBuilder::premium_index() noexcept {
     // NO `symbol`: the bare path answers for every contract in one body, which
     // is one call a minute rather than one per instrument watched.

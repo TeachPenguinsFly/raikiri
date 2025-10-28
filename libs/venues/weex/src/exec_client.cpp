@@ -169,6 +169,24 @@ private:
             reject(cmd, kind, request.error());
             return;
         }
+        // REFUSED HERE RATHER THAN BY THE VENUE. WEEX lists a thousand
+        // contracts and accepts orders for 290 of them; the rest answer -1058,
+        // which arrives in a log looking like a defect in this adapter and
+        // costs a round trip to learn nothing. A cancel is not checked — an
+        // order already resting must always be cancellable, whatever the list
+        // says today.
+        if (kind == Kind::Create &&
+            !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
+            emit_reject(cmd.client_order_id,
+                        cmd.instrument,
+                        cmd.side,
+                        cmd.qty,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal,
+                                               k_symbol_not_api_tradable,
+                                               "weex accepts no API order for this contract"));
+            return;
+        }
         // ORDER CLASS EITHER WAY, which may spend the reserve a poll may not —
         // but not the same bucket, because WEEX does not meter the two the same
         // way. A PLACEMENT costs no IP weight and is counted per account, a

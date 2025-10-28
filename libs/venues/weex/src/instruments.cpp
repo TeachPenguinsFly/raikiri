@@ -1,3 +1,4 @@
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/weex/catalogue.hpp>
 #include <raikiri/venues/weex/envelope.hpp>
@@ -66,6 +67,33 @@ public:
         if (!wire.has_value()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
+        }
+
+        // WHICH OF THEM MAY BE ORDERED, which is a different and much smaller
+        // question than which of them exist. A failure here leaves the set
+        // empty, and an empty set refuses nothing: the venue would still answer
+        // -1058 for a contract outside it, which is where this started.
+        {
+            const auto listed =
+                await_response(*state_, rest_, state_->builder.api_trading_symbols(), 20'000);
+            if (!listed.has_value() || listed->transport_failed()) {
+                RLOG_WARN("weex: no API-tradable list — an order for a contract outside it will "
+                          "be refused by the venue rather than here");
+            } else {
+                static thread_local TradableBuffer tradable;
+                const auto names = parse_api_trading_symbols(listed->body, tradable);
+                if (!names.has_value()) {
+                    RLOG_WARN("weex: API-tradable list unreadable ({})", to_string(names.error()));
+                } else {
+                    state_->api_tradable.reserve(names->size());
+                    for (const auto& name : *names) {
+                        state_->api_tradable.emplace(name);
+                    }
+                    RLOG_INFO("weex: {} of {} contracts accept orders through the API",
+                              state_->api_tradable.size(),
+                              wire->size());
+                }
+            }
         }
 
         std::vector<Instrument> loaded;
