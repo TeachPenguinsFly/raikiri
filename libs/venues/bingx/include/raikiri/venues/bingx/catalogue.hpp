@@ -34,6 +34,19 @@ struct WireContract {
     std::int64_t status{0}; // 1 = online; 25 = a listed-but-not-trading row
     std::int64_t price_precision{0};
     std::int64_t quantity_precision{0};
+    // A SECOND GATE, exactly as `apiStateBuy`/`apiStateSell` are on the spot
+    // tree — and named differently here, which is why the perp path missed it:
+    // 177 of the 1049 rows that pass `status == 1` are closed to API orders.
+    // They quote a real book, so the catalogue keeps them; only order entry
+    // consults this.
+    //
+    // CLOSE IS ITS OWN BIT AND FALSE ON THE SAME 177. A contract that refuses
+    // an open and a close alike is one a position could not be got out of
+    // through this API at all, which is worse than being unable to enter.
+    //
+    // JSON STRINGS "true"/"false", not booleans, unlike the spot tree's.
+    bool api_open{true};
+    bool api_close{true};
 };
 
 inline constexpr std::size_t k_max_instruments = 2048; // 1021 rows live today

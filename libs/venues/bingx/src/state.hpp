@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace raikiri::venues::bingx::detail {
@@ -90,6 +91,17 @@ struct VenueState {
     // Our own id for a venue order id. The SPOT push carries no client order
     // id at all, so without this every spot fill would be unattributable —
     // and a restart could not tell our orders from a web order's.
+    // CONTRACTS THE API WILL NOT TRADE, read off apiStateOpen/apiStateClose as
+    // the catalogue is interned: 177 of the 1049 online perps on 2026-09-15.
+    // They are kept in the catalogue because they quote a real book, so this is
+    // what stands between a caller and an order the venue was never going to
+    // accept.
+    std::unordered_set<std::string> not_orderable;
+
+    [[nodiscard]] bool orderable(std::string_view symbol) const noexcept {
+        return !not_orderable.contains(std::string{symbol});
+    }
+
     std::unordered_map<std::string, ExchangeClientOrderId> live_orders;
 
     void add_subscription(std::string_view symbol, std::string_view suffix) {

@@ -466,6 +466,50 @@ TEST(BingxWire, ReadsTheRestEnvelope) {
     EXPECT_EQ(missing->code, k_endpoint_not_found);
 }
 
+TEST(BingxWire, AnOnlineContractCanStillBeClosedToTheApi) {
+    // `status == 1` is not the whole gate. 177 of the 1049 online perps carry
+    // apiStateOpen "false" and refuse every order sent for them — the same
+    // second gate the SPOT path has read from apiStateBuy/apiStateSell all
+    // along, spelled differently on this tree, which is how the perp path
+    // missed it. POWER-USDT is one of the real rows.
+    //
+    // apiStateClose is false on the same 177: a position there could not be
+    // closed through this API either, which is why order entry refuses to open
+    // one in the first place.
+    static thread_local ContractBuffer storage;
+    const auto rows = parse_contracts(load("rest_contracts.json"), storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 5U);
+
+    EXPECT_TRUE((*rows)[0].api_open);
+    EXPECT_TRUE((*rows)[0].api_close);
+    EXPECT_EQ((*rows)[4].symbol, "POWER-USDT");
+    EXPECT_EQ((*rows)[4].status, 1);
+    EXPECT_FALSE((*rows)[4].api_open);
+    EXPECT_FALSE((*rows)[4].api_close);
+
+    // AND IT STAYS IN THE CATALOGUE. It quotes a real book, and a scanner
+    // wants that price; what it must not do is accept an order.
+    const auto table = catalogue();
+    EXPECT_NE(table.find("POWER-USDT"), nullptr);
+}
+
+TEST(BingxWire, ARowStatingNeitherApiStateIsLeftTradable) {
+    // These arrive as the STRINGS "true"/"false", and a field that is renamed
+    // or dropped upstream must not lock every contract out of trading — the
+    // venue's own refusal is the backstop, and it names the contract.
+    static thread_local ContractBuffer storage;
+    const auto rows = parse_contracts(
+        R"({"code":0,"msg":"","data":[{"symbol":"X-USDT","status":1,"pricePrecision":2,)"
+        R"("quantityPrecision":1,"size":"0.1","tradeMinQuantity":"0.1",)"
+        R"("tradeMinUSDT":"2"}]})",
+        storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 1U);
+    EXPECT_TRUE((*rows)[0].api_open);
+    EXPECT_TRUE((*rows)[0].api_close);
+}
+
 TEST(BingxWire, RefusesAnEnvelopeWithoutACode) {
     // Zero is success, so an unreadable code must never decay into one.
     EXPECT_FALSE(parse_rest_envelope(R"({"msg":"","data":[]})").has_value());
@@ -478,7 +522,7 @@ TEST(BingxWire, ParsesContracts) {
     const auto body = load("rest_contracts.json");
     const auto rows = parse_contracts(body, storage);
     ASSERT_TRUE(rows.has_value());
-    ASSERT_EQ(rows->size(), 4U);
+    ASSERT_EQ(rows->size(), 5U);
 
     EXPECT_EQ((*rows)[0].symbol, "BTC-USDT");
     EXPECT_EQ((*rows)[0].status, 1);

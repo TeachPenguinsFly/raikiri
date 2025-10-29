@@ -28,7 +28,7 @@ be tested against what the venue actually transmits.
 
 **The REST fixtures are raw responses**, saved straight from `curl` against
 `https://open-api.bingx.com`. Only `rest_contracts.json` was edited: the live
-response carries 1021 rows and this keeps 4 (see below).
+response carries 1021 rows and this keeps 5 (see below).
 
 ## Websocket (`wss://open-api-swap.bingx.com/swap-market`)
 
@@ -50,7 +50,7 @@ response carries 1021 rows and this keeps 4 (see below).
 
 | file | request |
 | --- | --- |
-| `rest_contracts.json` | `GET /openApi/swap/v2/quote/contracts`, trimmed to 4 rows |
+| `rest_contracts.json` | `GET /openApi/swap/v2/quote/contracts`, trimmed to 5 rows — four ordinary ones and POWER-USDT (2026-09-15), which is online and closed to API orders |
 | `rest_premium_index.json` | `GET /openApi/swap/v2/quote/premiumIndex?symbol=BTC-USDT` |
 | `rest_server_time.json` | `GET /openApi/swap/v2/server/time` |
 | `rest_error_bad_symbol.json` | `GET /openApi/swap/v2/quote/depth?symbol=NOSUCH-USDT&limit=5` → 109425 |

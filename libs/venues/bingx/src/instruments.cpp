@@ -87,6 +87,13 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
+        // RECORDED WHILE THE ROW IS IN HAND. The mapped Instrument carries no
+        // room for this, and the venue states it nowhere else.
+        for (const auto& row : *wire) {
+            if (!row.api_open || !row.api_close) {
+                state_->not_orderable.emplace(row.symbol);
+            }
+        }
         return intern(
             *wire, [](const WireContract& row) { return map_instrument(row, MarketType::Perp); });
     }

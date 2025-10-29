@@ -207,6 +207,20 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
+        // REFUSED HERE RATHER THAN BY THE VENUE. 177 of the online perps are
+        // closed to API orders and say so in the catalogue; sending anyway
+        // spends a round trip to be told no, in a message that reads like a
+        // defect in this adapter. A CANCEL IS NOT CHECKED — if an order ever
+        // did rest there, it must still be possible to take it back.
+        if (kind == Kind::Create &&
+            !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
+            emit_reject(cmd,
+                        kind,
+                        exec::VenueError::make(exec::ErrorClass::Terminal,
+                                               0,
+                                               "bingx has this contract closed to API orders"));
+            return;
+        }
         if (!api_.send(*request, [this, cmd, kind](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind);
             })) {
