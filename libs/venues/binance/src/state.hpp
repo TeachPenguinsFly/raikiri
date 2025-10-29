@@ -95,6 +95,12 @@ struct VenueState {
     std::uint64_t listen_key_due_ns{0};
     bool listen_key_expired{false};
 
+    // PRIVATE FRAMES THIS PROCESS THREW AWAY. Each one is an order update the
+    // book will never hear about, and all three ways of losing one used to be
+    // a bare `return` — no counter, no line. A gateway can run for hours with a
+    // connected private socket, book nothing, and look healthy.
+    std::uint64_t private_frames_dropped{0};
+
     std::function<void(UnixNanos)> tick_hook;
 
     [[nodiscard]] UnixNanos venue_now() const {
