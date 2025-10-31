@@ -34,7 +34,19 @@ inline constexpr std::string_view k_stream_test = "fstream.binancefuture.com";
 inline constexpr std::string_view k_ws_combined = "/stream";
 // The user data socket addresses itself with the listen key: this prefix is
 // only half a target and the key is appended at the call site.
-inline constexpr std::string_view k_ws_user_prefix = "/ws/";
+//
+// "/private/ws/", NOT "/ws/". Binance decommissioned the legacy user-data path
+// on 2026-04-23, and it fails in the worst way available: "/ws/<listenKey>"
+// still completes the websocket handshake, still answers the server's pings,
+// and stays open for hours delivering ZERO account events. Nothing about the
+// connection looks wrong — connectivity reports Connected, the listen key is
+// valid, keepalive succeeds — while every fill goes unreported, the position
+// book drifts from the venue, and reconciliation eventually halts the kernel
+// far away from the cause.
+//
+// MEASURED 2026-09-15, both paths, same key, same order: "/ws/" 101 then
+// silence; "/private/ws/" 101 then ORDER_TRADE_UPDATE in the same second.
+inline constexpr std::string_view k_ws_user_prefix = "/private/ws/";
 
 // --- order entry ---------------------------------------------------------
 // One path for four verbs: POST places, DELETE cancels, PUT amends, GET reads.
