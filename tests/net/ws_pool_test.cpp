@@ -164,6 +164,27 @@ TEST(WsPool, TheOpenHookNamesOnlyTheKeysOfTheSocketThatOpened) {
     EXPECT_TRUE(announced.empty());
 }
 
+TEST(WsPool, AnAnswerOutsideAHandlerIsRefusedRatherThanSentToAGuessedSocket) {
+    // reply() exists for a venue that PINGS US and wants its own value echoed:
+    // the answer belongs to one socket and to no other. Outside a dispatch
+    // there is no such socket, and picking one — the first, the last, all of
+    // them — would answer a ping on a connection that never sent it while the
+    // one that did goes unanswered and is closed for silence.
+    //
+    // The dispatching case needs a live socket, which these tests deliberately
+    // do not have; what is asserted here is that the ambiguous case fails
+    // CLOSED. See the htx adapter for the shape being served.
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 50});
+    EXPECT_FALSE(pool.reply("{\"pong\":1}")) << "no connection at all";
+
+    ASSERT_TRUE(pool.subscribe(names(10)));
+    EXPECT_EQ(pool.connection_count(), 1U);
+    EXPECT_FALSE(pool.reply("{\"pong\":1}"))
+        << "a socket exists but nothing is being dispatched on it";
+}
+
 TEST(WsPool, AnEmptyAskIsNotAnError) {
     IoContext io;
     Silent handler;

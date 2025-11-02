@@ -16,7 +16,14 @@ class ConnHandler final : public WsHandler {
 public:
     using OnOpen = std::function<void()>;
 
-    ConnHandler(WsHandler& shared, OnOpen opened) : shared_{&shared}, opened_{std::move(opened)} {}
+    // `current` is the pool's one-slot record of which connection is being
+    // dispatched. It is set for exactly the length of a forwarded on_message
+    // and cleared after, which is what makes WsPool::reply() unambiguous —
+    // and why reply() outside a handler must fail rather than guess a socket.
+    ConnHandler(WsHandler& shared, OnOpen opened, WsClient** current)
+        : shared_{&shared}, opened_{std::move(opened)}, current_{current} {}
+
+    void speaks_for(WsClient& client) noexcept { self_ = &client; }
 
     void on_open() override {
         // The pool re-asks for THIS connection's keys; the shared handler no
@@ -32,7 +39,9 @@ public:
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
+        *current_ = self_;
         shared_->on_message(payload, received);
+        *current_ = nullptr;
     }
 
     void on_close(WsCloseReason reason) override { shared_->on_close(reason); }
@@ -40,6 +49,8 @@ public:
 private:
     WsHandler* shared_;
     OnOpen opened_;
+    WsClient** current_;
+    WsClient* self_{nullptr};
 };
 
 } // namespace
@@ -81,6 +92,9 @@ struct WsPool::Impl {
     OnConnectionOpen on_open;
     std::vector<std::unique_ptr<Conn>> conns;
     bool started{false};
+    // Whose message is in flight, or null between dispatches. Single threaded
+    // by contract, like the io context that drives it.
+    WsClient* dispatching{nullptr};
 };
 
 WsPool::WsPool(IoContext& io,
@@ -130,15 +144,19 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
             }
             auto conn = std::make_unique<Impl::Conn>();
             auto* raw = conn.get();
-            conn->handler = std::make_unique<ConnHandler>(*impl.handler, [&impl, raw] {
-                impl.refill(*raw);
-                if (impl.on_open) {
-                    // The keys of THIS socket, so an adapter resynchronises
-                    // the books this reopen actually broke.
-                    impl.on_open(raw->keys);
-                }
-            });
+            conn->handler = std::make_unique<ConnHandler>(
+                *impl.handler,
+                [&impl, raw] {
+                    impl.refill(*raw);
+                    if (impl.on_open) {
+                        // The keys of THIS socket, so an adapter resynchronises
+                        // the books this reopen actually broke.
+                        impl.on_open(raw->keys);
+                    }
+                },
+                &impl.dispatching);
             conn->client = std::make_unique<WsClient>(*impl.io, impl.config, *conn->handler);
+            conn->handler->speaks_for(*conn->client);
             impl.conns.push_back(std::move(conn));
             target = raw;
             if (impl.started) {
@@ -165,6 +183,14 @@ void WsPool::broadcast(std::string_view text) noexcept {
             (void)conn->client->send(text);
         }
     }
+}
+
+bool WsPool::reply(std::string_view text) noexcept {
+    auto* conn = impl_->dispatching;
+    if (conn == nullptr || !conn->connected()) {
+        return false;
+    }
+    return conn->send(text);
 }
 
 void WsPool::poll(UnixNanos now) noexcept {

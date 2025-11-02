@@ -107,6 +107,17 @@ public:
     // idle, and an idle socket is one the venue closes.
     void broadcast(std::string_view text) noexcept;
 
+    // Answers on the ONE connection whose message is being handled, and only
+    // from inside the handler's on_message — it returns false anywhere else.
+    //
+    // For the other shape of keepalive: broadcast() fits a venue the CLIENT
+    // pings, where one frame suits every socket. A venue that pings US and
+    // wants its own value echoed cannot be answered that way — each socket
+    // sends a different value, and broadcasting one socket's answer to the rest
+    // replies to three pings with a fourth's timestamp while their own goes
+    // unanswered, which is how a venue decides a socket has gone quiet.
+    [[nodiscard]] bool reply(std::string_view text) noexcept;
+
     // Drains one paced send per connection. Call it from the adapter's poll,
     // beside the io context.
     void poll(UnixNanos now) noexcept;
