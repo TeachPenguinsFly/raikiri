@@ -313,9 +313,44 @@ their cut is simply never asked for at all. What separates them is one
 connection against several, which is the same finding the top of this file
 records for the perpetual side, arrived at again from the other direction.
 
+Those four have since been moved onto the pool, and htx after them (below), so
+every venue in the tree now subscribes through `net::WsPool` except **bitmex and
+kraken, which are parked** — and both batch several subscriptions into one
+frame, so neither shows the symptom this section is about.
+
 The seventh pooled venue, mexc, is the reminder that a pool is only as good as
 the per-connection number it is given: 512 was measured on the wrong tree, and
 16 sockets times the right number is still short of the catalogue.
+
+### htx was cut by the RATE, not by a ceiling
+
+The single-socket venues above are cut by how many topics one connection may
+carry. htx is the other failure with the same symptom, and reading it as the
+first one would have produced the wrong fix.
+
+Measured 2026-09-15, `tools/coverage_smoke.sh`, perpetuals: **65 of 340
+contracts ever priced — 19%**, under the 70% line this file draws between a thin
+tail and a venue dropping a chunk in silence.
+
+The ceiling was measured directly before anything was changed: 1384
+subscriptions — four topics for each of 346 contracts — sent down ONE socket at
+20 ms apart, and **345 of the 346 priced**. So htx has no per-connection ceiling
+worth the name at this scale, unlike gate and deribit at 256.
+
+What it will not tolerate is the rate. The old client sent that same 1384 in a
+loop with no spacing at all, in `on_open`, and htx answered most of them with
+nothing. The pool fixes it by pacing rather than by dividing: `send_spacing_ns`
+is the whole of the repair, and the six sockets 250 keys apiece produce are there
+so a reconnect re-asks in five seconds instead of twenty-eight.
+
+**340 of 340 after, 100%.**
+
+One thing the pool needed first. htx's keepalive is a server ping whose own
+value must be echoed, per socket — `broadcast()` would answer one connection's
+ping on all of them and leave the other three unanswered, which is how htx
+decides a socket has gone quiet. `WsPool::reply()` answers on the connection
+whose message is being handled, and refuses outside a handler rather than
+guessing one.
 
 ## Four venues are parked, and it is a decision rather than a gap
 
