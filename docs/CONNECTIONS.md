@@ -318,6 +318,12 @@ every venue in the tree now subscribes through `net::WsPool` except **bitmex and
 kraken, which are parked** — and both batch several subscriptions into one
 frame, so neither shows the symptom this section is about.
 
+Re-measured 2026-09-15, same script, 150 s, the three of those four the dev set
+carries: **xt-spot 483/486 (99%), mexc-spot 374/374 (100%), hyperliquid-spot
+288/328 (88%)** — against 70%, 43% and 77% when each was one socket. Every one
+now SUBSCRIBES its whole catalogue; the refusals the table above counts are
+gone, and what hyperliquid still misses is the thin tail rather than a chunk.
+
 The seventh pooled venue, mexc, is the reminder that a pool is only as good as
 the per-connection number it is given: 512 was measured on the wrong tree, and
 16 sockets times the right number is still short of the catalogue.
