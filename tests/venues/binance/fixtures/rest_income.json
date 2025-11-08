@@ -1,0 +1,22 @@
+[
+  {
+    "symbol": "ARKUSDT",
+    "incomeType": "COMMISSION",
+    "income": "-0.00505400",
+    "asset": "USDT",
+    "time": 1789565534000,
+    "info": "220574436",
+    "tranId": 95210220574436,
+    "tradeId": "220574436"
+  },
+  {
+    "symbol": "ARKUSDT",
+    "incomeType": "FUNDING_FEE",
+    "income": "0.00173170",
+    "asset": "USDT",
+    "time": 1789470000000,
+    "info": "",
+    "tranId": 95210220400001,
+    "tradeId": ""
+  }
+]

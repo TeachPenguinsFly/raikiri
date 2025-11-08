@@ -301,6 +301,34 @@ TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
     }
 }
 
+TEST(BinanceWire, TheTradeAFeeWasChargedOnIsReadAsTheStringBinanceSends) {
+    // THE ONE ID BINANCE SENDS AS A STRING. `tranId` beside it in the same
+    // object is a bare number, and libs/wire's own note says binance spells
+    // its ids as numbers — which is true everywhere except here.
+    //
+    // Read with opt_u64 it was 0 on every row binance has ever sent. The fee
+    // ledger then keyed each charge by `tranId`, which no execution quotes, so
+    // not one commission ever joined the fill it belonged to: two live fills on
+    // 2026-09-16 produced `fees: agreed=0 unmatched=2`, and the same would have
+    // been true of every fee before them.
+    const auto body = fixture("rest_income.json");
+    IncomeBuffer storage;
+    const auto rows = parse_income(body, storage);
+    ASSERT_TRUE(rows.has_value()) << to_string(rows.error());
+    ASSERT_EQ(rows->size(), 2U);
+
+    EXPECT_EQ((*rows)[0].income_type, "COMMISSION");
+    EXPECT_EQ((*rows)[0].trade_id, 220'574'436ULL) << "the string, parsed";
+    EXPECT_EQ((*rows)[0].tran_id, 95'210'220'574'436ULL) << "the number beside it, untouched";
+
+    // A FUNDING ROW HAS NO TRADE, and binance says so with "" rather than by
+    // omitting the field. Zero is the right reading; what must not happen is
+    // the row being refused over it.
+    EXPECT_EQ((*rows)[1].income_type, "FUNDING_FEE");
+    EXPECT_EQ((*rows)[1].trade_id, 0ULL);
+    EXPECT_NE((*rows)[1].tran_id, 0ULL);
+}
+
 TEST(BinanceWire, TheFundingScheduleIsReadFromTheOnlyPlaceBinanceStatesIt) {
     // exchangeInfo carries every other trading rule for a perp and not this
     // one, so the catalogue answered eight hours for all 571 of them. Binance

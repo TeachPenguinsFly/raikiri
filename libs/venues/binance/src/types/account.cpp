@@ -112,9 +112,19 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
                 return std::unexpected(ok.error());
             }
             out.tran_id = detail::opt_u64(obj, "tranId").value_or(0);
-            // A STRING on funding rows ("") and a number on trades, so it is
-            // read leniently rather than required.
-            out.trade_id = detail::opt_u64(obj, "tradeId").value_or(0);
+            // A STRING, AND ON EVERY ROW — "220574436" on a commission and ""
+            // on a funding row, beside a `tranId` that is a bare number in the
+            // same object. This was read with opt_u64, which wants a number,
+            // so it was 0 on every row binance has ever sent: the fee ledger
+            // then keyed each charge by `tranId` instead, which no execution
+            // quotes, and not one commission has ever joined its fill.
+            //
+            // libs/wire says binance's ids are numbers rather than digit
+            // strings, and that is true of every other id it sends. This is
+            // the exception, and the generalisation is what hid it.
+            obj.reset();
+            out.trade_id =
+                detail::digits_to_u64(detail::opt_str(obj, "tradeId").value_or(std::string_view{}));
             const auto time_ms = detail::opt_u64(obj, "time");
             if (!time_ms.has_value()) {
                 return std::unexpected(WireError::WrongType);

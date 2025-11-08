@@ -15,6 +15,7 @@ required — all of these are public endpoints):
 | `rest_depth_snapshot.json` | `GET /fapi/v1/depth?symbol=BTCUSDT&limit=5` |
 | `rest_depth_seed.json`, `ws_depth_straddle.json`, `ws_depth_straddle_next.json` | one capture (2026-08), `limit=100` — see below |
 | `rest_server_time.json` | `GET /fapi/v1/time` |
+| `rest_income.json` | `GET /fapi/v1/income` (2026-09-16), one COMMISSION row and one FUNDING_FEE row — SHAPE captured live, figures replaced: what matters here is that `tradeId` is a STRING on both while `tranId` beside it is a number |
 | `rest_funding_info.json` | `GET /fapi/v1/fundingInfo` (2026-09), trimmed from 782 rows to one of each interval binance publishes — 8h, 4h and 1h |
 | `rest_error_bad_symbol.json` | `GET /fapi/v1/ticker/bookTicker?symbol=NOSUCHSYM` |
 | `rest_error_bad_apikey.json` | `GET /fapi/v1/order?symbol=NOPE` |
