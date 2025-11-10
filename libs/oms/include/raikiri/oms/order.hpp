@@ -23,6 +23,8 @@
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
 
+#include <cstdint>
+
 #include <expected>
 
 namespace raikiri::oms {
@@ -39,7 +41,27 @@ public:
           ts_updated_{cmd.ts_created} {}
 
     [[nodiscard]] std::expected<void, TransitionError> apply(const OrderEvent& event) noexcept {
-        const bool full_fill = event.type == OrderEventType::Filled && event.leaves_qty.raw == 0;
+        // WHAT THIS FILL LEAVES BEHIND, resolved before the transition asks.
+        //
+        // A private socket states the ORDER's remaining quantity and it is
+        // authoritative. A fill PULLED from the venue's trade history states
+        // the EXECUTION and leaves UNDEF — there is nothing to assign, so the
+        // execution's own size comes off what was left.
+        //
+        // Assigning UNDEF put INT64_MIN into leaves_ and overflowed filled_ on
+        // the line after, and read as "not a full fill" whatever the execution
+        // had actually closed.
+        auto remaining = leaves_;
+        if (event.type == OrderEventType::Filled) {
+            if (event.leaves_qty.is_undef()) {
+                const auto size = event.qty.is_undef() ? std::int64_t{0} : event.qty.raw;
+                remaining =
+                    QtyLots::from_raw(leaves_.raw > size ? leaves_.raw - size : std::int64_t{0});
+            } else {
+                remaining = event.leaves_qty;
+            }
+        }
+        const bool full_fill = event.type == OrderEventType::Filled && remaining.raw == 0;
         const auto next = transition(status_, event.type, full_fill, prior_working_);
         if (!next) {
             return std::unexpected{next.error()};
@@ -47,7 +69,7 @@ public:
         status_ = *next;
 
         if (event.type == OrderEventType::Filled) {
-            leaves_ = event.leaves_qty;
+            leaves_ = remaining;
             filled_ = qty_ - leaves_;
         }
         if (exchange_order_id_.empty() && !event.exchange_order_id.empty()) {
