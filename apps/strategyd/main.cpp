@@ -116,6 +116,7 @@ struct Gateway {
     shm::GatewayChannels ch{};
     shm::ExecReader exec;
     shm::LedgerEntryReader charges;
+    shm::FillReader fills;
     shm::MdReader md;
     shm::CmdProducer creates;
     shm::CmdProducer cancels;
@@ -133,7 +134,8 @@ struct Gateway {
             shm::SegmentClient attached,
             shm::GatewayChannels channels)
         : account{id}, name{std::move(display)}, client{std::move(attached)}, ch{channels},
-          exec{channels.exec_events}, charges{channels.funding_charges}, md{channels.md_events},
+          exec{channels.exec_events}, charges{channels.funding_charges},
+          fills{channels.fills}, md{channels.md_events},
           creates{channels.cmd_create}, cancels{channels.cmd_cancel},
           intents{channels.order_intents},
           bbo_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_bbo_cells)),
@@ -378,6 +380,11 @@ public:
     // venue still has working. Public for the same reason `positions` is: the
     // main loop owns the comparison, the context owns the state.
     [[nodiscard]] oms::OrderStore& orders() noexcept { return *store_; }
+
+    // EXECUTIONS ALREADY TAKEN. A pull re-offers its window on every pass and
+    // nothing in the numbers separates the second offer from the first; this is
+    // what does. Pruned on the reconciliation timer beside the fill deltas.
+    oms::SeenFills seen_fills;
 
     std::uint64_t recon_unknown{0};
     std::uint64_t recon_broken{0};
@@ -1422,6 +1429,8 @@ int main(int argc, char** argv) {
     std::uint64_t unattributed_fills = 0;
     std::uint64_t funding_overruns = 0;
     std::uint64_t funding_charges = 0;
+    std::uint64_t pulled_fills = 0;
+    std::uint64_t fill_overruns = 0;
     std::uint64_t fills = 0;
     std::uint64_t bad_transitions = 0;   // FSM refusals: must stay 0
     std::uint64_t position_refusals = 0; // position book full: must stay 0
@@ -1574,6 +1583,145 @@ int main(int argc, char** argv) {
             }
         }
 
+        // ONE PATH FOR A FILL, WHATEVER CARRIED IT. A fill arrives two ways:
+        // pushed down a private socket, or pulled out of the venue's trade
+        // history by the account poller. They differ in what they state — a
+        // push states the order's remaining quantity, a pull states the
+        // execution — and in nothing else that matters here. Running them
+        // through one body is what keeps the position book, the ledger, the
+        // fee join and the attribution from drifting apart between them.
+        //
+        // Taken BY VALUE: oms::attribute restores our own id onto the event,
+        // and a ring's record is not ours to write.
+        const auto handle_exec_event = [&](OrderEvent event) {
+            if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
+                it != ctx.inflight_.end()) {
+                rt_hist.record(clock.mono().ns - it->second);
+                ctx.inflight_.erase(it);
+            }
+            // BEFORE apply_event, which is what moves the leaves this reads.
+            // Why it is the drop in leaves and not the event's own qty, and
+            // why our id has to be restored first, are stated where they
+            // are enforced — see oms/attribution.hpp.
+            const auto who = oms::attribute(event, store);
+            if (const auto applied = store.apply_event(event);
+                !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
+                ++bad_transitions;
+            }
+            if (event.type == OrderEventType::Filled) {
+                ++fills;
+                // REMEMBERED, NOT GATED. The socket's own arithmetic makes a
+                // resent notification derive a zero drop, so nothing here needs
+                // refusing — but the poller will offer this same execution
+                // later, and this set is what tells it apart.
+                (void)ctx.seen_fills.admit(event.exec_id.view(), clock.wall());
+                if (who.order == nullptr) {
+                    // A fill for an order this process never had. Counted
+                    // and said out loud: it is money that moved on an
+                    // account we hold, and a silent one is the difference
+                    // between a quiet desk and a broken one.
+                    ++unattributed_fills;
+                    RLOG_ERROR("strategyd: FILL {} matched no order here",
+                               event.exchange_client_order_id.view());
+                }
+                const auto delta = oms::filled_delta(who, event);
+                const auto* listed = ctx.instrument(event.instrument);
+                if (listed != nullptr && delta.raw > 0) {
+                    const auto& base = base_of(*listed);
+                    ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
+                    const auto applied = ctx.positions.on_fill(base, event, delta);
+                    if (!applied.has_value()) {
+                        ++position_refusals;
+                    } else {
+                        namespace jt = raikiri_journal::types;
+                        // One increment per kind per exec_id: a flipped fill is
+                        // still ONE realizing event to the venue, and the
+                        // ledger's grain has to match the grain every
+                        // reconciliation query joins on.
+                        ctx.journal_pnl(
+                            event, base, jt::pnlKindEnum::Realized, applied->realized);
+                        // From what the book took, not from the event: a
+                        // resent notification derives a zero delta, so
+                        // apply_fill charges nothing, and reading the
+                        // event's own fee here would put a row in the
+                        // ledger that the book does not have. The two
+                        // halves sum to the venue's fee exactly.
+                        //
+                        // NEGATED: the ledger's stated sign is "positive is
+                        // money gained" and a fee is money leaving. The
+                        // book keeps the opposite convention internally —
+                        // net_realized() subtracts it — and this is the
+                        // edge where the two meet.
+                        const auto booked_fee = FixedE9::from_raw(
+                            -(applied->close_fee.raw + applied->open_fee.raw));
+                        ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, booked_fee);
+                        // Remembered under the venue's own id for this
+                        // execution, because that is what its ledger quotes
+                        // back when it states the same fee.
+                        ctx.fees.book(event.exec_id.view(), booked_fee, clock.wall());
+                        // After the increments, because the row is the
+                        // state those increments produced.
+                        if (const auto* held = ctx.positions.find(
+                                {event.client_order_id.strategy_id(), event.instrument});
+                            held != nullptr) {
+                            ctx.journal_position(*held, base);
+                        }
+                    }
+                }
+            }
+            live.on_order_event(event);
+        };
+
+        // PULLED EXECUTIONS FIRST. The account poller re-offers its whole
+        // window on every pass, so this is where the same execution arrives
+        // again and again — admitted once by its id, refused after that.
+        //
+        // Before the socket drain on purpose: when a venue both pushes and
+        // pulls, the push should win the race for a given execution because
+        // the push is what states the order's leaves. Taking the pull first
+        // costs nothing when it turns out to be a duplicate, and it is the
+        // only route at all on a venue with no private socket.
+        shm::FillRec fill_rec{};
+        for (auto& gw : gateways) {
+            for (;;) {
+                const auto poll = gw.fills.poll(fill_rec);
+                if (poll == shm::PollResult::Empty) {
+                    break;
+                }
+                if (poll == shm::PollResult::Overrun) {
+                    ++fill_overruns; // a lost execution is money the book never takes
+                    continue;
+                }
+                const auto& fill = fill_rec.fill;
+                if (gw.ch.catalogue->find(fill.instrument) == nullptr) {
+                    continue; // an id from a catalogue this process never read
+                }
+                if (!ctx.seen_fills.admit(fill.exec_id.view(), clock.wall())) {
+                    continue; // the same execution, offered again
+                }
+                ++pulled_fills;
+                OrderEvent event{};
+                event.type = OrderEventType::Filled;
+                event.instrument = fill.instrument;
+                event.side = fill.side;
+                event.price = fill.price;
+                event.qty = fill.qty;
+                // UNDEF, AND THAT IS THE WHOLE DIFFERENCE. A pull knows the
+                // execution and nothing about what the order has left. Every
+                // reader below is written to take `qty` as the size when this
+                // is undefined; putting a number here would be inventing one.
+                event.leaves_qty = QtyLots::undef();
+                event.fee = fill.fee;
+                event.liquidity = fill.liquidity;
+                event.exec_id = fill.exec_id;
+                event.exchange_order_id = fill.exchange_order_id;
+                event.exchange_client_order_id = fill.exchange_client_order_id;
+                event.ts_event = fill.ts_venue;
+                event.ts_init = clock.wall();
+                handle_exec_event(event);
+            }
+        }
+
         shm::ExecEventRec rec{};
         for (auto& gw : gateways) {
             for (;;) {
@@ -1594,80 +1742,7 @@ int main(int argc, char** argv) {
                     }
                     continue;
                 }
-                // A COPY: oms::attribute restores our own id onto it, and the
-                // ring's record is not ours to write.
-                OrderEvent event = rec.event;
-                if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
-                    it != ctx.inflight_.end()) {
-                    rt_hist.record(clock.mono().ns - it->second);
-                    ctx.inflight_.erase(it);
-                }
-                // BEFORE apply_event, which is what moves the leaves this reads.
-                // Why it is the drop in leaves and not the event's own qty, and
-                // why our id has to be restored first, are stated where they
-                // are enforced — see oms/attribution.hpp.
-                const auto who = oms::attribute(event, store);
-                if (const auto applied = store.apply_event(event);
-                    !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
-                    ++bad_transitions;
-                }
-                if (event.type == OrderEventType::Filled) {
-                    ++fills;
-                    if (who.order == nullptr) {
-                        // A fill for an order this process never had. Counted
-                        // and said out loud: it is money that moved on an
-                        // account we hold, and a silent one is the difference
-                        // between a quiet desk and a broken one.
-                        ++unattributed_fills;
-                        RLOG_ERROR("strategyd: FILL {} matched no order here",
-                                   event.exchange_client_order_id.view());
-                    }
-                    const auto delta = oms::filled_delta(who, event);
-                    const auto* listed = ctx.instrument(event.instrument);
-                    if (listed != nullptr && delta.raw > 0) {
-                        const auto& base = base_of(*listed);
-                        ctx.record_fill(event.instrument, event.side, delta, event.ts_event);
-                        const auto applied = ctx.positions.on_fill(base, event, delta);
-                        if (!applied.has_value()) {
-                            ++position_refusals;
-                        } else {
-                            namespace jt = raikiri_journal::types;
-                            // One increment per kind per exec_id: a flipped fill is
-                            // still ONE realizing event to the venue, and the
-                            // ledger's grain has to match the grain every
-                            // reconciliation query joins on.
-                            ctx.journal_pnl(
-                                event, base, jt::pnlKindEnum::Realized, applied->realized);
-                            // From what the book took, not from the event: a
-                            // resent notification derives a zero delta, so
-                            // apply_fill charges nothing, and reading the
-                            // event's own fee here would put a row in the
-                            // ledger that the book does not have. The two
-                            // halves sum to the venue's fee exactly.
-                            //
-                            // NEGATED: the ledger's stated sign is "positive is
-                            // money gained" and a fee is money leaving. The
-                            // book keeps the opposite convention internally —
-                            // net_realized() subtracts it — and this is the
-                            // edge where the two meet.
-                            const auto booked_fee = FixedE9::from_raw(
-                                -(applied->close_fee.raw + applied->open_fee.raw));
-                            ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, booked_fee);
-                            // Remembered under the venue's own id for this
-                            // execution, because that is what its ledger quotes
-                            // back when it states the same fee.
-                            ctx.fees.book(event.exec_id.view(), booked_fee, clock.wall());
-                            // After the increments, because the row is the
-                            // state those increments produced.
-                            if (const auto* held = ctx.positions.find(
-                                    {event.client_order_id.strategy_id(), event.instrument});
-                                held != nullptr) {
-                                ctx.journal_position(*held, base);
-                            }
-                        }
-                    }
-                }
-                live.on_order_event(event);
+                handle_exec_event(rec.event);
             }
         }
         shm::MdEvent md{};
@@ -1744,6 +1819,10 @@ int main(int argc, char** argv) {
                 // Seven days is the widest window any venue's ledger reaches
                 // back over, so a memo older than that will never be quoted.
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
+                // The same seven days, and for the same reason: it is the
+                // widest window any venue's trade history reaches back over, so
+                // an execution older than that will never be offered again.
+                ctx.seen_fills.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
                 const auto sweep = reconcile_against_venue(ctx,
@@ -1844,6 +1923,10 @@ int main(int argc, char** argv) {
     // Charges booked, and charges LOST. The second is money the ledger will
     // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
+    fmt::print("pulled fills: applied={}  ring-overruns={}  remembered={}\n",
+               pulled_fills,
+               fill_overruns,
+               ctx.seen_fills.size());
     fmt::print("fills-unattributed={}\n", unattributed_fills);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
     // Unmatched is printed beside the other two on purpose: a reconciliation

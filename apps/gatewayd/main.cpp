@@ -512,6 +512,12 @@ void publish_open_orders(const raikiri::exec::VenueAdapter& adapter,
     }
 }
 
+// HOW FAR BACK A FILL PULL RESUMES from the newest it saw. A venue may hold a
+// trade back for a moment after the one beside it, and resuming at the newest
+// stamp would step over it forever. A minute of overlap costs a few repeated
+// rows that the reader admits once by id.
+constexpr std::uint64_t k_fill_overlap_ns = 60ULL * 1'000'000'000ULL;
+
 // How often the whole window is written again for whoever has since attached.
 // Ten minutes: often enough that a strategyd restart loses nothing for long,
 // rare enough that it is not a second feed.
@@ -571,6 +577,65 @@ void publish_funding_charges(const raikiri::exec::VenueAdapter& adapter,
     }
     for (const auto& charge : *charges) {
         cursor = raikiri::UnixNanos{std::max(cursor.ns, charge.settled_at.ns)};
+    }
+}
+
+// What the venue says was EXECUTED, for the one route a fill has when no
+// private socket carries it — and a net under the socket where one does.
+//
+// SINGLE WRITER, like the charges beside it. `exec_events` is the gateway
+// thread's ring and this runs on the poller's; two producers on a BroadcastRing
+// stamp one slot's version twice and a reader re-validates a torn record as
+// good. So a pulled fill rides its own ring and the consumer joins the two.
+//
+// NO CURSOR ADVANCE ON FAILURE, and the window is re-asked rather than
+// narrowed: the venue re-offers what it already gave, the reader admits each
+// execution once by its id, and a pull that failed must not leave a hole no
+// later pass reaches back over.
+// NO `now`: the cursor moves off the venue's own stamps, never this clock. A
+// local clock ahead of the venue's would step the window past trades it had not
+// finished reporting.
+void publish_fills(const raikiri::exec::VenueAdapter& adapter,
+                   raikiri::MarketType market,
+                   raikiri::shm::FillRing& ring,
+                   raikiri::UnixNanos& cursor) {
+    char buf[16];
+    const auto who =
+        raikiri::format_account({.venue = adapter.caps.venue, .market = market}, buf, sizeof buf);
+    static bool announced = false;
+    if (!adapter.caps.fill_pull.has(market)) {
+        if (!announced) {
+            announced = true;
+            RLOG_INFO("gatewayd[{}]: this venue reports no trade history on this market", who);
+        }
+        return;
+    }
+    const auto fills = adapter.execution->fill_reports(market, cursor);
+    if (!fills.has_value()) {
+        RLOG_WARN("gatewayd[{}]: fill pull failed — {} (class={}, code={})",
+                  who,
+                  fills.error().message.view(),
+                  error_class_name(fills.error().cls),
+                  fills.error().venue_code);
+        return;
+    }
+    for (const auto& fill : *fills) {
+        ring.publish({fill});
+    }
+    // THE OLDEST STAMP IS NOT WHERE TO RESUME. A venue answers a window and may
+    // hold a trade back for a moment; resuming at the newest would skip it.
+    // Backing off keeps the overlap the reader already dedupes.
+    for (const auto& fill : *fills) {
+        if (fill.ts_venue.ns > cursor.ns + k_fill_overlap_ns) {
+            cursor = raikiri::UnixNanos{fill.ts_venue.ns - k_fill_overlap_ns};
+        }
+    }
+    static std::size_t said = std::numeric_limits<std::size_t>::max();
+    if (said != fills->size()) {
+        said = fills->size();
+        RLOG_INFO("gatewayd[{}]: venue answered its trade history — {} fill(s) in the window",
+                  who,
+                  fills->size());
     }
 }
 
@@ -1320,6 +1385,10 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        // Where the trade-history pull resumes. Starts at zero, which asks the
+        // venue for its whole default window once — a gateway that restarts
+        // after a fill must not miss it.
+        raikiri::UnixNanos fill_cursor{};
         if (poller_adapter != nullptr) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
@@ -1345,6 +1414,11 @@ int main(int argc, char** argv) {
                                             funding_cursor,
                                             ledger_replay_due,
                                             clock.wall());
+                    // On the same pass, and for the same reason: what the
+                    // account was charged and what it executed are one answer
+                    // about one account.
+                    publish_fills(
+                        *poller_adapter, market, *channels_ptr->fills, fill_cursor);
                     // Woken in slices so a shutdown does not wait out the
                     // whole interval.
                     for (int i = 0;

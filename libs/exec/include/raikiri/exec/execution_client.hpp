@@ -9,6 +9,7 @@
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/error.hpp>
@@ -31,18 +32,9 @@ struct OrderStatusReport {
     UnixNanos ts_venue{};
 };
 
-struct FillReport {
-    ExecId exec_id{};
-    ExchangeOrderId exchange_order_id{};
-    ExchangeClientOrderId exchange_client_order_id{};
-    InstrumentId instrument{};
-    Side side{Side::Buy};
-    PriceTicks price{};
-    QtyLots qty{};
-    FixedE9 fee{};
-    Liquidity liquidity{Liquidity::Unknown};
-    UnixNanos ts_venue{};
-};
+// Lives in domain for the same reason PositionReport does: the shm transport
+// carries it too. Spelled exec::FillReport everywhere it is used.
+using FillReport = raikiri::FillReport;
 
 // Lives in domain: the shm transport carries it too, and transport cannot
 // depend on this layer. Spelled exec::PositionReport everywhere it is used.

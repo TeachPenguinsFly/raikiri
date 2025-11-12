@@ -28,6 +28,7 @@
 #include <raikiri/domain/order.hpp>
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/domain/fill_report.hpp>
 #include <raikiri/domain/position_report.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>
 #include <raikiri/shm/catalogue.hpp>
@@ -84,6 +85,20 @@ struct LedgerEntryRec {
 };
 
 static_assert(std::is_trivially_copyable_v<LedgerEntryRec>);
+
+// One execution the venue's TRADE HISTORY states, written by the account
+// poller alone.
+//
+// NOT THE SAME FACT AS AN ExecEventRec, which is why it is not carried on that
+// ring. An exec event comes off the private socket and states what the ORDER
+// has left; this states the EXECUTION and nothing about the order. They also
+// have different writers — the gateway thread owns exec_events and the poller
+// owns this — and a BroadcastRing has exactly one producer.
+struct FillRec {
+    FillReport fill{};
+};
+
+static_assert(std::is_trivially_copyable_v<FillRec>);
 
 // One order the VENUE says is still working, as of the pull that wrote it.
 //
@@ -168,6 +183,10 @@ inline constexpr std::size_t k_cmd_ring = 4096;
 // Funding settles a handful of times a day per instrument, not per tick, so
 // this is years of history rather than seconds of it.
 inline constexpr std::size_t k_funding_charge_ring = 4096;
+// A pull re-offers its whole window on every pass, and the window is days
+// wide: this has to hold what a busy account executed over one, so that a
+// reader attaching late still sees the pass rather than an overrun.
+inline constexpr std::size_t k_fill_ring = 8192;
 // 100 book levels a side put the depth table at 12.8 MiB, which no longer
 // fits alongside the rings in 32. The whole table is zeroed at creation, so
 // this is resident memory per gateway, not just address space.
@@ -192,10 +211,12 @@ using OpenOrderTable = SeqlockTable<OpenOrderCell, k_open_order_cells>;
 using MdRing = BroadcastRing<MdEvent, k_md_ring>;
 using ExecRing = BroadcastRing<ExecEventRec, k_exec_ring>;
 using LedgerEntryRing = BroadcastRing<LedgerEntryRec, k_funding_charge_ring>;
+using FillRing = BroadcastRing<FillRec, k_fill_ring>;
 using CmdRing = SpscRing<OrderCmd, k_cmd_ring>;
 using MdReader = BroadcastReader<MdEvent, k_md_ring>;
 using ExecReader = BroadcastReader<ExecEventRec, k_exec_ring>;
 using LedgerEntryReader = BroadcastReader<LedgerEntryRec, k_funding_charge_ring>;
+using FillReader = BroadcastReader<FillRec, k_fill_ring>;
 using CmdProducer = SpscProducer<OrderCmd, k_cmd_ring>;
 using CmdConsumer = SpscConsumer<OrderCmd, k_cmd_ring>;
 
@@ -217,6 +238,10 @@ struct GatewayChannels {
     // holds the rate and is overwritten every tick; this carries the charges
     // and must not lose one.
     LedgerEntryRing* funding_charges{nullptr};
+    // Executions pulled from the venue's trade history. The only route a fill
+    // has on a venue with no private socket, and a net under the socket on
+    // every other one — a fill the stream dropped is taken on the next pass.
+    FillRing* fills{nullptr};
     PositionTable* positions{nullptr};
     // What the venue still has working. Read beside `positions`, because both
     // are the venue's word on this account and comparing numbers taken minutes

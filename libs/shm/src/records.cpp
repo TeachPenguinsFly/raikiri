@@ -14,6 +14,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.md_events = owner.create_channel<MdRing>("md_events");
     ch.exec_events = owner.create_channel<ExecRing>("exec_events");
     ch.funding_charges = owner.create_channel<LedgerEntryRing>("funding_charges");
+    ch.fills = owner.create_channel<FillRing>("fills");
     ch.positions = owner.create_channel<PositionTable>("positions");
     ch.open_orders = owner.create_channel<OpenOrderTable>("open_orders");
     ch.balances = owner.create_channel<BalanceTable>("balances");
@@ -22,7 +23,8 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
     ch.order_intents = owner.create_channel<CmdRing>("order_intents");
     if (ch.catalogue == nullptr || ch.bbo == nullptr || ch.depth == nullptr ||
         ch.funding == nullptr || ch.md_events == nullptr || ch.exec_events == nullptr ||
-        ch.funding_charges == nullptr || ch.open_orders == nullptr || ch.greeks == nullptr ||
+        ch.funding_charges == nullptr || ch.fills == nullptr || ch.open_orders == nullptr ||
+        ch.greeks == nullptr ||
         ch.ticker_stats == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
         ch.cmd_create == nullptr || ch.cmd_cancel == nullptr || ch.order_intents == nullptr) {
         return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
@@ -67,6 +69,10 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!charges) {
         return std::unexpected{charges.error()};
     }
+    const auto fills = client.open_channel<FillRing>("fills");
+    if (!fills) {
+        return std::unexpected{fills.error()};
+    }
     const auto positions = client.open_channel<PositionTable>("positions");
     if (!positions) {
         return std::unexpected{positions.error()};
@@ -103,6 +109,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
                            .md_events = *md,
                            .exec_events = *exec,
                            .funding_charges = *charges,
+                           .fills = *fills,
                            .positions = *positions,
                            .open_orders = *open_orders,
                            .balances = *balances,
