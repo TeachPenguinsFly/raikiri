@@ -7,19 +7,16 @@
 // adapter must convert them into lifecycle events itself (ported Go-core
 // lesson).
 
+#include <raikiri/domain/error_class.hpp>
 #include <raikiri/common/fixed_string.hpp>
 
 #include <cstdint>
 
 namespace raikiri::exec {
 
-enum class ErrorClass : std::uint8_t {
-    Terminal,     // bad symbol/price/qty/duplicate — retrying cannot help
-    Retryable,    // timeout, 5xx, transient network — bounded retry
-    RateLimited,  // 429/418-style — back off per the venue's contract
-    AuthFailure,  // signature/key/permission — halt venue, page a human
-    Connectivity, // socket-level failure before a venue verdict existed
-};
+// Lives in domain, because an order event carries it across shm and the
+// journal. Spelled exec::ErrorClass everywhere it is used.
+using ErrorClass = raikiri::ErrorClass;
 
 struct VenueError {
     ErrorClass cls{ErrorClass::Terminal};

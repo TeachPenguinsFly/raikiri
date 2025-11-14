@@ -78,6 +78,15 @@ struct Order {
     // notification would otherwise book it twice.
     std::optional<std::string> leaves;
     std::string status;
+    // WHY, when the status is a rejection. Absent on every other order, and on
+    // one refused before the journal carried a reason — which is not the same
+    // as the venue having given none, and a reader can tell them apart because
+    // these are absent rather than empty.
+    //
+    // `reject_code` is the VENUE'S OWN number, unchanged. -1058 is a thing a
+    // person can look up; "terminal" alone is not.
+    std::optional<std::string> reject_class;
+    std::optional<std::int64_t> reject_code;
     std::string ts_created;
     std::string ts_updated;
 };

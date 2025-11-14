@@ -300,6 +300,8 @@ public:
     void on_order_error(raikiri::ClientOrderId client_order_id,
                         const raikiri::exec::VenueError& error) noexcept override {
         ++counts_.order_errors;
+        // Held for the rejection event that follows it; see there.
+        pending_ = {client_order_id.raw, error};
         RLOG_WARN("gatewayd: refused coid={:#x} — {} (class={}, code={})",
                   client_order_id.raw,
                   error.message.view(),
@@ -326,8 +328,33 @@ public:
         ++counts_.funding_charges;
     }
 
-    void on_order_event(const raikiri::OrderEvent& event) noexcept override {
+    // The three kinds that carry a refusal. Nothing else does, and stamping a
+    // reason onto a fill would put a code on money that moved.
+    [[nodiscard]] static bool is_rejection(raikiri::OrderEventType type) noexcept {
+        return type == raikiri::OrderEventType::Rejected ||
+               type == raikiri::OrderEventType::CancelRejected ||
+               type == raikiri::OrderEventType::ModifyRejected;
+    }
+
+    void on_order_event(const raikiri::OrderEvent& raw) noexcept override {
         ++counts_.order_events;
+        // WHY THE VENUE SAID NO, JOINED HERE RATHER THAN IN SEVENTEEN ADAPTERS.
+        //
+        // Every adapter reports a refusal as a PAIR — on_order_error with the
+        // venue's verdict, then immediately on_order_event with the rejection —
+        // emitted back to back on this one thread with nothing between them.
+        // That adjacency is the contract this join rests on, and it is checked
+        // by a test rather than assumed.
+        //
+        // One slot, not a map: the pair is adjacent, so anything older than the
+        // last error is not the answer to this event and must not be stamped
+        // onto it. An id that does not match leaves the event as it came.
+        auto event = raw;
+        if (is_rejection(event.type) && pending_.first == event.client_order_id.raw) {
+            event.reject_class = pending_.second.cls;
+            event.reject_code = static_cast<std::int32_t>(pending_.second.venue_code);
+            pending_ = {};
+        }
         ch_.exec_events->publish({event});
         (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
             *journal_, event.ts_init.ns, [&](auto m) {
@@ -349,6 +376,8 @@ public:
                 m.fee(jt::fixedE9{event.fee.raw});
                 m.tsEvent(jt::timestampNs{event.ts_event.ns});
                 m.tsInit(jt::timestampNs{event.ts_init.ns});
+                m.rejectClass(static_cast<jt::errorClassEnum>(event.reject_class));
+                m.rejectCode(jt::venueCode{event.reject_code});
             });
     }
 
@@ -364,6 +393,10 @@ public:
         std::uint64_t order_errors{0};
         std::uint64_t funding_charges{0};
     };
+
+    // The last refusal and whose order it was, waiting for the rejection event
+    // that follows it. Zeroed once claimed.
+    std::pair<std::uint64_t, raikiri::exec::VenueError> pending_{};
 
     [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
 

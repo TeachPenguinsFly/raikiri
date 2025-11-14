@@ -995,6 +995,23 @@ components:
             between two events, never an event's own `qty` — a venue that
             resends a fill notification would otherwise book it twice.
         status: { $ref: "#/components/schemas/OrderStatus" }
+        reject_class:
+          type: string
+          enum: [terminal, retryable, rate_limited, auth_failure, connectivity]
+          description: |
+            How the venue's refusal should be acted on. Present only on a
+            rejected order, and ABSENT — not empty — on one refused before the
+            journal carried a reason at all: "not recorded" and "the venue gave
+            no reason" are different answers.
+        reject_code:
+          type: integer
+          format: int32
+          description: |
+            The venue's OWN numeric code, unchanged and untranslated. Present
+            beside `reject_class` on a rejection. This is the half a person can
+            look up in the venue's documentation — weex answers -1058 for a
+            contract it lists but will not trade through the API, and the class
+            alone would only say "terminal".
         ts_created: { $ref: "#/components/schemas/Nanos" }
         ts_updated: { $ref: "#/components/schemas/Nanos" }
 

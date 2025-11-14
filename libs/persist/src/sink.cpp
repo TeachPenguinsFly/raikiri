@@ -59,10 +59,15 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
     pqxx::work tx{impl_->conn};
 
     for (const auto& r : batch.order_events) {
+        // NULL RATHER THAN A BLANK on everything that is not a rejection, and
+        // on any record older than schema version 2: "not recorded" and "the
+        // venue gave no reason" are different answers and the column keeps them
+        // apart.
         tx.exec("INSERT INTO raikiri.order_events (journal, journal_seq, client_order_id,"
                 " event_type, instrument_id, price_ticks, qty_lots, leaves_lots, fee_e9,"
-                " exec_id, ts_event, ts_recorded)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12)"
+                " exec_id, ts_event, ts_recorded, reject_class, reject_code)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,"
+                "         NULLIF($13,''), CASE WHEN $14 THEN $15::integer ELSE NULL::integer END)"
                 " ON CONFLICT (journal, journal_seq) DO NOTHING",
                 pqxx::params{journal,
                              r.journal_seq,
@@ -75,15 +80,20 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.fee_e9,
                              r.exec_id,
                              r.ts_event,
-                             r.ts_recorded});
+                             r.ts_recorded,
+                             r.reject_class,
+                             r.has_reason,
+                             r.reject_code});
     }
 
     for (const auto& r : batch.order_upserts) {
         tx.exec("INSERT INTO raikiri.orders (client_order_id, exchange_client_order_id,"
                 " exchange_order_id, instrument_id, side, order_type, tif, flags, price_ticks,"
-                " qty_lots, leaves_lots, status, ts_created, ts_updated)"
+                " qty_lots, leaves_lots, status, ts_created, ts_updated,"
+                " reject_class, reject_code)"
                 " VALUES ($1,NULLIF($2,''),NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,"
-                "         COALESCE(NULLIF($12,''),'initialized'),$13,$13)"
+                "         COALESCE(NULLIF($12,''),'initialized'),$13,$13,"
+                "         NULLIF($14,''), CASE WHEN $15 THEN $16::integer ELSE NULL::integer END)"
                 " ON CONFLICT (client_order_id) DO UPDATE SET"
                 "  exchange_client_order_id ="
                 "    COALESCE(raikiri.orders.exchange_client_order_id, "
@@ -93,7 +103,12 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 "  leaves_lots = EXCLUDED.leaves_lots,"
                 "  status = CASE WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = ''"
                 "                THEN raikiri.orders.status ELSE EXCLUDED.status END,"
-                "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated)"
+                "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated),"
+                // KEPT ONCE WRITTEN. A later event on the same order — a cancel
+                // acknowledgement, a recon close — carries no reason, and
+                // overwriting with null would erase the only answer there is.
+                "  reject_class = COALESCE(EXCLUDED.reject_class, raikiri.orders.reject_class),"
+                "  reject_code  = COALESCE(EXCLUDED.reject_code,  raikiri.orders.reject_code)"
                 " WHERE EXCLUDED.ts_updated >= raikiri.orders.ts_updated",
                 pqxx::params{r.client_order_id,
                              r.exchange_client_order_id,
@@ -107,7 +122,10 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.qty_lots,
                              r.leaves_lots,
                              r.status,
-                             r.ts_event});
+                             r.ts_event,
+                             r.reject_class,
+                             r.has_reason,
+                             r.reject_code});
     }
 
     for (const auto& r : batch.executions) {

@@ -19,7 +19,7 @@
 
 namespace raikiri::schema {
 
-inline constexpr std::uint16_t k_schema_version = 1; // keep in sync with journal.xml
+inline constexpr std::uint16_t k_schema_version = 2; // keep in sync with journal.xml
 
 // Encodes one message on the stack and appends it. Usage:
 //

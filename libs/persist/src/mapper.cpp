@@ -30,6 +30,25 @@ std::string_view event_name(std::uint8_t v) {
     return to_string(static_cast<OrderEventType>(v));
 }
 
+// The venue's verdict as a word. Spelled here rather than reached for out of
+// libs/exec: the persister must not depend on the adapter layer, and these five
+// names are the contract a query filters on.
+std::string_view reject_class_name(std::uint8_t v) {
+    switch (static_cast<ErrorClass>(v)) {
+    case ErrorClass::Terminal:
+        return "terminal";
+    case ErrorClass::Retryable:
+        return "retryable";
+    case ErrorClass::RateLimited:
+        return "rate_limited";
+    case ErrorClass::AuthFailure:
+        return "auth_failure";
+    case ErrorClass::Connectivity:
+        return "connectivity";
+    }
+    return "unknown";
+}
+
 std::string_view side_name(std::uint8_t v) {
     return to_string(static_cast<Side>(v));
 }
@@ -94,6 +113,22 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     const auto type_name = enum_name(m.eventType(), +[](std::uint8_t v) { return event_name(v); });
     const auto exec_id = trim_fixed(m.execIdField());
 
+    // GUARDED BY THE FRAME'S OWN VERSION. A record written before version 2 is
+    // physically shorter, and reading these two off it walks past its end —
+    // which is why the header has carried a schema_version since the first
+    // commit and why this is the first reader to consult it.
+    const bool has_reason = frame.schema_version >= 2 &&
+                            (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Rejected ||
+                             m.eventType() == raikiri_journal::types::orderEventTypeEnum::CancelRejected ||
+                             m.eventType() == raikiri_journal::types::orderEventTypeEnum::ModifyRejected);
+    std::string reject_class;
+    std::int32_t reject_code = 0;
+    if (has_reason) {
+        reject_class =
+            enum_name(m.rejectClass(), +[](std::uint8_t v) { return reject_class_name(v); });
+        reject_code = m.rejectCode().value();
+    }
+
     batch.order_events.push_back({
         .journal_seq = frame.seq,
         .client_order_id = m.clientOrderIdField().value(),
@@ -106,6 +141,9 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .exec_id = exec_id,
         .ts_event = m.tsEvent().value(),
         .ts_recorded = m.tsInit().value(),
+        .reject_class = reject_class,
+        .reject_code = reject_code,
+        .has_reason = has_reason,
     });
 
     batch.order_upserts.push_back({
@@ -126,6 +164,9 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
         .leaves_lots = m.leavesQty().value(),
         .status = status_for(m.eventType(), m.leavesQty().value()),
         .ts_event = m.tsEvent().value(),
+        .reject_class = reject_class,
+        .reject_code = reject_code,
+        .has_reason = has_reason,
     });
 
     if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled) {

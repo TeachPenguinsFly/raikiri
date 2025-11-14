@@ -9,6 +9,7 @@
 // a status. Any (status, event) pair not listed is a venue-protocol violation
 // we want to hear about loudly, not paper over.
 
+#include <raikiri/domain/error_class.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -80,7 +81,21 @@ struct OrderEvent {
     TimeInForce tif{TimeInForce::Gtc};
     OrderFlags flags{OrderFlags::None};
     Liquidity liquidity{Liquidity::Unknown};
-    std::uint8_t pad_[2]{};
+    // WHY THE VENUE SAID NO, on the three Rejected kinds and meaningless
+    // elsewhere. Until these rode the event, a refusal reached shm, the journal
+    // and the database carrying the FACT of a rejection and no reason for it:
+    // `/v1/orders` showed "rejected" and the only place the cause existed was a
+    // line in the gateway's log, on the machine that happened to run it.
+    //
+    // THE VENUE'S OWN CODE, not a translation. -1058 is answerable; "terminal"
+    // is not. int32 because no venue here mints a code outside it, and because
+    // the two together fit in padding this record already carried — the exec
+    // ring is 65536 slots deep and a wider event is megabytes per gateway.
+    //
+    // The venue's TEXT stays in the log: it is up to 96 bytes and there is no
+    // room for it here without making every event pay for the rare one.
+    ErrorClass reject_class{ErrorClass::Terminal};
+    std::uint8_t pad_[1]{};
 
     InstrumentId instrument{};
     ClientOrderId client_order_id{};
@@ -88,7 +103,11 @@ struct OrderEvent {
     std::uint8_t pad2_[5]{};
     ExchangeOrderId exchange_order_id{}; // 41 B
     ExecId exec_id{};                    // 41 B
-    std::uint8_t pad3_[6]{};
+    std::uint8_t pad3_[2]{};
+    // Here rather than beside `reject_class`: this is where four bytes of the
+    // record's own padding already sat 4-aligned, so carrying the code costs
+    // the exec ring nothing at all.
+    std::int32_t reject_code{0};
 
     PriceTicks price{};   // limit price or fill price
     QtyLots qty{};        // order qty or fill qty

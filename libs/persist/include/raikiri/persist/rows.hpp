@@ -24,6 +24,13 @@ struct OrderEventRow {
     std::string exec_id;
     std::uint64_t ts_event{0};
     std::uint64_t ts_recorded{0};
+    // WHY, on a rejection. Empty and zero on every other kind, and on any
+    // record written before schema version 2 — which is not the same as "the
+    // venue gave no reason", and the columns are nullable so a query can tell
+    // the two apart.
+    std::string reject_class;
+    std::int32_t reject_code{0};
+    bool has_reason{false};
 };
 
 // Current-state projection of one order; the event log is the truth.
@@ -41,6 +48,11 @@ struct OrderUpsert {
     std::int64_t leaves_lots{0};
     std::string status; // empty = keep existing status
     std::uint64_t ts_event{0};
+    // Kept on the order itself as well as on the event, because the question
+    // "why did this one not go through" is asked of the ORDER.
+    std::string reject_class;
+    std::int32_t reject_code{0};
+    bool has_reason{false};
 };
 
 struct ExecutionRow {

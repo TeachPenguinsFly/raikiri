@@ -245,6 +245,8 @@ private:
         .qty = scales.size(lots_of(row.at("qty_lots"))).value_or(std::string{}),
         .leaves = scales.size(lots_of(row.at("leaves_lots"))),
         .status = text_of(row.at("status")),
+        .reject_class = opt_text(row.at("reject_class")),
+        .reject_code = opt_int(row.at("reject_code")),
         .ts_created = digits_of(row.at("ts_created")),
         .ts_updated = digits_of(row.at("ts_updated")),
     };
@@ -572,7 +574,8 @@ namespace {
 constexpr std::string_view k_order_select =
     "SELECT o.client_order_id, o.exchange_client_order_id, o.exchange_order_id,"
     " o.instrument_id, o.side, o.order_type, o.tif, o.flags, o.price_ticks, o.qty_lots,"
-    " o.leaves_lots, o.status, o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
+    " o.leaves_lots, o.status, o.reject_class, o.reject_code,"
+    " o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
     " FROM raikiri.orders o"
     " LEFT JOIN raikiri.instruments i ON i.instrument_id = o.instrument_id";
 

@@ -12,7 +12,7 @@
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="raikiri.journal"
                    id="1"
-                   version="1"
+                   version="2"
                    semanticVersion="0.1.0"
                    description="raikiri journal records"
                    byteOrder="littleEndian">
@@ -33,6 +33,15 @@
     <type name="exchangeClientOrderId" primitiveType="char" length="26" description="ULID"/>
     <type name="venueText" primitiveType="char" length="40" description="venue-minted id, space-padded"/>
     <type name="symbolText" primitiveType="char" length="24" description="venue wire symbol, space-padded"/>
+    <type name="venueCode" primitiveType="int32" description="the venue's own numeric refusal code"/>
+
+    <enum name="errorClassEnum" encodingType="uint8">
+      <validValue name="Terminal">0</validValue>
+      <validValue name="Retryable">1</validValue>
+      <validValue name="RateLimited">2</validValue>
+      <validValue name="AuthFailure">3</validValue>
+      <validValue name="Connectivity">4</validValue>
+    </enum>
 
     <enum name="venueIdEnum" encodingType="uint8">
       <validValue name="Binance">1</validValue>
@@ -144,6 +153,14 @@
     <field name="fee" id="15" type="fixedE9"/>
     <field name="tsEvent" id="16" type="timestampNs"/>
     <field name="tsInit" id="17" type="timestampNs"/>
+    <!-- WHY the venue refused, on the three Rejected kinds and meaningless
+         elsewhere. Before these, a refusal reached the database carrying the
+         fact of a rejection and no reason for it, and the cause existed only in
+         a log line on whichever machine ran the gateway.
+         sinceVersion=2: a record written before them is SHORTER, and a reader
+         that does not check the frame's schema_version reads past its end. -->
+    <field name="rejectClass" id="18" type="errorClassEnum" sinceVersion="2"/>
+    <field name="rejectCode" id="19" type="venueCode" sinceVersion="2"/>
   </sbe:message>
 
   <sbe:message name="OrderCmdMsg" id="2" description="Order command as received/sent">
