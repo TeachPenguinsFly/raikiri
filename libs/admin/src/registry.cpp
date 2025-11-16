@@ -131,6 +131,30 @@ namespace {
 
 } // namespace
 
+// HOW MUCH OF THE CATALOGUE IS ACTUALLY ARRIVING.
+//
+// Counts quote cells that have EVER been written since the gateway created the
+// segment — `ts_init` is stamped on every publish and a cell nobody has
+// published to is still zero. That is deliberately cumulative rather than a
+// freshness window: what this exists to catch is a chunk of the catalogue the
+// venue silently never sends, and those cells are never written at all, while a
+// genuinely quiet altcoin would fail any window short enough to be useful.
+//
+// The reading is therefore "has priced since this gateway started", and it is
+// only meaningful once the gateway has been up long enough for a slow venue to
+// tick — which is what `last_heartbeat` and `generation` beside it are for.
+[[nodiscard]] std::int64_t priced_count(const shm::GatewayChannels& ch) noexcept {
+    const auto listed = std::min<std::size_t>(ch.catalogue->size(), shm::k_bbo_cells);
+    std::int64_t priced = 0;
+    for (std::size_t i = 0; i < listed; ++i) {
+        Bbo bbo{};
+        if (ch.bbo->read(i, bbo) != 0 && bbo.ts_init.ns != 0) {
+            ++priced;
+        }
+    }
+    return priced;
+}
+
 std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
     std::vector<Account> out;
     out.reserve(gateways_.size());
@@ -139,13 +163,19 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
         // Monotonic, because that is the clock the gateway stamps its
         // heartbeat with; asking in wall time makes every owner look stale.
         const bool alive = gw.client.owner_alive(now.ns);
+        const auto listed = static_cast<std::int64_t>(gw.channels.catalogue->size());
+        const auto priced = priced_count(gw.channels);
         out.push_back({.account = gw.name,
                        .venue = std::string{to_string(gw.account.venue)},
                        .market = std::string{to_string(gw.account.market)},
                        .gateway = {.alive = alive,
                                    .generation = digits(gw.client.generation()),
                                    .last_heartbeat = digits(heartbeat_wall(gw, now, wall)),
-                                   .instruments = gw.channels.catalogue->size()}});
+                                   .instruments = listed,
+                                   .priced = priced,
+                                   .coverage_pct = listed > 0 ? priced * 100 / listed : 0,
+                                   .subscribe_refusals =
+                                       static_cast<std::int64_t>(gw.client.subscribe_refusals())}});
     }
     return out;
 }

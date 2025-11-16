@@ -32,7 +32,7 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 8;               // 8: the ticker-stats channel
+inline constexpr std::uint32_t k_abi_version = 9;               // 9: fills channel, refusal count
 // Sized past today's nine so the next channel is a directory entry rather than
 // another header-layout change: every slot costs 32 bytes of segment header,
 // and the ABI bump that a resize forces costs every process a rebuild.
@@ -78,6 +78,15 @@ struct SegmentHeader {
     std::atomic<std::uint32_t> state{0};
     std::uint32_t pad2_{0};
     alignas(64) std::atomic<std::uint64_t> heartbeat_ns{0};
+    // SUBSCRIPTIONS THE VENUE ANSWERED WITH NO. Six adapters have counted these
+    // since they were written and nothing could read the count — a reader saw
+    // a live heartbeat and a full catalogue while a third of the venue was
+    // never arriving.
+    //
+    // On the heartbeat's cache line on purpose: both are the owner's own
+    // liveness, both are written by it and read by everyone, and the line has
+    // 56 bytes going spare.
+    std::atomic<std::uint64_t> subscribe_refusals{0};
     alignas(64) ChannelDesc channels[k_max_channels]{};
     ReaderSlot readers[k_max_readers]{};
 };
@@ -115,6 +124,11 @@ public:
     void publish() noexcept;
 
     void beat(std::uint64_t now_ns) noexcept;
+
+    // How many subscriptions this gateway's venue has refused. Published
+    // beside the heartbeat because it answers the other half of "is this
+    // gateway well" — the half `alive` cannot.
+    void publish_refusals(std::uint64_t count) noexcept;
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
@@ -161,6 +175,10 @@ public:
     // from a slow one.
     [[nodiscard]] std::uint64_t last_heartbeat() const noexcept {
         return header_->heartbeat_ns.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept {
+        return header_->subscribe_refusals.load(std::memory_order_acquire);
     }
 
     // Owner liveness from this consumer's point of view.

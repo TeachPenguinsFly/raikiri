@@ -1557,6 +1557,9 @@ int main(int argc, char** argv) {
         owner->beat(mono.ns);
         if (mono.ns >= flush_due) {
             journal_writer->flush();
+            // BESIDE THE FLUSH, not beside the heartbeat: the count changes a
+            // handful of times in a run and the heartbeat runs every pass.
+            owner->publish_refusals(adapter->data->subscribe_refusals());
             flush_due = mono.ns + 50'000'000; // 50 ms group commit
         }
         idle_passes = commands != 0 ? 0 : idle_passes + 1;

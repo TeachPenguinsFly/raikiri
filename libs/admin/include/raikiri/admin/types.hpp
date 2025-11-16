@@ -29,7 +29,26 @@ struct GatewayHealth {
     bool alive{false};
     std::string generation;
     std::string last_heartbeat;
+    // What the venue LISTS. It is the catalogue's size and nothing else — a
+    // gateway carrying a third of it reports the same number as one carrying
+    // all of it.
     std::int64_t instruments{0};
+    // WHAT IS ACTUALLY ARRIVING, which is the question `alive` cannot answer.
+    //
+    // A gateway whose subscriptions the venue silently dropped is alive, is
+    // heartbeating, and lists its whole catalogue — htx ran at 65 of 340 for
+    // days and every field above said it was fine. This counts instruments
+    // whose quote cell has been written recently, which is the same measure
+    // tools/coverage_smoke.sh takes from outside, taken from inside and
+    // continuously.
+    std::int64_t priced{0};
+    // priced/instruments as a percentage, rounded down, so a screen and an
+    // alert agree on one number rather than each deriving its own.
+    std::int64_t coverage_pct{0};
+    // Subscriptions the venue refused outright, summed across the adapter's
+    // sockets. Distinct from the silent kind above: a refusal was answered,
+    // and until now the count reached nothing that could report it.
+    std::int64_t subscribe_refusals{0};
 };
 
 struct Account {

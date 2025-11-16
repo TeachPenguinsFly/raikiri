@@ -182,6 +182,10 @@ void SegmentOwner::beat(std::uint64_t now_ns) noexcept {
     header_->heartbeat_ns.store(now_ns, std::memory_order_release);
 }
 
+void SegmentOwner::publish_refusals(std::uint64_t count) noexcept {
+    header_->subscribe_refusals.store(count, std::memory_order_release);
+}
+
 // --------------------------------------------------------------- client --
 
 SegmentClient::SegmentClient(SegmentClient&& other) noexcept

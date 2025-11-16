@@ -726,7 +726,7 @@ components:
 
     GatewayHealth:
       type: object
-      required: [alive, generation, instruments]
+      required: [alive, generation, instruments, priced, coverage_pct, subscribe_refusals]
       properties:
         alive:
           type: boolean
@@ -736,7 +736,39 @@ components:
             ids, the book — belongs to a world that no longer exists.
         generation: { $ref: "#/components/schemas/Nanos" }
         last_heartbeat: { $ref: "#/components/schemas/Nanos" }
-        instruments: { type: integer }
+        instruments:
+          type: integer
+          description: |
+            What the venue LISTS — the catalogue's size, and nothing about what
+            is arriving. A gateway carrying a third of it reports the same
+            number as one carrying all of it.
+        priced:
+          type: integer
+          description: |
+            How many of those have actually put a quote on the wire since this
+            gateway started. `alive` cannot answer this: htx ran at 65 of 340
+            for days while every other field here said it was well.
+
+            Cumulative rather than a freshness window, because what it exists
+            to catch is a chunk the venue silently never sends — those cells are
+            never written at all, while a genuinely quiet altcoin would fail any
+            window short enough to be useful. Read it together with
+            `last_heartbeat`: it is only meaningful once the gateway has been up
+            long enough for a slow venue to tick.
+        coverage_pct:
+          type: integer
+          description: |
+            `priced` over `instruments`, rounded down, so a screen and an alert
+            agree on one number instead of each deriving its own. Below 70 is
+            the line `tools/coverage_smoke.sh` draws between a thin tail and a
+            venue dropping a chunk in silence.
+        subscribe_refusals:
+          type: integer
+          description: |
+            Subscriptions the venue answered with NO. Distinct from the silent
+            kind `coverage_pct` catches — a refusal was answered — and counted
+            by thirteen adapters since they were written, with nothing able to
+            read it until now.
 
     Health:
       type: object

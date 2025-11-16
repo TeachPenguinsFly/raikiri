@@ -315,6 +315,12 @@ public:
                                    [](const auto& socket) { return socket->pool->connected(); });
     }
 
+    // What this venue's sockets were told no about. Counted by the
+    // adapter since it was written; this is what finally reads it.
+    [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
+        return state_->subscribe_refusals;
+    }
+
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         const auto symbol = state_->instruments.exchange_symbol(instrument);

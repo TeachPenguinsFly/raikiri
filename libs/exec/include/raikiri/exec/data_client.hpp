@@ -32,6 +32,16 @@ public:
     virtual void stop() = 0;
     [[nodiscard]] virtual bool connected() const noexcept = 0;
 
+    // SUBSCRIPTIONS THE VENUE REFUSED. `connected()` answers whether a socket
+    // is up and nothing about whether it is carrying what was asked for — a
+    // venue that answered a third of the catalogue with a refusal and the rest
+    // with silence reports exactly the same `true`.
+    //
+    // Zero from an adapter that does not count them, which is indistinguishable
+    // from none refused and is why coverage is measured beside this rather than
+    // inferred from it.
+    [[nodiscard]] virtual std::uint64_t subscribe_refusals() const noexcept { return 0; }
+
     virtual void poll(UnixNanos now) noexcept { (void)now; }
 
     virtual std::expected<void, VenueError> subscribe(SubKind kind, InstrumentId instrument) {
