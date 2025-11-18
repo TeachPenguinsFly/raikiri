@@ -328,12 +328,19 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
+    // AN EMPTY SYMBOL ASKS FOR THE WHOLE ACCOUNT, and that is what a
+    // reconciliation wants. Measured 2026-09-16: /fapi/v1/userTrades answers
+    // without one, across every contract — unlike the SPOT tree's myTrades and
+    // unlike mexc, bingx and htx, which genuinely demand one and whose adapters
+    // refuse the pull outright and say why.
     Appender q{query_};
-    q << "symbol=" << symbol;
-    if (since.ns != 0) {
-        q << "&startTime=" << to_ms(since);
+    if (!symbol.empty()) {
+        q << "symbol=" << symbol << "&";
     }
-    q << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
+    if (since.ns != 0) {
+        q << "startTime=" << to_ms(since) << "&";
+    }
+    q << "recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }

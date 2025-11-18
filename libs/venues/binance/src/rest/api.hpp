@@ -177,12 +177,12 @@ public:
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
-        const auto* instrument = first_known_instrument();
-        if (instrument == nullptr) {
-            return std::vector<exec::FillReport>{};
-        }
-        const auto request = builder().user_trades(
-            base_of(*instrument).exchange_symbol.view(), since, state_->venue_now());
+        // THE WHOLE ACCOUNT, not one contract. This asked for
+        // `first_known_instrument()` — whichever row happened to load first —
+        // and reported success with the trades of a symbol nobody traded,
+        // which reads in a log exactly like an account that did nothing. The
+        // endpoint never needed a symbol; see the builder.
+        const auto request = builder().user_trades({}, since, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
         }
