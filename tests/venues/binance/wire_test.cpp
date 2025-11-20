@@ -347,6 +347,13 @@ TEST(BinanceWire, TheFundingScheduleIsReadFromTheOnlyPlaceBinanceStatesIt) {
     EXPECT_EQ((*rows)[1].interval_hours, 4U);
     EXPECT_EQ((*rows)[2].symbol, "ARKUSDT");
     EXPECT_EQ((*rows)[2].interval_hours, 1U);
+
+    // THE CAPS WERE IN THIS FIXTURE FROM THE DAY IT WAS CAPTURED, read by
+    // nothing. A rate resting on its ceiling is demand the venue stopped
+    // pricing, and an analysis that cannot see the ceiling reads it as a rate
+    // that merely happened to be high.
+    EXPECT_EQ((*rows)[0].cap, "0.02000000");
+    EXPECT_EQ((*rows)[0].floor, "-0.02000000");
 }
 
 TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {

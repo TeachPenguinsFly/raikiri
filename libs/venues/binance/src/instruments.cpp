@@ -91,7 +91,12 @@ public:
         // which is the honest outcome. Defaulting them to eight hours instead
         // would put binance's 465 four-hour perps on the board at half the
         // funding they actually pay.
-        std::unordered_map<std::string_view, std::uint32_t> schedule;
+        struct Schedule {
+            std::uint32_t interval_s{0};
+            FixedE9 cap{};
+            FixedE9 floor{};
+        };
+        std::unordered_map<std::string_view, Schedule> schedule;
         const auto funding =
             await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
         if (!funding.has_value() || funding->transport_failed()) {
@@ -106,8 +111,19 @@ public:
             } else {
                 schedule.reserve(rows->size());
                 for (const auto& row : *rows) {
-                    if (row.interval_hours != 0) {
-                        schedule.emplace(row.symbol, row.interval_hours * 3600U);
+                    Schedule entry{};
+                    entry.interval_s = row.interval_hours * 3600U;
+                    // A cap that will not parse is left UNDEF rather than
+                    // clamped to something: "we do not know the ceiling" and
+                    // "the ceiling is zero" lead to opposite decisions.
+                    if (const auto cap = parse_decimal_e9(row.cap); cap.has_value()) {
+                        entry.cap = *cap;
+                    }
+                    if (const auto floor = parse_decimal_e9(row.floor); floor.has_value()) {
+                        entry.floor = *floor;
+                    }
+                    if (entry.interval_s != 0 || !entry.cap.is_undef()) {
+                        schedule.emplace(row.symbol, entry);
                     }
                 }
             }
@@ -118,12 +134,19 @@ public:
         state_->instruments.reserve(wire->size());
         for (const auto& row : *wire) {
             auto entry = row;
-            if (const auto found = schedule.find(entry.symbol); found != schedule.end()) {
-                entry.funding_interval_s = found->second;
+            const auto found = schedule.find(entry.symbol);
+            if (found != schedule.end()) {
+                entry.funding_interval_s = found->second.interval_s;
             }
             auto instrument = map_instrument(entry, market);
             if (!instrument.has_value()) {
                 continue; // not trading, not this market, or missing a filter
+            }
+            if (found != schedule.end()) {
+                if (auto* perp = std::get_if<PerpInstrument>(&*instrument); perp != nullptr) {
+                    perp->funding_cap = found->second.cap;
+                    perp->funding_floor = found->second.floor;
+                }
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {

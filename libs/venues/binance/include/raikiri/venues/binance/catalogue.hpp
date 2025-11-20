@@ -44,6 +44,10 @@ struct InstrumentBuffer {
 struct WireFundingInfo {
     std::string_view symbol;
     std::uint32_t interval_hours{0};
+    // adjustedFundingRateCap / adjustedFundingRateFloor, as binance writes
+    // them: decimal strings of a per-interval rate, not an annual one.
+    std::string_view cap;
+    std::string_view floor;
 };
 
 inline constexpr std::size_t k_max_funding_info = k_max_instruments;

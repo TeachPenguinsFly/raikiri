@@ -79,7 +79,16 @@ struct SpotInstrument {
 struct PerpInstrument {
     InstrumentBase base{};
     std::uint32_t funding_interval_s{0};
+    // WHAT THE VENUE WILL NOT CHARGE BEYOND. A rate sitting exactly on its cap
+    // is a different fact from a rate that happens to be high: the first is
+    // demand the venue stopped pricing, so the spread it implies is wider than
+    // the rate says and the next settlement is no evidence about the one
+    // after. UNDEF where a venue does not publish them, which is most of them
+    // — a cap assumed is a cap that will be compared against.
+    FixedE9 funding_cap{};
+    FixedE9 funding_floor{};
 };
+
 
 struct FutureInstrument {
     InstrumentBase base{};
@@ -94,6 +103,11 @@ struct OptionInstrument {
     UnixNanos expiry{};
     PutCall put_call{PutCall::Call};
 };
+
+// The variant is sized by OptionInstrument, so a perpetual's funding caps cost
+// nothing in a catalogue cell and no segment ABI moved to carry them. Stated
+// rather than left to luck: a field added past this grows every cell.
+static_assert(sizeof(PerpInstrument) <= sizeof(OptionInstrument));
 
 using Instrument = std::variant<SpotInstrument, PerpInstrument, FutureInstrument, OptionInstrument>;
 
