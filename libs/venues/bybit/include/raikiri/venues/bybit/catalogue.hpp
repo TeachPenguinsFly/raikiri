@@ -33,6 +33,11 @@ struct WireInstrument {
     // eight hours: 40 rows carry it today, and a board that reads 0 as a
     // default settles an edge against a schedule nobody published.
     std::uint64_t funding_interval_min{0};
+    // upperFundingRate / lowerFundingRate: the per-interval rate bybit will
+    // not charge beyond. Not uniform — BTC and ETH are held to 0.333% while
+    // most of the catalogue sits at 2%.
+    std::string_view funding_cap;
+    std::string_view funding_floor;
     std::string_view status; // "Trading" for live instruments
 };
 

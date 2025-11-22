@@ -1,69 +1,75 @@
 {
-  "category": "linear",
-  "list": [
-    {
-      "symbol": "BTCUSDT",
-      "contractType": "LinearPerpetual",
-      "status": "Trading",
-      "baseCoin": "BTC",
-      "quoteCoin": "USDT",
-      "launchTime": "1585526400000",
-      "priceScale": "2",
-      "fundingInterval": 480,
-      "lotSizeFilter": {
-        "maxOrderQty": "100.000",
-        "minOrderQty": "0.001",
-        "qtyStep": "0.001",
-        "minNotionalValue": "5"
-      },
-      "priceFilter": {
-        "minPrice": "0.10",
-        "maxPrice": "199999.80",
-        "tickSize": "0.10"
-      }
-    },
-    {
-      "symbol": "ETHUSDT",
-      "contractType": "LinearPerpetual",
-      "status": "Trading",
-      "baseCoin": "ETH",
-      "quoteCoin": "USDT",
-      "launchTime": "1585526400000",
-      "priceScale": "2",
-      "fundingInterval": 480,
-      "lotSizeFilter": {
-        "maxOrderQty": "5000.00",
-        "minOrderQty": "0.01",
-        "qtyStep": "0.01",
-        "minNotionalValue": "5"
-      },
-      "priceFilter": {
-        "minPrice": "0.01",
-        "maxPrice": "99999.99",
-        "tickSize": "0.01"
-      }
-    },
-    {
-      "symbol": "ARKUSDT",
-      "contractType": "LinearPerpetual",
-      "status": "Trading",
-      "baseCoin": "ARK",
-      "quoteCoin": "USDT",
-      "launchTime": "1690869317000",
-      "priceScale": "5",
-      "fundingInterval": 60,
-      "lotSizeFilter": {
-        "maxOrderQty": "420000",
-        "minOrderQty": "1",
-        "qtyStep": "1",
-        "minNotionalValue": "5"
-      },
-      "priceFilter": {
-        "minPrice": "0.00001",
-        "maxPrice": "199.99998",
-        "tickSize": "0.00001"
-      }
-    }
-  ],
-  "nextPageCursor": ""
+ "category": "linear",
+ "list": [
+  {
+   "symbol": "BTCUSDT",
+   "contractType": "LinearPerpetual",
+   "status": "Trading",
+   "baseCoin": "BTC",
+   "quoteCoin": "USDT",
+   "launchTime": "1585526400000",
+   "priceScale": "2",
+   "fundingInterval": 480,
+   "upperFundingRate": "0.00333",
+   "lowerFundingRate": "-0.00333",
+   "lotSizeFilter": {
+    "maxOrderQty": "100.000",
+    "minOrderQty": "0.001",
+    "qtyStep": "0.001",
+    "minNotionalValue": "5"
+   },
+   "priceFilter": {
+    "minPrice": "0.10",
+    "maxPrice": "199999.80",
+    "tickSize": "0.10"
+   }
+  },
+  {
+   "symbol": "ETHUSDT",
+   "contractType": "LinearPerpetual",
+   "status": "Trading",
+   "baseCoin": "ETH",
+   "quoteCoin": "USDT",
+   "launchTime": "1585526400000",
+   "priceScale": "2",
+   "fundingInterval": 480,
+   "upperFundingRate": "0.00333",
+   "lowerFundingRate": "-0.00333",
+   "lotSizeFilter": {
+    "maxOrderQty": "5000.00",
+    "minOrderQty": "0.01",
+    "qtyStep": "0.01",
+    "minNotionalValue": "5"
+   },
+   "priceFilter": {
+    "minPrice": "0.01",
+    "maxPrice": "99999.99",
+    "tickSize": "0.01"
+   }
+  },
+  {
+   "symbol": "ARKUSDT",
+   "contractType": "LinearPerpetual",
+   "status": "Trading",
+   "baseCoin": "ARK",
+   "quoteCoin": "USDT",
+   "launchTime": "1690869317000",
+   "priceScale": "5",
+   "fundingInterval": 60,
+   "upperFundingRate": "0.02",
+   "lowerFundingRate": "-0.02",
+   "lotSizeFilter": {
+    "maxOrderQty": "420000",
+    "minOrderQty": "1",
+    "qtyStep": "1",
+    "minNotionalValue": "5"
+   },
+   "priceFilter": {
+    "minPrice": "0.00001",
+    "maxPrice": "199.99998",
+    "tickSize": "0.00001"
+   }
+  }
+ ],
+ "nextPageCursor": ""
 }

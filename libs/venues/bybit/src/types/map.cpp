@@ -467,8 +467,16 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // one does not merely mislabel a row — it halves or doubles the edge the
     // board ranks on. 0 stays 0: the venue declining to state it must not
     // arrive downstream as a schedule.
-    return PerpInstrument{base,
-                          static_cast<std::uint32_t>(wire.funding_interval_min * 60)};
+    PerpInstrument perp{base, static_cast<std::uint32_t>(wire.funding_interval_min * 60)};
+    // UNDEF where it will not parse, never clamped: "we do not know the
+    // ceiling" and "the ceiling is zero" lead to opposite decisions.
+    if (const auto cap = parse_decimal_e9(wire.funding_cap); cap.has_value()) {
+        perp.funding_cap = *cap;
+    }
+    if (const auto floor = parse_decimal_e9(wire.funding_floor); floor.has_value()) {
+        perp.funding_floor = *floor;
+    }
+    return perp;
 }
 
 } // namespace raikiri::venues::bybit

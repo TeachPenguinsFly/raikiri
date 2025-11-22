@@ -69,6 +69,37 @@ TEST(BybitMapInstrument, TheSettlementScheduleIsTheVenuesAndNotAConstant) {
     EXPECT_EQ(std::get<PerpInstrument>(*unstated).funding_interval_s, 0U);
 }
 
+TEST(BybitMapInstrument, TheCeilingIsCarriedAndAnAbsentOneStaysUnstated) {
+    // A rate resting on its cap is demand the venue stopped pricing, so the
+    // next settlement is no evidence about the one after. The caps are not
+    // uniform either — bybit holds BTC and ETH to 0.333% while most of the
+    // catalogue sits at 2% — so this cannot be a constant.
+    WireInstrument wire{};
+    wire.base_coin = "BTC";
+    wire.quote_coin = "USDT";
+    wire.symbol = "BTCUSDT";
+    wire.contract_type = "LinearPerpetual";
+    wire.status = "Trading";
+    wire.tick_size = "0.10";
+    wire.qty_step = "0.001";
+    wire.min_notional = "5";
+    wire.funding_interval_min = 480;
+    wire.funding_cap = "0.00333";
+    wire.funding_floor = "-0.00333";
+    const auto capped = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(capped.has_value());
+    EXPECT_EQ(std::get<PerpInstrument>(*capped).funding_cap.raw, 3'330'000);
+    EXPECT_EQ(std::get<PerpInstrument>(*capped).funding_floor.raw, -3'330'000);
+
+    // UNDEF, NOT ZERO. A floor of zero is a claim that the venue never pays.
+    wire.funding_cap = {};
+    wire.funding_floor = {};
+    const auto silent = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(silent.has_value());
+    EXPECT_TRUE(std::get<PerpInstrument>(*silent).funding_cap.is_undef());
+    EXPECT_TRUE(std::get<PerpInstrument>(*silent).funding_floor.is_undef());
+}
+
 TEST(BybitMapInstrument, ADatedContractIsNotAPerpetual) {
     // Bybit's linear catalogue carries the whole futures curve beside the
     // perpetual. Interning a dated row as a perp gave it the canonical name of
