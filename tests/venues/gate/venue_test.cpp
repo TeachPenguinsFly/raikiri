@@ -305,6 +305,10 @@ TEST(GateWire, ContractsAreATopLevelArray) {
     EXPECT_EQ(btc->quanto_multiplier, "0.0001"); // one contract is 0.0001 BTC
     EXPECT_FALSE(btc->in_delisting);
     EXPECT_EQ(btc->funding_interval_s, 28'800U);
+    // SYMMETRIC, and in this fixture since it was captured while nothing read
+    // it. A rate resting on its limit is demand the venue stopped pricing —
+    // and gate's limits are not uniform: 0.3% on BTC against 2% on SATS.
+    EXPECT_EQ(btc->funding_rate_limit, "0.003");
     // Gate's own SDK documents order_size_min as a string; the live endpoint
     // sends an integer. Scalars are read from the raw token for exactly this.
     EXPECT_EQ(btc->order_size_min, "1");
@@ -588,10 +592,22 @@ TEST(GateMap, FundingIntervalIsCarriedOntoThePerp) {
     wire.order_price_round = "0.1";
     wire.quanto_multiplier = "0.0001";
     wire.funding_interval_s = 14'400;
+    wire.funding_rate_limit = "0.02";
     const auto instrument = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(instrument.has_value());
     ASSERT_TRUE(std::holds_alternative<PerpInstrument>(*instrument));
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_interval_s, 14'400U);
+    // ONE FIELD, TWO SIDES. Gate states a single limit and means it both ways,
+    // unlike binance and bybit, which each publish the ceiling and the floor.
+    EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_cap.raw, 20'000'000);
+    EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_floor.raw, -20'000'000);
+
+    // UNDEF, NOT ZERO, when the venue says nothing: a floor of zero is a claim
+    // that gate never pays.
+    wire.funding_rate_limit = {};
+    const auto silent = map_instrument(wire, MarketType::Perp);
+    ASSERT_TRUE(silent.has_value());
+    EXPECT_TRUE(std::get<PerpInstrument>(*silent).funding_cap.is_undef());
 }
 
 TEST(GateMap, DelistingAndNonTradingRowsAreRefused) {

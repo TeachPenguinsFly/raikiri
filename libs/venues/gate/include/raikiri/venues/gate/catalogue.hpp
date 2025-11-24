@@ -25,6 +25,10 @@ struct WireContract {
     std::string_view funding_rate;
     std::uint64_t funding_next_apply_s{0};
     std::uint32_t funding_interval_s{0};
+    // funding_rate_limit: SYMMETRIC here, unlike binance and bybit, which each
+    // publish the two sides separately. One field, applied as +limit and
+    // -limit, because that is what the venue means by it.
+    std::string_view funding_rate_limit;
     bool in_delisting{false};
 };
 

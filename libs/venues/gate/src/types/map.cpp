@@ -247,7 +247,15 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     // /futures/btc/contracts returns inverse contracts against this same
     // parser, so a new settle currency means deciding this per row.
     base.kind = ContractKind::Linear;
-    return PerpInstrument{base, wire.funding_interval_s};
+    PerpInstrument perp{base, wire.funding_interval_s};
+    // UNDEF where it will not parse, never clamped to zero: a floor of zero
+    // would read as a venue that never pays.
+    if (const auto limit = parse_decimal_e9(wire.funding_rate_limit);
+        limit.has_value() && limit->raw > 0) {
+        perp.funding_cap = *limit;
+        perp.funding_floor = FixedE9::from_raw(-limit->raw);
+    }
+    return perp;
 }
 
 std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
