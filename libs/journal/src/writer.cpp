@@ -109,28 +109,52 @@ JournalWriter::open(std::string dir,
 
     const auto segments = detail::list_segments(w.dir_, w.prefix_);
     if (segments.empty()) {
-        if (auto r = w.open_segment(0, /*recover=*/false); !r.has_value()) {
+        if (auto r = w.open_segment(0, SegmentOpen::Create); !r.has_value()) {
             return std::unexpected{r.error()};
         }
-    } else {
-        // Recover the newest segment; earlier ones are sealed history.
-        if (auto r = w.open_segment(segments.back(), /*recover=*/true); !r.has_value()) {
+        return w;
+    }
+    // A BLANK NEWEST SEGMENT IS AN INTERRUPTED ROTATION, not corruption. It
+    // holds no frames by definition — a frame is only findable through a
+    // header that was never written — so the sequence continues from the
+    // segment before it, and the blank file is initialised in place.
+    if (detail::segment_is_blank(detail::segment_path(w.dir_, w.prefix_, segments.back()))) {
+        if (segments.size() >= 2) {
+            if (auto r = w.open_segment(segments[segments.size() - 2], SegmentOpen::Recover);
+                !r.has_value()) {
+                return std::unexpected{r.error()};
+            }
+            // RE-SEALED, because Recover clears the flag on the assumption that
+            // it is about to be appended to — and here it is not. A reader
+            // stops at the end of an unsealed segment and waits for more, so
+            // leaving it open would hide every frame written after the crash.
+            w.header_->sealed.store(1, std::memory_order_release);
+        }
+        if (auto r = w.open_segment(segments.back(), SegmentOpen::Adopt); !r.has_value()) {
             return std::unexpected{r.error()};
         }
+        return w;
+    }
+    // Recover the newest segment; earlier ones are sealed history.
+    if (auto r = w.open_segment(segments.back(), SegmentOpen::Recover); !r.has_value()) {
+        return std::unexpected{r.error()};
     }
     return w;
 }
 
 std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segment_seq,
-                                                              bool recover) noexcept {
+                                                              SegmentOpen how) noexcept {
     close_segment();
 
+    const bool recover = how == SegmentOpen::Recover;
     const std::string path = detail::segment_path(dir_, prefix_, segment_seq);
-    const int flags = recover ? O_RDWR : (O_RDWR | O_CREAT | O_EXCL);
+    const int flags = how == SegmentOpen::Create ? (O_RDWR | O_CREAT | O_EXCL) : O_RDWR;
     fd_ = ::open(path.c_str(), flags, 0600);
     if (fd_ < 0) {
         return std::unexpected{JournalError::OpenFailed};
     }
+    // Adopting re-runs the preallocation: the crash may equally have landed in
+    // the middle of that, leaving a file shorter than a segment.
     if (!recover && !platform::preallocate(fd_, segment_bytes_).has_value()) {
         return std::unexpected{JournalError::OpenFailed};
     }
@@ -185,7 +209,7 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
     const std::size_t need = frame_bytes(payload.size());
     if (write_off_ + need > segment_bytes_) {
         header_->sealed.store(1, std::memory_order_release);
-        if (auto r = open_segment(segment_seq_ + 1, /*recover=*/false); !r.has_value()) {
+        if (auto r = open_segment(segment_seq_ + 1, SegmentOpen::Create); !r.has_value()) {
             return std::unexpected{JournalError::RotateFailed};
         }
         // AFTER the new segment exists, never before: a rotate that failed to

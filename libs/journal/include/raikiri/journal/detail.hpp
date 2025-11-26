@@ -16,6 +16,16 @@ namespace raikiri::journal::detail {
 [[nodiscard]] std::string
 segment_path(const std::string& dir, const std::string& prefix, std::uint64_t segment_seq);
 
+// A segment file that was created and never written to.
+//
+// ROTATION IS TWO STEPS — create the file, then write its header — and a
+// process killed between them leaves exactly this: the right size, all zeros,
+// no magic. It holds no frames, because a frame is only reachable through the
+// header, so it is safe to initialise in place. Distinguishing it from real
+// corruption matters: corruption is a file with a wrong magic, and that must
+// still be refused rather than overwritten.
+[[nodiscard]] bool segment_is_blank(const std::string& path) noexcept;
+
 // Ascending segment seqs found under dir for prefix; empty when none.
 [[nodiscard]] std::vector<std::uint64_t> list_segments(const std::string& dir,
                                                        const std::string& prefix);

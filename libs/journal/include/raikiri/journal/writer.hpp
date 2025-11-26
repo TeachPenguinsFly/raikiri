@@ -70,8 +70,16 @@ public:
 private:
     JournalWriter() = default;
 
+    // HOW A SEGMENT FILE IS TAKEN OVER, and Adopt is the one a crash makes
+    // necessary. Rotation creates the next file and then writes its header;
+    // a process killed between those two leaves a sized, all-zero file that
+    // Recover rejects as BadMagic — and the whole journal, history included,
+    // becomes unopenable because the newest file is the one the writer starts
+    // from. Adopt says: this file was never written to, so initialise it.
+    enum class SegmentOpen : std::uint8_t { Create, Recover, Adopt };
+
     [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq,
-                                                                 bool recover) noexcept;
+                                                                 SegmentOpen how) noexcept;
     void close_segment() noexcept;
     void prune_sealed() noexcept;
     // Whole-journal exclusion, held for this writer's life. Not per segment:

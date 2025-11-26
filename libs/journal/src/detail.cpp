@@ -2,9 +2,12 @@
 
 #include <crc32c/crc32c.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <charconv>
 #include <cstring>
@@ -32,6 +35,22 @@ segment_path(const std::string& dir, const std::string& prefix, std::uint64_t se
     char num[8];
     std::snprintf(num, sizeof num, "%06llu", static_cast<unsigned long long>(segment_seq));
     return dir + "/" + prefix + "." + num + ".rj";
+}
+
+bool segment_is_blank(const std::string& path) noexcept {
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    std::array<std::byte, k_header_bytes> head{};
+    const auto got = ::pread(fd, head.data(), head.size(), 0);
+    ::close(fd);
+    if (got != static_cast<ssize_t>(head.size())) {
+        // Shorter than a header is also an interrupted creation: the
+        // preallocation is what sizes the file and it had not finished.
+        return got >= 0;
+    }
+    return std::ranges::all_of(head, [](std::byte b) { return b == std::byte{0}; });
 }
 
 std::vector<std::uint64_t> list_segments(const std::string& dir, const std::string& prefix) {

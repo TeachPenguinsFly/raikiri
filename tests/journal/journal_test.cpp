@@ -1,4 +1,5 @@
 #include <raikiri/domain/identifiers.hpp>
+#include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/schema/codec.hpp>
@@ -228,6 +229,71 @@ TEST(Journal, Kill9MidWriteLeavesCleanPrefix) {
     auto writer = JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());
     EXPECT_EQ(writer->next_seq(), expect);
+}
+
+TEST(Journal, ASegmentCreatedButNeverHeaderedIsAdoptedRatherThanRefused) {
+    // ROTATION IS TWO STEPS and a crash fits between them: the next segment
+    // file is created and sized, and only then does its header get written.
+    // Killed in that window, the newest file on disk is the right length and
+    // entirely zero — and a writer that recovers the newest segment read it as
+    // BadMagic and refused to open the journal AT ALL, history included.
+    //
+    // The blank file can hold no frames, because a frame is only reachable
+    // through the header that was never written. So it is initialised in
+    // place, and the sequence continues from the segment before it.
+    const FreshDir dir{"blank-rotate"};
+
+    constexpr std::size_t k_small = 1 << 16;
+    std::uint64_t wrote = 0;
+    {
+        auto writer = JournalWriter::open(dir, "journal", k_small);
+        ASSERT_TRUE(writer.has_value());
+        // Enough to roll at least once, so there is a sealed segment behind
+        // the blank one — the case where the sequence has to be recovered.
+        for (std::uint64_t i = 1; i <= 2'000; ++i) {
+            EXPECT_EQ(append_bbo(*writer, i), i);
+            wrote = i;
+        }
+        ASSERT_GT(writer->segment_seq(), 0U);
+    }
+
+    // The interrupted rotation, reproduced exactly: create the next file,
+    // preallocate it, write nothing.
+    {
+        std::uint64_t next = 0;
+        {
+            auto tail = JournalWriter::open(dir, "journal", k_small);
+            ASSERT_TRUE(tail.has_value());
+            next = tail->segment_seq() + 1;
+        }
+        // Named by the writer's own rule, not by a copy of it: a test that
+        // spells the filename itself passes against a name nothing reads.
+        const auto name = journal::detail::segment_path(dir, "journal", next);
+        const int fd = ::open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+        ASSERT_GE(fd, 0);
+        ASSERT_EQ(::ftruncate(fd, static_cast<off_t>(k_small)), 0);
+        ::close(fd);
+    }
+
+    {
+        auto reopened = JournalWriter::open(dir, "journal", k_small);
+        ASSERT_TRUE(reopened.has_value())
+            << "a blank newest segment must not lock out the journal";
+        EXPECT_EQ(reopened->next_seq(), wrote + 1)
+            << "the sequence continues, it does not restart";
+        EXPECT_EQ(append_bbo(*reopened, wrote + 1), wrote + 1);
+    }
+
+    // And everything written before the interrupted rotation is still there.
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    std::uint64_t seen = 0;
+    while (reader->next(frame) == ReadResult::Item) {
+        ++seen;
+        ASSERT_EQ(frame.seq, seen);
+    }
+    EXPECT_EQ(seen, wrote + 1);
 }
 
 // Two writers on one journal is the configuration that loses data silently:
