@@ -2,6 +2,8 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/trust_store.hpp>
 
+#include "sni.hpp"
+
 #include <openssl/ssl.h>
 
 #include <boost/asio/error.hpp>
@@ -388,7 +390,7 @@ private:
             return;
         }
         if (!is_ip_literal(cfg_.host) &&
-            SSL_set_tlsext_host_name(conn->stream.native_handle(), cfg_.host.c_str()) != 1) {
+            !detail::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
             on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
             return;
         }

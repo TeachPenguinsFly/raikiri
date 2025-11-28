@@ -36,12 +36,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // many words, the rest never leave the futures host.
         .position_pull = {.perp = true},
         .order_pull = {.perp = true},
+        .fill_pull = {.perp = true},
         .balance_pull = {.perp = true},
         .funding_charge = {.perp = true},
         // NOT on a stream: /fapi/v1/ticker/24hr, polled beside the funding
         // read, because binance states no turnover on the mark-price frame.
         .ticker_stats = true, // volume (base) / quoteVolume
-        .fill_pull = {.perp = true},
         .user_stream = UserStreamModel::ListenKey,
         .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 100,
@@ -64,6 +64,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // linear or option", once every pass, forever.
         .position_pull = {.perp = true},
         .order_pull = {.spot = true, .perp = true},
+        .fill_pull = {.spot = true, .perp = true},
         // No category on this one: a unified account is ONE wallet behind both
         // markets, so the same read answers for either.
         .balance_pull = {.spot = true, .perp = true},
@@ -71,7 +72,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // trade fees and no settlements — spot has no funding to charge.
         .funding_charge = {.spot = true, .perp = true},
         .ticker_stats = true, // volume24h/turnover24h, snapshot frames only
-        .fill_pull = {.spot = true, .perp = true},
         .user_stream = UserStreamModel::AuthSubscribe,
         .max_client_order_id_len = 36,
         .headline_order_rate_per_s = 10,
@@ -151,12 +151,12 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // the spot wallet is on the other host behind another envelope. The
         // spot arms refuse rather than read the wrong account.
         .position_pull = {.perp = true},
-        .balance_pull = {.perp = true},
         .order_pull = {.spot = true, .perp = true},
         // PERP ONLY. The spot fills endpoint belongs to the per-symbol family
         // — its sibling is refused without a symbol in this same adapter — and
         // this pull names a market and no symbol.
         .fill_pull = {.perp = true},
+        .balance_pull = {.perp = true},
         // NEITHER MARKET, and this venue is the one where that is a decision
         // rather than an absence. /api/v1/funding-history exists, states its
         // sign convention outright and mints a row id — but `symbol` is
@@ -229,11 +229,11 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // a spot question out of the futures account.
         .position_pull = {.perp = true},
         .order_pull = {.spot = true, .perp = true},
+        .fill_pull = {.spot = true, .perp = true},
+        .balance_pull = {.perp = true},
         // VERIFIED live: /future/user/v1/balance/bills states FUND and FEE rows
         // with the amount already signed. A futures path, so perp alone.
         .funding_charge = {.perp = true},
-        .balance_pull = {.perp = true},
-        .fill_pull = {.spot = true, .perp = true},
         // Futures fills only the quote column: `v` is quote turnover and `a`
         // is a CONTRACT count, which compares with no other venue. Spot
         // fills both, `q` base and `v` quote.
@@ -362,7 +362,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .cancel_by_client_order_id = true,
         .batch_cancel = true,
         .native_post_only = true,
-        .needs_passphrase = true,
         // Positions and open orders are DIFFERENT questions, and coinbase
         // answers only the second: it serves spot, where there is no position
         // to report and orders very much rest. Fills are per-product here, and
@@ -371,6 +370,7 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // volume_24h, in the BASE asset. The quote column stays ZERO: this
         // venue publishes no turnover on the ticker channel at all.
         .ticker_stats = true,
+        .needs_passphrase = true,
         .user_stream = UserStreamModel::AuthSubscribe,
         // UUIDv4 and ONLY a UUIDv4: anything else is accepted by REST and
         // then silently never processed. The ULID is converted, not sent.
@@ -596,16 +596,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // The bare path — no `symbol` — answers for every contract; measured
         // against the account holding one order.
         .order_pull = {.perp = true},
-        // PROVEN LIVE 2026-09-15: thirteen real settlements came back, signed
-        // both ways, each with its settlement time and the venue's reference.
-        //   POST /capi/v3/account/income filtered to incomeType
-        //   "position_funding", whose `income` is already signed the way the
-        //   account moved.
-        .funding_charge = {.perp = true},
-        // PROVEN LIVE 2026-09-15: one USDT asset, and the figure tracked a
-        // real order's margin out and back.
-        //   GET /capi/v3/account/balance.
-        .balance_pull = {.perp = true},
         // THE ENDPOINT IS PROVEN, THE MAPPING IS HALF PROVEN. 2026-09-15 it
         // answered two real fills — a taker buy and a maker sell — and
         // parse_fills read both off the live bytes, which match the fixture
@@ -621,6 +611,16 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // venue with no private socket, so a fill's price, fee and exec id
         // reach this process through NOTHING — only the position moves.
         .fill_pull = {.perp = true},
+        // PROVEN LIVE 2026-09-15: one USDT asset, and the figure tracked a
+        // real order's margin out and back.
+        //   GET /capi/v3/account/balance.
+        .balance_pull = {.perp = true},
+        // PROVEN LIVE 2026-09-15: thirteen real settlements came back, signed
+        // both ways, each with its settlement time and the venue's reference.
+        //   POST /capi/v3/account/income filtered to incomeType
+        //   "position_funding", whose `income` is already signed the way the
+        //   account moved.
+        .funding_charge = {.perp = true},
         // <sym>@ticker's `v` (base) and `q` (quote). BOTH columns are real
         // here: `v` times the same frame's weighted average `w` reproduced `q`
         // to five figures live, so the sizes on this venue are base amounts and

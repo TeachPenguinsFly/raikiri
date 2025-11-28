@@ -2,6 +2,8 @@
 #include <raikiri/net/trust_store.hpp>
 #include <raikiri/net/ws_client.hpp>
 
+#include "sni.hpp"
+
 #include <openssl/ssl.h>
 
 #include <boost/asio/buffer.hpp>
@@ -247,8 +249,8 @@ private:
         }
         state_ = State::TlsHandshake;
         if (!is_ip_literal(cfg_.host) &&
-            SSL_set_tlsext_host_name(conn->stream.next_layer().native_handle(),
-                                     cfg_.host.c_str()) != 1) {
+            !detail::set_sni_host(conn->stream.next_layer().native_handle(),
+                                  cfg_.host.c_str())) {
             close_with(WsCloseReason::Transport);
             return;
         }

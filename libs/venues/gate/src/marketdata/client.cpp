@@ -65,9 +65,12 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        if (const auto book = target.snapshot(s_to_unix(wire->update_s), response.received);
-            book.has_value()) {
-            owner->sink->on_depth(*book);
+        // NOT `book`: the enclosing function takes a DepthBook& by that name,
+        // and shadowing it here reads as the ladder rather than the snapshot
+        // taken from it.
+        if (const auto seeded = target.snapshot(s_to_unix(wire->update_s), response.received);
+            seeded.has_value()) {
+            owner->sink->on_depth(*seeded);
         }
     };
     if (state.depth_rest.send(

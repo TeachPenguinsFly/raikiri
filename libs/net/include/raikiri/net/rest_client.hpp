@@ -56,7 +56,10 @@ struct RestRequest {
     HttpMethod method{HttpMethod::Post};
     std::string_view target;         // "/v5/order/create?a=b"
     std::string_view body;           // JSON, usually from JsonWriter
-    std::vector<HttpHeader> headers; // signature, api key, timestamps
+    // BRACED, like every other member here. A request without headers is the
+    // ordinary case for a public GET, and a designated initialiser that leaves
+    // it out must not be a warning gcc makes fatal.
+    std::vector<HttpHeader> headers{}; // signature, api key, timestamps
     std::string_view content_type{"application/json"};
 };
 

@@ -221,7 +221,9 @@ struct AccountBalances {
 struct Problem {
     std::string title;
     std::int32_t status{0};
-    std::optional<std::string> detail;
+    // BRACED: a problem with a title and a status and nothing more to say is
+    // a complete problem, and naming only those two must stay legal.
+    std::optional<std::string> detail{};
 };
 
 } // namespace raikiri::admin

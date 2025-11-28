@@ -192,7 +192,12 @@ private:
         // on_stop, so an event polled during that hook lands nowhere. One
         // field for both would deliver it.
         bool subscribed{false};
-        std::stop_token stop;
+        // BRACED, unlike every other member here, because it is the only one
+        // without a default of its own — and a designated initialiser that
+        // does not name it is then a missing-field warning that gcc makes
+        // fatal. A default stop_token is the right state for an instance that
+        // has not been started: nothing can ask it to stop yet.
+        std::stop_token stop{};
         std::size_t cancelled_on_stop{0};
     };
 

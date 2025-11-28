@@ -54,7 +54,10 @@ struct MovedBody {
     // A STOP'S ANSWER, and absent on a start. Zero here means a stop that
     // found nothing working, which is a fact worth stating; on a start there
     // is no question, and a zero would look like one that had been asked.
-    std::optional<std::uint64_t> orders_cancelled;
+    // BRACED so a start, which does not name it, is not a missing-field
+    // warning: gcc counts a member with no default of its own, and -Werror
+    // makes that fatal on a line that is deliberately partial.
+    std::optional<std::uint64_t> orders_cancelled{};
 };
 
 struct PositionRow {
@@ -67,7 +70,7 @@ struct PositionRow {
 };
 
 struct PositionsBody {
-    std::vector<PositionRow> positions;
+    std::vector<PositionRow> positions{};
     std::uint32_t strategy_id{0};
 };
 
@@ -85,7 +88,7 @@ struct PnlRow {
 // carry one for the same reason; totals belong in SQL, where the instrument
 // row carries the symbols.
 struct PnlBody {
-    std::vector<PnlRow> pnl;
+    std::vector<PnlRow> pnl{};
     std::uint32_t strategy_id{0};
 };
 

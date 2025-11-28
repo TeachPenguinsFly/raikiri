@@ -166,8 +166,8 @@ private:
     struct Buffered {
         std::uint64_t first_id{0};
         std::uint64_t last_id{0};
-        std::vector<Level> bids;
-        std::vector<Level> asks;
+        std::vector<Level> bids{};
+        std::vector<Level> asks{};
     };
 
     [[nodiscard]] std::optional<Level> convert(const WireLevel& wire) const;
