@@ -42,7 +42,17 @@ secret_ref() {
 }
 
 venue="${ACCOUNT%%-*}"
-if gcloud secrets describe "${venue}-api-key" >/dev/null 2>&1; then
+
+# CAN THIS BOX ASK AT ALL? The check below reads a failure as "no secret for
+# this venue", which is the right answer when the secret is absent and the
+# wrong one when gcloud could not run — and it could not run for a while,
+# because gcloud is a snap here and snap-confine needs privileges this unit's
+# NoNewPrivileges takes away. The gateway then came up on public data with
+# credentials sitting in Secret Manager, and nothing said so.
+if ! gcloud --version >/dev/null 2>&1; then
+    echo "gateway-run: gcloud will not run here — starting $ACCOUNT on PUBLIC DATA ONLY," \
+         "whatever is in Secret Manager" >&2
+elif gcloud secrets describe "${venue}-api-key" >/dev/null 2>&1; then
     args+=(--api-key="$(secret_ref "${venue}-api-key")")
     args+=(--api-secret="$(secret_ref "${venue}-api-secret")")
     if gcloud secrets describe "${venue}-passphrase" >/dev/null 2>&1; then
