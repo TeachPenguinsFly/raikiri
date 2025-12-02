@@ -36,7 +36,7 @@ struct VenueConfig {
     std::string api_key_env;    // e.g. "BYBIT_API_KEY"
     std::string api_secret_env; // e.g. "BYBIT_API_SECRET"
     std::string passphrase_env; // venues that need it (okx); empty otherwise
-    std::string url_override;   // testing/proxying; empty = venue default
+    std::string url_override{}; // testing/proxying; empty = venue default
 
     // The venue's published budget, owned by the process and SHARED by every
     // adapter pointed at this venue — the order path and the account poller

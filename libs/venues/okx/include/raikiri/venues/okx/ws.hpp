@@ -49,9 +49,12 @@ enum class WsBuildError : std::uint8_t {
 // Sending instId to `orders` narrows the stream to one symbol, which is how a
 // gateway ends up blind to fills on everything else it quotes.
 struct Subscription {
-    std::string_view channel;
-    std::string_view inst_id;
-    std::string_view inst_type;
+    std::string_view channel{};
+    // BRACED: a subscription that names only its channel is the ordinary
+    // public case, and a designated initialiser that leaves these out must not
+    // be a warning gcc makes fatal.
+    std::string_view inst_id{};
+    std::string_view inst_type{};
 };
 
 // The private order channel, per instrument type.

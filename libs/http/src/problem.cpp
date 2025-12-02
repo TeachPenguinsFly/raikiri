@@ -12,7 +12,7 @@ namespace raikiri::http {
 struct ProblemBody {
     std::string title;
     int status{0};
-    std::optional<std::string> detail;
+    std::optional<std::string> detail{};
 };
 
 namespace {

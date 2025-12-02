@@ -54,8 +54,8 @@ struct HttpHeader {
 
 struct RestRequest {
     HttpMethod method{HttpMethod::Post};
-    std::string_view target;         // "/v5/order/create?a=b"
-    std::string_view body;           // JSON, usually from JsonWriter
+    std::string_view target{};       // "/v5/order/create?a=b"
+    std::string_view body{};         // JSON, usually from JsonWriter
     // BRACED, like every other member here. A request without headers is the
     // ordinary case for a public GET, and a designated initialiser that leaves
     // it out must not be a warning gcc makes fatal.

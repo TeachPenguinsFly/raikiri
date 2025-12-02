@@ -130,8 +130,11 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
             return;
         }
         const auto ts_event = ms_to_unix(wire->transaction_ms, response.received);
-        if (const auto book = target.snapshot(ts_event, response.received); book.has_value()) {
-            owner->sink->on_depth(*book);
+        // NOT `book`: the enclosing function takes a DepthBook& by that name,
+        // and shadowing it here reads as the ladder rather than the snapshot
+        // taken from it.
+        if (const auto seeded = target.snapshot(ts_event, response.received); seeded.has_value()) {
+            owner->sink->on_depth(*seeded);
         }
     };
     if (!state.depth_rest.send(
