@@ -139,7 +139,14 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
                     if (!count.has_value()) {
                         return std::unexpected(count.error());
                     }
-                    (side == 0 ? out.bids : out.asks) = {into.data(), *count};
+                    // NAMED, not braced. Assigning a brace list into a span
+                    // works on a plain member and is rejected by libstdc++
+                    // when the target is reached through a reference or a
+                    // conditional, as it is here — measured both ways under
+                    // gcc 14. The sibling adapters write to the member
+                    // directly and are unaffected.
+                    (side == 0 ? out.bids : out.asks) =
+                        std::span<const WireLevel>{into.data(), *count};
                     ++side;
                 }
                 if (side != 2) {
