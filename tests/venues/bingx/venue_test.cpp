@@ -476,8 +476,13 @@ TEST(BingxWire, AnOnlineContractCanStillBeClosedToTheApi) {
     // apiStateClose is false on the same 177: a position there could not be
     // closed through this API either, which is why order entry refuses to open
     // one in the first place.
+    // THE BODY IS NAMED, not passed as a temporary. A parsed row's `symbol` is
+    // a view INTO it, so a temporary dies at the semicolon and every later
+    // read is of freed memory — which usually still holds the right bytes,
+    // which is why this passed for weeks and only ASan disagreed.
     static thread_local ContractBuffer storage;
-    const auto rows = parse_contracts(load("rest_contracts.json"), storage);
+    const auto body = load("rest_contracts.json");
+    const auto rows = parse_contracts(body, storage);
     ASSERT_TRUE(rows.has_value());
     ASSERT_EQ(rows->size(), 5U);
 
