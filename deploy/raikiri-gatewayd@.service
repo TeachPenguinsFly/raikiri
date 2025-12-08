@@ -27,6 +27,20 @@ RestartSec=5s
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
+# EVERY THREAD PAYS FOR THE STATIC TLS BLOCK, and this binary's is 14.5 MiB.
+# The venue adapters keep 153 `static thread_local` wire buffers between them —
+# fixed-size arrays of order, level and instrument rows — and glibc carves the
+# static TLS out of the SAME allocation as a thread's stack. At the default 8
+# MiB there is nothing left: the first thread to need real stack was asio's
+# resolver, which died on its guard page inside getaddrinfo with a backtrace
+# entirely in libc, naming nothing of ours.
+#
+# 64 MiB leaves about 49 for actual frames. It is a workaround and the fix is
+# to stop those buffers being thread_local; until then this is what keeps a
+# gateway from crash-looping on Linux. Apple's TLS allocation does not do this,
+# which is why it only appeared on the first Linux deployment.
+LimitSTACK=67108864
+
 # SHARED MEMORY BELONGS ON A tmpfs. Eighteen segments of 64 MiB, rewritten
 # continuously, are pointless writes on a network disk and will eat an IOPS
 # budget for nothing. RuntimeDirectory gives /run/raikiri, which is tmpfs.
