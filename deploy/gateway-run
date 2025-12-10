@@ -16,6 +16,27 @@ source "$ROOT/share/venue_args.sh"
 
 read -r -a args <<< "$(venue_argv "$ACCOUNT")"
 
+# A DEPLOYMENT MAY NARROW WHAT A VENUE IS ASKED FOR, and this is the only place
+# it can. venue_args.sh holds facts about the VENUE — what okx will answer, how
+# many keys mexc's spot pool carries — and those are the same everywhere. A
+# channel dropped because one box cannot keep up with it is a fact about the
+# box, and writing it there would take the channel away from every desk that
+# can.
+#
+#   RAIKIRI_CHANNELS_BINANCE="bbo,funding"     in /etc/raikiri/raikiri.env
+#
+# The account name uppercased, with dashes as underscores: OKX_SPOT, not
+# okx-spot. An empty or unset value changes nothing.
+override_var="RAIKIRI_CHANNELS_$(printf '%s' "$ACCOUNT" | tr 'a-z-' 'A-Z_')"
+override="${!override_var:-}"
+if [[ -n "$override" ]]; then
+    for i in "${!args[@]}"; do
+        [[ "${args[$i]}" == --channels=* ]] && unset 'args[i]'
+    done
+    args=("${args[@]}" "--channels=$override")
+    echo "gateway-run: $ACCOUNT narrowed to $override by $override_var" >&2
+fi
+
 # HOW THE SECRET REACHES THE PROCESS, and why it is this shape.
 #
 # `exec:` hands gatewayd a COMMAND, and it runs that command and reads the value

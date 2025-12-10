@@ -10,6 +10,13 @@ Description=raikiri gateway — %i
 After=network-online.target
 Wants=network-online.target
 
+# IN [Unit] AND NOT [Service], which is where these sat and were ignored —
+# systemd says so on every reload and the restart ceiling simply never applied.
+# Long enough that a venue rejecting our key does not become a restart loop
+# hammering it: a burst of 5 in 60 s stops the unit and says so.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=raikiri
@@ -22,11 +29,6 @@ WorkingDirectory=/opt/raikiri
 # supervision is the only thing that makes that true.
 Restart=always
 RestartSec=5s
-# Long enough that a venue rejecting our key does not become a restart loop
-# hammering it — a burst of 5 in 60 s stops the unit and says so.
-StartLimitIntervalSec=60
-StartLimitBurst=5
-
 # EVERY THREAD PAYS FOR THE STATIC TLS BLOCK, and this binary's is 14.5 MiB.
 # The venue adapters keep 153 `static thread_local` wire buffers between them —
 # fixed-size arrays of order, level and instrument rows — and glibc carves the
@@ -48,6 +50,18 @@ RuntimeDirectory=raikiri
 RuntimeDirectoryPreserve=yes
 Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
 Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
+
+# WITHOUT THIS THE GATEWAY RUNS UNLIMITED, and unlimited is how a box gets
+# banned. config/venues.yaml is where each venue's published allowance lives;
+# with no budget the rate-refusal handler has nothing to penalize, so a burst
+# of REST — depth seeds re-asking on every delta — keeps going through the
+# venue's 429s until it answers 418 and blocks the IP outright. That happened
+# here on the first deployment: binance banned this address for 24 minutes and
+# every channel it serves went quiet, market data included.
+#
+# The file is an operations file rather than a build artifact, so it is
+# installed beside the unit and not carried in the binary.
+Environment=RAIKIRI_CONFIG_DIR=/etc/raikiri/config
 
 # Credentials are REFERENCES on the command line and values only in this file,
 # which is 0600 and owned by root: a secret in argv is a secret in `ps` for
