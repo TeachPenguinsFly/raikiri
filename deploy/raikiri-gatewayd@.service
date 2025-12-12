@@ -63,6 +63,18 @@ Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
 # installed beside the unit and not carried in the binary.
 Environment=RAIKIRI_CONFIG_DIR=/etc/raikiri/config
 
+# WHAT THE SECRET FETCH NEEDS, and it is two lines because the alternative was
+# a gateway that silently ran on public data. gateway-run asks gcloud for the
+# venue's key; gcloud wants somewhere to write, and this account has no home —
+# without these it fails, the fetch reads as "no secret for this venue", and
+# the venue comes up unauthenticated with the key sitting in Secret Manager.
+#
+# INSTALL THE APT gcloud, NOT THE SNAP. snap-confine is setuid and needs
+# cap_dac_override, which NoNewPrivileges below takes away — the snap cannot
+# run here at all, and says so in terms that mention nothing about secrets.
+Environment=HOME=/var/lib/raikiri-home
+Environment=CLOUDSDK_CONFIG=/var/lib/raikiri-home/.gcloud
+
 # Credentials are REFERENCES on the command line and values only in this file,
 # which is 0600 and owned by root: a secret in argv is a secret in `ps` for
 # every account on the box.
@@ -75,7 +87,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/raikiri /run/raikiri
+ReadWritePaths=/var/lib/raikiri /run/raikiri /var/lib/raikiri-home
 
 [Install]
 WantedBy=multi-user.target
