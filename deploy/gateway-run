@@ -70,7 +70,22 @@ venue="${ACCOUNT%%-*}"
 # because gcloud is a snap here and snap-confine needs privileges this unit's
 # NoNewPrivileges takes away. The gateway then came up on public data with
 # credentials sitting in Secret Manager, and nothing said so.
-if ! gcloud --version >/dev/null 2>&1; then
+# CREDENTIALS ARE OPT-IN PER ACCOUNT, and the default is off. A key the venue
+# refuses is not a gateway that carries public data anyway: gatewayd treats a
+# failed order-entry start as FATAL once credentials were configured, so the
+# unit restarts, reloads the whole catalogue, and asks again — 53 times in
+# twenty-five minutes on the first box this was tried on, which is a rate-limit
+# incident rather than a configuration mistake.
+#
+#   RAIKIRI_PRIVATE_BINANCE=1     in /etc/raikiri/raikiri.env
+#
+# Turn one on only after its key has been proven from THIS host's address:
+# venue keys are usually pinned to an IP allowlist, and a desk key does not
+# work from a server.
+private_var="RAIKIRI_PRIVATE_$(printf '%s' "$ACCOUNT" | tr 'a-z-' 'A-Z_')"
+if [[ -z "${!private_var:-}" ]]; then
+    echo "gateway-run: $ACCOUNT on public data — set $private_var=1 once its key works here" >&2
+elif ! gcloud --version >/dev/null 2>&1; then
     echo "gateway-run: gcloud will not run here — starting $ACCOUNT on PUBLIC DATA ONLY," \
          "whatever is in Secret Manager" >&2
 elif gcloud secrets describe "${venue}-api-key" >/dev/null 2>&1; then
