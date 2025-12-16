@@ -1,5 +1,7 @@
 #include <raikiri/net/ws_pool.hpp>
 
+#include <raikiri/log/log.hpp>
+
 #include <algorithm>
 #include <memory>
 #include <string_view>
@@ -90,6 +92,9 @@ struct WsPool::Impl {
     WsPoolConfig settings;
     BuildFrames build_frames;
     OnConnectionOpen on_open;
+    // First opens and reopens together; the first `conns.size()` of them are
+    // the pool coming up and are not worth a line.
+    std::size_t reopens{0};
     std::vector<std::unique_ptr<Conn>> conns;
     bool started{false};
     // Whose message is in flight, or null between dispatches. Single threaded
@@ -148,6 +153,22 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                 *impl.handler,
                 [&impl, raw] {
                     impl.refill(*raw);
+                    // COUNTED AND SAID, because a reopen is the most expensive
+                    // event this pool produces and it was the only one nothing
+                    // recorded. Every book on this socket has just lost its
+                    // delta chain; on a venue that reseeds over REST that is a
+                    // burst of snapshots in one second, and a burst like it has
+                    // already earned this process an IP ban. Watching a depth
+                    // book count oscillate with no way to see the reopen behind
+                    // it is how that stayed unexplained for a day.
+                    ++impl.reopens;
+                    if (impl.reopens > impl.conns.size()) {
+                        RLOG_WARN("ws pool {}: a socket reopened carrying {} keys — their books "
+                                  "are now unsynchronised ({} reopens so far)",
+                                  impl.config.host,
+                                  raw->keys.size(),
+                                  impl.reopens - impl.conns.size());
+                    }
                     if (impl.on_open) {
                         // The keys of THIS socket, so an adapter resynchronises
                         // the books this reopen actually broke.
