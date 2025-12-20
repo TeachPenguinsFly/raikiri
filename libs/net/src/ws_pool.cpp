@@ -22,8 +22,8 @@ public:
     // dispatched. It is set for exactly the length of a forwarded on_message
     // and cleared after, which is what makes WsPool::reply() unambiguous —
     // and why reply() outside a handler must fail rather than guess a socket.
-    ConnHandler(WsHandler& shared, OnOpen opened, WsClient** current)
-        : shared_{&shared}, opened_{std::move(opened)}, current_{current} {}
+    ConnHandler(WsHandler& shared, OnOpen opened, WsClient** current, std::string_view host)
+        : shared_{&shared}, opened_{std::move(opened)}, current_{current}, host_{host} {}
 
     void speaks_for(WsClient& client) noexcept { self_ = &client; }
 
@@ -46,12 +46,25 @@ public:
         *current_ = nullptr;
     }
 
-    void on_close(WsCloseReason reason) override { shared_->on_close(reason); }
+    void on_close(WsCloseReason reason) override {
+        // WHY, not just that. The reasons say different things and lead to
+        // different fixes: PongTimeout is a client that stopped answering,
+        // ServerClosed is a venue deciding against us — for a stream socket
+        // that usually means it judged the reader too slow — and Transport is
+        // the network. Without this a flapping socket looks identical whatever
+        // caused it, and the books it unsynchronises are the only visible
+        // symptom.
+        if (reason != WsCloseReason::Requested) {
+            RLOG_WARN("ws pool {}: socket closed — {}", host_, to_string(reason));
+        }
+        shared_->on_close(reason);
+    }
 
 private:
     WsHandler* shared_;
     OnOpen opened_;
     WsClient** current_;
+    std::string host_;
     WsClient* self_{nullptr};
 };
 
@@ -175,7 +188,8 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                         impl.on_open(raw->keys);
                     }
                 },
-                &impl.dispatching);
+                &impl.dispatching,
+                impl.config.host);
             conn->client = std::make_unique<WsClient>(*impl.io, impl.config, *conn->handler);
             conn->handler->speaks_for(*conn->client);
             impl.conns.push_back(std::move(conn));
