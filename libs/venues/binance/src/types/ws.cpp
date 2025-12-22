@@ -16,14 +16,14 @@ namespace {
 [[nodiscard]] std::string_view suffix_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        return "@bookTicker";
+        return k_bbo_stream;
     case exec::SubKind::Trades:
-        return "@trade";
+        return k_trade_stream;
     case exec::SubKind::Depth:
-        return "@depth@100ms";
+        return k_depth_stream;
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        return "@markPrice@1s";
+        return k_mark_price_stream;
     case exec::SubKind::Kline:
         return {}; // needs an interval; not wired until a strategy wants it
     }

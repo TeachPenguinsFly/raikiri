@@ -27,10 +27,30 @@ enum class WsBuildError : std::uint8_t {
 // The multiplexed endpoint. Frames arrive wrapped; wire::unwrap peels them.
 [[nodiscard]] std::string_view stream_path() noexcept;
 
-// Binance publishes depth at fixed cadences; 100 ms is the fastest offered
-// for futures diff streams.
-inline constexpr std::string_view k_depth_cadence = "@100ms";
-inline constexpr std::string_view k_mark_price_cadence = "@1s";
+// Binance publishes depth at fixed cadences: 100, 250 and 500 ms for futures
+// diff streams.
+//
+// NOT THE FASTEST, BECAUSE THE FASTEST DOES NOT ARRIVE. A full perpetual
+// catalogue at 100 ms is 571 diff streams times ten frames a second, and every
+// socket this pool opens is read by ONE io thread — so splitting the streams
+// across more sockets moves the backlog without reducing it. The venue kills
+// whichever connection falls behind, abruptly enough that it reads as a
+// transport failure rather than a close, and every book on that socket loses
+// its delta chain at once. Measured on the deployed box: four such drops in
+// seven minutes at 100 ms, against zero on bybit, gate and okx, which publish
+// snapshots instead.
+//
+// 500 ms is a fifth of the frames for a ladder nothing here reads faster than
+// that: the recorder samples depth on a five-second grid and the board prices
+// once a second. A desk that needs 100 ms needs a machine that can drain it.
+// THE WHOLE SUFFIX, not the cadence alone. Two constants held just the "@100ms"
+// and "@1s" fragments and nothing concatenated them — suffix_for() spelled the
+// full stream names out again, so editing the cadence here changed nothing at
+// all and the tree looked configurable while it was not.
+inline constexpr std::string_view k_depth_stream = "@depth@500ms";
+inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
+inline constexpr std::string_view k_bbo_stream = "@bookTicker";
+inline constexpr std::string_view k_trade_stream = "@trade";
 
 // A connection accepts at most 1024 streams, and a single SUBSCRIBE message
 // is rejected whole if it is too large, so callers batch through

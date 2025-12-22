@@ -44,7 +44,7 @@ constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 
 // Enough sockets for binance's whole catalogue at 1024 streams each: 571 USD-M
 // listings times the three streams the gateway asks for — @bookTicker, @trade
-// and @depth@100ms — is 1713, so two would do and four leaves room for the
+// and @depth@<cadence> — is 1713, so two would do and four leaves room for the
 // listings binance adds. Funding is not a fourth: @markPrice is acknowledged
 // here and then never sends, so the rate is pulled over REST instead.
 constexpr std::size_t k_max_connections = 4;

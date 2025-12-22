@@ -7,7 +7,7 @@
 // rule that decides whether a delta may be applied at all, and the rule means
 // nothing without the field it reads.
 //
-// <sym>@depth@100ms carries deltas and no snapshot, so the book is seeded from
+// <sym>@depth@<cadence> carries deltas and no snapshot, so the book is seeded from
 // GET /fapi/v1/depth and then chained. Three rules, all verified against the
 // live stream rather than taken from the docs:
 //
