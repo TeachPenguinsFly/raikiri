@@ -42,12 +42,20 @@ constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 // the same budget.
 constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 
-// Enough sockets for binance's whole catalogue at 1024 streams each: 571 USD-M
-// listings times the three streams the gateway asks for — @bookTicker, @trade
-// and @depth@<cadence> — is 1713, so two would do and four leaves room for the
-// listings binance adds. Funding is not a fourth: @markPrice is acknowledged
-// here and then never sends, so the rate is pulled over REST instead.
-constexpr std::size_t k_max_connections = 4;
+// Enough sockets for binance's whole catalogue AT THE PACKING ws.hpp CHOOSES,
+// and the two numbers have to be read together. 571 USD-M listings times the
+// three streams the gateway asks for — @bookTicker, @trade and @depth@<cadence>
+// — is 1713. At k_max_streams_per_connection that is six sockets, and eight
+// leaves room for the listings binance adds.
+//
+// LOWERING THE PACKING WITHOUT RAISING THIS IS A SILENT COVERAGE LOSS: four
+// sockets at 300 keys is a ceiling of 1200 against 1713 asked for, and the
+// pool refuses the rest. Measured that way: 400 depth books of 571, and 377 of
+// 538 instruments quoting, with no error anywhere but the refusal counter.
+//
+// Funding is not a fourth stream: @markPrice is acknowledged here and then
+// never sends, so the rate is pulled over REST instead.
+constexpr std::size_t k_max_connections = 8;
 
 // SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
 // weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
