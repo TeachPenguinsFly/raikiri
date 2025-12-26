@@ -14,6 +14,7 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/signer.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -39,12 +40,31 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view host(bool testnet) noexcept;
 
-// Book depth to request. Bybit publishes fixed depths only — 1, 50, 200 and
-// 500 on linear — and `orderbook.100` is answered with
-// `error:handler not found`, so the choice is constrained here rather than
-// left to configuration. 50 is the deepest tier that fits k_book_levels; the
-// next one up overflows it.
+// Book depth to request, and it is a CADENCE as much as a depth. Bybit
+// publishes fixed tiers only — on linear, 1 at 10 ms, 50 at 20 ms, 200 at
+// 100 ms and 1000 at 200 ms — and anything else is answered with
+// `error:handler not found`, which kills the whole subscribe frame. So a
+// requested tier is checked against this list before it goes out.
+//
+// The deeper tier is also the quieter one: measured across the whole linear
+// catalogue on 2026-09-18, 811 symbols over two minutes, orderbook.50 sent
+// 4394 messages a second and orderbook.200 sent 2244 — half the messages,
+// 65% of the bytes, and still 90% of the level updates, because five 20 ms
+// deltas on one symbol overlap and collapse into one at 100 ms.
+//
+// 50 STAYS THE DEFAULT because bybit serves bbo and depth from ONE topic, so
+// the deeper tier slows the quote as well. That trade belongs to a deployment
+// — config/venues.yaml — and not to everyone who links this.
 inline constexpr std::uint32_t k_book_depth = 50;
+
+// Tiers bybit actually publishes on linear. A depth request that is not one of
+// these is refused rather than rounded: rounding would silently subscribe a
+// cadence nobody asked for.
+inline constexpr std::array<std::uint32_t, 4> k_book_tiers{1, 50, 200, 1000};
+
+[[nodiscard]] constexpr bool is_book_tier(std::uint32_t depth) noexcept {
+    return std::ranges::find(k_book_tiers, depth) != k_book_tiers.end();
+}
 
 // Bybit caps the args array; oversized subscribe frames are rejected whole,
 // so callers batch through subscribe_frame() until it returns the number
@@ -64,9 +84,11 @@ inline constexpr std::size_t k_max_topics_per_frame = 10;
 inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
 
 // Builds "orderbook.50.BTCUSDT" and friends. Returns empty for a kind bybit
-// does not stream.
-[[nodiscard]] std::string_view
-topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
+// does not stream. `depth` must be one of k_book_tiers.
+[[nodiscard]] std::string_view topic_name(exec::SubKind kind,
+                                          std::string_view exchange_symbol,
+                                          std::span<char> out,
+                                          std::uint32_t depth = k_book_depth) noexcept;
 
 class Protocol {
 public:

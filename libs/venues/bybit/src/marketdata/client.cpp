@@ -173,7 +173,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         std::array<char, 64> buf{};
-        const auto topic = topic_name(kind, symbol, buf);
+        const auto topic = topic_name(kind, symbol, buf, state_->book_depth);
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -191,6 +191,10 @@ public:
                 exec::ErrorClass::Terminal, 0, "bybit: connection pool is full")};
         }
         return {};
+    }
+
+    std::size_t wait(std::uint32_t timeout_ms) noexcept override {
+        return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
 
     void poll(UnixNanos now) noexcept override {

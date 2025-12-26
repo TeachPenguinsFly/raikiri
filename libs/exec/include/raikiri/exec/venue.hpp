@@ -48,6 +48,12 @@ struct VenueConfig {
     // How long an order may go unanswered before the adapter reports it as a
     // gap. Zero disables the sweep, which is the wrong setting for money.
     std::uint64_t order_answer_timeout_ns{0};
+
+    // Which book tier to subscribe, or zero for the adapter's own. An adapter
+    // that does not offer tiers ignores it; one that does refuses a tier the
+    // venue does not publish rather than sending it and losing the whole
+    // subscription to an error frame. config/venues.yaml, never the binary.
+    std::uint32_t book_depth{0};
 };
 
 struct VenueAdapter {

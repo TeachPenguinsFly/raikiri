@@ -1,5 +1,6 @@
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -62,6 +63,25 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    // A TIER BYBIT DOES NOT PUBLISH COSTS THE WHOLE SUBSCRIPTION, not one
+    // topic: the frame comes back `error:handler not found` and every symbol
+    // batched into it goes unwatched. There is nowhere here to refuse a bad
+    // config to, so it is said out loud and the default stands.
+    if (config.book_depth != 0) {
+        if (is_book_tier(config.book_depth)) {
+            state->book_depth = config.book_depth;
+            RLOG_INFO("bybit: book tier {} — {} ms between pushes",
+                      config.book_depth,
+                      config.book_depth == 1     ? 10
+                      : config.book_depth == 50  ? 20
+                      : config.book_depth == 200 ? 100
+                                                 : 200);
+        } else {
+            RLOG_WARN("bybit: book depth {} is not a tier bybit publishes — staying on {}",
+                      config.book_depth,
+                      k_book_depth);
+        }
+    }
 
     // Dropped on the floor, as before: a venue factory has nowhere to report a
     // misconfigured reference to, so a typo still reads downstream as a revoked

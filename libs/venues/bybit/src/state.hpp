@@ -53,6 +53,9 @@ struct VenueState {
     // Null means unmeasured, which reads as unlimited rather than as closed.
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
+    // One of k_book_tiers. Set once at construction and read on every
+    // subscribe, because bybit names the tier inside the topic string.
+    std::uint32_t book_depth{k_book_depth};
 
     // What each instrument's ticker frames have said so far. A frame is a
     // partial and `FundingUpdate` is written whole — see market_data.hpp.

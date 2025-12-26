@@ -1183,6 +1183,7 @@ int main(int argc, char** argv) {
     // struct already documents as the right default rather than none.
     std::uint64_t answer_timeout_ns =
         config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
+    std::uint32_t book_depth = 0; // the adapter's own tier until a file says otherwise
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name});
@@ -1194,6 +1195,7 @@ int main(int argc, char** argv) {
                                                    .balances = rate.costs.balances,
                                                    .ledger = rate.costs.ledger});
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
+            book_depth = it->second.book_depth;
         } else {
             RLOG_INFO("gatewayd[{}]: no rate budget configured — running unlimited", account_name);
         }
@@ -1210,7 +1212,8 @@ int main(int argc, char** argv) {
                                      .api_secret_env = api_secret_ref,
                                      .passphrase_env = passphrase_ref,
                                      .budget = budget.has_value() ? &*budget : nullptr,
-                                     .order_answer_timeout_ns = answer_timeout_ns},
+                                     .order_answer_timeout_ns = answer_timeout_ns,
+                                     .book_depth = book_depth},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
@@ -1492,6 +1495,7 @@ int main(int argc, char** argv) {
     // 5 ms run also delivered fewer messages (72k against 100k) and market
     // drift cannot be told from drainage lag at that distance — the two points
     // of a core it buys are not worth being unable to say which.
+    //
     constexpr std::uint32_t k_spin_passes = 64;
     constexpr std::uint64_t k_park_ns = 1'000'000;
     std::uint32_t idle_passes = 0;

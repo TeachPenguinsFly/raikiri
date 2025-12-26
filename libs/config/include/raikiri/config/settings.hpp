@@ -51,6 +51,25 @@ struct VenueSettings {
     // Zero means "never expire", which is the wrong default for money: a
     // gateway that never notices an unanswered order holds it silently.
     std::uint64_t order_answer_timeout_ms{15'000};
+
+    // Which of the venue's book tiers to subscribe. Zero keeps the adapter's
+    // own choice, and an unknown tier is refused rather than approximated —
+    // venues publish a FIXED set and answer anything else with an error that
+    // costs the whole subscription.
+    //
+    // A TIER IS A CADENCE AS WELL AS A DEPTH, and the two move in opposite
+    // directions. Measured against bybit's whole linear catalogue on
+    // 2026-09-18, 811 symbols over two minutes: orderbook.50 pushes at 20 ms
+    // for 4394 messages a second, orderbook.200 at 100 ms for 2244 — half the
+    // messages and 65% of the bytes, still carrying 90% of the level updates,
+    // because five 20 ms deltas on one symbol overlap and collapse into one.
+    //
+    // So it is a deployment decision and not a default. A recorder sampling
+    // on a one-second grid should take the deeper, slower tier; anything
+    // quoting off the top of the book should not, because the same setting
+    // slows ITS bbo to 100 ms — bybit serves both from one topic.
+    std::uint32_t book_depth{0};
+
     VenueRateSettings rate{};
 };
 

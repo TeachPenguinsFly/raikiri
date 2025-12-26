@@ -30,6 +30,29 @@ TEST(BybitWs, TopicNameRefusesTooSmallABuffer) {
     EXPECT_TRUE(topic_name(exec::SubKind::Bbo, "BTCUSDT", tiny).empty());
 }
 
+// The tier is a deployment's to choose because it is a CADENCE: 50 pushes
+// every 20 ms and 200 every 100 ms, and bybit serves bbo off the same topic.
+TEST(BybitWs, ATopicNamesWhicheverTierWasAskedFor) {
+    std::array<char, 64> buf{};
+    EXPECT_EQ(topic_name(exec::SubKind::Depth, "BTCUSDT", buf, 200), "orderbook.200.BTCUSDT");
+    EXPECT_EQ(topic_name(exec::SubKind::Bbo, "BTCUSDT", buf, 1), "orderbook.1.BTCUSDT");
+    EXPECT_EQ(topic_name(exec::SubKind::Depth, "BTCUSDT", buf), "orderbook.50.BTCUSDT")
+        << "the default is unchanged, and quoting desks depend on it";
+    EXPECT_EQ(topic_name(exec::SubKind::Trades, "BTCUSDT", buf, 200), "publicTrade.BTCUSDT")
+        << "a tier belongs to orderbook topics and nothing else";
+}
+
+TEST(BybitWs, OnlyTheTiersBybitPublishesAreTiers) {
+    // `orderbook.100` comes back "error:handler not found" and takes every
+    // symbol batched into that frame with it.
+    EXPECT_TRUE(is_book_tier(50));
+    EXPECT_TRUE(is_book_tier(200));
+    EXPECT_TRUE(is_book_tier(1000));
+    EXPECT_FALSE(is_book_tier(100));
+    EXPECT_FALSE(is_book_tier(500)) << "bybit retired the 500 tier for 1000";
+    EXPECT_FALSE(is_book_tier(0));
+}
+
 TEST(BybitWs, SubscribeFrameShape) {
     Protocol protocol;
     const std::array<std::string_view, 2> topics{"orderbook.50.BTCUSDT", "publicTrade.BTCUSDT"};

@@ -50,8 +50,10 @@ std::string_view host(bool testnet) noexcept {
     return ep::stream_host(testnet);
 }
 
-std::string_view
-topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept {
+std::string_view topic_name(exec::SubKind kind,
+                            std::string_view exchange_symbol,
+                            std::span<char> out,
+                            std::uint32_t depth_tier) noexcept {
     std::string_view prefix;
     switch (kind) {
     case exec::SubKind::Bbo:
@@ -81,7 +83,7 @@ topic_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char>
     put(prefix);
     if (prefix == "orderbook.") {
         char depth[8];
-        put(render_u64(k_book_depth, depth));
+        put(render_u64(depth_tier, depth));
         put(".");
     }
     put(exchange_symbol);
