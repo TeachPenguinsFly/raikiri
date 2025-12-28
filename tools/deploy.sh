@@ -17,6 +17,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 HOST="${1:-${HOST:?usage: tools/deploy.sh user@host}}"
+
+# SOURCE AND INSTALL ARE TWO PLACES, and conflating them is why this script
+# failed on its first real run: /opt/raikiri is root-owned, so rsyncing the
+# tree into it is denied before anything is built — and the deploy then
+# "succeeded" against the binary that was already there. Build where the
+# deploy account can write, install where systemd looks. SRC_DIR is relative
+# to that account's home: rsync resolves a relative destination there and so
+# does the remote shell.
+SRC_DIR="${SRC_DIR:-raikiri}"
 REMOTE_ROOT="${REMOTE_ROOT:-/opt/raikiri}"
 PRESET="${PRESET:-rel}"
 
@@ -27,20 +36,24 @@ echo "==> the terminal, as static files"
 ( cd frontend && npm ci --no-audit --no-fund && npm run build )
 
 echo "==> source and units to $HOST"
+# raikiri-data/ IS NOT SOURCE. It is recorded market data kept for tests, and
+# shipping ~100 MB of it to a 2-vCPU box on every deploy buys nothing there.
 rsync -a --delete \
     --exclude build/ --exclude .git/ --exclude frontend/node_modules/ \
-    ./ "$HOST:$REMOTE_ROOT/src/"
-rsync -a frontend/dist/ "$HOST:$REMOTE_ROOT/web/"
+    --exclude raikiri-data/ \
+    ./ "$HOST:$SRC_DIR/"
+rsync -a frontend/dist/ "$HOST:$SRC_DIR/web-dist/"
 
 echo "==> build on the target, install, restart"
 # shellcheck disable=SC2087
 ssh "$HOST" bash -s <<REMOTE
 set -euo pipefail
-cd "$REMOTE_ROOT/src"
+cd "\$HOME/$SRC_DIR"
 cmake --preset $PRESET
 cmake --build build/$PRESET --target gatewayd admind replay persisterd -j\$(nproc)
 
-sudo install -d -o raikiri -g raikiri "$REMOTE_ROOT/bin" "$REMOTE_ROOT/share" /var/lib/raikiri
+sudo install -d -o raikiri -g raikiri "$REMOTE_ROOT/bin" "$REMOTE_ROOT/share" "$REMOTE_ROOT/web" /var/lib/raikiri
+sudo rsync -a --delete web-dist/ "$REMOTE_ROOT/web/"
 sudo install -m 0755 build/$PRESET/apps/gatewayd/gatewayd "$REMOTE_ROOT/bin/"
 sudo install -m 0755 build/$PRESET/apps/admind/admind "$REMOTE_ROOT/bin/"
 sudo install -m 0755 build/$PRESET/apps/replay/replay "$REMOTE_ROOT/bin/"
