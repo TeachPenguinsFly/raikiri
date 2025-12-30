@@ -1496,8 +1496,43 @@ int main(int argc, char** argv) {
     // drift cannot be told from drainage lag at that distance — the two points
     // of a core it buys are not worth being unable to say which.
     //
+    // AND IT BUYS NO PROCESSOR, which is worth saying because the shape below
+    // looks like it should. Measured A/B on the same box, same binary but for
+    // this branch, 2026-09-18: the park cost 8.37% of a core per thousand
+    // packets a second and the reactor wait 8.44% — one number inside the
+    // other's noise. The park had already taken the cost out; what is left is
+    // receiving, decrypting and parsing sixteen thousand messages a second,
+    // and no loop shape touches that.
+    //
+    // It stays for the OTHER half. A blind 1 ms sleep does not know a packet
+    // arrived, so data waits out the rest of the tick; the reactor returns on
+    // the packet. Up to a millisecond, against venue round trips of 1.5 to
+    // 7.3 ms from Tokyo.
+    //
+    // THE PARK IS STILL NEEDED WHERE SOMETHING OTHER THAN A SOCKET CAN HAPPEN.
+    // The reason the loop parks rather than blocks is the command rings: they
+    // are shared memory, a reactor cannot be woken by a write to them, and a
+    // cancel must not wait on a venue's silence. A gateway with no credentials
+    // has no commands to miss — it rejects every one it is handed — so there
+    // it waits inside epoll and wakes on the packet instead of on a timer.
+    //
+    // THE TIMEOUT IS A PASS RATE, NOT A LATENCY, and that is what bounds it.
+    // A busy venue never reaches the timeout — the reactor returns on packets
+    // — but a run_for(n) pass cannot be shorter than n, so everything the loop
+    // does periodically drops to 1/n. Most of that has room: the heartbeat's
+    // threshold is 200 ms, the journal's group commit 50, and every adapter
+    // paces its subscribe frames at 150.
+    //
+    // Two gates have no room. binance's depth seeding is spaced at 25 ms and
+    // gated on the clock, so a 20 ms pass turns it into 40 and takes the seed
+    // rate down by a third — on the one venue whose books were already losing
+    // their seeds faster than the pool restored them. htx paces its subscribe
+    // frames at 20 ms, which a 20 ms pass halves. Those two are the tightest
+    // in any adapter; 5 ms serves both at their intended rate and still drops
+    // 199 of every 200 wakeups the 1 ms park was spending.
     constexpr std::uint32_t k_spin_passes = 64;
     constexpr std::uint64_t k_park_ns = 1'000'000;
+    constexpr std::uint32_t k_wait_ms = 5;
     std::uint32_t idle_passes = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
@@ -1568,7 +1603,11 @@ int main(int argc, char** argv) {
         }
         idle_passes = commands != 0 ? 0 : idle_passes + 1;
         if (idle_passes > k_spin_passes) {
-            std::this_thread::sleep_for(std::chrono::nanoseconds{k_park_ns});
+            if (can_trade) {
+                std::this_thread::sleep_for(std::chrono::nanoseconds{k_park_ns});
+            } else {
+                adapter->data->wait(k_wait_ms);
+            }
         }
     }
 

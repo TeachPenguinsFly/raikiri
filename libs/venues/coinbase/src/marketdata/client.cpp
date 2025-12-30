@@ -260,6 +260,10 @@ public:
     // No application keepalive, unlike the other pooled venues: Coinbase's
     // feed has no ping message at all, and the transport's own ping/pong runs
     // per socket already.
+    std::size_t wait(std::uint32_t timeout_ms) noexcept override {
+        return started_ ? state_->io.run_for(timeout_ms) : 0;
+    }
+
     void poll(UnixNanos now) noexcept override {
         if (!started_) {
             return;

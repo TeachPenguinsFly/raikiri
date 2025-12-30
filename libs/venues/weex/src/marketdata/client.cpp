@@ -246,6 +246,10 @@ public:
         return place(kind, symbol, instrument);
     }
 
+    std::size_t wait(std::uint32_t timeout_ms) noexcept override {
+        return started_ ? state_->io.run_for(timeout_ms) : 0;
+    }
+
     void poll(UnixNanos now) noexcept override {
         if (!started_) {
             return;
