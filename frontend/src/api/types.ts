@@ -486,7 +486,39 @@ export interface components {
             alive: boolean;
             generation: components["schemas"]["Nanos"];
             last_heartbeat?: components["schemas"]["Nanos"];
+            /**
+             * @description What the venue LISTS — the catalogue's size, and nothing about what
+             *     is arriving. A gateway carrying a third of it reports the same
+             *     number as one carrying all of it.
+             */
             instruments: number;
+            /**
+             * @description How many of those have actually put a quote on the wire since this
+             *     gateway started. `alive` cannot answer this: htx ran at 65 of 340
+             *     for days while every other field here said it was well.
+             *
+             *     Cumulative rather than a freshness window, because what it exists
+             *     to catch is a chunk the venue silently never sends — those cells are
+             *     never written at all, while a genuinely quiet altcoin would fail any
+             *     window short enough to be useful. Read it together with
+             *     `last_heartbeat`: it is only meaningful once the gateway has been up
+             *     long enough for a slow venue to tick.
+             */
+            priced: number;
+            /**
+             * @description `priced` over `instruments`, rounded down, so a screen and an alert
+             *     agree on one number instead of each deriving its own. Below 70 is
+             *     the line `tools/coverage_smoke.sh` draws between a thin tail and a
+             *     venue dropping a chunk in silence.
+             */
+            coverage_pct: number;
+            /**
+             * @description Subscriptions the venue answered with NO. Distinct from the silent
+             *     kind `coverage_pct` catches — a refusal was answered — and counted
+             *     by thirteen adapters since they were written, with nothing able to
+             *     read it until now.
+             */
+            subscribe_refusals: number;
         };
         Health: {
             gateways: components["schemas"]["Account"][];
@@ -687,6 +719,23 @@ export interface components {
              */
             leaves?: components["schemas"]["Decimal"];
             status: components["schemas"]["OrderStatus"];
+            /**
+             * @description How the venue's refusal should be acted on. Present only on a
+             *     rejected order, and ABSENT — not empty — on one refused before the
+             *     journal carried a reason at all: "not recorded" and "the venue gave
+             *     no reason" are different answers.
+             * @enum {string}
+             */
+            reject_class?: "terminal" | "retryable" | "rate_limited" | "auth_failure" | "connectivity";
+            /**
+             * Format: int32
+             * @description The venue's OWN numeric code, unchanged and untranslated. Present
+             *     beside `reject_class` on a rejection. This is the half a person can
+             *     look up in the venue's documentation — weex answers -1058 for a
+             *     contract it lists but will not trade through the API, and the class
+             *     alone would only say "terminal".
+             */
+            reject_code?: number;
             ts_created: components["schemas"]["Nanos"];
             ts_updated: components["schemas"]["Nanos"];
         };
