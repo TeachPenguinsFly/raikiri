@@ -42,6 +42,17 @@ struct EventInfo {
 // Peeks at the wrapper and the inner "e" without consuming the rest.
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
+// The same, on a payload that has ALREADY been unwrapped.
+//
+// FOUR PARSES OF ONE FRAME is what the convenient form costs on the market
+// data path, and every one of them is a memcpy of the frame plus a full
+// simdjson structural scan: parse_event unwraps (1) and opens the payload (2),
+// then the caller unwraps again (3) and opens the payload again (4) to read
+// the fields. Profiled on binance 2026-09-18, the parse path was 8.6% of the
+// gateway. Unwrap once, pass the payload down, and one of the four is gone
+// with no change in what is read.
+[[nodiscard]] std::expected<EventInfo, WireError> parse_event_payload(std::string_view payload);
+
 // Unwraps {"stream":...,"data":{...}} to the raw text of `data`. A frame that
 // arrived on a single-stream socket has no wrapper and is returned unchanged.
 [[nodiscard]] std::expected<std::string_view, WireError> unwrap(std::string_view frame);

@@ -65,8 +65,12 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
     if (!inner.has_value()) {
         return std::unexpected(inner.error());
     }
+    return parse_event_payload(*inner);
+}
+
+std::expected<EventInfo, WireError> parse_event_payload(std::string_view payload) {
     return guarded([&]() -> std::expected<EventInfo, WireError> {
-        auto root = session().open_object(*inner);
+        auto root = session().open_object(payload);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }

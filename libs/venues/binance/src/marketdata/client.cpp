@@ -191,13 +191,18 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
 }
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    const auto event = parse_event(frame);
-    if (!event.has_value()) {
-        return; // unknown shapes are ignored, never fatal: venues add frames
-    }
+    // UNWRAPPED ONCE, not twice. Every unwrap and every open is a memcpy of
+    // the frame into the session's scratch plus a full structural scan of it;
+    // reading the event kind and then the payload used to cost four of them
+    // per message. Order matters here — the payload must come first so the
+    // event can be read out of it rather than out of the frame again.
     const auto data = unwrap(frame);
     if (!data.has_value()) {
         return;
+    }
+    const auto event = parse_event_payload(*data);
+    if (!event.has_value()) {
+        return; // unknown shapes are ignored, never fatal: venues add frames
     }
     switch (event->kind) {
     case EventKind::BookTicker: {
