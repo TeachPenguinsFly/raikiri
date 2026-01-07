@@ -13,6 +13,7 @@
 #include <raikiri/venues/okx/orders.hpp>
 #include <raikiri/venues/okx/ws.hpp>
 
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -20,7 +21,8 @@
 namespace raikiri::venues::okx::detail {
 
 void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    static thread_local OrderBuffer storage;
+    static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+    auto& storage = *storage_owner;
     const auto orders = parse_orders(frame, storage);
     if (!orders.has_value()) {
         return;

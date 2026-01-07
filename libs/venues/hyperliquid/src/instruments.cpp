@@ -62,7 +62,8 @@ private:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local AssetBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<AssetBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_meta(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{unreadable(wire.error())};

@@ -14,6 +14,7 @@
 #include <raikiri/venues/bitget/ws.hpp>
 
 #include <array>
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -50,7 +51,8 @@ public:
                 {.state = exec::ConnState::Connected, .stream_id = 1, .ts = state_->clock->wall()});
             break;
         case EventKind::Orders: {
-            static thread_local OrderUpdateBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderUpdateBuffer>();
+            auto& storage = *storage_owner;
             const auto updates = parse_order_updates(payload, storage);
             if (!updates.has_value()) {
                 return;

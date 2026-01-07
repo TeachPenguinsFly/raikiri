@@ -15,6 +15,7 @@
 #include <raikiri/venues/bingx/positions.hpp>
 #include <raikiri/venues/bingx/rest.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -107,7 +108,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+
+        auto& storage = *storage_owner;
         const auto orders = parse_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -182,7 +185,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(
@@ -217,7 +222,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local BalanceBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<BalanceBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_balances(*body, storage);
         if (!rows.has_value()) {
             // An unreadable wallet is refused rather than reported as an empty
@@ -256,7 +262,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local IncomeBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<IncomeBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_income(*body, storage);
         if (!rows.has_value()) {
             // A book we cannot read is NOT an empty one: answering "no

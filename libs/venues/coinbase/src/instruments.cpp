@@ -55,7 +55,9 @@ public:
                 message.has_value() ? *message : std::string_view{"catalogue request refused"})};
         }
 
-        static thread_local ProductBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ProductBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_products(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

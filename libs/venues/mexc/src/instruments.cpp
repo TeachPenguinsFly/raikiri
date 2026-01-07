@@ -75,7 +75,9 @@ private:
                 exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg)};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_instruments(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -103,7 +105,9 @@ private:
             return std::unexpected{rest_failure(response->body, MarketType::Spot)};
         }
 
-        static thread_local SpotSymbolBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<SpotSymbolBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_spot_symbols(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

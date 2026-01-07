@@ -14,6 +14,7 @@
 #include <raikiri/venues/coinbase/orders.hpp>
 #include <raikiri/venues/coinbase/rest.hpp>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -80,7 +81,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{

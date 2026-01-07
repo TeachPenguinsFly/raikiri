@@ -15,6 +15,7 @@
 #include <raikiri/venues/deribit/positions.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -75,7 +76,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local OrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+            auto& storage = *storage_owner;
             const auto orders = parse_orders(*body, storage);
             if (!orders.has_value()) {
                 return std::unexpected{exec::VenueError::make(
@@ -110,7 +112,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local OrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+            auto& storage = *storage_owner;
             const auto orders = parse_orders(*body, storage);
             if (!orders.has_value()) {
                 continue;
@@ -141,7 +144,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local UserTradeBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<UserTradeBuffer>();
+            auto& storage = *storage_owner;
             const auto trades = parse_user_trades(*body, storage);
             if (!trades.has_value()) {
                 return std::unexpected{exec::VenueError::make(
@@ -173,7 +177,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local PositionBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+            auto& storage = *storage_owner;
             const auto positions = parse_positions(*body, storage);
             if (!positions.has_value()) {
                 return std::unexpected{exec::VenueError::make(

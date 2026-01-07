@@ -85,7 +85,9 @@ public:
                 "catalogue refused")};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_instruments(envelope->result, storage);
         if (!wire.has_value()) {
             return std::unexpected{

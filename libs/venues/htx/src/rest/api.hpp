@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -104,7 +105,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+
+        auto& storage = *storage_owner;
         const auto orders = parse_rest_orders(*body, storage, market);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -150,7 +153,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+
+        auto& storage = *storage_owner;
         const auto orders = parse_rest_orders(*body, storage, market);
         if (!orders.has_value() || orders->empty()) {
             return std::unexpected{
@@ -199,7 +204,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local FinancialRecordBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FinancialRecordBuffer>();
+
+        auto& storage = *storage_owner;
         const auto rows = parse_financial_records(*body, storage);
         if (!rows.has_value()) {
             // A ledger we cannot read is NOT an empty one: answering "no
@@ -243,7 +250,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(

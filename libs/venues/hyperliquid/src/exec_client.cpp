@@ -210,7 +210,8 @@ private:
                                            : std::string_view{response.error}));
             return;
         }
-        static thread_local ExchangeStatusBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ExchangeStatusBuffer>();
+        auto& storage = *storage_owner;
         const auto reply = parse_exchange_reply(response.body, storage);
         if (!reply.has_value()) {
             refuse(cmd, kind, to_string(reply.error()));

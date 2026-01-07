@@ -29,19 +29,26 @@ WorkingDirectory=/opt/raikiri
 # supervision is the only thing that makes that true.
 Restart=always
 RestartSec=5s
-# EVERY THREAD PAYS FOR THE STATIC TLS BLOCK, and this binary's is 14.5 MiB.
-# The venue adapters keep 153 `static thread_local` wire buffers between them —
-# fixed-size arrays of order, level and instrument rows — and glibc carves the
-# static TLS out of the SAME allocation as a thread's stack. At the default 8
-# MiB there is nothing left: the first thread to need real stack was asio's
-# resolver, which died on its guard page inside getaddrinfo with a backtrace
-# entirely in libc, naming nothing of ours.
+# NO LimitSTACK HERE, and the reason is worth keeping because it was once
+# needed. glibc puts a thread's static TLS in the SAME allocation as its stack,
+# so usable stack is the limit minus that block. The venue adapters held 153
+# `static thread_local` wire buffers between them, 14.5 MiB of static TLS, and
+# at the default 8 MiB there was nothing left: the first thread to need real
+# stack was asio's resolver, which died on its guard page inside getaddrinfo
+# with a backtrace entirely in libc, naming nothing of ours. LimitSTACK=64M
+# held that open until the buffers themselves were fixed.
 #
-# 64 MiB leaves about 49 for actual frames. It is a workaround and the fix is
-# to stop those buffers being thread_local; until then this is what keeps a
-# gateway from crash-looping on Linux. Apple's TLS allocation does not do this,
-# which is why it only appeared on the first Linux deployment.
-LimitSTACK=67108864
+# 106 of the 153 — every REST, catalogue, user-stream and order buffer, all of
+# them touched once at startup or once per account poll — now hold their
+# storage on the heap behind a thread_local pointer, so a thread that never
+# takes those paths pays nothing. The block is 2.7 MiB and the default stack
+# is comfortable again. Measured: 688 MB resident across four gateways before,
+# 463 after.
+#
+# THE INVARIANT TO KEEP: static TLS must stay well under the 8 MiB default.
+# `readelf -lW gatewayd | grep TLS` prints it — MemSiz is the per-thread bill,
+# and FileSiz above zero means some buffer carries an initializer glibc has to
+# copy into every thread it creates.
 
 # SHARED MEMORY BELONGS ON A tmpfs. Eighteen segments of 64 MiB, rewritten
 # continuously, are pointless writes on a network disk and will eat an IOPS

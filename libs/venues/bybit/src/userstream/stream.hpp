@@ -16,6 +16,7 @@
 #include <raikiri/venues/bybit/positions.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -29,7 +30,8 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
     }
     switch (topic->kind) {
     case TopicKind::Order: {
-        static thread_local OrderUpdateBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderUpdateBuffer>();
+        auto& storage = *storage_owner;
         const auto updates = parse_order_updates(frame, storage);
         if (!updates.has_value()) {
             return;
@@ -43,7 +45,8 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         break;
     }
     case TopicKind::Execution: {
-        static thread_local ExecutionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
+        auto& storage = *storage_owner;
         const auto executions = parse_executions(frame, storage);
         if (!executions.has_value()) {
             return;

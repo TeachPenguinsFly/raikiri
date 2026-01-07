@@ -52,7 +52,9 @@ public:
             return std::unexpected{*failed};
         }
 
-        static thread_local PairBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PairBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_pair_info(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

@@ -25,6 +25,7 @@
 
 #include <array>
 #include <charconv>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -121,7 +122,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_orders(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -190,7 +192,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local TradeBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<TradeBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_user_trades(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -227,7 +230,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local BalanceBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<BalanceBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_account(*body, storage);
         if (!wire.has_value()) {
             // An unreadable account is refused rather than reported as an
@@ -262,7 +266,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local IncomeBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<IncomeBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_income(*body, storage);
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger: answering "no

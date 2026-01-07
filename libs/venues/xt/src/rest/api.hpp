@@ -16,6 +16,7 @@
 #include <raikiri/venues/xt/positions.hpp>
 #include <raikiri/venues/xt/rest.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -164,7 +165,8 @@ public:
         }
         std::vector<exec::OrderStatusReport> reports;
         if (market == MarketType::Spot) {
-            static thread_local SpotOrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<SpotOrderBuffer>();
+            auto& storage = *storage_owner;
             const auto orders = parse_spot_orders(*body, storage);
             if (!orders.has_value()) {
                 return std::unexpected{exec::VenueError::make(
@@ -180,7 +182,8 @@ public:
             }
             return reports;
         }
-        static thread_local FuturesOrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FuturesOrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_futures_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -256,7 +259,8 @@ public:
                                .ts_venue = event.ts_event});
         };
         if (market == MarketType::Spot) {
-            static thread_local SpotTradeBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<SpotTradeBuffer>();
+            auto& storage = *storage_owner;
             const auto trades = parse_spot_trades(*body, storage);
             if (!trades.has_value()) {
                 return std::unexpected{exec::VenueError::make(
@@ -272,7 +276,8 @@ public:
             }
             return reports;
         }
-        static thread_local FuturesDealBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FuturesDealBuffer>();
+        auto& storage = *storage_owner;
         const auto deals = parse_futures_deals(*body, storage);
         if (!deals.has_value()) {
             return std::unexpected{
@@ -308,7 +313,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local FuturesBalanceBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FuturesBalanceBuffer>();
+        auto& storage = *storage_owner;
         const auto balances = parse_futures_balances(*body, storage);
         if (!balances.has_value()) {
             return std::unexpected{
@@ -345,7 +351,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local BillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<BillBuffer>();
+        auto& storage = *storage_owner;
         const auto bills = parse_bills(*body, storage);
         if (!bills.has_value()) {
             // A ledger we cannot read is NOT an empty one. Saying "no charges"
@@ -383,7 +390,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local FuturesPositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FuturesPositionBuffer>();
+        auto& storage = *storage_owner;
         const auto positions = parse_futures_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(

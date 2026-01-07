@@ -259,7 +259,8 @@ private:
         if (!envelope.has_value()) {
             return exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unparseable envelope");
         }
-        static thread_local AckBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<AckBuffer>();
+        auto& storage = *storage_owner;
         const auto acks = parse_order_acks(response.body, storage);
         std::int64_t code = envelope->code;
         std::string_view text = envelope->msg;

@@ -14,6 +14,7 @@
 #include <raikiri/venues/kraken/positions.hpp>
 #include <raikiri/venues/kraken/rest.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -113,7 +114,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OpenOrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OpenOrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_open_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -160,7 +162,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local FillBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<FillBuffer>();
+            auto& storage = *storage_owner;
             const auto fills = parse_fills(*body, storage);
             if (!fills.has_value()) {
                 return std::unexpected{exec::VenueError::make(
@@ -207,7 +210,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(

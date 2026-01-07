@@ -15,6 +15,7 @@
 #include <raikiri/venues/bitfinex/positions.hpp>
 #include <raikiri/venues/bitfinex/rest.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -104,7 +105,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -166,7 +168,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local ExecutionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
+        auto& storage = *storage_owner;
         const auto fills = parse_executions(*body, storage);
         if (!fills.has_value()) {
             return std::unexpected{
@@ -212,7 +215,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(

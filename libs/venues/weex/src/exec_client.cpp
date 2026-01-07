@@ -376,7 +376,8 @@ private:
             }
             return;
         }
-        static thread_local OrderAckBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderAckBuffer>();
+        auto& storage = *storage_owner;
         const auto acks = parse_order_acks(response.body, storage);
         if (!acks.has_value()) {
             for (const auto& cmd : batch) {

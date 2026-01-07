@@ -19,6 +19,7 @@
 #include <raikiri/venues/bybit/positions.hpp>
 #include <raikiri/venues/bybit/rest.hpp>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -134,7 +135,8 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local OrderUpdateBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderUpdateBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_open_orders(envelope->result, storage);
         if (!orders.has_value()) {
             return std::unexpected{
@@ -177,7 +179,8 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local ExecutionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
+        auto& storage = *storage_owner;
         const auto executions = parse_executions(envelope->result, storage);
         if (!executions.has_value()) {
             return std::vector<exec::FillReport>{};
@@ -217,7 +220,8 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto positions = parse_position_list(envelope->result, storage);
         if (!positions.has_value()) {
             // NOT an empty account. A body we cannot read says nothing about
@@ -248,7 +252,8 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local LedgerEntryBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<LedgerEntryBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_funding_charges(envelope->result, storage);
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger. Saying "no charges"
@@ -307,7 +312,8 @@ public:
         if (!envelope.has_value()) {
             return std::unexpected{envelope.error()};
         }
-        static thread_local CoinBalanceBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<CoinBalanceBuffer>();
+        auto& storage = *storage_owner;
         const auto coins = parse_wallet_balance(envelope->result, storage);
         if (!coins.has_value()) {
             // An unreadable wallet is refused rather than reported as an empty

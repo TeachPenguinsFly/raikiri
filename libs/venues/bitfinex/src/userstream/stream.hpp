@@ -17,6 +17,7 @@
 #include <raikiri/venues/bitfinex/ws.hpp>
 
 #include <array>
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -75,7 +76,8 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         return;
     }
     if (info->tag == "os") {
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_orders(frame, storage);
         if (!orders.has_value()) {
             return;

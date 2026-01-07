@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -141,7 +142,8 @@ void publish_order(VenueState& state,
 }
 
 void publish_executions(VenueState& state, std::string_view payload, UnixNanos received) {
-    static thread_local ExecutionBuffer storage;
+    static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
+    auto& storage = *storage_owner;
     const auto rows = parse_executions(payload, storage);
     if (!rows.has_value()) {
         return;
@@ -210,7 +212,8 @@ public:
         }
         switch (info->table) {
         case TableKind::Order: {
-            static thread_local OrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+            auto& storage = *storage_owner;
             const auto rows = parse_orders(payload, storage);
             if (!rows.has_value()) {
                 return;

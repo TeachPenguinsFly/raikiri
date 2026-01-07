@@ -1,6 +1,6 @@
 #include <raikiri/config/secret.hpp>
-#include <raikiri/log/log.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -75,7 +75,9 @@ public:
                 exec::VenueError::make(classify(err->code), err->code, err->msg)};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_exchange_info(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -96,13 +98,14 @@ public:
             FixedE9 cap{};
             FixedE9 floor{};
         };
+
         std::unordered_map<std::string_view, Schedule> schedule;
-        const auto funding =
-            await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
+        const auto funding = await_response(*state_, rest_, state_->builder.funding_info(), 20'000);
         if (!funding.has_value() || funding->transport_failed()) {
             RLOG_WARN("binance: no funding schedule — every interval reads unstated");
         } else {
-            static thread_local FundingInfoBuffer intervals;
+            static thread_local const auto intervals_owner = std::make_unique<FundingInfoBuffer>();
+            auto& intervals = *intervals_owner;
             const auto rows = parse_funding_info(funding->body, intervals);
             if (!rows.has_value()) {
                 RLOG_WARN("binance: funding schedule unreadable ({}) — every interval reads "

@@ -22,6 +22,7 @@
 #include <raikiri/venues/kucoin/rest.hpp>
 #include <raikiri/venues/kucoin/ws.hpp>
 
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
@@ -161,7 +162,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local FillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FillBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_fills(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -241,7 +243,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_positions(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -267,7 +270,8 @@ private:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_futures_orders(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -288,7 +292,8 @@ private:
         if (!symbols_body.has_value()) {
             return std::unexpected{symbols_body.error()};
         }
-        static thread_local SymbolBuffer symbol_storage;
+        static thread_local const auto symbol_storage_owner = std::make_unique<SymbolBuffer>();
+        auto& symbol_storage = *symbol_storage_owner;
         const auto symbols = parse_active_symbols(*symbols_body, symbol_storage);
         if (!symbols.has_value()) {
             return std::unexpected{
@@ -308,7 +313,8 @@ private:
                 // emptier than it is, so the whole answer fails together.
                 return std::unexpected{body.error()};
             }
-            static thread_local OrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+            auto& storage = *storage_owner;
             const auto wire = parse_spot_orders(*body, storage);
             if (!wire.has_value()) {
                 return std::unexpected{

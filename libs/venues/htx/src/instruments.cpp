@@ -79,7 +79,8 @@ public:
 private:
     std::expected<std::vector<Instrument>, exec::VenueError> load_perp(std::string_view body,
                                                                        MarketType market) {
-        static thread_local ContractBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ContractBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_contracts(body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -90,7 +91,8 @@ private:
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot(std::string_view body) {
-        static thread_local SpotSymbolBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<SpotSymbolBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_spot_symbols(body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

@@ -15,6 +15,7 @@
 #include <raikiri/venues/bitmex/rest.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -99,7 +100,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local OrderBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+            auto& storage = *storage_owner;
             const auto rows = parse_orders(*body, storage);
             if (!rows.has_value()) {
                 return std::unexpected{
@@ -130,7 +132,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_orders(*body, storage);
         if (!rows.has_value() || rows->empty()) {
             return std::unexpected{exec::VenueError::make(
@@ -158,7 +161,8 @@ public:
             if (!body.has_value()) {
                 return std::unexpected{body.error()};
             }
-            static thread_local ExecutionBuffer storage;
+            static thread_local const auto storage_owner = std::make_unique<ExecutionBuffer>();
+            auto& storage = *storage_owner;
             const auto rows = parse_executions(*body, storage);
             if (!rows.has_value()) {
                 return std::unexpected{
@@ -186,7 +190,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_positions(*body, storage);
         if (!rows.has_value()) {
             return std::unexpected{

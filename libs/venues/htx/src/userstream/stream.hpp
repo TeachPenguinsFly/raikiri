@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -96,7 +97,8 @@ public:
                 on_auth(*frame);
                 return;
             case EventKind::PrivateOrder: {
-                static thread_local OrderBuffer orders;
+                static thread_local const auto orders_owner = std::make_unique<OrderBuffer>();
+                auto& orders = *orders_owner;
                 if (const auto wire = parse_swap_order_push(*frame, orders); wire.has_value()) {
                     publish_order(*state_, *wire, received);
                 }

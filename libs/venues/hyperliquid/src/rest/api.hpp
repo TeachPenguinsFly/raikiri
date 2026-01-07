@@ -18,6 +18,7 @@
 #include <raikiri/venues/hyperliquid/rest.hpp>
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -96,7 +97,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local OpenOrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OpenOrderBuffer>();
+
+        auto& storage = *storage_owner;
         const auto orders = parse_open_orders(*body, storage);
         if (!orders.has_value()) {
             return std::unexpected{unreadable(orders.error())};
@@ -170,7 +173,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local FillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FillBuffer>();
+
+        auto& storage = *storage_owner;
         const auto fills = parse_fills(*body, storage);
         if (!fills.has_value()) {
             return std::unexpected{unreadable(fills.error())};
@@ -211,7 +216,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local FundingChargeBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FundingChargeBuffer>();
+
+        auto& storage = *storage_owner;
         const auto rows = parse_user_funding(*body, storage);
         if (!rows.has_value()) {
             // A ledger we cannot read is NOT an empty one: answering "no
@@ -251,7 +258,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{unreadable(positions.error())};

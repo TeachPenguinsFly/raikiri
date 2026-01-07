@@ -62,7 +62,9 @@ public:
                 exec::VenueError::make(classify(err->code), err->code, err->msg)};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_exchange_info(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -80,7 +82,8 @@ public:
                 RLOG_WARN("weex: no API-tradable list — an order for a contract outside it will "
                           "be refused by the venue rather than here");
             } else {
-                static thread_local TradableBuffer tradable;
+                static thread_local const auto tradable_owner = std::make_unique<TradableBuffer>();
+                auto& tradable = *tradable_owner;
                 const auto names = parse_api_trading_symbols(listed->body, tradable);
                 if (!names.has_value()) {
                     RLOG_WARN("weex: API-tradable list unreadable ({})", to_string(names.error()));

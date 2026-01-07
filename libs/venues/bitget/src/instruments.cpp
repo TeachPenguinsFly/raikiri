@@ -76,7 +76,8 @@ private:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local ContractBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<ContractBuffer>();
+        auto& storage = *storage_owner;
         const auto wire = parse_contracts(*body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

@@ -15,6 +15,7 @@
 #include <raikiri/venues/gate/positions.hpp>
 #include <raikiri/venues/gate/rest.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -106,7 +107,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+
+        auto& storage = *storage_owner;
         const auto orders = market == MarketType::Spot ? parse_spot_open_orders(*body, storage)
                                                        : parse_rest_orders(*body, storage, market);
         if (!orders.has_value()) {
@@ -165,7 +168,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local UserTradeBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<UserTradeBuffer>();
+
+        auto& storage = *storage_owner;
         const auto trades = parse_rest_user_trades(*body, storage, market);
         if (!trades.has_value()) {
             return std::unexpected{
@@ -244,7 +249,8 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        static thread_local AccountBookBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<AccountBookBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_account_book(*body, storage);
         if (!rows.has_value()) {
             // A body we cannot read is NOT an empty ledger.
@@ -310,7 +316,9 @@ public:
             return std::unexpected{body.error()};
         }
 
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(*body, storage);
         if (!positions.has_value()) {
             return std::unexpected{exec::VenueError::make(

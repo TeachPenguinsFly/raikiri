@@ -52,7 +52,9 @@ public:
                 classify(response->status, name), response->status, message)};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_instruments(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{

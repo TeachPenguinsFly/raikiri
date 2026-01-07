@@ -15,6 +15,7 @@
 
 #include <array>
 #include <charconv>
+#include <memory>
 #include <span>
 #include <string>
 
@@ -36,7 +37,8 @@ void handle_private_frame(VenueState& state,
     }
     switch (event->kind) {
     case EventKind::OrderUpdate: {
-        static thread_local OrderBuffer orders;
+        static thread_local const auto orders_owner = std::make_unique<OrderBuffer>();
+        auto& orders = *orders_owner;
         const auto wire = parse_ws_orders(frame, orders, market);
         if (!wire.has_value()) {
             return;
@@ -54,7 +56,8 @@ void handle_private_frame(VenueState& state,
         break;
     }
     case EventKind::UserTrade: {
-        static thread_local UserTradeBuffer trades;
+        static thread_local const auto trades_owner = std::make_unique<UserTradeBuffer>();
+        auto& trades = *trades_owner;
         const auto wire = parse_ws_user_trades(frame, trades, market);
         if (!wire.has_value()) {
             return;

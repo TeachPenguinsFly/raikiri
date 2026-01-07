@@ -26,6 +26,7 @@
 #include <raikiri/venues/weex/rest.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -172,7 +173,8 @@ public:
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_orders(body, storage);
         if (!orders.has_value()) {
             // NOT AN EMPTY BOOK. "No open orders" read off a venue that could
@@ -216,7 +218,8 @@ public:
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
-        static thread_local FillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<FillBuffer>();
+        auto& storage = *storage_owner;
         const auto fills = parse_fills(body, storage);
         if (!fills.has_value()) {
             return std::unexpected{
@@ -240,7 +243,8 @@ public:
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
-        static thread_local PositionBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<PositionBuffer>();
+        auto& storage = *storage_owner;
         const auto positions = parse_positions(body, storage);
         if (!positions.has_value()) {
             // NOT a flat account. A body we cannot read says nothing about what
@@ -266,7 +270,8 @@ public:
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
-        static thread_local BalanceBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<BalanceBuffer>();
+        auto& storage = *storage_owner;
         const auto coins = parse_balances(body, storage);
         if (!coins.has_value()) {
             // An unreadable wallet is refused rather than reported as an empty
@@ -296,7 +301,8 @@ public:
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
-        static thread_local BillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<BillBuffer>();
+        auto& storage = *storage_owner;
         const auto bills = parse_bills(body, storage);
         if (!bills.has_value()) {
             // A body we cannot read is NOT an empty ledger. Saying "no charges"

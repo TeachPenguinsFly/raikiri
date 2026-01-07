@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "../state.hpp"
@@ -165,7 +166,8 @@ private:
     // second Accepted, and reconciliation — not a replay — is what settles a
     // gap.
     void on_snapshot(std::string_view frame, UnixNanos received) noexcept {
-        static thread_local OrderSnapshotBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderSnapshotBuffer>();
+        auto& storage = *storage_owner;
         const auto orders = parse_order_snapshot(frame, storage);
         if (!orders.has_value()) {
             return;
@@ -226,7 +228,8 @@ private:
     }
 
     void on_fills(std::string_view frame, UnixNanos received) noexcept {
-        static thread_local WsFillBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<WsFillBuffer>();
+        auto& storage = *storage_owner;
         const auto fills = parse_ws_fills(frame, storage);
         if (!fills.has_value()) {
             return;

@@ -234,7 +234,8 @@ private:
             }
             return;
         }
-        static thread_local OrderBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
+        auto& storage = *storage_owner;
         const auto rows = parse_orders(response.body, storage);
         if (!rows.has_value()) {
             const auto refusal =

@@ -84,7 +84,9 @@ private:
                 classify(envelope->code), numeric_code(envelope->code), envelope->msg)};
         }
 
-        static thread_local InstrumentBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<InstrumentBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_instruments(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
@@ -119,7 +121,9 @@ private:
                 classify_spot(envelope->mc), numeric_code(envelope->mc), envelope->mc)};
         }
 
-        static thread_local SpotSymbolBuffer storage;
+        static thread_local const auto storage_owner = std::make_unique<SpotSymbolBuffer>();
+
+        auto& storage = *storage_owner;
         const auto wire = parse_spot_symbols(response->body, storage);
         if (!wire.has_value()) {
             return std::unexpected{
