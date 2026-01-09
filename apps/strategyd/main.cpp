@@ -1518,13 +1518,17 @@ int main(int argc, char** argv) {
                         // RECORDED, not only logged. Without this the caller
                         // holds an id for an order that exists in no store, no
                         // journal and no database.
+                        // IN DECLARATION ORDER, which is not a style point:
+                        // C++20 requires it of designated initializers and gcc
+                        // enforces what clang waves through, so a desk that
+                        // builds here fails to compile on the server.
                         ctx.journal_refusal(OrderCmd{.kind = CmdKind::Create,
-                                                     .instrument = intent.instrument,
-                                                     .client_order_id = intent.client_order_id,
                                                      .side = intent.side,
                                                      .order_type = intent.order_type,
                                                      .tif = intent.tif,
                                                      .flags = intent.flags,
+                                                     .instrument = intent.instrument,
+                                                     .client_order_id = intent.client_order_id,
                                                      .price = intent.price,
                                                      .qty = intent.qty,
                                                      .ts_created = clock.wall()},
