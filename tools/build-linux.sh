@@ -58,8 +58,11 @@ docker run --rm --platform linux/amd64 \
 echo "==> out"
 mkdir -p "$OUT"
 docker run --rm --platform linux/amd64 -v "$VOLUME:/build" -v "$PWD/$OUT:/out" \
-    "$IMAGE" bash -euc '
-        for app in gatewayd admind replay persisterd; do
+    -e TARGETS="$TARGETS" "$IMAGE" bash -euc '
+        # WHATEVER WAS ASKED FOR, not a list that drifts from TARGETS: a
+        # target that built and was silently not extracted looks exactly like
+        # a target that failed to build.
+        for app in $TARGETS; do
             src=/build/rel/apps/$app/$app
             # `|| true` because a target that was not asked for is not an
             # error, and under `set -e` the last absent one otherwise returns

@@ -29,6 +29,17 @@ SRC_DIR="${SRC_DIR:-raikiri}"
 REMOTE_ROOT="${REMOTE_ROOT:-/opt/raikiri}"
 PRESET="${PRESET:-rel}"
 
+# A DIRECTORY OF ALREADY-BUILT LINUX BINARIES, which skips the remote compile
+# entirely. tools/build-linux.sh produces one in build/linux in seconds; the
+# same build on this two-vCPU server ran at one translation unit a minute
+# against the live gateways, which is seven hours and a hole in the recording.
+#
+#   BINARIES=build/linux tools/deploy.sh raikiri-tokyo
+#
+# Unset keeps the remote build, which is the only path for anyone without
+# Docker and the reason it is still here.
+BINARIES="${BINARIES:-}"
+
 echo "==> the terminal, as static files"
 # `npm run build` is a COMPILER: it writes dist/ and exits. `npm run dev` is a
 # server that transpiles on demand and proxies /v1 — neither of which belongs on
@@ -43,21 +54,50 @@ rsync -a --delete \
     --exclude raikiri-data/ \
     ./ "$HOST:$SRC_DIR/"
 rsync -a frontend/dist/ "$HOST:$SRC_DIR/web-dist/"
+if [[ -n "$BINARIES" ]]; then
+    rsync -a --delete "$BINARIES/" "$HOST:$SRC_DIR/prebuilt/"
+fi
+
+if [[ -n "$BINARIES" ]]; then
+    # REFUSED BEFORE ANY ssh, because the failure otherwise surfaces at exec —
+    # after the units have already been restarted onto a binary the box cannot
+    # run, which is an outage rather than an error message.
+    for app in gatewayd admind replay persisterd; do
+        [[ -x "$BINARIES/$app" ]] || continue
+        if ! file -b "$BINARIES/$app" | grep -q "ELF 64-bit LSB.*x86-64"; then
+            echo "deploy: $BINARIES/$app is not a Linux x86-64 binary" >&2
+            exit 1
+        fi
+    done
+fi
 
 echo "==> build on the target, install, restart"
 # shellcheck disable=SC2087
 ssh "$HOST" bash -s <<REMOTE
 set -euo pipefail
 cd "\$HOME/$SRC_DIR"
-cmake --preset $PRESET
-cmake --build build/$PRESET --target gatewayd admind replay persisterd -j\$(nproc)
+if [[ -z "$BINARIES" ]]; then
+    cmake --preset $PRESET
+    cmake --build build/$PRESET --target gatewayd admind replay persisterd -j\$(nproc)
+fi
 
 sudo install -d -o raikiri -g raikiri "$REMOTE_ROOT/bin" "$REMOTE_ROOT/share" "$REMOTE_ROOT/web" /var/lib/raikiri
 sudo rsync -a --delete web-dist/ "$REMOTE_ROOT/web/"
-sudo install -m 0755 build/$PRESET/apps/gatewayd/gatewayd "$REMOTE_ROOT/bin/"
-sudo install -m 0755 build/$PRESET/apps/admind/admind "$REMOTE_ROOT/bin/"
-sudo install -m 0755 build/$PRESET/apps/replay/replay "$REMOTE_ROOT/bin/"
-sudo install -m 0755 build/$PRESET/apps/persisterd/persisterd "$REMOTE_ROOT/bin/"
+for app in gatewayd admind replay persisterd; do
+    if [[ -n "$BINARIES" ]]; then
+        src="prebuilt/\$app"
+    else
+        src="build/$PRESET/apps/\$app/\$app"
+    fi
+    # A TARGET THAT WAS NOT ASKED FOR IS NOT A FAILURE, but a missing one that
+    # WAS asked for must not leave the box running yesterday's binary in
+    # silence.
+    if [[ -x "\$src" ]]; then
+        sudo install -m 0755 "\$src" "$REMOTE_ROOT/bin/"
+    else
+        echo "deploy: no \$app to install, leaving the one already there" >&2
+    fi
+done
 sudo install -m 0755 deploy/gateway-run "$REMOTE_ROOT/bin/"
 sudo install -m 0644 tools/venue_args.sh "$REMOTE_ROOT/share/"
 sudo install -m 0644 deploy/raikiri-gatewayd@.service deploy/raikiri-admind.service /etc/systemd/system/
