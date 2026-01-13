@@ -932,7 +932,13 @@ TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
 TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp), "/contractMarket/tickerV2");
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp), "/contractMarket/execution");
-    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2");
+    // THE SNAPSHOT TOPIC, not the increment stream, and it is the same choice
+    // on both markets. /contractMarket/level2 is unthrottled — one message per
+    // level that moved — and cost this gateway 43.4% of a core against 17-22%
+    // for every other venue; it also needs a REST seed whose retry had no
+    // floor. See topic_for() for the measurement.
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2Depth50");
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Spot), "/spotMarket/level2Depth50");
     // Mark and funding share one topic; `subject` separates them.
     EXPECT_EQ(topic_for(exec::SubKind::Funding, MarketType::Perp), "/contract/instrument");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp), "/contract/instrument");

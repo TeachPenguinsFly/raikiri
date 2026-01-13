@@ -57,49 +57,6 @@ constexpr std::size_t k_max_connections = 32;
 // pool room for the bullet mint, the one call market data cannot go without.
 constexpr std::size_t k_rest_queue_headroom = 8;
 
-// Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises.
-//
-// THE BOOK IS MARKED IN FLIGHT ONLY IF THE SEND WAS TAKEN. The rate budget
-// refuses a seed as readily as a busy pool does, and a book marked before the
-// refusal waits forever for a request nobody made; left cold, it still wants a
-// seed and the next change frame asks again.
-void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
-    const auto id = base.id;
-    auto* owner = &state;
-    const auto handled = [owner, id](net::RestResponse&& response) {
-        const auto entry = owner->books.find(id.packed);
-        if (entry == owner->books.end()) {
-            return;
-        }
-        auto& target = entry->second;
-        if (response.transport_failed() || response.status < 200 || response.status >= 300) {
-            target.seed_failed();
-            return;
-        }
-        static thread_local LevelBuffer storage;
-        const auto wire = parse_level2_snapshot(response.body, storage);
-        if (!wire.has_value()) {
-            target.seed_failed();
-            return;
-        }
-        if (target.seed(*wire) != BookResult::Applied) {
-            return;
-        }
-        // NOT `book`: the enclosing function takes a DepthBook& by that name,
-        // and shadowing it here reads as the ladder rather than the snapshot
-        // taken from it.
-        if (const auto seeded = target.snapshot(UnixNanos{wire->ts_ns}, response.received);
-            seeded.has_value()) {
-            owner->sink->on_depth(*seeded);
-        }
-    };
-    if (state.depth_rest.send(state.builder.level2_snapshot(base.exchange_symbol.view()),
-                              handled)) {
-        book.seed_requested();
-    }
-}
-
 // A whole book off /spotMarket/level2Depth50. No seed, no chain: KuCoin
 // republishes the complete depth there, so the only failure available is a
 // frame that does not parse — silence, never a stale book served as current.
@@ -114,31 +71,19 @@ void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos r
     }
 }
 
-void handle_book_change(VenueState& state, std::string_view frame, UnixNanos received) {
-    const auto wire = parse_book_change(frame);
-    if (!wire.has_value()) {
-        return;
-    }
-    const auto* instrument = state.instruments.find(wire->symbol);
-    if (instrument == nullptr) {
-        return;
-    }
-    const auto& base = base_of(*instrument);
-    auto& book = state.book_for(base);
-    // Asked before the change is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
-    if (book.wants_seed()) {
-        request_seed(state, book, base);
-    }
-    if (book.apply(*wire) != BookResult::Applied) {
-        return; // unseeded, stale or resynchronising: silence, never a guess
-    }
-    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
-        depth.has_value()) {
-        state.sink->on_depth(*depth);
-    }
-}
-
+// THE INCREMENT PATH IS GONE, and with it the REST seed that fed it. KuCoin
+// publishes /contractMarket/level2 "real-time" — one message per price level
+// that moved — and the book it builds has to be seeded over REST and kept in
+// sequence. Measured on 2026-09-19: that channel alone was 7783 messages a
+// second of the gateway's 10005, the process cost 43.4% of a core against
+// 17-22% for every other venue here, and the seed had no retry floor, so 677
+// books asked 27391 times in seven minutes and were refused 22861 of them
+// with 429. Both markets now take the depth-50 snapshot topic, which carries
+// a whole book and needs neither.
+//
+// parse_book_change and DepthBook stay: they are what this venue's increment
+// wire looks like, they are tested, and the day KuCoin throttles that channel
+// they are what reads it.
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -183,11 +128,10 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Depth:
-        if (state.market == MarketType::Spot) {
-            handle_book_snapshot(state, frame, received);
-        } else {
-            handle_book_change(state, frame, received);
-        }
+        // ONE PATH NOW. Both markets subscribe the depth-50 snapshot topic, so
+        // there is no increment to chain and handle_book_change has no caller
+        // on the market-data path.
+        handle_book_snapshot(state, frame, received);
         break;
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
