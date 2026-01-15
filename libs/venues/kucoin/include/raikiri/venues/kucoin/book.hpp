@@ -145,12 +145,26 @@ public:
 
     DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
-    // True while the book cannot publish and no snapshot is outstanding.
-    [[nodiscard]] bool wants_seed() const noexcept;
+    // HOW LONG A REFUSED SEED WAITS BEFORE ASKING AGAIN, and it exists because
+    // without it the ask is bounded by the frame rate rather than by anything
+    // sensible. /contractMarket/level2 pushes on every level that moves, and
+    // the seed was asked for on every such frame for a book that had none: 677
+    // books asked 27391 times in seven minutes on 2026-09-19 and were refused
+    // 22861 of them with 429, which also starved the funding poll of the same
+    // budget. A second is far shorter than a venue's rate window and far
+    // longer than a frame.
+    static constexpr std::uint64_t k_seed_retry_ns = 1'000'000'000ULL;
+
+    // True while the book cannot publish, no snapshot is outstanding, and a
+    // refused one has served its wait.
+    [[nodiscard]] bool wants_seed(std::uint64_t now_ns) const noexcept;
 
     void seed_requested() noexcept { seed_in_flight_ = true; }
 
-    void seed_failed() noexcept { seed_in_flight_ = false; }
+    void seed_failed(std::uint64_t now_ns) noexcept {
+        seed_in_flight_ = false;
+        seed_retry_at_ns_ = now_ns + k_seed_retry_ns;
+    }
 
     BookResult seed(const WireOrderBook& snapshot);
     BookResult apply(const WireBookChange& change);
@@ -214,6 +228,7 @@ private:
     std::uint64_t reseeds_{0};
     State state_{State::Cold};
     bool seed_in_flight_{false};
+    std::uint64_t seed_retry_at_ns_{0};
 };
 
 } // namespace raikiri::venues::kucoin

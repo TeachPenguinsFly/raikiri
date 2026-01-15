@@ -727,7 +727,7 @@ TEST(KucoinBook, AnUnseededBookPublishesNothing) {
     const auto table = loaded_table();
     auto book = book_for(table);
     std::string text;
-    EXPECT_TRUE(book.wants_seed());
+    EXPECT_TRUE(book.wants_seed(0));
     EXPECT_EQ(book.apply(change_of(text, "ws_level2_change.json")), BookResult::Buffered);
     EXPECT_FALSE(book.live());
     EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
@@ -864,7 +864,22 @@ TEST(KucoinBook, AGapInTheChainPublishesNothing) {
     EXPECT_EQ(book.gaps(), 1U);
     EXPECT_FALSE(book.live());
     EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
-    EXPECT_TRUE(book.wants_seed()) << "a dropped book asks for a new seed";
+    EXPECT_TRUE(book.wants_seed(0)) << "a dropped book asks for a new seed";
+}
+
+// THE RETRY FLOOR, which is what stops a refused seed being asked for again on
+// the very next frame. Without it 677 books asked 27391 times in seven minutes
+// and were refused 22861 of them with 429.
+TEST(KucoinBook, ARefusedSeedWaitsBeforeAskingAgain) {
+    DepthBook book{InstrumentId{1}, FixedE9{1}, FixedE9{1}};
+    constexpr std::uint64_t now = 1'000'000'000'000ULL;
+    EXPECT_TRUE(book.wants_seed(now)) << "a cold book asks straight away";
+    book.seed_requested();
+    EXPECT_FALSE(book.wants_seed(now)) << "one in flight is not two";
+    book.seed_failed(now);
+    EXPECT_FALSE(book.wants_seed(now)) << "refused, and the next frame must not re-ask";
+    EXPECT_FALSE(book.wants_seed(now + DepthBook::k_seed_retry_ns - 1));
+    EXPECT_TRUE(book.wants_seed(now + DepthBook::k_seed_retry_ns));
 }
 
 TEST(KucoinBook, ASeedTheStreamHasRunPastIsDiscarded) {
@@ -884,7 +899,7 @@ TEST(KucoinBook, ASeedTheStreamHasRunPastIsDiscarded) {
     EXPECT_EQ(book.apply(d1), BookResult::Reseed);
     EXPECT_FALSE(book.live());
     EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{1}).has_value());
-    EXPECT_TRUE(book.wants_seed());
+    EXPECT_TRUE(book.wants_seed(0));
 }
 
 TEST(KucoinBook, ALevelOffTheStepInvalidatesTheWholeBook) {
@@ -932,13 +947,7 @@ TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
 TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp), "/contractMarket/tickerV2");
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp), "/contractMarket/execution");
-    // THE SNAPSHOT TOPIC, not the increment stream, and it is the same choice
-    // on both markets. /contractMarket/level2 is unthrottled — one message per
-    // level that moved — and cost this gateway 43.4% of a core against 17-22%
-    // for every other venue; it also needs a REST seed whose retry had no
-    // floor. See topic_for() for the measurement.
-    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2Depth50");
-    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Spot), "/spotMarket/level2Depth50");
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2");
     // Mark and funding share one topic; `subject` separates them.
     EXPECT_EQ(topic_for(exec::SubKind::Funding, MarketType::Perp), "/contract/instrument");
     EXPECT_EQ(topic_for(exec::SubKind::MarkPrice, MarketType::Perp), "/contract/instrument");

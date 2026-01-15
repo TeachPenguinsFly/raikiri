@@ -43,24 +43,10 @@ std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept {
     case exec::SubKind::Trades:
         return spot ? "/market/match" : "/contractMarket/execution";
     case exec::SubKind::Depth:
-        // THE SNAPSHOT TOPIC ON BOTH SIDES, not the change stream: it
+        // Spot takes the depth-50 SNAPSHOT topic, not the change stream: it
         // republishes a whole book, so there is no seed to fetch and no chain
         // to lose. Both topics carry the subject "level2".
-        //
-        // Perp used to take /contractMarket/level2, which KuCoin publishes
-        // "real-time" — one message per individual price-level change, with no
-        // throttle. Measured against the depth-50 topic on 120 contracts over
-        // 90 s on 2026-09-19: 2649 messages a second against 1288, and the
-        // whole gateway cost 43.4% of a core against 17-22% for every other
-        // venue on this box. The seed it needs is worse than the traffic: the
-        // retry has no floor, so 677 books asked for a snapshot 27391 times in
-        // seven minutes and were refused 22861 of them with 429.
-        //
-        // WHAT IT COSTS is bytes — 1246 per message against 185, because each
-        // one carries the whole book rather than the level that moved. That is
-        // the right side of the trade here, where the kernel is paid per
-        // message and TLS per byte, but it is a trade and not a free win.
-        return spot ? "/spotMarket/level2Depth50" : "/contractMarket/level2Depth50";
+        return spot ? "/spotMarket/level2Depth50" : "/contractMarket/level2";
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
         // A spot pair has neither, and /contract/instrument is a futures topic.

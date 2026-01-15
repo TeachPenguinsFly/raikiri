@@ -303,8 +303,8 @@ std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view b
 DepthBook::DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
     : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}
 
-bool DepthBook::wants_seed() const noexcept {
-    return state_ == State::Cold && !seed_in_flight_;
+bool DepthBook::wants_seed(std::uint64_t now_ns) const noexcept {
+    return state_ == State::Cold && !seed_in_flight_ && now_ns >= seed_retry_at_ns_;
 }
 
 void DepthBook::invalidate() noexcept {
@@ -317,6 +317,9 @@ void DepthBook::invalidate() noexcept {
     band_high_ = PriceTicks{};
     state_ = State::Cold;
     seed_in_flight_ = false;
+    // The wait is NOT cleared: a book invalidated by a gap is exactly the one
+    // whose seed is most likely to be refused next, and clearing it here would
+    // put the retry back on the frame rate.
 }
 
 std::optional<DepthBook::Level> DepthBook::convert(std::string_view price,
