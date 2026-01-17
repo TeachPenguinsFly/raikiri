@@ -12,15 +12,32 @@
 :80 {
 	encode zstd gzip
 
+	# `handle` AND NOT BARE DIRECTIVES, because Caddy does not run directives in
+	# the order they are written — it sorts them into a fixed order in which a
+	# rewrite comes BEFORE a proxy. With `try_files` written plainly, every
+	# /v1 request was rewritten to /index.html before reverse_proxy ever saw
+	# it, and the API answered 200 with the HTML page. A health check that
+	# reads only the status code cannot tell that from a working API.
+	#
+	# handle blocks are mutually exclusive and evaluated top to bottom, so the
+	# order below is the order that happens.
+
 	# The stream has a port of its own because an upgrade served from the HTTP
-	# acceptor needs a hand-off admind's server does not have. Listed FIRST:
-	# these match in order and /v1 would otherwise swallow it.
-	reverse_proxy /v1/stream* 127.0.0.1:8788
-	reverse_proxy /v1* 127.0.0.1:8787
+	# acceptor needs a hand-off admind's server does not have. FIRST: /v1/*
+	# would otherwise swallow it.
+	handle /v1/stream* {
+		reverse_proxy 127.0.0.1:8788
+	}
 
 	# The board the scanner draws comes from a service this repository does not
 	# contain; admind forwards it and knows nothing about what answers.
-	root * /opt/raikiri/web
-	try_files {path} /index.html
-	file_server
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /opt/raikiri/web
+		try_files {path} /index.html
+		file_server
+	}
 }
