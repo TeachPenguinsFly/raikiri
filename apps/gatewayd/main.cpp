@@ -55,6 +55,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <csignal>
@@ -198,16 +199,50 @@ public:
         ch_.md_events->publish(event);
     }
 
+    // ONE LADDER PER INSTRUMENT PER WINDOW, and the window is what a reader
+    // could possibly resolve. The depth cell holds the latest value; nothing
+    // published between two reader passes is ever seen. researchd samples it
+    // on a five-second grid and the terminal draws at 30 Hz, so ten
+    // milliseconds is two orders finer than the fastest thing that looks.
+    //
+    // A LATEST-VALUE CELL IS WHY THIS IS SAFE. Dropping a publish loses no
+    // information — the next one carries the whole book, including everything
+    // the skipped one would have said. That is not true of the trade ring
+    // below it, which is a stream, and this must never be copied there.
+    // ASKS ONLY. The window is closed by on_depth below, when a ladder is
+    // actually written — not here. Closing it on the question would make the
+    // pair non-idempotent: an adapter that asked, was told yes, built its
+    // snapshot and handed it over would find the second check refusing the
+    // publish it had just been granted, and the ladder would vanish.
+    [[nodiscard]] bool wants_depth(raikiri::InstrumentId instrument,
+                                   raikiri::UnixNanos now) noexcept override {
+        const auto idx = instrument.symbol().raw;
+        if (idx >= raikiri::shm::k_depth_cells) {
+            return false;
+        }
+        if (now.ns - depth_published_ns_[idx] < k_depth_window_ns) {
+            ++counts_.depth_coalesced;
+            return false;
+        }
+        return true;
+    }
+
     void on_depth(const raikiri::BookSnapshot& book) noexcept override {
+        // ASKED AGAIN HERE, and deliberately. An adapter that called
+        // wants_depth() first also saved building the 3.2 KB snapshot; one
+        // that did not still has its write refused. Asking twice is safe
+        // because the question does not close the window — this does.
+        const auto idx = book.instrument.symbol().raw;
+        if (!wants_depth(book.instrument, book.ts_init)) {
+            return;
+        }
+        depth_published_ns_[idx] = book.ts_init.ns;
         ++counts_.depth;
         // The frame count says nothing about how deep the book actually is,
         // and a venue that silently ignores a deeper subscription looks
         // identical to one that honoured it.
         counts_.depth_levels = std::max({counts_.depth_levels, book.bid_count, book.ask_count});
-        const auto idx = book.instrument.symbol().raw;
-        if (idx < raikiri::shm::k_depth_cells) {
-            ch_.depth->write(idx, book);
-        }
+        ch_.depth->write(idx, book);
     }
 
     void on_ticker_stats(const raikiri::TickerStats& stats) noexcept override {
@@ -385,6 +420,11 @@ public:
         std::uint64_t bbo{0};
         std::uint64_t trades{0};
         std::uint64_t depth{0};
+        // Ladders the adapter would have built and published, refused inside
+        // the window. Beside `depth` on purpose: the pair is the whole
+        // argument for the gate, and a ratio near one would mean it is not
+        // earning its complexity on this venue.
+        std::uint64_t depth_coalesced{0};
         std::uint32_t depth_levels{0};
         std::uint64_t funding{0};
         std::uint64_t ticker_stats{0};
@@ -412,9 +452,16 @@ public:
     }
 
 private:
+    static constexpr std::uint64_t k_depth_window_ns = 10'000'000ULL;
+
     raikiri::VenueId venue_;
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
+
+    // When each instrument's ladder was last published. Wall time, because
+    // that is what the adapters hand in; a venue that stamps the future would
+    // suppress its own next publish, which is bounded at one window.
+    std::array<std::uint64_t, raikiri::shm::k_depth_cells> depth_published_ns_{};
 
     // The last rate journalled per instrument, so a restatement of the same one
     // is not written again. Deliberately NOT the shm cell: that holds the
@@ -1621,7 +1668,8 @@ int main(int argc, char** argv) {
     requests.report(account_name);
     rates.report(account_name);
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
-              "ticker={} charges={} order-events={} refusals={} journal-pruned={}",
+              "ticker={} charges={} order-events={} refusals={} journal-pruned={} "
+              "depth-coalesced={}",
               account_name,
               counts.bbo,
               counts.depth,
@@ -1633,6 +1681,7 @@ int main(int argc, char** argv) {
               counts.funding_charges,
               counts.order_events,
               counts.order_errors,
-              journal_writer->pruned());
+              journal_writer->pruned(),
+              counts.depth_coalesced);
     return 0;
 }

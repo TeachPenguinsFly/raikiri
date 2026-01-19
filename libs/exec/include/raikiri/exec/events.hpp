@@ -37,6 +37,30 @@ public:
     virtual void on_bbo(const Bbo& bbo) noexcept = 0;
     virtual void on_trade(const TradeTick& trade) noexcept = 0;
 
+    // WOULD A LADDER PUBLISHED NOW BE READ? Asked BEFORE the snapshot is
+    // built, because building it is the expensive half and the sink is the
+    // only thing that knows whether anyone could see the result.
+    //
+    // A BookSnapshot is 3.2 KB of std::array that Ladders::snapshot
+    // value-initialises and then fills, and the shm cell it lands in holds
+    // only the LATEST value — every write between two reader passes is
+    // overwritten before anybody could read it. An adapter that applies one
+    // price level and republishes the whole ladder is doing that work per
+    // level rather than per observable change.
+    //
+    // Measured on kucoin, 2026-09-19: 15,043 applied changes a second against
+    // 3,452 distinct (instrument, 10 ms) windows. Seventy-seven per cent of
+    // the builds and of the 3.2 KB writes were unobservable — about 97 MB/s
+    // of memory traffic on a two-core box, for one venue of seven.
+    //
+    // TRUE BY DEFAULT, so a sink with no opinion behaves as before and an
+    // adapter that never asks is merely as expensive as it already was.
+    [[nodiscard]] virtual bool wants_depth(InstrumentId instrument, UnixNanos now) noexcept {
+        (void)instrument;
+        (void)now;
+        return true;
+    }
+
     // Declining by default: most venues publish depth, but an adapter that
     // does not maintain a book must not be forced to invent one.
     virtual void on_depth(const BookSnapshot& book) noexcept { (void)book; }
