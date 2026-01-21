@@ -133,8 +133,14 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
     if (book.apply(*wire) != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
-    if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
-        depth.has_value()) {
+    const auto ts_event = ms_to_unix(wire->ts_ms, received);
+    // ASKED BEFORE THE SNAPSHOT IS BUILT. The build is the expensive half —
+    // 3.2 KB of arrays value-initialised and filled — and the sink is what
+    // knows whether a reader could resolve the result.
+    if (!state.sink->wants_depth(base.id, received)) {
+        return;
+    }
+    if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
         state.sink->on_depth(*depth);
     }
 }

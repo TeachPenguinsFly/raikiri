@@ -119,6 +119,14 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (result == BookResult::GapDetected || result == BookResult::BadLevel) {
             return; // the venue resends a snapshot; until then we publish nothing
         }
+        // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
+        // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and
+        // the cell it lands in keeps only the latest value. Measured on
+        // kucoin, 2026-09-19: the same guard took that gateway from 44.5% to
+        // 37.6% of a core.
+        if (!state.sink->wants_depth(base_of(*instrument).id, received)) {
+            break;
+        }
         if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
             depth.has_value()) {
             state.sink->on_depth(*depth);
