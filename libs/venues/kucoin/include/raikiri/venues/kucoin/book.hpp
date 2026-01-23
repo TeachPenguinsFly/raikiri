@@ -175,6 +175,18 @@ public:
     // desynchronised.
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
+    // THE TOUCH, so the quote costs no second subscription. KuCoin's own
+    // documentation says tickerV2 "shares the sn and sequence fields with the
+    // Order Book — Incremental Updates topic, and the values of both fields
+    // are identical": it is the same information arriving twice, and it was
+    // 2325 messages a second of this gateway's load. bybit has been served
+    // this way since it was written.
+    //
+    // Same rule as snapshot(): nothing at all while desynchronised, because a
+    // stale quote is acted on as if it were current and silence is visibly
+    // missing.
+    [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const;
+
     void invalidate() noexcept;
 
     [[nodiscard]] std::uint64_t gaps() const noexcept { return gaps_; }

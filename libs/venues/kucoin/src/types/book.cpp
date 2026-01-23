@@ -502,4 +502,21 @@ std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts
         instrument_, static_cast<std::uint64_t>(last_sequence_), ts_event, ts_init);
 }
 
+std::optional<Bbo> DepthBook::bbo(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (state_ != State::Live || ladders_.bids().empty() || ladders_.asks().empty()) {
+        return std::nullopt;
+    }
+    const auto& bid = ladders_.bids().levels().front();
+    const auto& ask = ladders_.asks().levels().front();
+    Bbo out{};
+    out.instrument = instrument_;
+    out.bid = bid.price;
+    out.bid_qty = bid.qty;
+    out.ask = ask.price;
+    out.ask_qty = ask.qty;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
+}
+
 } // namespace raikiri::venues::kucoin

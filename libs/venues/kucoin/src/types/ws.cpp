@@ -39,6 +39,18 @@ std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept {
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
+        // TRIED AND REVERTED: serving perp's quote from the book's touch, the
+        // way bybit does, costs 7.2 points of a core less and lost 127 of 677
+        // contracts. KuCoin is right that tickerV2 duplicates the book's
+        // sequence — but the touch only exists once a book reaches Live, and
+        // that needs a REST seed which is asked for only when a level2 frame
+        // arrives. A contract whose book never moves never seeds, never goes
+        // Live, and had its quote from tickerV2 alone. Coverage measured
+        // 97% → 78% within minutes, flat, with zero rate refusals.
+        //
+        // The change belongs with the UTA v2 migration, where the book channel
+        // opens with a snapshot per symbol and every subscribed contract is
+        // Live from its first frame. Not before it.
         return spot ? "/market/ticker" : "/contractMarket/tickerV2";
     case exec::SubKind::Trades:
         return spot ? "/market/match" : "/contractMarket/execution";

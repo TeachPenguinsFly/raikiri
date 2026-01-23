@@ -945,7 +945,11 @@ TEST(KucoinBook, SnapshotWithoutASequenceIsNotASeed) {
 }
 
 TEST(KucoinWs, TopicsCoverTheKindsKucoinStreams) {
+    // tickerV2 AND NOT THE BOOK'S TOUCH, which was tried and reverted: the
+    // touch exists only once a book is Live, and a contract whose book never
+    // moves never seeds. Coverage fell 97% to 78%. See topic_for().
     EXPECT_EQ(topic_for(exec::SubKind::Bbo, MarketType::Perp), "/contractMarket/tickerV2");
+    EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2");
     EXPECT_EQ(topic_for(exec::SubKind::Trades, MarketType::Perp), "/contractMarket/execution");
     EXPECT_EQ(topic_for(exec::SubKind::Depth, MarketType::Perp), "/contractMarket/level2");
     // Mark and funding share one topic; `subject` separates them.
