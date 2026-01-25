@@ -110,6 +110,40 @@ struct WireBookSnapshot {
 [[nodiscard]] std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
                                                                              LevelBuffer& storage);
 
+// UTA v2's `obu` channel, which carries a whole book and then deltas of it on
+// ONE subscription and needs no REST seed at all.
+//
+// WHY A SECOND SHAPE EXISTS. Classic /contractMarket/level2 publishes one
+// message per price level that moves, unthrottled: measured 2026-09-19 across
+// KuCoin's 683 contracts, 15,380 messages a second against this channel's
+// 3,230 for the same symbols — 4.76x — and the gateway cost 43.4% of a core
+// against 8-18% for every other venue on the box. The reduction is 10 ms
+// conflation, not lost data: counting distinct (symbol, 10 ms) pairs in the
+// classic stream gives 3,452/s, which agrees within 4%.
+//
+// SEQUENCING IS A RANGE, NOT A NUMBER, and that is the part that does not
+// port. Classic sends one `sequence` per single-level change and a reader
+// requires `sequence == last + 1`. Here one frame carries many levels, so it
+// names the span it covers and the venue's rule is:
+//
+//     start <= last_end + 1      (nothing was skipped)
+//     end   >  last_end          (this is not a replay)
+//
+// A snapshot names `start == end`, which is the sequence already inside its
+// levels — the same convention the REST seed used.
+struct WireUtaBook {
+    std::string_view symbol;
+    bool is_snapshot{false};
+    std::int64_t seq_start{0};
+    std::int64_t seq_end{0};
+    std::uint64_t ts_ns{0}; // matching-engine time, nanoseconds
+    std::span<const WireLevel> bids;
+    std::span<const WireLevel> asks;
+};
+
+[[nodiscard]] std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame,
+                                                                   LevelBuffer& storage);
+
 // `ts` here is NANOSECONDS, where every other KuCoin timestamp is milliseconds.
 struct WireOrderBook {
     std::string_view symbol;
@@ -130,6 +164,59 @@ enum class BookResult : std::uint8_t {
     Gap,      // the contiguous chain broke: book dropped, re-seed required
     Reseed,   // the seed can no longer be reached: fetch another
     BadLevel, // a price or size failed exact fixed-point conversion
+};
+
+// One contract's book off UTA v2's `obu` channel.
+//
+// SEPARATE FROM DepthBook, and the separation is the point. DepthBook exists
+// around a REST seed arriving in the middle of a stream: it buffers changes
+// while cold, bridges them when the seed lands, and only then advances. Here
+// the whole book arrives FIRST, on the same connection, ahead of every delta
+// that refers to it — there is nothing to buffer, nothing to bridge, and no
+// seed to fetch. Threading a second sequencing rule through that state machine
+// would make both harder to read and leave no way back to the classic feed.
+//
+// THE CHAINING RULE IS THE VENUE'S, quoted rather than invented:
+//
+//     start <= last_end + 1      nothing was skipped
+//     end   >  last_end          this is not a replay
+//
+// A snapshot names start == end, which is the sequence already inside its
+// levels.
+class UtaBook {
+public:
+    using Level = book::Level;
+
+    UtaBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
+
+    BookResult apply(const WireUtaBook& frame);
+
+    [[nodiscard]] bool live() const noexcept { return live_; }
+
+    // Nothing at all while the chain is broken, under the same rule as every
+    // other book here: a stale ladder is priced off as if it were current
+    // while silence is visibly missing.
+    [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event,
+                                                       UnixNanos ts_init) const;
+
+    [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const;
+
+    void invalidate() noexcept;
+
+    [[nodiscard]] std::uint64_t gaps() const noexcept { return gaps_; }
+
+    [[nodiscard]] std::int64_t last_sequence() const noexcept { return last_end_; }
+
+private:
+    [[nodiscard]] bool load(std::span<const WireLevel> levels, book::Ladder& side);
+
+    InstrumentId instrument_{};
+    FixedE9 tick_size_{};
+    FixedE9 lot_size_{};
+    book::Ladders ladders_;
+    std::int64_t last_end_{0};
+    std::uint64_t gaps_{0};
+    bool live_{false};
 };
 
 // Changes held while the REST seed is in flight. One entry is one level, and

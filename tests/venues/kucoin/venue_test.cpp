@@ -1816,5 +1816,194 @@ TEST(KucoinSpotWire, TheSpotDepthTopicIsAWholeBook) {
     EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw) << "an uncrossed book";
 }
 
+
+// UTA v2's `obu` channel. Every frame below was captured from
+// wss://x-push-futures.kucoin.com on 2026-09-20 with no credentials of any
+// kind — the endpoint takes public market data without a token, which is what
+// makes this migration a parser change rather than an account migration.
+
+TEST(KucoinUtaBook, ASnapshotOpensTheStreamAndNamesOneSequence) {
+    const auto frame = fixture("ws_uta_book_snapshot.json");
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto wire = parse_uta_book(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_TRUE(wire->is_snapshot);
+    EXPECT_EQ(wire->symbol, "XBTUSDTM");
+    // "For Snapshot pushes the values of O and C are always the same" — it is
+    // the sequence already inside these levels, the same convention the REST
+    // seed used before this channel existed.
+    EXPECT_EQ(wire->seq_start, wire->seq_end);
+    ASSERT_FALSE(wire->bids.empty());
+    ASSERT_FALSE(wire->asks.empty());
+    EXPECT_GT(wire->ts_ns, 1'700'000'000'000'000'000ULL) << "nanoseconds, not the classic ms";
+}
+
+TEST(KucoinUtaBook, ADeltaCarriesTheSpanItCovers) {
+    const auto frame = fixture("ws_uta_book_delta.json");
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto wire = parse_uta_book(frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_FALSE(wire->is_snapshot);
+    EXPECT_EQ(wire->symbol, "XBTUSDTM");
+    // ONE FRAME, MANY LEVELS, so it names a range rather than a number. This
+    // is the part that does not port from classic, where a reader requires
+    // sequence == last + 1.
+    EXPECT_GT(wire->seq_end, wire->seq_start);
+}
+
+TEST(KucoinUtaBook, BothSidesAreRequired) {
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto wire = parse_uta_book(fixture("ws_uta_book_delta_next.json"), *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->asks.size(), 4U);
+    EXPECT_EQ(wire->bids.size(), 3U);
+
+    // AN UNTOUCHED SIDE ARRIVES AS [], NEVER ABSENT, so a missing key is a
+    // truncated frame rather than "nothing changed" — reading it as the latter
+    // would apply half a book and call it applied.
+    EXPECT_FALSE(
+        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[["1","1"]]}})", *storage)
+            .has_value())
+        << "no bids key at all";
+    const auto empty_side =
+        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[],"b":[["1","1"]]}})",
+                       *storage);
+    ASSERT_TRUE(empty_side.has_value()) << "an empty side is a side";
+    EXPECT_TRUE(empty_side->asks.empty());
+    EXPECT_EQ(empty_side->bids.size(), 1U);
+}
+
+TEST(KucoinUtaBook, AFrameWithoutItsSpanIsRefused) {
+    auto storage = std::make_unique<LevelBuffer>();
+    // A frame that cannot be chained must not be applied: without O and C
+    // there is no way to tell a replay from a gap.
+    EXPECT_FALSE(
+        parse_uta_book(R"({"t":"delta","d":{"s":"X","C":2,"a":[],"b":[]}})", *storage).has_value());
+    EXPECT_FALSE(
+        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"a":[],"b":[]}})", *storage).has_value());
+}
+
+TEST(KucoinUtaBook, AFrameThatIsNeitherSnapshotNorDeltaIsRefused) {
+    auto storage = std::make_unique<LevelBuffer>();
+    EXPECT_FALSE(parse_uta_book(fixture("ws_uta_subscribe_ack.json"), *storage).has_value())
+        << "a subscribe acknowledgement is not a book";
+    EXPECT_FALSE(parse_uta_book(R"({"t":"heartbeat","d":{}})", *storage).has_value());
+}
+
+// The chaining rule, which is the half of this migration that cannot be read
+// off a frame. Classic requires `sequence == last + 1`; here one frame covers
+// a span and the venue's rule is start <= last_end + 1 and end > last_end.
+
+namespace {
+
+WireUtaBook uta(std::string_view symbol,
+                bool snapshot,
+                std::int64_t start,
+                std::int64_t end,
+                std::span<const WireLevel> bids,
+                std::span<const WireLevel> asks) {
+    WireUtaBook out{};
+    out.symbol = symbol;
+    out.is_snapshot = snapshot;
+    out.seq_start = start;
+    out.seq_end = end;
+    out.ts_ns = 1'789'000'000'000'000'000ULL;
+    out.bids = bids;
+    out.asks = asks;
+    return out;
+}
+
+} // namespace
+
+TEST(KucoinUtaChain, ADeltaBeforeTheSnapshotIsNotApplied) {
+    UtaBook book{InstrumentId{1}, FixedE9::from_raw(k_e9 / 10), FixedE9::from_raw(k_e9)};
+    const std::array<WireLevel, 1> bid{WireLevel{.price = "100.0", .qty = "5"}};
+    const std::array<WireLevel, 1> ask{WireLevel{.price = "101.0", .qty = "7"}};
+    EXPECT_EQ(book.apply(uta("X", false, 10, 12, bid, ask)), BookResult::Waiting);
+    EXPECT_FALSE(book.live());
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value());
+}
+
+TEST(KucoinUtaChain, ASnapshotOpensTheBookAndDeltasCarryItForward) {
+    UtaBook book{InstrumentId{1}, FixedE9::from_raw(k_e9 / 10), FixedE9::from_raw(k_e9)};
+    const std::array<WireLevel, 1> bid{WireLevel{.price = "100.0", .qty = "5"}};
+    const std::array<WireLevel, 1> ask{WireLevel{.price = "101.0", .qty = "7"}};
+    ASSERT_EQ(book.apply(uta("X", true, 500, 500, bid, ask)), BookResult::Applied);
+    EXPECT_TRUE(book.live());
+    EXPECT_EQ(book.last_sequence(), 500);
+
+    // Contiguous: starts exactly where the last one ended, plus one.
+    const std::array<WireLevel, 1> better{WireLevel{.price = "100.5", .qty = "9"}};
+    EXPECT_EQ(book.apply(uta("X", false, 501, 503, better, {})), BookResult::Applied);
+    EXPECT_EQ(book.last_sequence(), 503);
+
+    // OVERLAPPING IS LEGAL AND A GAP IS NOT, which is the whole difference
+    // from classic: a frame may restate sequences already applied as long as
+    // it also carries new ones.
+    EXPECT_EQ(book.apply(uta("X", false, 502, 505, {}, {})), BookResult::Applied);
+    EXPECT_EQ(book.last_sequence(), 505);
+
+    const auto top = book.bbo(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(top.has_value());
+    EXPECT_LT(top->bid.raw, top->ask.raw) << "an uncrossed book";
+}
+
+TEST(KucoinUtaChain, AReplayIsIgnoredAndAGapDropsTheBook) {
+    UtaBook book{InstrumentId{1}, FixedE9::from_raw(k_e9 / 10), FixedE9::from_raw(k_e9)};
+    const std::array<WireLevel, 1> bid{WireLevel{.price = "100.0", .qty = "5"}};
+    const std::array<WireLevel, 1> ask{WireLevel{.price = "101.0", .qty = "7"}};
+    ASSERT_EQ(book.apply(uta("X", true, 500, 500, bid, ask)), BookResult::Applied);
+
+    // end <= last_end: everything in it is already inside the book.
+    EXPECT_EQ(book.apply(uta("X", false, 498, 500, {}, {})), BookResult::Stale);
+    EXPECT_EQ(book.last_sequence(), 500) << "a replay must not move the chain";
+    EXPECT_TRUE(book.live());
+
+    // start > last_end + 1: something was skipped, and a book that applied it
+    // would disagree with KuCoin's permanently and invisibly.
+    EXPECT_EQ(book.apply(uta("X", false, 502, 504, {}, {})), BookResult::Gap);
+    EXPECT_FALSE(book.live());
+    EXPECT_EQ(book.gaps(), 1U);
+    EXPECT_FALSE(book.snapshot(UnixNanos{1}, UnixNanos{2}).has_value())
+        << "a dropped book publishes nothing at all";
+
+    // NO SEED IS FETCHED. The venue resends a snapshot on this same
+    // subscription, so recovery is waiting rather than asking.
+    ASSERT_EQ(book.apply(uta("X", true, 900, 900, bid, ask)), BookResult::Applied);
+    EXPECT_TRUE(book.live());
+    EXPECT_EQ(book.last_sequence(), 900);
+}
+
+TEST(KucoinUtaChain, ASnapshotReplacesRatherThanMerges) {
+    UtaBook book{InstrumentId{1}, FixedE9::from_raw(k_e9 / 10), FixedE9::from_raw(k_e9)};
+    const std::array<WireLevel, 2> bids{WireLevel{.price = "100.0", .qty = "5"},
+                                        WireLevel{.price = "99.0", .qty = "3"}};
+    const std::array<WireLevel, 1> ask{WireLevel{.price = "101.0", .qty = "7"}};
+    ASSERT_EQ(book.apply(uta("X", true, 1, 1, bids, ask)), BookResult::Applied);
+    const auto first = book.snapshot(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->bid_count, 2U);
+
+    // A restatement the venue sends after its own break must not leave behind
+    // a level it has dropped.
+    const std::array<WireLevel, 1> fewer{WireLevel{.price = "100.0", .qty = "5"}};
+    ASSERT_EQ(book.apply(uta("X", true, 9, 9, fewer, ask)), BookResult::Applied);
+    const auto second = book.snapshot(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(second->bid_count, 1U) << "99.0 was not restated and must be gone";
+}
+
+TEST(KucoinUtaChain, ASizeOfZeroRemovesALevel) {
+    UtaBook book{InstrumentId{1}, FixedE9::from_raw(k_e9 / 10), FixedE9::from_raw(k_e9)};
+    const std::array<WireLevel, 2> bids{WireLevel{.price = "100.0", .qty = "5"},
+                                        WireLevel{.price = "99.0", .qty = "3"}};
+    const std::array<WireLevel, 1> ask{WireLevel{.price = "101.0", .qty = "7"}};
+    ASSERT_EQ(book.apply(uta("X", true, 1, 1, bids, ask)), BookResult::Applied);
+    const std::array<WireLevel, 1> gone{WireLevel{.price = "99.0", .qty = "0"}};
+    ASSERT_EQ(book.apply(uta("X", false, 2, 2, gone, {})), BookResult::Applied);
+    const auto after = book.snapshot(UnixNanos{1}, UnixNanos{2});
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->bid_count, 1U);
+}
 } // namespace
 } // namespace raikiri::venues::kucoin

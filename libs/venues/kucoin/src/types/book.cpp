@@ -261,6 +261,69 @@ std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view 
     });
 }
 
+std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame,
+                                                     LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<WireUtaBook, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        // `t` separates the opening whole book from the deltas that follow it.
+        // Anything else on this channel is not a book frame.
+        const auto kind = detail::req_str(*root, "t");
+        if (!kind.has_value()) {
+            return std::unexpected(kind.error());
+        }
+        const bool snapshot = *kind == "snapshot";
+        if (!snapshot && *kind != "delta") {
+            return std::unexpected(WireError::WrongType);
+        }
+        auto data = detail::req_object(*root, "d");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        WireUtaBook out{};
+        out.is_snapshot = snapshot;
+        const auto symbol = detail::req_str(*data, "s");
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        out.symbol = *symbol;
+        // COMPACT KEYS, and every one of them is required. A frame missing its
+        // span cannot be chained, and one missing a side cannot be applied —
+        // there is no "absent means unchanged" here, an untouched side arrives
+        // as an empty array.
+        //
+        // PRESENCE IS CHECKED SEPARATELY because opt_i64 answers an absent
+        // field with zero rather than an error, and zero is a sequence a
+        // reader would happily chain from.
+        if (!detail::has_field(*data, "O") || !detail::has_field(*data, "C")) {
+            return std::unexpected(WireError::MissingField);
+        }
+        const auto start = detail::opt_i64(*data, "O");
+        const auto end = detail::opt_i64(*data, "C");
+        if (!start.has_value() || !end.has_value()) {
+            return std::unexpected(WireError::MissingField);
+        }
+        out.seq_start = *start;
+        out.seq_end = *end;
+        const auto asks = read_pair_levels(*data, "a", storage.asks);
+        if (!asks.has_value()) {
+            return std::unexpected(asks.error());
+        }
+        const auto bids = read_pair_levels(*data, "b", storage.bids);
+        if (!bids.has_value()) {
+            return std::unexpected(bids.error());
+        }
+        out.asks = {storage.asks.data(), *asks};
+        out.bids = {storage.bids.data(), *bids};
+        // `M` is the matching engine's own instant in NANOSECONDS, not the
+        // milliseconds every classic KuCoin frame carries.
+        out.ts_ns = detail::opt_u64(*data, "M").value_or(0);
+        return out;
+    });
+}
+
 std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view body,
                                                               LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderBook, WireError> {
@@ -492,6 +555,96 @@ void DepthBook::discard_held() {
     band_high_ = PriceTicks{};
     state_ = State::Cold;
     ++reseeds_;
+}
+
+UtaBook::UtaBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
+    : instrument_{instrument}, tick_size_{tick_size}, lot_size_{lot_size} {}
+
+bool UtaBook::load(std::span<const WireLevel> levels, book::Ladder& side) {
+    for (const auto& level : levels) {
+        const auto ticks = steps_of(level.price, tick_size_);
+        const auto lots = steps_of(level.qty, lot_size_);
+        if (!ticks.has_value() || !lots.has_value()) {
+            // A level we cannot convert is not one we may skip: from here the
+            // book would disagree with KuCoin's permanently, and invisibly.
+            return false;
+        }
+        const auto price = PriceTicks::from_raw(*ticks);
+        if (*lots == 0) {
+            side.remove(price); // size zero is KuCoin's delete, on both feeds
+            continue;
+        }
+        side.upsert(Level{.price = price, .qty = QtyLots::from_raw(*lots)});
+    }
+    return true;
+}
+
+BookResult UtaBook::apply(const WireUtaBook& frame) {
+    if (frame.is_snapshot) {
+        // THE WHOLE BOOK, so whatever was there is replaced rather than merged
+        // into. A snapshot arriving mid-stream is the venue restating the book
+        // after its own break, and merging would keep levels it has dropped.
+        ladders_.clear();
+        if (!load(frame.asks, ladders_.asks()) || !load(frame.bids, ladders_.bids())) {
+            invalidate();
+            return BookResult::BadLevel;
+        }
+        last_end_ = frame.seq_end;
+        live_ = true;
+        return BookResult::Applied;
+    }
+    if (!live_) {
+        // Deltas before the opening snapshot refer to a book we do not have.
+        return BookResult::Waiting;
+    }
+    if (frame.seq_end <= last_end_) {
+        return BookResult::Stale; // a replay, already inside the book
+    }
+    if (frame.seq_start > last_end_ + 1) {
+        // THE CHAIN BROKE. Unlike classic, there is no seed to fetch: the
+        // venue resends a snapshot on this same subscription, so the book goes
+        // silent and waits for it rather than asking for anything.
+        ++gaps_;
+        invalidate();
+        return BookResult::Gap;
+    }
+    if (!load(frame.asks, ladders_.asks()) || !load(frame.bids, ladders_.bids())) {
+        invalidate();
+        return BookResult::BadLevel;
+    }
+    last_end_ = frame.seq_end;
+    return BookResult::Applied;
+}
+
+void UtaBook::invalidate() noexcept {
+    ladders_.clear();
+    last_end_ = 0;
+    live_ = false;
+}
+
+std::optional<BookSnapshot> UtaBook::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!live_) {
+        return std::nullopt;
+    }
+    return ladders_.snapshot(
+        instrument_, static_cast<std::uint64_t>(last_end_), ts_event, ts_init);
+}
+
+std::optional<Bbo> UtaBook::bbo(UnixNanos ts_event, UnixNanos ts_init) const {
+    if (!live_ || ladders_.bids().empty() || ladders_.asks().empty()) {
+        return std::nullopt;
+    }
+    const auto& bid = ladders_.bids().levels().front();
+    const auto& ask = ladders_.asks().levels().front();
+    Bbo out{};
+    out.instrument = instrument_;
+    out.bid = bid.price;
+    out.bid_qty = bid.qty;
+    out.ask = ask.price;
+    out.ask_qty = ask.qty;
+    out.ts_event = ts_event;
+    out.ts_init = ts_init;
+    return out;
 }
 
 std::optional<BookSnapshot> DepthBook::snapshot(UnixNanos ts_event, UnixNanos ts_init) const {
