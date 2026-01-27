@@ -1804,7 +1804,7 @@ TEST(GateWirePrivate, TheFuturesSocketsUserIdComesFromTheAccountBody) {
     const auto body = fixture("rest_futures_account.json");
     const auto user = parse_account_user_id(body);
     ASSERT_TRUE(user.has_value());
-    EXPECT_EQ(*user, 10'406'147ULL);
+    EXPECT_EQ(*user, 12'345'678ULL);
     EXPECT_FALSE(parse_account_user_id(R"({"currency":"USDT"})").has_value());
 }
 
@@ -2023,7 +2023,7 @@ TEST(GateWsPrivate, SubscribeCarriesItsOwnSignature) {
     net::Signer signer;
     load_credentials(signer);
     Protocol protocol;
-    const std::array<std::string_view, 2> payload{"10406147", k_all_symbols};
+    const std::array<std::string_view, 2> payload{"12345678", k_all_symbols};
     const auto frame = protocol.private_subscribe_frame(
         orders_channel(MarketType::Perp), payload, signer, 1'541'993'715ULL);
     ASSERT_TRUE(frame.has_value());
@@ -2036,7 +2036,7 @@ TEST(GateWsPrivate, SubscribeCarriesItsOwnSignature) {
     const auto text = std::string{*frame};
     EXPECT_EQ(text,
               std::string{R"({"time":1541993715,"channel":"futures.orders","event":"subscribe",)"
-                          R"("payload":["10406147","!all"],"auth":{"method":"api_key","KEY":"key",)"
+                          R"("payload":["12345678","!all"],"auth":{"method":"api_key","KEY":"key",)"
                           R"("SIGN":")"} +
                   std::string{signature} + R"("}})");
 }
