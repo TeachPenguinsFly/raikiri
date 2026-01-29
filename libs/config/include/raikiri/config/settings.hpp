@@ -70,6 +70,19 @@ struct VenueSettings {
     // slows ITS bbo to 100 ms — bybit serves both from one topic.
     std::uint32_t book_depth{0};
 
+    // Which of a venue's market-data feeds to take, where it publishes more
+    // than one. Empty keeps the adapter's own choice, which is what every
+    // venue here did before any of them had a second.
+    //
+    // kucoin: "uta" takes the unified account's `obu` channel instead of the
+    // classic /contractMarket/level2. Measured on all 683 contracts,
+    // 2026-09-19: 4.76x fewer messages and 4.18x fewer bytes for the same
+    // symbols, because the venue conflates at 10 ms rather than publishing
+    // every level that moves. It also needs no REST seed at all, which
+    // removes the class of bug that had 677 books asking for a snapshot
+    // 27,391 times in seven minutes.
+    std::string market_data_feed;
+
     VenueRateSettings rate{};
 };
 

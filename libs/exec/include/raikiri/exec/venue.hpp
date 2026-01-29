@@ -54,6 +54,10 @@ struct VenueConfig {
     // venue does not publish rather than sending it and losing the whole
     // subscription to an error frame. config/venues.yaml, never the binary.
     std::uint32_t book_depth{0};
+
+    // Which market-data feed to take where a venue publishes more than one.
+    // Empty is the adapter's own choice. config/venues.yaml, never the binary.
+    std::string market_data_feed;
 };
 
 struct VenueAdapter {

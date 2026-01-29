@@ -1231,6 +1231,7 @@ int main(int argc, char** argv) {
     std::uint64_t answer_timeout_ns =
         config::VenueSettings{}.order_answer_timeout_ms * 1'000'000ULL;
     std::uint32_t book_depth = 0; // the adapter's own tier until a file says otherwise
+    std::string market_data_feed; // and the adapter's own feed
     const auto venues_path = config::config_dir() + "/venues.yaml";
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name});
@@ -1243,6 +1244,7 @@ int main(int argc, char** argv) {
                                                    .ledger = rate.costs.ledger});
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
+            market_data_feed = it->second.market_data_feed;
         } else {
             RLOG_INFO("gatewayd[{}]: no rate budget configured — running unlimited", account_name);
         }
@@ -1260,7 +1262,8 @@ int main(int argc, char** argv) {
                                      .passphrase_env = passphrase_ref,
                                      .budget = budget.has_value() ? &*budget : nullptr,
                                      .order_answer_timeout_ns = answer_timeout_ns,
-                                     .book_depth = book_depth},
+                                     .book_depth = book_depth,
+                                     .market_data_feed = market_data_feed},
                                     sink,
                                     clock);
     if (!adapter.has_value()) {
