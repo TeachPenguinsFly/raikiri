@@ -145,7 +145,46 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
     }
 }
 
+// ONE BOOK AND ONE QUOTE FROM ONE FRAME, which is what this feed is for. The
+// classic tree needed tickerV2 beside the ladder; here the applied book's
+// touch is the same number, and KuCoin says so itself — tickerV2 "shares the
+// sn and sequence fields with the Order Book" and "the values of both fields
+// are identical". The reason it could not be done on classic was that a book
+// only reaches Live once a REST seed lands, and a contract whose book never
+// moves never asks for one. Here every subscribed symbol opens with a
+// snapshot, so every book is Live from its first frame.
+void handle_uta_frame(VenueState& state, std::string_view frame, UnixNanos received) {
+    static thread_local const auto storage = std::make_unique<LevelBuffer>();
+    const auto wire = parse_uta_book(frame, *storage);
+    if (!wire.has_value()) {
+        return; // acknowledgements, pongs and anything else are not books
+    }
+    const auto* instrument = state.instruments.find(wire->symbol);
+    if (instrument == nullptr) {
+        return;
+    }
+    const auto& base = base_of(*instrument);
+    auto& book = state.uta_book_for(base);
+    if (book.apply(*wire) != BookResult::Applied) {
+        return; // waiting, replayed, gapped or unconvertible: silence, never a guess
+    }
+    const auto ts_event = wire->ts_ns != 0 ? UnixNanos{wire->ts_ns} : received;
+    if (const auto top = book.bbo(ts_event, received); top.has_value()) {
+        state.sink->on_bbo(*top);
+    }
+    if (!state.sink->wants_depth(base.id, received)) {
+        return;
+    }
+    if (const auto depth = book.snapshot(ts_event, received); depth.has_value()) {
+        state.sink->on_depth(*depth);
+    }
+}
+
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
+    if (state.uta) {
+        handle_uta_frame(state, frame, received);
+        return;
+    }
     const auto event = parse_event(frame);
     if (!event.has_value()) {
         // Unknown shapes are ignored, never fatal.
@@ -338,7 +377,11 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        const auto topic = topic_for(kind, state_->market);
+        // ONE CHANNEL SERVES BOTH on the unified feed, so the quote and the
+        // ladder collapse to a single subscription per contract — which is
+        // also what keeps a 683-contract catalogue inside the venue's
+        // 100-messages-per-ten-seconds ceiling.
+        const auto topic = state_->uta ? uta_topic_for(kind) : topic_for(kind, state_->market);
         if (topic.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
@@ -473,6 +516,27 @@ private:
     // here rather than at subscribe time: on a reconnect the order that
     // matters is the order the venue is asked in.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
+        if (state_->uta) {
+            // ONE FRAME PER SYMBOL, never batched: the venue refuses `symbols`
+            // for this channel outright. There is also nothing to rank — the
+            // book carries the quote, so there is one kind of subscription.
+            std::vector<std::string> out;
+            out.reserve(keys.size());
+            for (const auto& key : keys) {
+                const auto cut = key.find(k_key_sep);
+                if (cut == std::string::npos) {
+                    continue;
+                }
+                const std::array<Subscription, 1> one{
+                    Subscription{.topic = std::string_view{key}.substr(0, cut),
+                                 .symbol = std::string_view{key}.substr(cut + 1)}};
+                if (const auto frame = state_->protocol.uta_subscribe_frame(one);
+                    frame.has_value()) {
+                    out.emplace_back(frame->text);
+                }
+            }
+            return out;
+        }
         std::vector<Subscription> views;
         views.reserve(keys.size());
         for (const auto& key : keys) {
@@ -557,6 +621,14 @@ private:
     // than one that takes a second to start. A reopen at RUNTIME must not come
     // through here — see begin_reopen.
     std::expected<void, exec::VenueError> open_stream() {
+        if (state_->uta) {
+            // NOTHING TO MINT. This endpoint takes public market data from a
+            // process holding no credentials, so the whole bullet round trip —
+            // and the ten-second blocking wait that used to sit here — is
+            // simply absent on this feed.
+            return open_stream_at(
+                StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"});
+        }
         const auto body =
             usable_body(await_response(*state_, rest_, state_->builder.bullet_public(), 10'000));
         if (!body.has_value()) {
@@ -576,6 +648,13 @@ private:
     // is a cell the callback co-owns: giving up on the deadline below is not
     // cancelling, and the pool still holds the callback.
     void begin_reopen() noexcept {
+        if (state_->uta) {
+            // No mint, so a reopen is immediate and cannot block the loop.
+            (void)open_stream_at(
+                StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"})
+                .has_value();
+            return;
+        }
         if (bullet_ != nullptr) {
             return; // a mint is already in flight; its answer reopens us
         }
@@ -633,6 +712,10 @@ private:
         if (bullet->ping_interval_ms != 0) {
             state_->app_ping_interval_ns = bullet->ping_interval_ms * 1'000'000ULL;
         }
+        return open_stream_at(*endpoint);
+    }
+
+    std::expected<void, exec::VenueError> open_stream_at(const StreamEndpoint& endpoint) {
         state_->next_app_ping_ns = 0;
 
         if (pool_) {
@@ -648,7 +731,7 @@ private:
         pool_ = std::make_unique<net::WsPool>(
             state_->io,
             net::WsConfig{
-                .host = endpoint->host, .port = endpoint->port, .target = endpoint->target},
+                .host = endpoint.host, .port = endpoint.port, .target = endpoint.target},
             handler_,
             // ONE HUNDRED, WHICH IS KUCOIN'S OWN CEILING PER CONNECTION, and
             // it is counted in topic-symbol pairs however they are batched

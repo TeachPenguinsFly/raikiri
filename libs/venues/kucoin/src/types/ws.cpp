@@ -173,6 +173,47 @@ Protocol::unsubscribe_frame(std::span<const Subscription> subscriptions) {
     return op_frame("unsubscribe", subscriptions);
 }
 
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
+    if (subscriptions.empty()) {
+        return std::unexpected{WsBuildError::NothingToSend};
+    }
+    const auto& one = subscriptions.front();
+    if (one.symbol.empty() || one.topic != k_uta_book_channel) {
+        return std::unexpected{WsBuildError::UnsupportedKind};
+    }
+    std::size_t len = 0;
+    bool overflow = false;
+    const auto put = [&](std::string_view text) {
+        if (overflow || len + text.size() > frame_.size()) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(frame_.data() + len, text.data(), text.size());
+        len += text.size();
+    };
+    std::array<char, 24> id{};
+    const auto [stop, ec] = std::to_chars(id.data(), id.data() + id.size(), next_id_++);
+    if (ec != std::errc{}) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    // The id is a STRING here where the classic frame numbers it, and the verb
+    // is `action` rather than `type`.
+    put(R"({"id":")");
+    put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
+    put(R"(","action":"SUBSCRIBE","channel":")");
+    put(k_uta_book_channel);
+    put(R"(","tradeType":"FUTURES","symbol":")");
+    put(one.symbol);
+    put(R"(","depth":")");
+    put(k_uta_book_depth);
+    put(R"("})");
+    if (overflow) {
+        return std::unexpected{WsBuildError::BufferTooSmall};
+    }
+    return Frame{.text = std::string_view{frame_.data(), len}, .consumed = 1};
+}
+
 std::expected<std::string_view, WsBuildError>
 Protocol::private_subscribe_frame(std::string_view topic) {
     if (topic.empty()) {

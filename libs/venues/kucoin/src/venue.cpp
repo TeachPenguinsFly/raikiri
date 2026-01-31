@@ -1,3 +1,4 @@
+#include <raikiri/log/log.hpp>
 #include <raikiri/config/credentials.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/events.hpp>
@@ -59,6 +60,18 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    // THE FEED IS A DEPLOYMENT'S CHOICE, not this library's. "uta" takes the
+    // unified account's `obu` channel — 4.76x fewer messages than the classic
+    // tree for the same 683 contracts, measured 2026-09-19 — and needs no REST
+    // seed at all. Anything else keeps classic, which is what every deployment
+    // ran before this existed and what one falls back to if this feed misses.
+    if (config.market_data_feed == "uta") {
+        state->uta = true;
+        RLOG_INFO("kucoin: market data on the unified feed ({})", k_uta_futures_host);
+    } else if (!config.market_data_feed.empty()) {
+        RLOG_WARN("kucoin: unknown feed '{}' — staying on the classic tree",
+                  config.market_data_feed);
+    }
     load_credentials(config, *state);
 
     state->market = config.market;

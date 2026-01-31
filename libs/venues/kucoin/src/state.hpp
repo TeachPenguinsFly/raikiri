@@ -98,6 +98,19 @@ struct VenueState {
     // frame without knowing which socket it arrived on.
     MarketType market{MarketType::Perp};
 
+    // TWO FEEDS, ONE ADAPTER. False is the classic tree — a bullet minted over
+    // REST, colon-joined topics, one message per price level that moves and a
+    // book that must be seeded from /api/v1/level2/snapshot. True is UTA v2:
+    // no token, one subscribe frame per symbol, a whole book followed by
+    // deltas conflated at 10 ms, and no seed to fetch.
+    //
+    // Chosen per deployment in config/venues.yaml, not here, because which one
+    // a desk wants depends on what reads the feed — and because the classic
+    // path must stay reachable until this one has run a week.
+    bool uta{false};
+
+    std::unordered_map<std::uint64_t, UtaBook> uta_books;
+
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
@@ -177,6 +190,11 @@ struct VenueState {
             return nullptr;
         }
         return &funding_memo[base_of(*listed).id.symbol().raw];
+    }
+
+    UtaBook& uta_book_for(const InstrumentBase& base) {
+        return uta_books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
+            .first->second;
     }
 
     DepthBook& book_for(const InstrumentBase& base) {
