@@ -2005,5 +2005,38 @@ TEST(KucoinUtaChain, ASizeOfZeroRemovesALevel) {
     ASSERT_TRUE(after.has_value());
     EXPECT_EQ(after->bid_count, 1U);
 }
+
+TEST(KucoinUtaWs, ASubscribeAsksForOneSymbolAtATime) {
+    Protocol protocol;
+    const std::array<Subscription, 2> subs{
+        Subscription{.topic = k_uta_book_channel, .symbol = "XBTUSDTM"},
+        Subscription{.topic = k_uta_book_channel, .symbol = "ETHUSDTM"}};
+    const auto first = protocol.uta_subscribe_frame(subs);
+    ASSERT_TRUE(first.has_value());
+    // NEVER BATCHED: `symbols` as an array is refused for this channel with
+    // "symbols are not supported for topic obu", so a catalogue costs a frame
+    // per contract and the send spacing is what keeps it legal.
+    EXPECT_EQ(first->consumed, 1U);
+    EXPECT_EQ(first->text,
+              R"({"id":"1","action":"SUBSCRIBE","channel":"obu","tradeType":"FUTURES",)"
+              R"("symbol":"XBTUSDTM","depth":"increment@10ms"})");
+
+    const auto second = protocol.uta_subscribe_frame(std::span{subs}.subspan(1));
+    ASSERT_TRUE(second.has_value());
+    EXPECT_NE(second->text.find("ETHUSDTM"), std::string_view::npos);
+    EXPECT_NE(second->text.find(R"("id":"2")"), std::string_view::npos) << "ids advance";
+}
+
+TEST(KucoinUtaWs, ARequestForAnotherChannelIsRefused) {
+    Protocol protocol;
+    const std::array<Subscription, 1> classic{
+        Subscription{.topic = "/contractMarket/level2", .symbol = "XBTUSDTM"}};
+    EXPECT_FALSE(protocol.uta_subscribe_frame(classic).has_value())
+        << "the two feeds do not share a frame shape";
+    EXPECT_FALSE(protocol.uta_subscribe_frame({}).has_value());
+    const std::array<Subscription, 1> nameless{
+        Subscription{.topic = k_uta_book_channel, .symbol = ""}};
+    EXPECT_FALSE(protocol.uta_subscribe_frame(nameless).has_value());
+}
 } // namespace
 } // namespace raikiri::venues::kucoin
