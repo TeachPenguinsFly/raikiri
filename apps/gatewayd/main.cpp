@@ -1446,7 +1446,17 @@ int main(int argc, char** argv) {
                                       .budget = budget.has_value() ? &*budget : nullptr,
                                       // The poller sends no orders, so nothing
                                       // of its own ever waits for an answer.
-                                      .order_answer_timeout_ns = 0},
+                                      .order_answer_timeout_ns = 0,
+                                      // NAMED EVEN THOUGH THIS ADAPTER READS NO
+                                      // MARKET DATA: gcc treats a designated
+                                      // initializer that skips a trailing
+                                      // member as -Wmissing-field-initializers,
+                                      // which is an error here, and clang does
+                                      // not — so a field added for one call
+                                      // site breaks the build on the server and
+                                      // nowhere else.
+                                      .book_depth = 0,
+                                      .market_data_feed = {}},
                                      poller_sink,
                                      clock);
         if (made.has_value()) {
