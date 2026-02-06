@@ -12,6 +12,60 @@
 :80 {
 	encode zstd gzip
 
+	# A PASSWORD IN FRONT OF EVERYTHING, and it has to be here rather than in
+	# the terminal. The sign-in screen is React: it can hide a button, and it
+	# cannot stop `curl http://host/v1/orders`. admind has no check of its own
+	# — no Authorization header, no key, no session — so this line is the whole
+	# of the access control, and it covers the page, the API and the stream
+	# alike because they all pass through here.
+	#
+	# BASIC AUTH OVER PLAIN HTTP IS base64, WHICH IS NOT ENCRYPTION: the
+	# password travels readable on every request. That is survivable only
+	# because the firewall rule still admits one address. Put a name on this
+	# machine and the `:80` below becomes that name — Caddy then takes a free
+	# Let's Encrypt certificate and renews it itself, and the password stops
+	# being readable in transit.
+	# THE STREAM IS EXEMPT, and not for convenience. A browser does not attach
+	# cached basic-auth credentials to a WebSocket handshake — `new WebSocket()`
+	# cannot set headers — so the upgrade comes back 401, the terminal
+	# reconnects, and every retry re-prompts. The screen becomes unusable.
+	#
+	# What that exposes is the quote stream, read-only, to whoever the firewall
+	# already admits — and the firewall admits one address. When this machine
+	# gets a name and a certificate, the honest fix is a ticket the page fetches
+	# over the authenticated API and presents in the upgrade URL.
+	# THE HASH IS NOT IN THIS FILE, which is committed. A bcrypt hash is not a
+	# password, but it is what an offline guess is checked against, and a
+	# repository that goes public carries it forever. It lives in
+	# /etc/caddy/terminal.env on the box, 0600, and is set with
+	# `caddy hash-password` by whoever owns the password — never typed anywhere
+	# else.
+	@guarded not path /v1/stream*
+	basic_auth @guarded {
+		admin {env.RAIKIRI_TERMINAL_HASH}
+	}
+
+	# NOT FROM OUTSIDE, EVEN WITH THE PASSWORD. Reading the board from anywhere
+	# is reasonable; placing an order from anywhere behind one shared secret is
+	# not. A leaked password then costs a disclosure rather than a position.
+	#
+	# A `handle` AND FIRST, not a bare `respond` further down. handle blocks are
+	# mutually exclusive and evaluated in order, so /v1/orders matches the /v1/*
+	# proxy below and is forwarded before anything outside those blocks runs.
+	# Written as a bare respond this refused nothing: an authenticated POST
+	# reached admind and came back 400 from the order parser rather than 403
+	# from here, which looks like a rejection and is not one.
+	#
+	# The matcher names the METHOD as well as the path, so reading an order
+	# still works and only placing one is refused.
+	@place_order {
+		method POST
+		path /v1/orders
+	}
+	handle @place_order {
+		respond "order entry is not exposed" 403
+	}
+
 	# `handle` AND NOT BARE DIRECTIVES, because Caddy does not run directives in
 	# the order they are written — it sorts them into a fixed order in which a
 	# rewrite comes BEFORE a proxy. With `try_files` written plainly, every
