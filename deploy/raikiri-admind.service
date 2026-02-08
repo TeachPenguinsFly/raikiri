@@ -17,9 +17,23 @@ Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
 Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
 EnvironmentFile=-/etc/raikiri/raikiri.env
 
+# THE DSN, AND ONLY FROM A FILE. It carries the database password, and a
+# password in ExecStart is a password in `ps` for every account on the box —
+# the same rule the venue credentials follow. The leading dash keeps a box
+# without a database starting: admind then answers the history paths 503 and
+# says so at startup, which is a different fact from answering them empty.
+EnvironmentFile=-/etc/raikiri/database.env
+
 # BINDS LOOPBACK. It has no authentication yet, so nothing but the reverse proxy
 # in front of it may reach it — see deploy/Caddyfile.
-ExecStart=/opt/raikiri/bin/admind --port 8787 --stream-port 8788 $RAIKIRI_ADMIND_ARGS
+# THE SCANNER IS A SERVICE THIS REPOSITORY DOES NOT CONTAIN, and admind
+# forwards to it without knowing what answers. Without this flag /v1/x/boards
+# is "no such upstream" and the Scanner screen says the board is unreachable —
+# which is true, and reads as the board being broken rather than unconfigured.
+#
+# 8790 is kowalski's own port; it prints this exact line at startup.
+ExecStart=/opt/raikiri/bin/admind --port 8787 --stream-port 8788 \
+    --upstream boards=8790 $RAIKIRI_ADMIND_ARGS
 
 NoNewPrivileges=yes
 PrivateTmp=yes
