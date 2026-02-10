@@ -1435,6 +1435,11 @@ int main(int argc, char** argv) {
     // settlement it was down for.
     raikiri::UnixNanos funding_cursor{};
     raikiri::UnixNanos ledger_replay_due{};
+    // Where the trade-history pull resumes. Starts at zero, which asks the
+    // venue for its whole default window once — a gateway that restarts after
+    // a fill must not miss it. OUT HERE for the reason stated above: the
+    // poller thread captures it by reference and outlives the block below.
+    raikiri::UnixNanos fill_cursor{};
     if (can_trade) {
         auto made = exec::make_venue({.venue = venue,
                                       .market = market,
@@ -1481,10 +1486,6 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        // Where the trade-history pull resumes. Starts at zero, which asks the
-        // venue for its whole default window once — a gateway that restarts
-        // after a fill must not miss it.
-        raikiri::UnixNanos fill_cursor{};
         if (poller_adapter != nullptr) {
             poller = std::thread([&] {
                 auto* channels_ptr = &*channels;
