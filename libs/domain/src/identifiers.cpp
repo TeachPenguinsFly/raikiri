@@ -27,6 +27,7 @@ constexpr std::array<std::string_view, k_venue_count> k_venue_names{
     "htx",
     "bitfinex",
     "weex",
+    "aster",
 };
 
 } // namespace

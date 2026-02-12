@@ -1,7 +1,7 @@
 add_executable(gatewayd main.cpp)
 target_link_libraries(gatewayd
   PRIVATE fmt::fmt raikiri::config raikiri::exec raikiri::journal raikiri::log raikiri::schema
-          raikiri::shm raikiri::venue_binance raikiri::venue_bingx raikiri::venue_bitfinex
+          raikiri::shm raikiri::venue_aster raikiri::venue_binance raikiri::venue_bingx raikiri::venue_bitfinex
           raikiri::venue_bitget raikiri::venue_bitmex raikiri::venue_bybit raikiri::venue_coinbase
           raikiri::venue_deribit raikiri::venue_gate raikiri::venue_htx raikiri::venue_hyperliquid
           raikiri::venue_kraken raikiri::venue_kucoin raikiri::venue_mexc raikiri::venue_okx

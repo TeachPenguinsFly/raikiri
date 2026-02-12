@@ -1,0 +1,497 @@
+{
+  "timezone": "UTC",
+  "serverTime": 1789899454172,
+  "futuresType": "U_MARGINED",
+  "rateLimits": [
+    {
+      "rateLimitType": "REQUEST_WEIGHT",
+      "interval": "MINUTE",
+      "intervalNum": 1,
+      "limit": 2400
+    },
+    {
+      "rateLimitType": "ORDERS",
+      "interval": "MINUTE",
+      "intervalNum": 1,
+      "limit": 1200
+    },
+    {
+      "rateLimitType": "ORDERS",
+      "interval": "SECOND",
+      "intervalNum": 10,
+      "limit": 300
+    }
+  ],
+  "exchangeFilters": [],
+  "assets": [
+    {
+      "asset": "ASTER",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "BTC",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "ETH",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "USDT",
+      "marginAvailable": true,
+      "autoAssetExchange": "-10000",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USDC",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USD1",
+      "marginAvailable": true,
+      "autoAssetExchange": "-10000",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USDF",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "BNB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "SOL",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "CRCLB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "MUB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "NVDAB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "SKHYB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "SNDKB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "SPCXB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "TSLAB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stock"
+    },
+    {
+      "asset": "AFEE",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "other"
+    },
+    {
+      "asset": "ASBNB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "BONUSUSD",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "other"
+    },
+    {
+      "asset": "BUSD",
+      "marginAvailable": true,
+      "autoAssetExchange": "-10000",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "CAKE",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "CDL",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "JLP",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "LISTA",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "LISUSD",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "SLISBNB",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "SOLVBTC",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "STONE",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "TWT",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    },
+    {
+      "asset": "U",
+      "marginAvailable": true,
+      "autoAssetExchange": "-10000",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USDBC",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USDCE",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "USDG",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "stable_coin"
+    },
+    {
+      "asset": "WBETH",
+      "marginAvailable": true,
+      "autoAssetExchange": "0",
+      "assetType": "crypto"
+    }
+  ],
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "filters": [
+        {
+          "minPrice": "1",
+          "maxPrice": "1000000",
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.1"
+        },
+        {
+          "stepSize": "0.001",
+          "filterType": "LOT_SIZE",
+          "maxQty": "1000",
+          "minQty": "0.001"
+        },
+        {
+          "stepSize": "0.001",
+          "filterType": "MARKET_LOT_SIZE",
+          "maxQty": "120",
+          "minQty": "0.001"
+        },
+        {
+          "limit": 200,
+          "filterType": "MAX_NUM_ORDERS"
+        },
+        {
+          "limit": 10,
+          "filterType": "MAX_NUM_ALGO_ORDERS"
+        },
+        {
+          "notional": "5",
+          "filterType": "MIN_NOTIONAL"
+        },
+        {
+          "multiplierDown": "0.9800",
+          "multiplierUp": "1.0200",
+          "ltMultiplierDown": "0",
+          "multiplierDecimal": "4",
+          "filterType": "PERCENT_PRICE",
+          "ltMultiplierUp": "0"
+        }
+      ],
+      "orderTypes": [
+        "LIMIT",
+        "MARKET",
+        "STOP",
+        "STOP_MARKET",
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_STOP_MARKET"
+      ],
+      "timeInForce": [
+        "GTC",
+        "IOC",
+        "GTX",
+        "HIDDEN"
+      ],
+      "createTime": 1630045468108,
+      "pair": "BTCUSDT",
+      "contractType": "PERPETUAL",
+      "deliveryDate": 4133404800000,
+      "onboardDate": 1627628400000,
+      "status": "TRADING",
+      "maintMarginPercent": "2.5000",
+      "requiredMarginPercent": "5.0000",
+      "baseAsset": "BTC",
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "pricePrecision": 1,
+      "quantityPrecision": 3,
+      "baseAssetPrecision": 8,
+      "quotePrecision": 8,
+      "underlyingType": "COIN",
+      "underlyingSubType": [
+        "Top"
+      ],
+      "symbolType": 0,
+      "tradingMode": 0,
+      "name": "",
+      "channel": "",
+      "sequenceNo": 10,
+      "twapMinNotional": "1000",
+      "imn": "16000.00",
+      "tags": [],
+      "settlePlan": 0,
+      "triggerProtect": "0.0200",
+      "liquidationFee": "0.025000",
+      "marketTakeBound": "0.02"
+    },
+    {
+      "symbol": "BTCUSD1",
+      "filters": [
+        {
+          "minPrice": "1",
+          "maxPrice": "1000000",
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.10"
+        },
+        {
+          "stepSize": "0.001",
+          "filterType": "LOT_SIZE",
+          "maxQty": "1000",
+          "minQty": "0.001"
+        },
+        {
+          "stepSize": "0.001",
+          "filterType": "MARKET_LOT_SIZE",
+          "maxQty": "120",
+          "minQty": "0.001"
+        },
+        {
+          "limit": 200,
+          "filterType": "MAX_NUM_ORDERS"
+        },
+        {
+          "limit": 10,
+          "filterType": "MAX_NUM_ALGO_ORDERS"
+        },
+        {
+          "notional": "5",
+          "filterType": "MIN_NOTIONAL"
+        },
+        {
+          "multiplierDown": "0.9800",
+          "multiplierUp": "1.0200",
+          "ltMultiplierDown": "0.9800",
+          "multiplierDecimal": "4",
+          "filterType": "PERCENT_PRICE",
+          "ltMultiplierUp": "1.0200"
+        }
+      ],
+      "orderTypes": [
+        "LIMIT",
+        "MARKET",
+        "STOP",
+        "STOP_MARKET",
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_STOP_MARKET"
+      ],
+      "timeInForce": [
+        "GTC",
+        "IOC",
+        "GTX",
+        "HIDDEN"
+      ],
+      "createTime": 1773759054842,
+      "pair": "BTCUSD1",
+      "contractType": "PERPETUAL",
+      "deliveryDate": 4133404800000,
+      "onboardDate": 1773795600000,
+      "status": "TRADING",
+      "maintMarginPercent": "10.0000",
+      "requiredMarginPercent": "20.0000",
+      "baseAsset": "BTC",
+      "quoteAsset": "USD1",
+      "marginAsset": "USD1",
+      "pricePrecision": 2,
+      "quantityPrecision": 3,
+      "baseAssetPrecision": 8,
+      "quotePrecision": 8,
+      "underlyingType": "COIN",
+      "underlyingSubType": [],
+      "symbolType": 0,
+      "tradingMode": 0,
+      "name": "",
+      "channel": "{}",
+      "sequenceNo": 0,
+      "twapMinNotional": "1000",
+      "imn": "16000.00",
+      "tags": [],
+      "settlePlan": 0,
+      "triggerProtect": "0.0200",
+      "liquidationFee": "0.025000",
+      "marketTakeBound": "0.02"
+    },
+    {
+      "symbol": "MBLUSDT",
+      "filters": [
+        {
+          "minPrice": "0.0000010",
+          "maxPrice": "200",
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.0000010"
+        },
+        {
+          "stepSize": "1",
+          "filterType": "LOT_SIZE",
+          "maxQty": "10000000",
+          "minQty": "1"
+        },
+        {
+          "stepSize": "1",
+          "filterType": "MARKET_LOT_SIZE",
+          "maxQty": "100000",
+          "minQty": "1"
+        },
+        {
+          "limit": 200,
+          "filterType": "MAX_NUM_ORDERS"
+        },
+        {
+          "limit": 10,
+          "filterType": "MAX_NUM_ALGO_ORDERS"
+        },
+        {
+          "notional": "5",
+          "filterType": "MIN_NOTIONAL"
+        },
+        {
+          "multiplierDown": "0.8500",
+          "multiplierUp": "1.1500",
+          "ltMultiplierDown": "0",
+          "multiplierDecimal": "4",
+          "filterType": "PERCENT_PRICE",
+          "ltMultiplierUp": "0"
+        }
+      ],
+      "orderTypes": [
+        "LIMIT",
+        "MARKET",
+        "STOP",
+        "STOP_MARKET",
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_STOP_MARKET"
+      ],
+      "timeInForce": [
+        "GTC",
+        "IOC",
+        "GTX",
+        "HIDDEN"
+      ],
+      "createTime": 1700156554610,
+      "pair": "MBLUSDT",
+      "contractType": "",
+      "deliveryDate": 4133404800000,
+      "onboardDate": 1699974000000,
+      "status": "PENDING_TRADING",
+      "maintMarginPercent": "2.5000",
+      "requiredMarginPercent": "5.0000",
+      "baseAsset": "MBL",
+      "quoteAsset": "USDT",
+      "marginAsset": "USDT",
+      "pricePrecision": 7,
+      "quantityPrecision": 0,
+      "baseAssetPrecision": 8,
+      "quotePrecision": 8,
+      "underlyingType": "COIN",
+      "underlyingSubType": [],
+      "symbolType": 0,
+      "tradingMode": 0,
+      "name": "",
+      "channel": "",
+      "sequenceNo": 0,
+      "twapMinNotional": "1000",
+      "imn": "",
+      "tags": [],
+      "settlePlan": 0,
+      "triggerProtect": "0.1500",
+      "liquidationFee": "0.015000",
+      "marketTakeBound": "0.15"
+    }
+  ]
+}

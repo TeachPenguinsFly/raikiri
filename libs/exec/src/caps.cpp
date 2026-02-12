@@ -658,6 +658,48 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .headline_order_rate_per_s = 0,
     };
 
+    table[static_cast<std::size_t>(VenueId::Aster)] = {
+        .venue = VenueId::Aster,
+        // USD-margined perpetuals only. Read live 2026-09-20: 602 rows, of
+        // which 597 state contractType PERPETUAL and the remaining 5 state an
+        // EMPTY contract type while sitting in PENDING_TRADING — a listing
+        // that has not opened, not a second product family. Quotes are USDT
+        // (589), USD1 (11) and "U" (2), so a caller must not assume the quote
+        // is USDT from the venue alone.
+        .markets = {.spot = false, .perp = true},
+        //
+        // ===================================================================
+        // MARKET DATA AND FUNDING ONLY, AND THE ORDER PATH IS NOT MERELY
+        // UNBUILT — IT IS A DIFFERENT SIGNER. This API is wire-compatible with
+        // a much larger venue's on every public path, which is why the parsers
+        // here are that adapter's, but the private side is not: it authorises
+        // with an EVM WALLET SIGNATURE rather than an HMAC secret, so there is
+        // no key/secret pair this codebase's signer could carry. Flipping any
+        // bit below needs a new signer, not a credential.
+        // ===================================================================
+        //
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false, // the depth channel carries no checksum
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // /fapi/v1/ticker/24hr states both `volume` (base) and `quoteVolume`,
+        // read live 2026-09-20.
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        // Nothing here mints one: no order leaves this adapter. Left at the
+        // wire-compatible 36 so a future signer does not have to rediscover it.
+        .max_client_order_id_len = 36,
+        // No order path, so no order rate to headline.
+        .headline_order_rate_per_s = 0,
+    };
     return table;
 }();
 
