@@ -4,9 +4,6 @@
 
 **A low-latency, multi-process crypto trading framework in C++23**
 
-Eighteen exchange adapters, each its own process, talking over lock-free shared memory.<br>
-No message broker on the hot path. No database write in front of an order.
-
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](#performance)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
@@ -24,36 +21,41 @@ No message broker on the hot path. No database write in front of an order.
 
 ## Venues
 
-Every row is generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp), which
-is the single place a venue declares what it offers. **The table states what the VENUE
-serves and what this adapter reaches — never what a strategy should trust.** A
-capability absent here is absent from the code, not merely undocumented.
+Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp) by
+[`tools/venue_table.py`](tools/venue_table.py) — **what the venue serves and what this
+adapter reaches, never what a strategy should trust.**
 
-| venue | markets | order entry | WS | FIX | amend | private stream | funding ledger |
-| :-- | :-- | :-- | :-: | :-: | :-: | :-- | :-: |
-| `aster` | perp | **market data only** | · | · | · | — | · |
-| `binance` | perp | REST + WS | ● | ● | ● | ListenKey | ● |
-| `bingx` | spot · perp | REST | · | · | · | ListenKey | ● |
-| `bitfinex` | spot · perp | REST + WS | ● | · | ● | AuthSubscribe | · |
-| `bitget` | spot · perp | REST + WS | ● | · | · | AuthSubscribe | ● |
-| `bitmex` | spot · perp | REST | · | · | ● | AuthSubscribe | · |
-| `bybit` | spot · perp | REST + WS | ● | · | ● | AuthSubscribe | ● |
-| `coinbase` | spot | REST | · | · | · | AuthSubscribe | · |
-| `deribit` | perp · futures · options | REST + WS | ● | · | ● | AuthSubscribe | · |
-| `gate` | spot · perp | REST + WS | ● | · | ● | AuthSubscribe | ● |
-| `htx` | spot · perp | REST | · | · | · | AuthSubscribe | ● |
-| `hyperliquid` | spot · perp | REST + WS | ● | · | ● | AuthSubscribe | ● |
-| `kraken` | perp | REST + WS | ● | · | ● | AuthSubscribe | · |
-| `kucoin` | spot · perp | REST + WS | ● | · | · | ListenKey | · |
-| `mexc` | spot · perp | REST | · | · | · | AuthSubscribe | ● |
-| `okx` | spot · perp | REST + WS | ● | · | ● | AuthSubscribe | ● |
-| `weex` | perp | REST | · | · | · | — | ● |
-| `xt` | spot · perp | REST | · | · | ● | ListenKey | ● |
+<!-- venues:begin -->
+| venue | custody | markets | order entry | WS | FIX | amend | private stream | funding ledger |
+| :-- | :-: | :-- | :-- | :-: | :-: | :-: | :-- | :-: |
+| `aster` | DEX | perp | **market data only** | – | – | – | – | – |
+| `binance` | CEX | perp | REST + WS | ✓ | ✓ | ✓ | ListenKey | ✓ |
+| `bingx` | CEX | spot · perp | REST | – | – | – | ListenKey | ✓ |
+| `bitfinex` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
+| `bitget` | CEX | spot · perp | REST + WS | ✓ | – | – | AuthSubscribe | ✓ |
+| `bitmex` | CEX | spot · perp | REST | – | – | ✓ | AuthSubscribe | – |
+| `bybit` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `coinbase` | CEX | spot | REST | – | – | – | AuthSubscribe | – |
+| `deribit` | CEX | perp · futures · options | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
+| `gate` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `htx` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
+| `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `kraken` | CEX | perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
+| `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | – | ListenKey | – |
+| `mexc` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
+| `okx` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `weex` | CEX | perp | REST | – | – | – | – | ✓ |
+| `xt` | CEX | spot · perp | REST | – | – | ✓ | ListenKey | ✓ |
+<!-- venues:end -->
 
 `order entry` is *market data only* when the adapter sends nothing at all — for
 `aster` that is not an omission but a different signer: it authorises with an EVM
 wallet signature rather than a key/secret pair, so no credential this codebase carries
 would work.
+
+`custody` is the one column the caps table cannot answer: no capability bit separates
+a venue holding your coins from a contract that does not. It lives in the generator,
+which refuses to build rather than default a venue it has no entry for.
 
 `private stream` names how the venue authenticates its account socket. `ListenKey`
 mints a URL-bearing token over REST; `AuthSubscribe` signs a frame on an already-open
@@ -127,22 +129,22 @@ production target; these are the numbers the development machine gives.
 
 **Shared-memory primitives** — single operation, no contention:
 
-| operation | time |
-| :-- | --: |
-| seqlock read | 0.68 ns |
-| SPSC push + pop | 1.71 ns |
-| seqlock write | 1.72 ns |
+| operation         |    time |
+| :---------------- | ------: |
+| seqlock read      | 0.68 ns |
+| SPSC push + pop   | 1.71 ns |
+| seqlock write     | 1.72 ns |
 | broadcast publish | 2.14 ns |
 
 **Cross-process round trip** — two processes, one SPSC ring each way, 200,000 round
 trips:
 
-| | RTT | one way |
-| :-- | --: | --: |
-| p50 | 167 ns | 83 ns |
-| p90 | 208 ns | 104 ns |
-| p99 | 250 ns | 125 ns |
-| p99.9 | 292 ns | 146 ns |
+|       |    RTT | one way |
+| :---- | -----: | ------: |
+| p50   | 167 ns |   83 ns |
+| p90   | 208 ns |  104 ns |
+| p99   | 250 ns |  125 ns |
+| p99.9 | 292 ns |  146 ns |
 
 The tail matters more than the median here. `max` was 19.5 µs — a scheduler
 preemption, not a data-structure cost, and the reason the production target pins cores.
@@ -222,11 +224,11 @@ tails the journals into Postgres; the trading path never waits on either.
 
 **The channel class is a decision per channel, not a default.**
 
-| Channel | Kind | Why |
-| :-- | :-- | :-- |
-| quotes, depth, funding, greeks, venue positions | seqlock table, overwrite-newest | a stale tick is worthless — a reader that falls behind should skip, never queue |
-| market data, execution events | broadcast ring, gap-detecting | a fill that was dropped is money the book never learned about; an overrun is reported, not absorbed |
-| order commands | SPSC ring, lossless | the escape hatch must work precisely when something is wrong |
+| Channel                                         | Kind                            | Why                                                                                                 |
+| :---------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------- |
+| quotes, depth, funding, greeks, venue positions | seqlock table, overwrite-newest | a stale tick is worthless — a reader that falls behind should skip, never queue                     |
+| market data, execution events                   | broadcast ring, gap-detecting   | a fill that was dropped is money the book never learned about; an overrun is reported, not absorbed |
+| order commands                                  | SPSC ring, lossless             | the escape hatch must work precisely when something is wrong                                        |
 
 <details>
 <summary><b>Invariants the code is built on</b></summary>
@@ -273,3 +275,7 @@ Chosen deliberately over a permissive licence. A strategy or an application that
 raikiri stays closed if its author wants it closed, while a fork of the framework
 itself has to publish its changes. LGPL carries no network clause, so running raikiri
 as a hosted service triggers no obligation either way.
+
+## Contact Us
+
+contact@tpf-labs.com
