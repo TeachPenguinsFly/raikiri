@@ -23,8 +23,10 @@ export RAIKIRI_DATA_DIR="${RAIKIRI_DATA_DIR:-/tmp/raikiri-smoke}"
 
 [[ -x "$BIN" ]] || { echo "build first: cmake --build build/dev-asan"; exit 1; }
 
-# venue:symbol[:extra-args]. Symbols are each venue's own spelling, which is
-# the point — nothing here normalises them.
+# venue:symbol[|extra-args]. Symbols are each venue's own spelling, which is
+# the point — nothing here normalises them. The separator before extra args is
+# a PIPE and not a colon, because a symbol may contain a colon — bitfinex's
+# tBTCF0:USTF0 is one — and splitting on the last colon would eat it.
 VENUES=(
   "bybit:BTCUSDT"
   "binance:BTCUSDT"
@@ -38,7 +40,8 @@ VENUES=(
   "hyperliquid:BTC"
   "coinbase:BTC-USD"
   "kraken:PF_XBTUSD"
-  "bitmex:XBTUSD"
+  # XBTUSD is gone and so is every other perpetual — see the caps row.
+  "bitmex:XBT_USDT|--market=spot"
   "bitget:BTCUSDT"
   "htx:BTC-USDT"
   "bitfinex:tBTCF0:USTF0"
@@ -52,8 +55,11 @@ printf '%.0s-' {1..80}; echo
 fails=0
 for entry in "${VENUES[@]}"; do
   venue="${entry%%:*}"
-  symbol="${entry#*:}"
-  out=$("$BIN" --venue="$venue" --symbol="$symbol" --duration "$DURATION" 2>&1)
+  rest="${entry#*:}"
+  symbol="${rest%%|*}"
+  extra=()
+  [[ "$rest" == *"|"* ]] && read -ra extra <<<"${rest#*|}"
+  out=$("$BIN" --venue="$venue" --symbol="$symbol" "${extra[@]}" --duration "$DURATION" 2>&1)
 
   instruments=$(sed -n 's/.*: \([0-9]*\) instruments loaded.*/\1/p' <<<"$out" | tail -1)
   counters=$(sed -n 's/.*down — bbo=\([0-9]*\) depth=\([0-9]*\)(\([0-9]*\) levels) trades=\([0-9]*\) funding=\([0-9]*\).*/\1 \2 \3 \4 \5/p' <<<"$out" | tail -1)
