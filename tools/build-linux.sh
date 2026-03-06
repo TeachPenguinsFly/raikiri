@@ -4,9 +4,18 @@
 #   tools/build-linux.sh                  # gatewayd admind replay persisterd
 #   TARGETS=gatewayd tools/build-linux.sh
 #
-# Output lands in build/linux/. Deploy it with:
+# Output lands in build/linux/, STRIPPED. Deploy it with:
 #
 #   BINARIES=build/linux tools/deploy.sh raikiri-tokyo
+#
+# THE SYMBOLS ARE NOT THROWN AWAY, they are moved: each binary's debug info is
+# split into build/linux-debug/<app>.debug and the shipped file carries a
+# gnu-debuglink back to it. gdb finds it given the directory, so a crash on the
+# box is still readable — from here, with the matching .debug beside the core.
+#
+# WHY IT MATTERS ON A 48 GB DISK: unstripped gatewayd is 402 MB and stripped is
+# about 40. Two copies of it lived on the server (/opt and prebuilt/) and the
+# deploy pushed the whole 402 MB every time.
 #
 # THE BUILD TREE LIVES IN A DOCKER VOLUME, not in build/, because build/rel on
 # a macOS desk is a macOS build and two toolchains writing one directory is a
@@ -20,6 +29,7 @@ IMAGE="${IMAGE:-raikiri-linux-builder}"
 VOLUME="${VOLUME:-raikiri-linux-build}"
 CONAN_VOLUME="${CONAN_VOLUME:-raikiri-linux-conan}"
 OUT="${OUT:-build/linux}"
+DEBUG_OUT="${DEBUG_OUT:-build/linux-debug}"
 
 echo "==> builder image"
 docker build --platform linux/amd64 -t "$IMAGE" -f tools/linux-builder.Dockerfile tools/
@@ -56,8 +66,9 @@ docker run --rm --platform linux/amd64 \
     "
 
 echo "==> out"
-mkdir -p "$OUT"
+mkdir -p "$OUT" "$DEBUG_OUT"
 docker run --rm --platform linux/amd64 -v "$VOLUME:/build" -v "$PWD/$OUT:/out" \
+    -v "$PWD/$DEBUG_OUT:/debug" \
     -e TARGETS="$TARGETS" "$IMAGE" bash -euc '
         # WHATEVER WAS ASKED FOR, not a list that drifts from TARGETS: a
         # target that built and was silently not extracted looks exactly like
@@ -67,7 +78,16 @@ docker run --rm --platform linux/amd64 -v "$VOLUME:/build" -v "$PWD/$OUT:/out" \
             # `|| true` because a target that was not asked for is not an
             # error, and under `set -e` the last absent one otherwise returns
             # non-zero and fails a build that had already succeeded.
-            [ -x "$src" ] && cp "$src" /out/ && echo "  $app" || true
+            [ -x "$src" ] || continue
+            # SPLIT, THEN STRIP, THEN LINK — in that order. Stripping first
+            # would leave nothing to keep, and adding the link before the
+            # strip would have the strip remove it again.
+            objcopy --only-keep-debug "$src" "/debug/$app.debug"
+            objcopy --strip-debug --strip-unneeded "$src" "/out/$app"
+            objcopy --add-gnu-debuglink="/debug/$app.debug" "/out/$app"
+            echo "  $app"
         done
     '
 ls -lh "$OUT"
+echo "symbols:"
+ls -lh "$DEBUG_OUT"
