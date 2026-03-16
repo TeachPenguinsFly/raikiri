@@ -401,49 +401,6 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 100, // `cliOrdId`
         .headline_order_rate_per_s = 20,
     };
-    table[static_cast<std::size_t>(VenueId::Bitmex)] = {
-        .venue = VenueId::Bitmex,
-        // PERP IS FALSE BECAUSE THE VENUE LISTS NONE, not because this adapter
-        // cannot read one. The inverse perpetual this exchange invented —
-        // XBTUSD — no longer exists on it.
-        //
-        // MEASURED 2026-09-20 against /api/v1/instrument/active: 19 rows, all
-        // `typ` IFXXXP (spot), of which 7 state `state` Open — XRP_USDT,
-        // SOL_USDT, RLUSD_USDT, XAUT_USDT, BMEX_USDT, XBT_USDT, ETH_USDT — and
-        // ZERO rows of `typ` FFWCSX or FFSCSX, which are the two codes
-        // market_of_typ maps to a perpetual. Not a geo-block: the same call
-        // answers in full, and the spot gateway loads all 7 and quotes them.
-        //
-        // Left true, a config starts a gateway that loads an empty catalogue
-        // and exits on the first symbol it is asked for, which reads like a
-        // broken adapter rather than a closed product line.
-        //
-        // TO FLIP IT BACK: one row of `typ` FFWCSX in that answer, and a smoke
-        // run naming it. Nothing else is needed — the parsers are untouched.
-        .markets = {.spot = true, .perp = false},
-        .ws_order_entry = false,
-        .cancel_by_client_order_id = true,
-        .batch_cancel = true,
-        .amend_order = true,
-        .native_post_only = true,
-        // PERP ONLY, AND THE SPOT ARM WOULD NOT HAVE SAID SO. /position is the
-        // derivatives ledger and takes no market: asked on spot it answers 200
-        // with no rows at all, which the reconciler would publish as a flat
-        // account rather than as a venue that cannot answer. This row is the
-        // only thing standing between that call and the table.
-        .position_pull = {.perp = true},
-        // Account-wide reads with no market parameter, filtered to the asked
-        // market afterwards.
-        .order_pull = {.spot = true, .perp = true},
-        .fill_pull = {.spot = true, .perp = true},
-        // homeNotional24h (base) / foreignNotional24h (quote), NOT volume24h,
-        // which counts contracts. Snapshot and volume-moving updates only.
-        .ticker_stats = true,
-        .user_stream = UserStreamModel::AuthSubscribe,
-        .max_client_order_id_len = 36, // clOrdID
-        .headline_order_rate_per_s = 10,
-    };
-
     table[static_cast<std::size_t>(VenueId::Bitget)] = {
         .venue = VenueId::Bitget,
         .markets = {.spot = true, .perp = true},

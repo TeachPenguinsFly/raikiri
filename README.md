@@ -52,7 +52,6 @@ running a gateway, adding a venue.
 | `bingx` | CEX | spot · perp | REST | – | – | – | ListenKey | ✓ |
 | `bitfinex` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
 | `bitget` | CEX | spot · perp | REST + WS | ✓ | – | – | AuthSubscribe | ✓ |
-| `bitmex` | CEX | spot | REST | – | – | ✓ | AuthSubscribe | – |
 | `bybit` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
 | `coinbase` | CEX | spot | REST | – | – | – | AuthSubscribe | – |
 | `deribit` | CEX | perp · futures · options | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |

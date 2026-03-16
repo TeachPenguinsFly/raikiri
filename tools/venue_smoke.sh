@@ -40,8 +40,6 @@ VENUES=(
   "hyperliquid:BTC"
   "coinbase:BTC-USD"
   "kraken:PF_XBTUSD"
-  # XBTUSD is gone and so is every other perpetual — see the caps row.
-  "bitmex:XBT_USDT|--market=spot"
   "bitget:BTCUSDT"
   "htx:BTC-USDT"
   "bitfinex:tBTCF0:USTF0"

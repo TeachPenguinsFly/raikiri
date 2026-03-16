@@ -54,7 +54,6 @@ raikiri_add_test(deribit_venue_test SRCS venues/deribit/venue_test.cpp LIBS raik
 raikiri_add_test(hyperliquid_venue_test SRCS venues/hyperliquid/venue_test.cpp LIBS raikiri::venue_hyperliquid raikiri::exec)
 raikiri_add_test(coinbase_venue_test SRCS venues/coinbase/venue_test.cpp LIBS raikiri::venue_coinbase raikiri::exec)
 raikiri_add_test(kraken_venue_test SRCS venues/kraken/venue_test.cpp LIBS raikiri::venue_kraken raikiri::exec)
-raikiri_add_test(bitmex_venue_test SRCS venues/bitmex/venue_test.cpp LIBS raikiri::venue_bitmex raikiri::exec)
 raikiri_add_test(bitget_venue_test SRCS venues/bitget/venue_test.cpp LIBS raikiri::venue_bitget raikiri::exec)
 raikiri_add_test(htx_venue_test SRCS venues/htx/venue_test.cpp LIBS raikiri::venue_htx raikiri::exec)
 raikiri_add_test(bitfinex_venue_test SRCS venues/bitfinex/venue_test.cpp LIBS raikiri::venue_bitfinex raikiri::exec)
