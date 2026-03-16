@@ -24,3 +24,6 @@ tools/op.env.*
 !tools/op.env.example
 .venv-test/
 .claude/
+
+# Python bytecode from tools/
+__pycache__/
