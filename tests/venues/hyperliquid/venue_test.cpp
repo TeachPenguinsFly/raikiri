@@ -447,6 +447,12 @@ TEST(HyperliquidMap, InstrumentDerivesBothStepsAndSkipsDelisted) {
     EXPECT_EQ(base_of(*btc).lot_size.raw, 10'000);
     EXPECT_EQ(base_of(*btc).tick_size.raw, 100'000'000);
     EXPECT_EQ(base_of(*btc).exchange_symbol.view(), "BTC");
+    // THE WIRE NAME AND THE LOCAL NAME DIFFER, deliberately. Subscriptions send
+    // the bare ticker; everything that joins venues reads the local name, and a
+    // bare "BTC" joined nothing — all 178 perps sat outside the recorder's
+    // two-venue universe on 2026-09-22. The quote is USDC because every
+    // hyperliquid perp is margined in it, and it is NOT folded into USDT.
+    EXPECT_EQ(base_of(*btc).local_symbol.view(), "BTC/USDC");
     // Sizes are base units, not contracts: no ctVal-equivalent to load.
     EXPECT_EQ(base_of(*btc).contract_value.raw, k_e9);
     ASSERT_TRUE(std::holds_alternative<PerpInstrument>(*btc));

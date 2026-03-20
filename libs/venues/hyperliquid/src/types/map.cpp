@@ -194,9 +194,36 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     if (!lot.has_value() || !tick.has_value()) {
         return std::nullopt;
     }
-    // Bare ticker: "BTC", not "BTC-USDT-SWAP". Every perp is USDC-margined.
+    // The WIRE names a perp by its bare ticker — "BTC" — and that is what a
+    // subscription must send, so it stays the exchange symbol.
     const auto symbol = SymbolText::from(wire.name);
     if (!symbol.has_value()) {
+        return std::nullopt;
+    }
+    // THE LOCAL NAME CARRIES THE QUOTE, as every other venue's does. Every
+    // hyperliquid perp is margined in USDC, and a bare "BTC" matched nothing:
+    // the recorder's universe is symbols listed on two or more venues, and on
+    // 2026-09-22 all 178 of these perps fell outside it — attached, alive,
+    // quoting, and contributing zero rows. As "BTC/USDC" they pair with the
+    // USDC-margined perps of binance, bybit, kucoin and mexc (66 bases then).
+    //
+    // NOT "BTC/USDT". The margin currency is part of the instrument: pairing it
+    // with a USDT perp would call the USDC/USDT basis an edge.
+    std::array<char, 40> local{};
+    const auto name = wire.name;
+    constexpr std::string_view k_quote = "/USDC";
+    if (name.size() + k_quote.size() > local.size()) {
+        return std::nullopt;
+    }
+    std::size_t at = 0;
+    for (const char c : name) {
+        local[at++] = c;
+    }
+    for (const char c : k_quote) {
+        local[at++] = c;
+    }
+    const auto local_symbol = SymbolText::from(std::string_view{local.data(), at});
+    if (!local_symbol.has_value()) {
         return std::nullopt;
     }
 
@@ -204,7 +231,7 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Hyperliquid, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    base.local_symbol = *symbol;
+    base.local_symbol = *local_symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
     // Size is the coin itself, so there is no contract multiplier to load.
