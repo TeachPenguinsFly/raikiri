@@ -286,6 +286,12 @@ net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::funding_rates() noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_contract_funding_rate);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_contract_funding_rate);

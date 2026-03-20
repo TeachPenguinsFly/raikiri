@@ -70,6 +70,8 @@ public:
     [[nodiscard]] net::RestRequest ticker(std::string_view symbol) noexcept;
 
     [[nodiscard]] net::RestRequest funding_rate(std::string_view symbol) noexcept;
+    // Every contract's rate, cycle, cap and floor in one call.
+    [[nodiscard]] net::RestRequest funding_rates() noexcept;
 
 private:
     std::array<char, 256> target_{};

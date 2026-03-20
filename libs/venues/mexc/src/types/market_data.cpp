@@ -117,6 +117,50 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
     });
 }
 
+std::expected<std::span<const WireFundingRate>, WireError>
+parse_funding_rates(std::string_view body, FundingRateBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireFundingRate>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto array = detail::req_array(*root, "data");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireFundingRate out{};
+            const auto symbol = req_scalar(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            // A row that states no cycle is kept with 0 rather than dropped:
+            // "this contract's interval is unknown" is a fact the catalogue
+            // must carry, and the mapper is what refuses to guess one.
+            const auto cycle = opt_int(obj, "collectCycle", 0);
+            const auto max_rate = opt_scalar(obj, "maxFundingRate");
+            const auto min_rate = opt_scalar(obj, "minFundingRate");
+            if (!cycle.has_value() || !max_rate.has_value() || !min_rate.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.collect_cycle_h = *cycle;
+            out.max_rate = *max_rate;
+            out.min_rate = *min_rate;
+            storage.rows[count++] = out;
+        }
+        return std::span<const WireFundingRate>{storage.rows.data(), count};
+    });
+}
+
 std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view body) {
     return guarded([&]() -> std::expected<WireFundingRate, WireError> {
         auto root = session().open_object(body);

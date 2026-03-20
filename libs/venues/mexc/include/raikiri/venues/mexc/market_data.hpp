@@ -75,9 +75,27 @@ struct WireFundingRate {
     std::uint64_t next_settle_ms{0};
     std::int64_t collect_cycle_h{0};
     std::uint64_t ts_ms{0};
+    // The per-interval ceiling and floor, as fractions. Absent on the single
+    // symbol answer for some contracts; empty then, and read as UNDEF.
+    std::string_view max_rate;
+    std::string_view min_rate;
 };
 
 [[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view body);
+
+// GET /contract/funding_rate with NO symbol: every contract in one answer.
+//
+// THE ONLY PLACE MEXC STATES A SETTLEMENT INTERVAL. /contract/detail — the
+// catalogue — carries no interval at all, so every perpetual was interned with
+// 0, and an analysis that then assumed the common eight hours was wrong for
+// most of the venue: read live 2026-09-24, 610 of 1,201 contracts settle every
+// FOUR hours, 583 every eight, 7 every hour and one daily.
+struct FundingRateBuffer {
+    std::array<WireFundingRate, 2048> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireFundingRate>, WireError>
+parse_funding_rates(std::string_view body, FundingRateBuffer& storage);
 
 // The spot socket's prints, whose payload the envelope has already located.
 // FIELD NUMBERS ARE STATED, NOT DERIVED — see envelope.hpp.

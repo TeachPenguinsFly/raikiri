@@ -1,0 +1,50 @@
+{
+  "success": true,
+  "code": 0,
+  "data": [
+    {
+      "symbol": "BTC_USDT",
+      "fundingRate": -3e-06,
+      "maxFundingRate": 0.0018,
+      "minFundingRate": -0.0018,
+      "collectCycle": 8,
+      "nextSettleTime": 1790265600000,
+      "timestamp": 1790245944115,
+      "idxPrice": 83177.7,
+      "fairPrice": 83137.5
+    },
+    {
+      "symbol": "XAU_USDT",
+      "fundingRate": 4.7e-05,
+      "maxFundingRate": 0.03,
+      "minFundingRate": -0.03,
+      "collectCycle": 4,
+      "nextSettleTime": 1790251200000,
+      "timestamp": 1790245944115,
+      "idxPrice": 4252.39,
+      "fairPrice": 4254.44
+    },
+    {
+      "symbol": "LSK_USDT",
+      "fundingRate": -0.000258,
+      "maxFundingRate": 0.03,
+      "minFundingRate": -0.03,
+      "collectCycle": 1,
+      "nextSettleTime": 1790247600000,
+      "timestamp": 1790245944115,
+      "idxPrice": 0.37834,
+      "fairPrice": 0.37725
+    },
+    {
+      "symbol": "US30_USDT",
+      "fundingRate": 0,
+      "maxFundingRate": 0,
+      "minFundingRate": 0,
+      "collectCycle": 24,
+      "nextSettleTime": 1790265600000,
+      "timestamp": 1790245944115,
+      "idxPrice": 51299.43,
+      "fairPrice": 51299.43
+    }
+  ]
+}

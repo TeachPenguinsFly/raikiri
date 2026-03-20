@@ -14,6 +14,9 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
+#include <memory>
+
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -68,6 +71,36 @@ exec::InstrumentTable catalogue() {
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
 // -------------------------------------------------------------- venue ----
+
+TEST(MexcWire, TheBulkFundingAnswerStatesEveryCycleTheVenueUses) {
+    // THE ONLY PLACE MEXC STATES A SETTLEMENT INTERVAL — the catalogue carries
+    // none, and every perpetual was interned with 0 until this was read. An
+    // analysis that then assumed eight hours was wrong for most of the venue:
+    // 610 of 1,201 contracts settled every four hours when this was captured.
+    //
+    // One row of each cycle the venue published on 2026-09-24, so a parser that
+    // only handled the common case would be caught on the others.
+    // THE BODY IS HELD, NOT PASSED AS A TEMPORARY. Every string_view in the
+    // parsed rows points into it; a temporary dies at the end of the call and
+    // leaves them dangling — the same lifetime fault the production loader had
+    // and AddressSanitizer caught there first.
+    const auto body = fixture("rest_funding_rates.json");
+    auto storage = std::make_unique<FundingRateBuffer>();
+    const auto rows = parse_funding_rates(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+
+    std::map<std::string, std::int64_t> cycle;
+    for (const auto& row : *rows) {
+        cycle[std::string{row.symbol}] = row.collect_cycle_h;
+        EXPECT_FALSE(row.max_rate.empty()) << row.symbol;
+        EXPECT_FALSE(row.min_rate.empty()) << row.symbol;
+    }
+    EXPECT_EQ(cycle["BTC_USDT"], 8);
+    EXPECT_EQ(cycle["XAU_USDT"], 4);
+    EXPECT_EQ(cycle["LSK_USDT"], 1);
+    EXPECT_EQ(cycle["US30_USDT"], 24);
+}
 
 TEST(MexcVenue, RegistersAndBuilds) {
     register_adapter();

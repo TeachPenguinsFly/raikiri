@@ -22,4 +22,4 @@ target_include_directories(raikiri_venue_mexc PUBLIC
 )
 target_link_libraries(raikiri_venue_mexc
   PUBLIC raikiri::domain raikiri::exec raikiri::net raikiri::wire
-  PRIVATE raikiri::config simdjson::simdjson raikiri::warnings)
+  PRIVATE raikiri::log raikiri::config simdjson::simdjson raikiri::warnings)

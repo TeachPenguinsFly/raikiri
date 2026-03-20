@@ -1,3 +1,4 @@
+#include <raikiri/log/log.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/net/io_context.hpp>
@@ -83,8 +84,76 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        return intern(
-            *wire, [](const WireInstrument& row) { return map_instrument(row, MarketType::Perp); });
+        // BEFORE INTERNING, not after: the table owns the instrument once it
+        // is added, and the schedule belongs in it from the first read.
+        const auto schedule = load_schedule();
+        return intern(*wire, [&](const WireInstrument& row) {
+            auto instrument = map_instrument(row, MarketType::Perp);
+            if (!instrument.has_value()) {
+                return instrument;
+            }
+            if (auto* perp = std::get_if<PerpInstrument>(&*instrument); perp != nullptr) {
+                if (const auto found = schedule.find(std::string{row.symbol});
+                    found != schedule.end()) {
+                    perp->funding_interval_s = found->second.interval_s;
+                    perp->funding_cap = found->second.cap;
+                    perp->funding_floor = found->second.floor;
+                }
+            }
+            return instrument;
+        });
+    }
+
+    struct Schedule {
+        std::uint32_t interval_s{0};
+        FixedE9 cap{};
+        FixedE9 floor{};
+    };
+
+    // THE SETTLEMENT SCHEDULE, from the one endpoint that states it. A failed
+    // read yields an empty map and every interval stays 0 — unstated — rather
+    // than failing the catalogue: quotes and books are worth having without it,
+    // and a reader that needs the interval refuses a 0 instead of assuming one.
+    //
+    // KEYED BY OWNING STRINGS. The parsed rows live in a thread-local buffer,
+    // but their string_views point into the HTTP response body, which dies when
+    // this function returns — keying on those views was a use-after-free that
+    // AddressSanitizer caught on the first lookup. Twelve hundred short strings
+    // once per catalogue load is not a cost worth a lifetime puzzle.
+    std::unordered_map<std::string, Schedule> load_schedule() {
+        std::unordered_map<std::string, Schedule> out;
+        const auto funding =
+            await_response(*state_, rest_, state_->builder.funding_rates(), 20'000);
+        if (!funding.has_value() || funding->transport_failed()) {
+            RLOG_WARN("mexc: no funding schedule — every interval reads unstated");
+            return out;
+        }
+        static thread_local const auto buffer_owner = std::make_unique<FundingRateBuffer>();
+        const auto rows = parse_funding_rates(funding->body, *buffer_owner);
+        if (!rows.has_value()) {
+            RLOG_WARN("mexc: funding schedule unreadable ({}) — every interval reads unstated",
+                      to_string(rows.error()));
+            return out;
+        }
+        out.reserve(rows->size());
+        for (const auto& row : *rows) {
+            if (row.collect_cycle_h <= 0) {
+                continue;
+            }
+            Schedule entry{};
+            entry.interval_s = static_cast<std::uint32_t>(row.collect_cycle_h) * 3600U;
+            // A cap that will not parse stays UNDEF: "the ceiling is unknown"
+            // and "the ceiling is zero" lead to opposite decisions.
+            if (const auto cap = parse_decimal_e9(row.max_rate); cap.has_value()) {
+                entry.cap = *cap;
+            }
+            if (const auto floor = parse_decimal_e9(row.min_rate); floor.has_value()) {
+                entry.floor = *floor;
+            }
+            out.emplace(std::string{row.symbol}, entry);
+        }
+        RLOG_INFO("mexc: settlement schedule stated for {} contracts", out.size());
+        return out;
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {
