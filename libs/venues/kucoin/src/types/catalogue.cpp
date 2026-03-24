@@ -76,6 +76,16 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             // OPTIONAL, unlike everything above: a contract listed but never
             // traded carries neither field, and refusing the row over that
             // would drop the instrument out of the catalogue entirely.
+            for (const auto& [key, field] :
+                 {std::pair{"fundingFeeRate", &out.funding_fee_rate},
+                  std::pair{"predictedFundingFeeRate", &out.predicted_funding_fee_rate}}) {
+                if (const auto value = opt_decimal(obj, key); value.has_value()) {
+                    *field = *value;
+                }
+            }
+            if (const auto next = opt_u64(obj, "nextFundingRateDateTime"); next.has_value()) {
+                out.next_funding_ms = *next;
+            }
             for (const auto& [key, field] : {std::pair{"volumeOf24h", &out.volume_24h},
                                              std::pair{"turnoverOf24h", &out.turnover_24h}}) {
                 if (const auto value = opt_decimal(obj, key); value.has_value()) {

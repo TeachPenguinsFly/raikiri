@@ -36,6 +36,12 @@ struct WireContract {
     std::string_view volume_24h;   // volumeOf24h, base asset
     std::string_view turnover_24h; // turnoverOf24h, quote currency
     std::uint64_t funding_granularity_ms{0};
+    // FUNDING RIDES THIS ROW TOO, and on the unified feed it is the only
+    // place it rides: UTA v2 carries books and nothing else, so a gateway on
+    // it has no funding stream at all. Empty when the contract states none.
+    std::string_view funding_fee_rate;           // fundingFeeRate
+    std::string_view predicted_funding_fee_rate; // predictedFundingFeeRate, null in practice
+    std::uint64_t next_funding_ms{0};            // nextFundingRateDateTime
 };
 
 inline constexpr std::size_t k_max_contracts = 2048;

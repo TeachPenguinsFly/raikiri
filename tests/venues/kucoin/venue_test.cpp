@@ -388,6 +388,32 @@ TEST(KucoinRest, ServerTimeReadsABareNumberPayload) {
     EXPECT_EQ(*ts, 1786394604446ULL);
 }
 
+TEST(KucoinRest, TheCatalogueRowCarriesFundingForTheUnifiedFeed) {
+    // ON UTA v2 THIS ROW IS THE ONLY FUNDING SOURCE. The unified feed carries
+    // books and nothing else, and until 2026-09-24 a kucoin gateway on it
+    // wrote 0 bytes of funding — the subscription returned before it reached
+    // any fallback. The catalogue poll now publishes these fields instead.
+    //
+    // The dated future states no funding at all, and must still parse: a
+    // contract without funding is a catalogue row, not a malformed answer.
+    static ContractBuffer storage;
+    const auto body = fixture("rest_contracts_active.json");
+    const auto wire = parse_contracts(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 4U);
+
+    EXPECT_EQ((*wire)[0].symbol, "XBTUSDTM");
+    // Java's formatting, kept as sent — the fixed-point reader parses the
+    // exponent form, and rewriting it here would hide what the venue said.
+    EXPECT_EQ((*wire)[0].funding_fee_rate, "1.0E-4");
+    EXPECT_EQ((*wire)[0].next_funding_ms, 1786406400000ULL);
+    EXPECT_EQ((*wire)[0].funding_granularity_ms, 28800000ULL);
+
+    EXPECT_EQ((*wire)[2].symbol, "XBTMU26");
+    EXPECT_TRUE((*wire)[2].funding_fee_rate.empty());
+    EXPECT_EQ((*wire)[2].next_funding_ms, 0ULL);
+}
+
 TEST(KucoinRest, ContractsKeepJavaFormattedNumbersIntact) {
     static ContractBuffer storage;
     const auto body = fixture("rest_contracts_active.json");

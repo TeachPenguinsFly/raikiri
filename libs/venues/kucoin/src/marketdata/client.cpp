@@ -34,6 +34,10 @@ namespace {
 // answers with every contract, so this is one call however many symbols
 // the gateway watches.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+// ON THE UNIFIED FEED THE SAME POLL IS THE FUNDING SOURCE, so it runs at the
+// pace funding needs rather than the pace a 24-hour figure does. One call for
+// every contract a minute; the classic feed never reaches this path.
+constexpr std::uint64_t k_uta_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
 // KuCoin allows about ten messages a second on a connection; five leaves room
 // for the application ping sharing the same budget.
@@ -383,6 +387,16 @@ public:
         // 100-messages-per-ten-seconds ceiling.
         const auto topic = state_->uta ? uta_topic_for(kind) : topic_for(kind, state_->market);
         if (topic.empty()) {
+            // UTA v2 HAS NO FUNDING TOPIC, and returning here used to be the
+            // whole story: no socket, no seed, and — because the catalogue
+            // poll only runs for instruments on `wanted_` — no 24-hour figure
+            // either. From the migration until 2026-09-24 every kucoin funding
+            // file was 0 bytes. Funding now comes off the catalogue poll, which
+            // states it per contract, so the instrument goes on its list.
+            if (state_->uta && kind == exec::SubKind::Funding) {
+                wanted_.push_back(instrument);
+                return {};
+            }
             return DataClient::subscribe(kind, instrument);
         }
         const auto before = state_->desired.size();
@@ -463,8 +477,9 @@ public:
             ticker_in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next five minutes.
-        next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
+        // Only a call the venue was actually asked buys the next interval.
+        next_ticker_poll_ns_ =
+            now.ns + (state_->uta ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
     }
 
     // Funding seeds the budget refused, one a tick. A loop here would ask for
@@ -507,6 +522,29 @@ public:
                 stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
+            // Only on the unified feed: the classic one has a funding stream,
+            // and two writers of one cell would race each other's merges.
+            if (state_->uta && !row.funding_fee_rate.empty()) {
+                publish_row_funding(row, received);
+            }
+        }
+    }
+
+    void publish_row_funding(const WireContract& row, UnixNanos received) noexcept {
+        auto* memo = state_->memo_for(row.symbol);
+        if (memo == nullptr) {
+            return;
+        }
+        WireFundingRate wire{};
+        wire.symbol = row.symbol;
+        wire.rate = row.funding_fee_rate;
+        wire.predicted_rate = row.predicted_funding_fee_rate;
+        wire.granularity_ms = row.funding_granularity_ms;
+        wire.next_funding_ms = row.next_funding_ms;
+        wire.ts_ms = received.ns / 1'000'000ULL;
+        if (const auto funding = map_funding(wire, row.symbol, state_->instruments, *memo, received);
+            funding.has_value()) {
+            state_->sink->on_funding(*funding);
         }
     }
 
