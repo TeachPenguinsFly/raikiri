@@ -315,6 +315,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
         out.mark_price = *mark;
     }
     out.next_funding_time = ms_to_unix(wire.next_funding_rate_time_ms, UnixNanos{0});
+    out.interval_s = k_funding_interval_s;
     out.ts_event = ms_to_unix(wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -388,7 +389,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     // PF_ settles in the quote currency, PI_ in the base one. The prefix is the
     // only thing that says so — Kraken's row carries no explicit flag.
     base.kind = linear ? ContractKind::Linear : ContractKind::Inverse;
-    return PerpInstrument{base, /*funding_interval_s=*/0};
+    return PerpInstrument{base, k_funding_interval_s};
 }
 
 std::optional<exec::OrderStatusReport> map_open_order(const WireOpenOrder& wire,

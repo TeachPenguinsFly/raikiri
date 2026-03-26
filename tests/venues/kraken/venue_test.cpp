@@ -469,9 +469,10 @@ TEST(KrakenMap, OneTickerFrameYieldsBothTouchAndFunding) {
     // it does not divide and is left undefined rather than rounded onto a
     // price that never traded.
     EXPECT_TRUE(funding->mark_price.is_undef());
-    // Kraken publishes the next settlement instant but never the period, so
-    // guessing 8h here would be wrong invisibly.
-    EXPECT_EQ(funding->interval_s, 0U);
+    // The period is never on the wire; it is the measured hourly constant, and
+    // the next instant here is indeed on the hour.
+    EXPECT_EQ(funding->interval_s, 3600U);
+    EXPECT_EQ(funding->next_funding_time.ns % (3600ULL * 1'000'000'000ULL), 0U);
 }
 
 TEST(KrakenMap, InverseTickerMapsAgainstItsOwnSteps) {

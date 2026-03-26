@@ -386,10 +386,9 @@ does not reach. It contributes a spot catalogue and nothing the carry board
 cannot get elsewhere.
 
 **kraken** is futures-only here — its spot exchange is another host, another
-symbology and another signature — and it still writes `funding_interval_s = 0`
-unconditionally, which the scanner refuses rather than assuming eight hours. That
-refusal is correct and the fix is a stated constant, not a rewrite; it simply has
-not been worth the pass.
+symbology and another signature. Its ticker states the next settlement but never
+the period, so the period is a stated constant: hourly, measured on 2026-09-24
+against the venue's own settlement history for both the PF_ and PI_ families.
 
 **bitmex** carries the original inverse perpetual, whose quote turnover is in the
 quote currency and therefore not dollars — the board ranks on it only where the
@@ -398,5 +397,5 @@ publishes are off the grid this book keeps. That is a real defect and the reason
 it is parked rather than deployed.
 
 What would unpark one: deribit, a maker rebate or a second venue with genuine
-open interest; kraken, the funding interval; bitmex, the depth grid; coinbase, a
+open interest; kraken, a slot on the box; bitmex, the depth grid; coinbase, a
 reason to want its spot that gate and okx do not already answer.
