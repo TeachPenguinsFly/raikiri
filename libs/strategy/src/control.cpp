@@ -203,11 +203,18 @@ http::Response create_strategy(Registry& live,
     if (const auto ec = glz::read_json(body, req.body); ec) {
         return http::problem(400, "malformed body");
     }
-    if (body.strategy_id < 0 || body.strategy_id > 0xFFFF) {
-        return http::problem(422, "bad strategy_id", "expected a whole number from 0 to 65535");
-    }
     if (body.type.empty()) {
         return http::problem(422, "type is required", "one of /v1/strategy-types");
+    }
+    // REQUIRED, NEVER ALLOCATED HERE. The id is what the journal and the book
+    // key every order and position by, and a surface that picked "the next free
+    // one" would hand a new instance the id of one whose history is still in
+    // the journal.
+    if (body.strategy_id == -1) {
+        return http::problem(422, "strategy_id is required", "a whole number from 2 to 65535");
+    }
+    if (body.strategy_id < 0 || body.strategy_id > 0xFFFF) {
+        return http::problem(422, "bad strategy_id", "expected a whole number from 0 to 65535");
     }
     const Spec spec{.name = body.name.empty() ? body.type : body.name,
                     .type = body.type,

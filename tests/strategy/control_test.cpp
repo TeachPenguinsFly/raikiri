@@ -193,6 +193,19 @@ TEST(StrategyControl, EveryRefusalOfACreateCarriesTheStatusItDeserves) {
               409);
 }
 
+TEST(StrategyControl, ACreateNamesTheFieldItIsMissing) {
+    // Measured against a live strategyd: a body without strategy_id was told
+    // its id was "not a whole number", and so was one whose type was unknown.
+    Harness h;
+    const auto route = h.router();
+    const auto no_id = route(post("/v1/strategies", R"({"type":"quiet"})"));
+    EXPECT_EQ(no_id.status, 422);
+    EXPECT_NE(no_id.body.find("strategy_id is required"), std::string::npos) << no_id.body;
+    const auto no_type = route(post("/v1/strategies", R"({"strategy_id":9})"));
+    EXPECT_EQ(no_type.status, 422);
+    EXPECT_NE(no_type.body.find("type is required"), std::string::npos) << no_type.body;
+}
+
 TEST(StrategyControl, ARefusalIsRfc9457) {
     Harness h;
     const auto route = h.router();
