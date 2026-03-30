@@ -28,7 +28,19 @@ declare -A MARKET=(
 # gate is the thin-tail case the perpetual side already shows — a long list of
 # altcoin pairs that do not trade inside the window — and not a venue dropping
 # a chunk in silence.
-SPOT_CAPABLE="bybit okx kucoin xt hyperliquid bingx gate mexc"
+#
+# BITGET WAS MISSING FROM THIS LIST despite carrying its whole spot catalogue
+# (docs/CONNECTIONS.md's 2026-09-08 pool table: 1296 of 1296, the best result
+# of the thirteen tested) — nothing there records why, and re-run here today
+# subscribed 3161 of 3161. Added.
+#
+# HYPERLIQUID STAYS ON THE LIST BUT IS NOT A CARRY-BOARD SOURCE YET. The same
+# document flags it explicitly: "Do not count hyperliquid spot as a quote
+# source until it is [chased down]" — a 23-fold gap between `bbo` and `l2Book`
+# on one connection that was never explained. It is kept subscribable for
+# testing the gap, not for the board; kowalski's venue set for spot·perp carry
+# should exclude it until that is resolved.
+SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc"
 
 # A SPOT GATEWAY IS HERE FOR THE CARRY BOARD, which reads a quote and a
 # turnover and nothing else. Subscribing the ladder and the tape as well is
