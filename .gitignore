@@ -27,3 +27,7 @@ tools/op.env.*
 
 # Python bytecode from tools/
 __pycache__/
+
+# Notes and research stay on this machine; only the manual is published.
+docs/*
+!docs/README.md
