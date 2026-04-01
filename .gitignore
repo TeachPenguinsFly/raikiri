@@ -5,7 +5,6 @@ CMakeUserPresets.json
 compile_commands.json
 raikiri-data/
 *.rj
-fuzz/corpus/
 crash-*
 leak-*
 timeout-*
@@ -28,6 +27,8 @@ tools/op.env.*
 # Python bytecode from tools/
 __pycache__/
 
-# Notes and research stay on this machine; only the manual is published.
+# Notes, research and the fuzz harnesses stay on this machine; only their READMEs are published.
 docs/*
 !docs/README.md
+fuzz/*
+!fuzz/README.md
