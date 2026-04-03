@@ -246,8 +246,9 @@ TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
         if (caps.markets.future) {
             with_futures.push_back(to_string(id));
         }
-        // Nothing may serve a market with no market at all behind it.
-        EXPECT_TRUE(caps.markets.any()) << to_string(id);
+        // Nothing may serve a market with no market at all behind it, and a
+        // retired slot must serve none.
+        EXPECT_EQ(caps.markets.any(), !is_retired(id)) << to_string(id);
     }
     EXPECT_EQ(with_options, (std::vector<std::string_view>{"deribit"}));
     EXPECT_EQ(with_futures, (std::vector<std::string_view>{"deribit"}));
@@ -258,6 +259,9 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
     // venue we ship. Gate is the tightest fit — this is the tripwire that
     // fires if the docs pass lowers any limit.
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        if (is_retired(static_cast<VenueId>(v))) {
+            continue;
+        }
         const auto& caps = caps_of(static_cast<VenueId>(v));
         EXPECT_GE(caps.max_client_order_id_len, k_min_client_order_id_len)
             << to_string(static_cast<VenueId>(v));

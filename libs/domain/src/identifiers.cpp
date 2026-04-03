@@ -22,6 +22,7 @@ constexpr std::array<std::string_view, k_venue_count> k_venue_names{
     "hyperliquid",
     "coinbase",
     "kraken",
+    "bitmex",
     "bitget",
     "htx",
     "bitfinex",
@@ -38,7 +39,7 @@ std::string_view to_string(VenueId venue) noexcept {
 
 VenueId venue_from_string(std::string_view name) noexcept {
     for (std::size_t i = 1; i < k_venue_names.size(); ++i) {
-        if (k_venue_names[i] == name) {
+        if (k_venue_names[i] == name && !is_retired(static_cast<VenueId>(i))) {
             return static_cast<VenueId>(i);
         }
     }

@@ -62,6 +62,7 @@
       <validValue name="Htx">16</validValue>
       <validValue name="Bitfinex">17</validValue>
       <validValue name="Weex">18</validValue>
+      <validValue name="Aster">19</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

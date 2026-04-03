@@ -26,6 +26,11 @@ enum class VenueId : std::uint8_t {
     Hyperliquid,
     Coinbase,
     Kraken,
+    // RETIRED IN PLACE. A venue's number is the top byte of every InstrumentId
+    // and a field of every journal record, so taking one out of the middle
+    // renumbers everything after it: when bitmex was deleted outright, every
+    // stored weex id began to read back as aster. The slot stays; never reuse it.
+    RetiredBitmex,
     Bitget,
     Htx,
     Bitfinex,
@@ -33,7 +38,11 @@ enum class VenueId : std::uint8_t {
     Aster,
 };
 
-inline constexpr std::size_t k_venue_count = 19; // including Invalid
+inline constexpr std::size_t k_venue_count = 20; // including Invalid and the retired
+
+[[nodiscard]] constexpr bool is_retired(VenueId venue) noexcept {
+    return venue == VenueId::RetiredBitmex;
+}
 
 enum class MarketType : std::uint8_t {
     Spot = 0,

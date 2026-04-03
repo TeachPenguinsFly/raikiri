@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <csignal>
 #include <cstdio>
 #include <string>
@@ -347,6 +348,32 @@ TEST(JournalSchema, EveryVenueIdIsEncodable) {
     VenueProbe absent{};
     ::sbepp::visit(static_cast<raikiri_journal::types::venueIdEnum>(200), absent);
     EXPECT_FALSE(absent.known);
+}
+
+struct VenueNameProbe {
+    std::string name;
+
+    template <typename E, typename Tag> void on_enum_value(E, Tag) noexcept {
+        name = ::sbepp::enum_value_traits<Tag>::name();
+    }
+
+    template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept {}
+};
+
+// Every number must carry the SAME venue in the schema as in the code. The
+// test above only asked whether a number was declared, and so passed while
+// deleting bitmex had shifted every later venue down one: the code wrote weex
+// as 17, which the schema and every older record call bitfinex.
+TEST(JournalSchema, EveryVenueNumberNamesTheSameVenueInBoth) {
+    for (std::uint8_t v = 1; v < k_venue_count; ++v) {
+        VenueNameProbe probe{};
+        ::sbepp::visit(static_cast<raikiri_journal::types::venueIdEnum>(v), probe);
+        std::string lowered = probe.name;
+        for (auto& c : lowered) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        EXPECT_EQ(lowered, to_string(static_cast<VenueId>(v))) << "venue number " << int{v};
+    }
 }
 
 // Counts segment files a writer left behind.
