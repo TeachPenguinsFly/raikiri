@@ -34,6 +34,7 @@ CUSTODY = {
     "coinbase": "CEX",
     "deribit": "CEX",
     "gate": "CEX",
+    "grvt": "DEX",
     "htx": "CEX",
     "hyperliquid": "DEX",
     "kraken": "CEX",

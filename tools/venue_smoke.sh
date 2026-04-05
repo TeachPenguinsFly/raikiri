@@ -45,6 +45,7 @@ VENUES=(
   "bitfinex:tBTCF0:USTF0"
   "weex:BTCUSDT"
   "aster:BTCUSDT"
+  "grvt:BTC_USDT_Perp"
 )
 
 printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict

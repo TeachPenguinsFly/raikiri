@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","result":{"stream":"v1.book.d","subs":["ETH_USDT_Perp@500"],"unsubs":[],"num_snapshots":[1],"first_sequence_number":["10972"],"latest_sequence_number":["10971"]},"id":1,"method":"subscribe"}

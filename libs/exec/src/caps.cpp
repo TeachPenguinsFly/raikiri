@@ -673,6 +673,43 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // No order path, so no order rate to headline.
         .headline_order_rate_per_s = 0,
     };
+
+    table[static_cast<std::size_t>(VenueId::Grvt)] = {
+        .venue = VenueId::Grvt,
+        // USDT-margined perpetuals only. Read live 2026-09-24: 194 rows, every
+        // one PERPETUAL (184 active, 10 delisted), and a query filtered to
+        // SPOT, FUTURE, CALL or PUT answered nothing.
+        .markets = {.spot = false, .perp = true},
+        //
+        // MARKET DATA AND FUNDING ONLY. The order path signs every order with
+        // an EIP-712 typed-data signature from a wallet key, not an HMAC, so
+        // flipping any bit below needs a new signer, not a credential.
+        //
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false, // the book stream is chained by sequence, not checksummed
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // v1.ticker.s states taker buy and sell volume in base and in quote,
+        // read live 2026-09-24; their sum is the day's turnover.
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        // NOT A FACT ABOUT THE VENUE, AND IT MUST NOT BE READ AS ONE. GRVT's
+        // client_order_id is a uint64 — the venue asks API clients to draw it
+        // from [2^63, 2^64 - 1] — so a ULID does not travel as text at all.
+        // 26 is here only because make_venue refuses anything shorter, and
+        // this adapter sends no order for it to matter; a signer must map the
+        // ULID into that range rather than trust this number.
+        .max_client_order_id_len = 26,
+        .headline_order_rate_per_s = 0,
+    };
     return table;
 }();
 

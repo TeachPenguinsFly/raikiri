@@ -134,9 +134,9 @@ The table in the [project README](../README.md#venues) is generated from
 [`tools/venue_table.py`](../tools/venue_table.py). What its columns mean:
 
 `order entry` is *market data only* when the adapter sends nothing at all — for
-`aster` that is not an omission but a different signer: it authorises with an EVM
-wallet signature rather than a key/secret pair, so no credential this codebase carries
-would work.
+`aster` and `grvt` that is not an omission but a different signer: both authorise with
+an EVM wallet signature (EIP-712 typed data on `grvt`) rather than a key/secret pair,
+so no credential this codebase carries would work.
 
 `custody` is the one column the caps table cannot answer: no capability bit separates
 a venue holding your coins from a contract that does not. It lives in the generator,
