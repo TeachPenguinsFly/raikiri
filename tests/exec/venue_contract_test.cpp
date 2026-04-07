@@ -259,13 +259,41 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
     // venue we ship. Gate is the tightest fit — this is the tripwire that
     // fires if the docs pass lowers any limit.
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
-        if (is_retired(static_cast<VenueId>(v))) {
+        const auto id = static_cast<VenueId>(v);
+        if (is_retired(id)) {
             continue;
         }
-        const auto& caps = caps_of(static_cast<VenueId>(v));
-        EXPECT_GE(caps.max_client_order_id_len, k_min_client_order_id_len)
-            << to_string(static_cast<VenueId>(v));
+        const auto& caps = caps_of(id);
+        if (caps.max_client_order_id_len == 0) {
+            // A venue whose client id cannot carry a ULID at all (lighter's is
+            // a 48-bit integer, grvt's a uint64) says 0, and then may claim
+            // nothing an order path would need.
+            EXPECT_EQ(caps.user_stream, UserStreamModel::None) << to_string(id);
+            EXPECT_FALSE(caps.position_pull.any() || caps.order_pull.any() || caps.fill_pull.any())
+                << to_string(id);
+            continue;
+        }
+        EXPECT_GE(caps.max_client_order_id_len, k_min_client_order_id_len) << to_string(id);
     }
+}
+
+TEST_F(VenueContract, ARowThatCannotCarryTheUlidIsRefusedOnlyToATrader) {
+    const auto& caps = caps_of(VenueId::Lighter);
+    ASSERT_LT(caps.max_client_order_id_len, k_min_client_order_id_len);
+    const auto trader = make_venue({.venue = VenueId::Lighter,
+                                    .market = MarketType::Perp,
+                                    .api_key_env = "env:KEY",
+                                    .api_secret_env = "env:SECRET"},
+                                   sink,
+                                   clock);
+    ASSERT_FALSE(trader.has_value());
+    EXPECT_EQ(trader.error(), MakeError::ClientOrderIdTooShort);
+    // Without credentials the id rule has nothing to guard. No factory is
+    // linked into this binary, so the answer is the registry's, not the rule's.
+    const auto reader =
+        make_venue({.venue = VenueId::Lighter, .market = MarketType::Perp}, sink, clock);
+    ASSERT_FALSE(reader.has_value());
+    EXPECT_EQ(reader.error(), MakeError::UnknownVenue);
 }
 
 TEST_F(VenueContract, PullCapabilityMatchesWhatTheAdapterWillDo) {

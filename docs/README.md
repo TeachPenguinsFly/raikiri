@@ -136,7 +136,8 @@ The table in the [project README](../README.md#venues) is generated from
 `order entry` is *market data only* when the adapter sends nothing at all — for
 `aster` and `grvt` that is not an omission but a different signer: both authorise with
 an EVM wallet signature (EIP-712 typed data on `grvt`) rather than a key/secret pair,
-so no credential this codebase carries would work.
+so no credential this codebase carries would work. `lighter` is the same case on a
+zk-rollup: an order is a transaction signed with the venue's own API-key scheme.
 
 `custody` is the one column the caps table cannot answer: no capability bit separates
 a venue holding your coins from a contract that does not. It lives in the generator,
@@ -222,7 +223,7 @@ make fuzz FUZZ_SECONDS=60  # libFuzzer targets (Homebrew clang on macOS)
 
 ## Status
 
-**Usable today:** market data across all eighteen venues, order entry on the seventeen
+**Usable today:** market data across all nineteen venues, order entry on the seventeen
 the table marks, the shared-memory transport, the SBE journals and their Postgres
 tail, and the HTTP/WebSocket admin plane behind
 [`schema/admin-api.yaml`](../schema/admin-api.yaml).

@@ -46,6 +46,7 @@ VENUES=(
   "weex:BTCUSDT"
   "aster:BTCUSDT"
   "grvt:BTC_USDT_Perp"
+  "lighter:BTC"
 )
 
 printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict

@@ -46,6 +46,7 @@
 #include <raikiri/venues/hyperliquid/hyperliquid_venue.hpp>
 #include <raikiri/venues/kraken/kraken_venue.hpp>
 #include <raikiri/venues/kucoin/kucoin_venue.hpp>
+#include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
@@ -1218,6 +1219,7 @@ int main(int argc, char** argv) {
     venues::weex::register_adapter();
     venues::aster::register_adapter();
     venues::grvt::register_adapter();
+    venues::lighter::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

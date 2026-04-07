@@ -701,13 +701,49 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // read live 2026-09-24; their sum is the day's turnover.
         .ticker_stats = true,
         .user_stream = UserStreamModel::None,
-        // NOT A FACT ABOUT THE VENUE, AND IT MUST NOT BE READ AS ONE. GRVT's
-        // client_order_id is a uint64 — the venue asks API clients to draw it
-        // from [2^63, 2^64 - 1] — so a ULID does not travel as text at all.
-        // 26 is here only because make_venue refuses anything shorter, and
-        // this adapter sends no order for it to matter; a signer must map the
-        // ULID into that range rather than trust this number.
-        .max_client_order_id_len = 26,
+        // GRVT's client_order_id is a uint64 the venue asks API clients to draw
+        // from [2^63, 2^64 - 1], so a ULID does not travel as text; a signer
+        // would have to map one into that range. None exists, so nothing here
+        // mints one.
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+
+    table[static_cast<std::size_t>(VenueId::Lighter)] = {
+        .venue = VenueId::Lighter,
+        // Perpetuals and spot, both read live 2026-09-24 off
+        // /api/v1/orderBookDetails: 235 perps (210 active) and 11 spot pairs
+        // (10 active), every one of them quoted in USDC, on the same socket
+        // and the same channels keyed by integer market id.
+        .markets = {.spot = true, .perp = true},
+        //
+        // ===================================================================
+        // MARKET DATA AND FUNDING ONLY. Lighter is a zk-rollup: an order is a
+        // rollup transaction signed with the venue's own API-key scheme and
+        // submitted through sendTx, not a request authenticated by an HMAC
+        // secret. No credential this codebase carries could sign one, so
+        // flipping any bit below needs a signer, not a key.
+        // ===================================================================
+        //
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        // The book chains on a nonce and carries no checksum.
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // market_stats and spot_market_stats both state the day's base and
+        // quote volume, read live 2026-09-24.
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        // Nothing here mints one: no order leaves this adapter.
+        .max_client_order_id_len = 0,
         .headline_order_rate_per_s = 0,
     };
     return table;

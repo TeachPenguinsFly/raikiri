@@ -64,6 +64,7 @@
       <validValue name="Weex">18</validValue>
       <validValue name="Aster">19</validValue>
       <validValue name="Grvt">20</validValue>
+      <validValue name="Lighter">21</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

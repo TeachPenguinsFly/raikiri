@@ -34,16 +34,18 @@ make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock) {
     if (!caps.serves(config.market)) {
         return std::unexpected{MakeError::UnsupportedMarket};
     }
-    if (caps.max_client_order_id_len < k_min_client_order_id_len) {
-        return std::unexpected{MakeError::ClientOrderIdTooShort};
-    }
     // Refused at build, not one order at a time. Two of the venues that sign
     // with three credentials start cleanly on two and then reject every
     // command locally, which reads as a venue problem for as long as nobody
     // looks. A caller that configured no credentials at all is asking for
-    // market data and is not refused anything.
-    if (caps.needs_passphrase && !config.api_key_env.empty() && !config.api_secret_env.empty() &&
-        config.passphrase_env.empty()) {
+    // market data and is not refused anything — including by the id rule,
+    // which guards an order path such a caller never uses: lighter's client
+    // id is a 48-bit integer, carries no ULID, and streams all the same.
+    const bool trading = !config.api_key_env.empty() && !config.api_secret_env.empty();
+    if (trading && caps.max_client_order_id_len < k_min_client_order_id_len) {
+        return std::unexpected{MakeError::ClientOrderIdTooShort};
+    }
+    if (caps.needs_passphrase && trading && config.passphrase_env.empty()) {
         return std::unexpected{MakeError::PassphraseRequired};
     }
     if (g_factories[idx] == nullptr) {

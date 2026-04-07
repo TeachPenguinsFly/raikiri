@@ -1,0 +1,1 @@
+{"channel":"order_book:2054","last_updated_at":1790282279569161,"offset":596026,"order_book":{"code":0,"asks":[{"price":"0.44044","size":"340.6"},{"price":"0.44148","size":"228.6"}],"bids":[],"offset":596026,"nonce":22900327098,"last_updated_at":1790282279569161,"begin_nonce":22900326973},"timestamp":1790282279610,"type":"update/order_book"}

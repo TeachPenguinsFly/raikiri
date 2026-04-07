@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-1f6feb?style=flat-square)](CMakeLists.txt)
-[![Venues](https://img.shields.io/badge/venues-18%20live-2da44e?style=flat-square)](#venues)
+[![Venues](https://img.shields.io/badge/venues-19%20live-2da44e?style=flat-square)](#venues)
 [![Markets](https://img.shields.io/badge/markets-spot%20·%20perp%20·%20futures%20·%20options-2da44e?style=flat-square)](#venues)
 [![Tests](https://img.shields.io/badge/tests-1755-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
@@ -61,6 +61,7 @@ running a gateway, adding a venue.
 | `hyperliquid` | DEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
 | `kraken` | CEX | perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
 | `kucoin` | CEX | spot · perp | REST + WS | ✓ | – | – | ListenKey | – |
+| `lighter` | DEX | spot · perp | **market data only** | – | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
 | `weex` | CEX | perp | REST | – | – | – | – | ✓ |

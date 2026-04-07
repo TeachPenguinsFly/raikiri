@@ -39,6 +39,7 @@ CUSTODY = {
     "hyperliquid": "DEX",
     "kraken": "CEX",
     "kucoin": "CEX",
+    "lighter": "DEX",
     "mexc": "CEX",
     "okx": "CEX",
     "weex": "CEX",
