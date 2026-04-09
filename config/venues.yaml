@@ -165,3 +165,18 @@ venues:
       # venue's own figure at their call sites in the adapter and none of them
       # reads this line.
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+
+  backpack:
+    order_answer_timeout_ms: 15000
+    rate:
+      # STATED, NOT READ OFF A HEADER — backpack sends none, neither a ceiling
+      # nor a remainder. Its support FAQ gives 2000 requests a minute on the
+      # standard REST routes (30 on the historical ones, which the adapter
+      # never calls), and 429 past it. Measured 2026-09-24 only from below: 300
+      # depth snapshots at 54 a second all answered 200. No order path exists,
+      # so nothing is held in reserve.
+      shared: { capacity: 2000, window_ms: 60000, reserve: 0 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }

@@ -26,6 +26,7 @@ README = ROOT / "README.md"
 # contract rather than in the venue's omnibus account.
 CUSTODY = {
     "aster": "DEX",
+    "backpack": "CEX",
     "binance": "CEX",
     "bingx": "CEX",
     "bitfinex": "CEX",

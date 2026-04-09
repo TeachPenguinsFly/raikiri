@@ -40,7 +40,12 @@ declare -A MARKET=(
 # on one connection that was never explained. It is kept subscribable for
 # testing the gap, not for the board; kowalski's venue set for spot·perp carry
 # should exclude it until that is resolved.
-SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc"
+#
+# BACKPACK carries its whole spot catalogue, 52 of 52 Open pairs priced inside
+# five seconds (2026-09-25, admind's own `priced`). That needed a REST touch
+# per pair: its bookTicker sends no snapshot, and two pairs said nothing for
+# ninety seconds while their books sat two-sided.
+SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack"
 
 # A SPOT GATEWAY IS HERE FOR THE CARRY BOARD, which reads a quote and a
 # turnover and nothing else. Subscribing the ladder and the tape as well is

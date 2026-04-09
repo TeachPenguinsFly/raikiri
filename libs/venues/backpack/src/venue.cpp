@@ -1,0 +1,35 @@
+#include <raikiri/exec/caps.hpp>
+#include <raikiri/venues/backpack/backpack_venue.hpp>
+
+#include <memory>
+
+#include "clients.hpp"
+
+namespace raikiri::venues::backpack {
+
+using namespace detail;
+
+namespace {
+
+// No credentials are read. A configured key would name a secret this adapter
+// cannot use, and reading it would only put it in memory for nothing.
+exec::VenueAdapter
+make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
+    auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->budget = config.budget;
+
+    exec::VenueAdapter adapter{};
+    adapter.caps = exec::caps_of(VenueId::Backpack);
+    adapter.data = make_data_client(state);
+    adapter.execution = make_execution_client(state);
+    adapter.instruments = make_instrument_source(state);
+    return adapter;
+}
+
+} // namespace
+
+void register_adapter() {
+    exec::register_venue(VenueId::Backpack, &make);
+}
+
+} // namespace raikiri::venues::backpack

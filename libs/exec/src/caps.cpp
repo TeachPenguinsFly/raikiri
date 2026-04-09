@@ -746,6 +746,48 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         .max_client_order_id_len = 0,
         .headline_order_rate_per_s = 0,
     };
+
+    table[static_cast<std::size_t>(VenueId::Backpack)] = {
+        .venue = VenueId::Backpack,
+        // Both, on one host, one catalogue and one socket. Read live
+        // 2026-09-24: 190 rows, of which 91 perpetuals and 52 spot pairs are
+        // Open, everything quoted in USDC. A further 194 prediction markets
+        // sit behind ?marketType=PREDICTION and are not served. The funding
+        // interval is the venue's own per-contract figure, hourly on every
+        // perpetual.
+        .markets = {.spot = true, .perp = true},
+        //
+        // ===================================================================
+        // MARKET DATA AND FUNDING ONLY. The order path is not merely unbuilt:
+        // backpack signs every private request with an ED25519 key over the
+        // instruction name and the sorted parameters, and this codebase's
+        // signer computes HMACs. Flipping any bit below needs a new signer,
+        // not a credential.
+        // ===================================================================
+        //
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false, // the depth stream carries no checksum
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        // GET /api/v1/tickers states `volume` (base) and `quoteVolume` (USDC)
+        // for every market in one call, read live 2026-09-24.
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
+        // The order endpoint's `clientId` is a uint32 in the OpenAPI document
+        // the venue's own docs page embeds (read 2026-09-24), so a ULID does
+        // not travel; a future order path must map each one to a number and
+        // keep the map. Nothing here mints one.
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
     return table;
 }();
 

@@ -1,0 +1,27 @@
+#pragma once
+
+// The three public reads this adapter makes. Unsigned, every one of them.
+
+#include <raikiri/net/rest_client.hpp>
+
+#include <array>
+#include <cstdint>
+#include <string_view>
+
+namespace raikiri::venues::backpack {
+
+class RequestBuilder {
+public:
+    [[nodiscard]] net::RestRequest markets() const noexcept;
+    [[nodiscard]] net::RestRequest tickers() const noexcept;
+
+    // The returned target views this builder's buffer and is valid until the
+    // next call; empty when the symbol does not fit.
+    [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol,
+                                                  std::uint32_t limit) noexcept;
+
+private:
+    std::array<char, 128> target_{};
+};
+
+} // namespace raikiri::venues::backpack
