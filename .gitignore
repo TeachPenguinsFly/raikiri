@@ -26,6 +26,7 @@ tools/op.env.*
 
 # Python bytecode from tools/
 __pycache__/
+.pytest_cache/
 
 # Notes, research and the fuzz harnesses stay on this machine; only their READMEs are published.
 docs/*
