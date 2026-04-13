@@ -33,6 +33,7 @@ CUSTODY = {
     "bitget": "CEX",
     "bybit": "CEX",
     "coinbase": "CEX",
+    "cryptocom": "CEX",
     "deribit": "CEX",
     "gate": "CEX",
     "grvt": "DEX",

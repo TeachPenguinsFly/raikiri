@@ -1,11 +1,12 @@
 # Fuzzing
 
-Three targets, all off by default because AppleClang does not ship the
+Four targets, all off by default because AppleClang does not ship the
 libFuzzer runtime — a plain macOS build must not fail over it.
 
 | target | what it guards |
 |---|---|
 | `bybit_wire_fuzz` | venue JSON parsers: untrusted input at line rate on a process holding live orders |
+| `cryptocom_wire_fuzz` | the same for crypto.com, whose payload parsers read a `result.data` the envelope cut out and never checked the shape of |
 | `journal_frame_fuzz` | journal recovery: runs at every startup, including the one after a crash, over bytes a failing disk may have mangled |
 | `decimal_fuzz` | every venue price and quantity, plus a parse/format round-trip invariant |
 
@@ -14,8 +15,9 @@ libFuzzer runtime — a plain macOS build must not fail over it.
 ```sh
 make deps PRESET=fuzz          # clang toolchain (Homebrew locally, clang-18 in CI)
 cmake --preset fuzz
-cmake --build --preset fuzz --target fuzz_corpus bybit_wire_fuzz
+cmake --build --preset fuzz --target fuzz_corpus bybit_wire_fuzz cryptocom_wire_fuzz
 ./build/fuzz/fuzz/bybit_wire_fuzz fuzz/corpus/bybit -max_total_time=300
+./build/fuzz/fuzz/cryptocom_wire_fuzz fuzz/corpus/cryptocom -max_total_time=300
 ```
 
 The corpus directory is writable by libFuzzer and therefore not tracked;

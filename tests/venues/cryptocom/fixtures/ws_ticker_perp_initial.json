@@ -1,0 +1,1 @@
+{"id":7,"method":"subscribe","code":0,"result":{"instrument_name":"BTCUSD-PERP","subscription":"ticker.BTCUSD-PERP","channel":"ticker","data":[{"h":"84932.4","l":"82832.2","a":"84237.3","c":"-0.0002","b":"84232.1","bs":"0.0083","k":"84232.2","ks":"0.0051","i":"BTCUSD-PERP","v":"4187.8266","vv":"352032445.73","oi":"6072.1990","t":1790281750259}]}}

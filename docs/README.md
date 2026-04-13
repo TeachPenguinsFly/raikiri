@@ -138,6 +138,8 @@ The table in the [project README](../README.md#venues) is generated from
 an EVM wallet signature (EIP-712 typed data on `grvt`) rather than a key/secret pair,
 so no credential this codebase carries would work. `lighter` is the same case on a
 zk-rollup: an order is a transaction signed with the venue's own API-key scheme.
+For `cryptocom` it is an omission: the venue signs with an ordinary HMAC key and
+secret, and the order path is simply not written.
 
 `custody` is the one column the caps table cannot answer: no capability bit separates
 a venue holding your coins from a contract that does not. It lives in the generator,

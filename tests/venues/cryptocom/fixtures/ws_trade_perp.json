@@ -1,0 +1,1 @@
+{"id":-1,"method":"subscribe","code":0,"result":{"instrument_name":"BTCUSD-PERP","subscription":"trade.BTCUSD-PERP","channel":"trade","data":[{"d":"1790281771941706234","t":1790281771941,"p":"84232.2","q":"0.0001","s":"BUY","i":"BTCUSD-PERP","m":"4611686018793667584"}]}}

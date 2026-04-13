@@ -1,0 +1,1 @@
+{"id":-1,"method":"subscribe","code":0,"result":{"instrument_name":"BTC_USD","subscription":"ticker.BTC_USD","channel":"ticker","data":[{"h":"84940.99","l":"82849.95","a":"84251.07","c":"-0.0001","b":"84244.78","bs":"0.42488","k":"84244.79","ks":"0.53025","i":"BTC_USD","v":"3733.8104","vv":"314006349.01","oi":"0","t":1790281750583}]}}

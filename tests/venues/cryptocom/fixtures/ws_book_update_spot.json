@@ -1,0 +1,1 @@
+{"id":-1,"method":"subscribe","code":0,"result":{"instrument_name":"BTC_USD","subscription":"book.BTC_USD.50","channel":"book.update","depth":50,"data":[{"update":{"asks":[],"bids":[["84244.78","0.42526","10"]]},"t":1790281751579,"tt":1790281751573,"u":370361388792896,"pu":370361386824768,"cs":798063750}]}}

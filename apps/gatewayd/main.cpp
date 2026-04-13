@@ -53,6 +53,7 @@
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/aster/aster_venue.hpp>
 #include <raikiri/venues/backpack/backpack_venue.hpp>
+#include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
 #include <raikiri/venues/xt/xt_venue.hpp>
 
 #include <fmt/format.h>
@@ -1222,6 +1223,7 @@ int main(int argc, char** argv) {
     venues::grvt::register_adapter();
     venues::lighter::register_adapter();
     venues::backpack::register_adapter();
+    venues::cryptocom::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

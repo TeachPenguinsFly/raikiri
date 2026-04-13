@@ -65,6 +65,7 @@ raikiri_add_test(aster_venue_test SRCS venues/aster/venue_test.cpp LIBS raikiri:
 raikiri_add_test(grvt_venue_test SRCS venues/grvt/venue_test.cpp LIBS raikiri::venue_grvt raikiri::exec)
 raikiri_add_test(lighter_venue_test SRCS venues/lighter/venue_test.cpp LIBS raikiri::venue_lighter raikiri::exec)
 raikiri_add_test(backpack_venue_test SRCS venues/backpack/venue_test.cpp LIBS raikiri::venue_backpack raikiri::exec)
+raikiri_add_test(cryptocom_venue_test SRCS venues/cryptocom/venue_test.cpp LIBS raikiri::venue_cryptocom raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 

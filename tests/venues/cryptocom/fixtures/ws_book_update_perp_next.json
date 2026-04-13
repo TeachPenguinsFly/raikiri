@@ -1,0 +1,1 @@
+{"id":-1,"method":"subscribe","code":0,"result":{"instrument_name":"BTCUSD-PERP","subscription":"book.BTCUSD-PERP.50","channel":"book.update","depth":50,"data":[{"update":{"asks":[["84232.2","0.0051","3"]],"bids":[["84222.3","0","0"],["84177.7","0.0004","1"]]},"t":1790281751567,"tt":1790281751532,"u":370361388695712,"pu":370361388215520,"cs":-861424266}]}}
