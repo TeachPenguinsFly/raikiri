@@ -1,7 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// detail, not anonymous: an anonymous type in a header differs in every includer.
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -37,35 +36,24 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Book seeds and the 24-hour table. Four warm connections: a whole
-    // catalogue is 143 seeds, and two connections against a round trip is
-    // what left a neighbour venue's books cold for a minute.
     net::RestClient rest{
         io, net::RestConfig{.host = std::string{ep::rest_host(testnet)}, .pool_size = 4}};
     std::unordered_map<std::uint64_t, DepthBook> books;
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
 
-    // BOOKTICKER SENDS NO SNAPSHOT: it speaks when the touch moves and not
-    // before. Measured 2026-09-24 across all 143 Open markets: the first frame
-    // took 5 s at the median, 14 s at p90 and 42 s at worst, and two spot
-    // pairs said nothing for 90 s while their books sat two-sided. So every
-    // quote subscription is seeded once from a five-level REST snapshot, and
-    // `quoted` keeps a slow answer from overwriting a live frame that beat it.
+    // bookTicker sends no snapshot, so each quote is seeded once from REST; `quoted`
+    // keeps a slow answer from overwriting a live frame that beat it.
     std::vector<InstrumentId> pending_touches;
     std::unordered_set<std::uint64_t> quoted;
 
-    // Instruments the gateway asked funding for. On a perpetual that is the
-    // markPrice stream; on either market it is also the turnover the tickers
-    // poll publishes, which is all the funding channel means for a spot pair.
+    // On a spot pair, funding means only the turnover the tickers poll publishes.
     std::vector<InstrumentId> funding_instruments;
 
     std::uint64_t subscribe_refusals{0};
 };
 
-// Makes one REST client ask the budget before every send. RateClass::Poll:
-// nothing here is an order, and a refusal leaves the caller due, so the next
-// tick asks again.
+// A refusal leaves the caller due, so the next tick asks again.
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
     auto* owner = &state;
     rest.set_admit([owner](std::string_view) {

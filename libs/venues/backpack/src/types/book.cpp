@@ -13,7 +13,6 @@ namespace {
 using detail::guarded;
 using detail::session;
 
-// A level is ["116.84","1414.48"] on the stream and in the snapshot alike.
 std::expected<std::size_t, WireError>
 read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
     auto array = detail::req_array(root, key);
@@ -83,8 +82,7 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        // Required, all four: a one-sided book has no touch, and a quote
-        // with an empty side published as zero is a price nobody offered.
+        // All four required: an empty side published as zero is a price nobody offered.
         for (const auto& [key, field] : {std::pair{"b", &out.bid_price},
                                          std::pair{"B", &out.bid_qty},
                                          std::pair{"a", &out.ask_price},
@@ -126,7 +124,7 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
             return std::unexpected(WireError::WrongType);
         }
         if (*first == 0 || *last < *first) {
-            return std::unexpected(WireError::MissingField); // no range, no chain
+            return std::unexpected(WireError::MissingField);
         }
         out.first_id = *first;
         out.last_id = *last;
@@ -160,7 +158,7 @@ std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_vie
         }
         out.last_update_id = detail::digits_to_u64(*last);
         if (out.last_update_id == 0) {
-            return std::unexpected(WireError::MissingField); // a seed with no id seeds nothing
+            return std::unexpected(WireError::MissingField);
         }
         out.timestamp_us = *stamp;
         const auto bids = read_levels(*root, "bids", storage.bids);
@@ -245,7 +243,7 @@ BookResult DepthBook::apply(const WireDepthUpdate& delta) {
 
 BookResult DepthBook::buffer(const WireDepthUpdate& delta) {
     if (!pending_.empty() && delta.first_id != pending_.back().last_id + 1) {
-        pending_.clear(); // the chain broke before the seed landed
+        pending_.clear();
     }
     if (pending_.size() == k_max_buffered_deltas) {
         pending_.clear();
@@ -263,17 +261,14 @@ BookResult DepthBook::buffer(const WireDepthUpdate& delta) {
         return true;
     };
     if (!take(delta.bids, held.bids) || !take(delta.asks, held.asks)) {
-        pending_.clear(); // a hole in the run is a hole in every book built on it
+        pending_.clear();
         return BookResult::Buffered;
     }
     pending_.push_back(std::move(held));
     return BookResult::Buffered;
 }
 
-// A delta that STARTS at or before our id and ends past it is applied whole.
-// Its levels are absolute sizes as of its own `u`, so the updates it carries
-// from before our id restate nothing false — and the first 200 ms frame after
-// a seed usually straddles the seed's id exactly this way.
+// A delta straddling our id is applied whole: its levels are absolute sizes as of its `u`.
 BookResult DepthBook::advance(const WireDepthUpdate& delta) {
     if (delta.last_id <= last_id_) {
         return BookResult::Stale;
@@ -287,10 +282,7 @@ BookResult DepthBook::advance(const WireDepthUpdate& delta) {
 }
 
 BookResult DepthBook::step(const WireDepthUpdate& delta) {
-    // A level that is not a whole number of ticks or lots means the venue
-    // changed a filter under us. Skipping it would leave this copy of the book
-    // silently and permanently different from the venue's, so the whole book
-    // goes and a fresh seed replaces it.
+    // An off-grid level drops the whole book; skipping it would diverge silently.
     if (!apply_wire(delta.bids, ladders_.bids()) || !apply_wire(delta.asks, ladders_.asks())) {
         ++gaps_;
         invalidate();
@@ -302,9 +294,7 @@ BookResult DepthBook::step(const WireDepthUpdate& delta) {
 
 BookResult DepthBook::seed(const WireDepthSnapshot& wire) {
     seed_in_flight_ = false;
-    // A NEWER seed replaces a live book rather than bouncing off it. Ids are
-    // dense, so a snapshot at L is the book at L, and two seeds racing each
-    // other — one asked before a socket opened, one after — land oldest first.
+    // A newer seed replaces a live book, so two racing seeds land oldest first.
     if (state_ == State::Live && wire.last_update_id <= last_id_) {
         return BookResult::Stale;
     }
@@ -320,11 +310,8 @@ BookResult DepthBook::seed(const WireDepthSnapshot& wire) {
     return replay();
 }
 
-// LIVE THE MOMENT THE SEED LANDS, with or without a delta after it. The ids
-// are dense, so a seed at `lastUpdateId` L IS the book at L, and whatever
-// comes next must start at L + 1 or be caught by advance() as a gap. Waiting
-// for a delta to vouch for it — the rule a venue with sparse ids needs — left
-// quiet spot books cold for most of a minute.
+// Live as soon as the seed lands: ids are dense, and waiting for a delta to vouch
+// for the seed left quiet books cold for a minute.
 BookResult DepthBook::replay() {
     std::size_t i = 0;
     while (i < pending_.size() && pending_[i].last_id <= held_id_) {
@@ -335,8 +322,6 @@ BookResult DepthBook::replay() {
         return BookResult::Reseed;
     }
     install_held();
-    // buffer() already held the successor chain across pending_, so the
-    // replay only has to find where the seed sits inside it.
     for (; i < pending_.size(); ++i) {
         apply_levels(pending_[i].bids, ladders_.bids());
         apply_levels(pending_[i].asks, ladders_.asks());
@@ -347,9 +332,7 @@ BookResult DepthBook::replay() {
 }
 
 BookResult DepthBook::settle() {
-    // Past the band the seed vouched for, a level is one no snapshot ever
-    // confirmed; carrying it would make the book look deeper than it is known
-    // to be.
+    // Levels past the seed's band were never confirmed by a snapshot.
     ladders_.bids().drop_beyond(band_low_);
     ladders_.asks().drop_beyond(band_high_);
     if (ladders_.bids().empty() || ladders_.asks().empty()) {

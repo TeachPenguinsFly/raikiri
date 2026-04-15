@@ -21,8 +21,6 @@ namespace raikiri::venues::grvt::detail {
 
 namespace {
 
-// A pool key is one selector on one stream, joined by a byte neither can
-// contain. This file is the only reader of the shape.
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view stream, std::string_view selector) {
@@ -32,9 +30,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The quote first: once sends are paced, whatever goes last is what a
-// half-subscribed socket is missing, and the quote is the column every
-// screen reads.
+// Quote first: with paced sends, the last stream is what a half-subscribed socket misses.
 constexpr std::array<std::string_view, 4> k_stream_order{
     ep::k_quote_stream, ep::k_trade_stream, ep::k_book_stream, ep::k_ticker_stream};
 
@@ -53,8 +49,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     PublicHandler(VenueState& state, GrvtData& owner) : state_{&state}, owner_{&owner} {}
 
-    // Nothing is resubscribed here: each socket in the pool re-asks for its own
-    // keys when it opens, and every stream answers that with a fresh snapshot.
+    // Each pooled socket re-asks for its own keys when it opens.
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -139,7 +134,7 @@ public:
         selector.append(rate);
         auto key = key_of(stream, selector);
         if (!desired_.insert(key).second) {
-            return {}; // already placed on a socket; a key is asked for once
+            return {};
         }
         const std::array<std::string, 1> one{std::move(key)};
         if (!pool_.subscribe(one)) {
@@ -220,8 +215,7 @@ private:
             on_book(feed, *base, ts_event, received);
             break;
         case FeedKind::Trade:
-            // The snapshot is the last 50 prints, replayed on every subscribe
-            // and every reopen: history, not trading.
+            // The snapshot replays the last 50 prints on every subscribe: history.
             if (feed.sequence == 0) {
                 return;
             }
@@ -317,7 +311,6 @@ private:
             ++off_grid_;
             return;
         }
-        // Asked before the snapshot is built, which is the expensive half.
         if (!state_->sink->wants_depth(base.id, received)) {
             return;
         }
@@ -327,8 +320,6 @@ private:
         }
     }
 
-    // On the socket the gap arrived on, which is the one that carries the
-    // selector: the venue answers with a fresh ack and snapshot there.
     void resubscribe(const WireFeed& feed, Sequence& sequence) noexcept {
         if (!sequence.take_resubscribe()) {
             return;
@@ -358,7 +349,6 @@ private:
         return out;
     }
 
-    // Called on every open of ONE socket with that socket's keys.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string> frames;
         std::vector<std::string_view> selectors;
@@ -378,9 +368,6 @@ private:
         return frames;
     }
 
-    // THE ONE LINE THAT SAYS HOW MUCH OF THE CATALOGUE WAS PRICED. Frame
-    // totals cannot: a handful of busy contracts keep them high while the rest
-    // of the catalogue sits blank.
     void report() const noexcept {
         if (!has_logger()) {
             return;

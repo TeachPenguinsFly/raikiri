@@ -1,24 +1,5 @@
 #pragma once
 
-// The order book on order_book/<market_id>, which is also this venue's quote.
-//
-// VERIFIED against the live stream on 2026-09-24 rather than taken from the
-// docs, though the docs say the same:
-//
-//   * the first frame is `subscribed/order_book` and carries the WHOLE book —
-//     1682 bids and 1068 asks on BTC — so there is no REST seed and no depth
-//     band to police; the book is the venue's, level for level.
-//   * every later frame is `update/order_book`, a batch of changed levels
-//     every 50 ms, where a size of zero deletes the level.
-//   * frames chain on the matching engine's nonce: an update applies only when
-//     its `begin_nonce` equals the previous frame's `nonce`. It held on 89 of
-//     89 consecutive BTC frames. `offset` is the API server's counter, jumps on
-//     a reconnect, and is not read.
-//
-// A broken chain cannot be repaired from what arrives next, because nothing
-// but a subscription produces a snapshot; the book goes dark and the caller
-// asks for it again.
-
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -40,9 +21,7 @@ struct WireLevel {
     std::string_view size; // "0.00000" deletes the level
 };
 
-// BTC's snapshot carried 1682 bids and 1068 asks on 2026-09-24, and every one
-// of the 210 perpetual books seeded under this bound that day. A frame past it
-// is refused rather than allowed to allocate, and the book stays dark.
+// A frame past this is refused, and the book stays dark.
 inline constexpr std::size_t k_max_levels = 8192;
 
 struct LevelBuffer {
@@ -52,10 +31,10 @@ struct LevelBuffer {
 
 struct WireOrderBook {
     std::uint32_t market_id{0};
-    bool snapshot{false}; // subscribed/order_book, as against update/
+    bool snapshot{false};
     std::uint64_t nonce{0};
     std::uint64_t begin_nonce{0}; // 0 on the snapshot
-    std::uint64_t updated_us{0};  // last_updated_at: MICROseconds
+    std::uint64_t updated_us{0};  // microseconds
     std::span<const WireLevel> bids;
     std::span<const WireLevel> asks;
 };
@@ -64,13 +43,15 @@ struct WireOrderBook {
                                                                        LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
-    Resynced, // a snapshot replaced the book
-    Applied,  // an update chained onto it
+    Resynced,
+    Applied,
     Ignored,  // an update with no book under it, or one already applied
     Gap,      // the nonce chain broke: book dropped, a snapshot is needed
     BadLevel, // a price or size off the instrument's grid: book dropped
 };
 
+// An update applies only when its begin_nonce equals the last nonce. `offset` is
+// the API server's counter, jumps on a reconnect, and is not read.
 class Book {
 public:
     using Level = book::Level;

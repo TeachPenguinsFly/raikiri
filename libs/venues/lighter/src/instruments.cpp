@@ -15,8 +15,6 @@ namespace raikiri::venues::lighter::detail {
 
 namespace {
 
-// The body is ~370 kB for both catalogues, and one slow answer is cheaper than
-// a retry against a 60-a-minute allowance.
 constexpr std::uint32_t k_catalogue_timeout_ms = 10'000;
 
 class LighterInstruments final : public exec::InstrumentSource {
@@ -29,13 +27,11 @@ public:
                                 .pool_size = 1,
                                 .timeout_ms = k_catalogue_timeout_ms}} {}
 
-    // The ONE REST call this adapter makes. Everything after it is the socket.
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
         const net::RestRequest request{
             .method = net::HttpMethod::Get, .target = ep::k_order_book_details, .body = {}};
-        // Past the pool's own two bounds in series, so this deadline never
-        // races the transport's.
+        // Past the transport's two timeouts in series, so the two never race.
         const auto response = net::await_response(
             state_->io, *state_->clock, rest_, request, 2ULL * k_catalogue_timeout_ms + 1'000);
         if (!response.has_value()) {
@@ -77,7 +73,7 @@ public:
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                continue; // duplicate or table full: reported by count, not by throw
+                continue;
             }
             state_->by_market.emplace(row.market_id, *id);
             state_->market_of.emplace(id->packed, row.market_id);

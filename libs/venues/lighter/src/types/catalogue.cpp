@@ -21,8 +21,7 @@ std::expected<WireMarket, WireError> read_market(detail::ondemand::object& obj) 
     out.symbol = *symbol;
     out.market_type = *type;
     out.status = *status;
-    // Numbers, where every size on the row is a string. A row without them has
-    // no grid, and a zero read as "no decimals" would be a tick of 1.
+    // A zero read as "no decimals" would be a tick of 1.
     if (!detail::has_field(obj, "market_id") || !detail::has_field(obj, "size_decimals") ||
         !detail::has_field(obj, "price_decimals")) {
         return std::unexpected(WireError::MissingField);

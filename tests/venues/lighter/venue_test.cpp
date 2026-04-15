@@ -1,6 +1,3 @@
-// Lighter parser and mapper tests, against bytes captured live from the venue
-// on 2026-09-24. See fixtures/README.md for provenance.
-
 #include <raikiri/venues/lighter/book.hpp>
 #include <raikiri/venues/lighter/catalogue.hpp>
 #include <raikiri/venues/lighter/endpoints.hpp>
@@ -38,7 +35,6 @@ FixedE9 e9(std::string_view text) {
     return value.value_or(FixedE9{});
 }
 
-// The catalogue fixture holds four perps and three spot pairs; this finds one.
 WireMarket market_row(std::uint32_t market_id) {
     static const auto body = fixture("rest_order_book_details.json");
     static MarketBuffer storage;
@@ -60,8 +56,6 @@ InstrumentBase base_for(std::uint32_t market_id, MarketType market) {
     base.id = InstrumentId::make(VenueId::Lighter, market, SymbolId{market_id});
     return base;
 }
-
-// --- the catalogue -------------------------------------------------------
 
 TEST(LighterCatalogue, BothArraysParsePerpsFirst) {
     MarketBuffer storage;
@@ -85,7 +79,6 @@ TEST(LighterCatalogue, APerpIsNamedByItsUsdcMarginAndSettlesHourly) {
     ASSERT_NE(perp, nullptr);
     EXPECT_EQ(perp->base.exchange_symbol.view(), "BTC");
     EXPECT_EQ(perp->base.local_symbol.view(), "BTC/USDC");
-    // price_decimals 1 and size_decimals 5.
     EXPECT_EQ(perp->base.tick_size, e9("0.1"));
     EXPECT_EQ(perp->base.lot_size, e9("0.00001"));
     EXPECT_EQ(perp->base.min_notional, e9("10"));
@@ -101,7 +94,6 @@ TEST(LighterCatalogue, TheBigClampIsAnEightHourPercentAndBecomesAnHourlyCap) {
     ASSERT_TRUE(btc.has_value());
     EXPECT_EQ(std::get<PerpInstrument>(*btc).funding_cap, e9("0.005"));
     EXPECT_EQ(std::get<PerpInstrument>(*btc).funding_floor, e9("-0.005"));
-    // ARC states 20.0000, and the cap follows the row rather than a default.
     const auto arc = map_instrument(market_row(132), MarketType::Perp);
     ASSERT_TRUE(arc.has_value());
     EXPECT_EQ(std::get<PerpInstrument>(*arc).funding_cap, e9("0.025"));
@@ -123,7 +115,6 @@ TEST(LighterCatalogue, ASpotPairKeepsItsOwnHalves) {
     EXPECT_EQ(base_of(*eth).local_symbol.view(), "ETH/USDC");
     EXPECT_EQ(base_of(*eth).tick_size, e9("0.01"));
     EXPECT_EQ(base_of(*eth).lot_size, e9("0.0001"));
-    // A token whose own multiplier is not one is still sized in tokens.
     const auto spy = map_instrument(market_row(2057), MarketType::Spot);
     ASSERT_TRUE(spy.has_value());
     EXPECT_EQ(base_of(*spy).local_symbol.view(), "RHSPY/USDC");
@@ -136,8 +127,6 @@ TEST(LighterCatalogue, DecimalsBecomeExactSteps) {
     EXPECT_EQ(step_of(9), FixedE9::from_raw(1));
     EXPECT_FALSE(step_of(10).has_value());
 }
-
-// --- the envelope --------------------------------------------------------
 
 TEST(LighterEnvelope, TheTypeSaysWhatAndWhetherItIsTheSnapshot) {
     const auto book = parse_event(fixture("ws_order_book_snapshot.json"));
@@ -186,8 +175,6 @@ TEST(LighterEnvelope, TheChannelEndsInTheMarketId) {
     EXPECT_FALSE(channel_market("order_book").has_value());
 }
 
-// --- the book ------------------------------------------------------------
-
 // LDO/USDC, a spot pair: price_decimals 5 and size_decimals 1.
 Book ldo_book() {
     return Book{InstrumentId::make(VenueId::Lighter, MarketType::Spot, SymbolId{2054}),
@@ -227,14 +214,11 @@ TEST(LighterBook, UpdatesChainOnTheNonceAndAZeroSizeDeletes) {
     auto book = ldo_book();
     ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
               BookResult::Resynced);
-    // Two CONSECUTIVE frames of the same session: each begin_nonce is the
-    // previous nonce.
     ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
               BookResult::Applied);
     ASSERT_EQ(book.apply(parsed(fixture("ws_order_book_update_next.json"), *storage)),
               BookResult::Applied);
     EXPECT_EQ(book.nonce(), 22'900'327'320ULL);
-    // The second update deleted the old best bid 0.43804 with a size of "0.0".
     const auto top = book.top(k_ingest, k_ingest);
     ASSERT_TRUE(top.has_value());
     EXPECT_EQ(top->bid, PriceTicks::from_raw(43'782));
@@ -258,7 +242,6 @@ TEST(LighterBook, AMissedFrameDarkensTheBookUntilTheNextSnapshot) {
     EXPECT_FALSE(book.synced());
     EXPECT_EQ(book.gaps(), 1U);
     EXPECT_FALSE(book.top(k_ingest, k_ingest).has_value());
-    // Nothing that follows is a Gap again: one broken chain asks once.
     EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_update.json"), *storage)),
               BookResult::Ignored);
     EXPECT_EQ(book.apply(parsed(fixture("ws_order_book_snapshot.json"), *storage)),
@@ -287,8 +270,6 @@ TEST(LighterBook, ALevelOffTheGridDropsTheBookRatherThanRoundingIt) {
     EXPECT_FALSE(coarse.synced());
 }
 
-// --- trades --------------------------------------------------------------
-
 TEST(LighterTrades, OneFrameCarriesEveryPrintOfOneMatch) {
     PrintBuffer storage;
     const auto text = fixture("ws_trade_update.json");
@@ -300,7 +281,6 @@ TEST(LighterTrades, OneFrameCarriesEveryPrintOfOneMatch) {
     ASSERT_TRUE(trade.has_value());
     EXPECT_EQ(trade->price, PriceTicks::from_raw(843'052));
     EXPECT_EQ(trade->qty, QtyLots::from_raw(13));
-    // is_maker_ask: the resting order was the ask, so the taker bought.
     EXPECT_EQ(trade->aggressor, Side::Buy);
     EXPECT_EQ(trade->ts_event.ns, 1'790'282'300'888ULL * 1'000'000ULL);
 }
@@ -312,8 +292,6 @@ TEST(LighterTrades, TheBacklogReadsBothListsAndIsMarkedAsTheSnapshot) {
     ASSERT_TRUE(prints.has_value());
     EXPECT_EQ(prints->size(), 2U); // one trade and one liquidation, trimmed
 }
-
-// --- funding and the 24-hour window --------------------------------------
 
 TEST(LighterFunding, TheRateIsLightersOwnHourlyPercent) {
     StatsBuffer storage;
@@ -356,8 +334,6 @@ TEST(LighterFunding, TheAllStreamKeysRowsByMarketAndKeepsTheSign) {
     ASSERT_TRUE(negative.has_value());
     EXPECT_EQ(negative->rate, e9("-0.000036"));
 
-    // DUSK is inactive and last settled months before the frame: its rate is
-    // stated, but no next funding time is made up from a stale mark.
     auto dusk_base = lit_base;
     dusk_base.tick_size = e9("0.00001");
     const auto stale = map_funding(*dusk, dusk_base, frame->ts_ms, k_ingest);
@@ -392,8 +368,6 @@ TEST(LighterFunding, VolumesAreReadFromTheNumberTextWithoutADouble) {
     EXPECT_EQ(stats->volume_24h_quote, e9("899521507.591693"));
 }
 
-// --- the socket ----------------------------------------------------------
-
 TEST(LighterWs, TheBookIsAskedForOnceForQuoteAndDepth) {
     std::array<char, 48> bbo_buf{};
     std::array<char, 48> depth_buf{};
@@ -416,8 +390,6 @@ TEST(LighterWs, FramesAreTheVenuesOwnShape) {
 }
 
 TEST(LighterWs, OneSocketSpendsTheWholeIpBudget) {
-    // 200 messages a minute per IP, measured; the spacing must keep one socket
-    // under it, and a second socket would double it.
     EXPECT_EQ(k_max_connections, 1U);
     EXPECT_GE(k_subscribe_spacing_ns * 200, 60ULL * 1'000'000'000ULL);
     EXPECT_EQ(k_max_subscriptions_per_connection, 500U);

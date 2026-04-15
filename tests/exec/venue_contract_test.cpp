@@ -246,8 +246,6 @@ TEST_F(VenueContract, EveryCapsRowServesWhatItClaimsAndNothingElse) {
         if (caps.markets.future) {
             with_futures.push_back(to_string(id));
         }
-        // Nothing may serve a market with no market at all behind it, and a
-        // retired slot must serve none.
         EXPECT_EQ(caps.markets.any(), !is_retired(id)) << to_string(id);
     }
     EXPECT_EQ(with_options, (std::vector<std::string_view>{"deribit"}));
@@ -265,9 +263,7 @@ TEST_F(VenueContract, EveryCapsRowCarriesTheUlid) {
         }
         const auto& caps = caps_of(id);
         if (caps.max_client_order_id_len == 0) {
-            // A venue whose client id cannot carry a ULID at all (lighter's is
-            // a 48-bit integer, grvt's a uint64) says 0, and then may claim
-            // nothing an order path would need.
+            // An id that cannot carry a ULID says 0, and may claim no order path.
             EXPECT_EQ(caps.user_stream, UserStreamModel::None) << to_string(id);
             EXPECT_FALSE(caps.position_pull.any() || caps.order_pull.any() || caps.fill_pull.any())
                 << to_string(id);

@@ -1,10 +1,5 @@
 #pragma once
 
-// What the venue says went wrong, and which of those this adapter can see.
-//
-// Only the stream's codes are listed: the adapter sends nothing but
-// subscriptions, and the REST call it makes has no error body worth a code.
-
 #include <raikiri/wire/error.hpp>
 
 #include <cstdint>
@@ -13,9 +8,7 @@ namespace raikiri::venues::lighter {
 
 using WireError = wire::Error;
 
-// {"error":{"code":30009,"message":"Too Many Websocket Messages!"}}, and the
-// frame names NO channel — a refusal cannot be traced back to the
-// subscription it refused, only counted.
+// An error frame names no channel, so a refusal can only be counted.
 inline constexpr std::int64_t k_ws_invalid_channel = 30005;
 inline constexpr std::int64_t k_ws_fetch_failed = 30004; // e.g. market_stats on a spot id
 inline constexpr std::int64_t k_ws_already_subscribed = 30003;

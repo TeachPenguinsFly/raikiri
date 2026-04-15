@@ -1,6 +1,3 @@
-// GRVT parser and state tests, against bytes captured live from the venue on
-// 2026-09-24. See fixtures/README.md for provenance.
-
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/exec/venue.hpp>
 #include <raikiri/venues/grvt/book.hpp>
@@ -23,8 +20,7 @@
 namespace raikiri::venues::grvt {
 namespace {
 
-// HELD, not returned by value: every wire type here is views over the bytes
-// it was parsed from.
+// Held, not returned by value: the wire types are views over these bytes.
 const std::string& fixture(std::string_view name) {
     static std::map<std::string, std::string, std::less<>> held;
     if (const auto found = held.find(name); found != held.end()) {
@@ -90,11 +86,7 @@ WireFeed feed_of(std::string_view name, MessageBuffer& storage) {
     return message->feed;
 }
 
-// ------------------------------------------------------------ catalogue ----
-
 TEST(GrvtCatalogue, TheIntervalIsTheOneEachContractStates) {
-    // Four live rows: BTC settling every 8 h, ASTER every 4 h, ADA with a cap
-    // of 0.375 %, and a delisted one.
     const auto table = load_table();
     EXPECT_EQ(table.size(), 3U);
     EXPECT_EQ(table.find("AI16Z_USDT_Perp"), nullptr);
@@ -109,14 +101,12 @@ TEST(GrvtCatalogue, TheIntervalIsTheOneEachContractStates) {
     const auto& aster = std::get<PerpInstrument>(listed(table, "ASTER_USDT_Perp"));
     EXPECT_EQ(aster.funding_interval_s, 14'400U);
 
-    // Percent on the wire, a ratio here: 0.375 % is 0.00375.
     const auto& ada = std::get<PerpInstrument>(listed(table, "ADA_USDT_Perp"));
     EXPECT_EQ(ada.funding_cap, *parse_decimal_e9("0.00375"));
     EXPECT_EQ(ada.funding_floor, *parse_decimal_e9("-0.00375"));
 }
 
 TEST(GrvtCatalogue, ARowStatingNoIntervalStaysUnstated) {
-    // Every live row states one; this is the rule for the day one does not.
     WireInstrument row{};
     row.instrument = "NEW_USDT_Perp";
     row.base = "NEW";
@@ -148,10 +138,7 @@ TEST(GrvtCatalogue, ARestRefusalIsReadWithItsCode) {
     EXPECT_FALSE(parse_rest_error(fixture("rest_all_instruments.json")).has_value());
 }
 
-// ----------------------------------------------------------------- book ----
-
 TEST(GrvtBook, AckSnapshotAndTwoDeltasChainAndApply) {
-    // ETH's grid, which the captured frames sit on.
     DepthBook book{InstrumentId::make(VenueId::Grvt, MarketType::Perp, SymbolId{1}),
                    *parse_decimal_e9("0.01"),
                    *parse_decimal_e9("0.001")};
@@ -182,8 +169,6 @@ TEST(GrvtBook, AckSnapshotAndTwoDeltasChainAndApply) {
     ASSERT_EQ(book.sequence.offer(second.sequence, second.prev_sequence), Step::Apply);
     ASSERT_TRUE(book.apply(second.book));
 
-    // The second delta restates the best bid at 57.259 and deletes 2683.86
-    // from the asks with a size of "0.0".
     const auto top = book.ladders().touch();
     ASSERT_TRUE(top.has_value());
     EXPECT_EQ(top->first.qty, *to_lots("57.259", *parse_decimal_e9("0.001")));
@@ -209,7 +194,6 @@ TEST(GrvtBook, ADeltaThatDoesNotChainDropsTheBookAndAsksOnce) {
     EXPECT_FALSE(sequence.take_resubscribe());
     EXPECT_EQ(sequence.offer(10976, 10975), Step::Cold);
 
-    // The venue answers the resubscribe with a fresh ack and snapshot.
     sequence.acknowledged(10980);
     ASSERT_EQ(sequence.offer(0, 0), Step::Snapshot);
     EXPECT_TRUE(sequence.live());
@@ -238,8 +222,6 @@ TEST(GrvtBook, ALevelOffTheGridDropsTheWholeBook) {
     EXPECT_FALSE(book.snapshot(0, k_ingest, k_ingest).has_value());
 }
 
-// ---------------------------------------------------------------- quote ----
-
 TEST(GrvtQuote, ADeltaChangesOnlyTheFieldsItCarries) {
     const auto tick = *parse_decimal_e9("0.01");
     const auto lot = *parse_decimal_e9("0.001");
@@ -248,8 +230,7 @@ TEST(GrvtQuote, ADeltaChangesOnlyTheFieldsItCarries) {
     const auto snap = feed_of("ws_mini_d_snapshot.json", storage);
     ASSERT_EQ(snap.kind, FeedKind::Quote);
     const auto delta = feed_of("ws_mini_d_delta.json", storage);
-    // The ack was not captured with these two; the first delta names its
-    // `latest` as `prev`, which is the rule the book test above checks whole.
+    // The ack was not captured; the first delta's prev is what it would have said.
     quote.sequence.acknowledged(delta.prev_sequence);
 
     ASSERT_EQ(quote.sequence.offer(snap.sequence, snap.prev_sequence), Step::Snapshot);
@@ -260,7 +241,6 @@ TEST(GrvtQuote, ADeltaChangesOnlyTheFieldsItCarries) {
     EXPECT_EQ(before->ask, *to_ticks("2683.4", tick));
     EXPECT_EQ(before->bid_qty, *to_lots("56.141", lot));
 
-    // The delta carries best_bid_size alone.
     EXPECT_FALSE(delta.quote.bid_price.has_value());
     ASSERT_EQ(quote.sequence.offer(delta.sequence, delta.prev_sequence), Step::Apply);
     ASSERT_TRUE(quote.apply(delta.quote));
@@ -281,16 +261,12 @@ TEST(GrvtQuote, AnEmptyFieldIsTheVenueNullingIt) {
     quote.sequence.acknowledged(1);
     ASSERT_EQ(quote.sequence.offer(0, 0), Step::Snapshot);
     ASSERT_TRUE(quote.replace(snap.quote));
-    // Never captured: an ask side emptied out. The docs spell a nulled field
-    // as "", and a quote with no ask is not a quote.
     WireQuote nulled{};
     nulled.ask_price = std::string_view{};
     ASSERT_EQ(quote.sequence.offer(2, 1), Step::Apply);
     ASSERT_TRUE(quote.apply(nulled));
     EXPECT_FALSE(quote.bbo(k_ingest, k_ingest).has_value());
 }
-
-// ----------------------------------------------------- prints and funding ----
 
 TEST(GrvtFeed, ATakerBuyIsABuyAggressor) {
     const auto tick = *parse_decimal_e9("0.01");
@@ -308,7 +284,6 @@ TEST(GrvtFeed, ATakerBuyIsABuyAggressor) {
     EXPECT_EQ(trade->price, *to_ticks("2683.4", tick));
     EXPECT_EQ(trade->ts_event.ns, 1'790'281'605'432'856'303ULL);
 
-    // The subscribe replays history at sequence 0; the client drops it.
     EXPECT_EQ(feed_of("ws_trade_snapshot.json", storage).sequence, 0U);
 }
 
@@ -317,8 +292,7 @@ TEST(GrvtFeed, TheTickerCarriesFundingAsAPercentOfOneInterval) {
     MessageBuffer storage;
     const auto ticker = feed_of("ws_ticker_s.json", storage);
     ASSERT_EQ(ticker.kind, FeedKind::Ticker);
-    // ETH's frame against BTC's row: the mapper reads the instrument only for
-    // its grid and its catalogue interval.
+    // ETH's frame against BTC's row: only the grid and the interval are read from it.
     const auto& btc = listed(table, "BTC_USDT_Perp");
     const auto funding = map_funding(ticker.ticker, btc, k_ingest, k_ingest);
     ASSERT_TRUE(funding.has_value());
@@ -353,8 +327,6 @@ TEST(GrvtFeed, ARefusedSubscribeIsReadAsAnError) {
     ASSERT_EQ(message->kind, MessageKind::Error);
     EXPECT_EQ(message->error.code, 3000);
 }
-
-// -------------------------------------------------------------- venue ----
 
 TEST(GrvtVenue, EveryOrderPathRefusesWithTheReason) {
     register_adapter();

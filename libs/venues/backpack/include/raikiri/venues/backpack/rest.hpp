@@ -1,7 +1,5 @@
 #pragma once
 
-// The three public reads this adapter makes. Unsigned, every one of them.
-
 #include <raikiri/net/rest_client.hpp>
 
 #include <array>

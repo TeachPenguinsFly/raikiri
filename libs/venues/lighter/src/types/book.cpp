@@ -11,7 +11,6 @@ namespace {
 using detail::guarded;
 using detail::session;
 
-// [{"price":"84228.0","size":"0.00932"}, ...]
 std::expected<std::size_t, WireError>
 read_levels(detail::ondemand::object& book, std::string_view key, std::span<WireLevel> into) {
     auto array = detail::req_array(book, key);
@@ -76,8 +75,7 @@ std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
         if (!asks.has_value()) {
             return std::unexpected(asks.error());
         }
-        // A frame without its nonce cannot be placed in the chain at all, so
-        // its absence fails the parse rather than reading as nonce zero.
+        // A missing nonce fails the parse rather than reading as zero.
         if (!detail::has_field(*book, "nonce")) {
             return std::unexpected(WireError::MissingField);
         }
@@ -137,7 +135,7 @@ BookResult Book::apply(const WireOrderBook& frame) {
     }
     if (frame.begin_nonce != nonce_) {
         if (frame.nonce <= nonce_) {
-            return BookResult::Ignored; // already inside the book we hold
+            return BookResult::Ignored;
         }
         ++gaps_;
         invalidate();

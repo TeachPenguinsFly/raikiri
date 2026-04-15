@@ -24,20 +24,13 @@ namespace raikiri::venues::lighter::detail {
 
 namespace {
 
-// While the ramp is still asking. A full perpetual catalogue is ~420
-// subscriptions against 200 messages a minute, so a gateway spends over two
-// minutes subscribing — and a board half-full for that long reads as a broken
-// venue unless something says why.
 constexpr std::uint64_t k_ramp_report_interval_ns = 30ULL * 1'000'000'000ULL;
 
 [[nodiscard]] bool has_logger() noexcept {
     return ::raikiri::log::logger() != nullptr;
 }
 
-// Order in which a socket asks for its keys: the stats stream first, because
-// it is ONE message for every perp's funding and mark; then the books, which
-// are the quote; trades last. Past the first minute whatever is late waits for
-// the venue's allowance, so this order decides what the board has first.
+// Stats first, one message for every perp; then books, which are the quote; trades last.
 [[nodiscard]] int ask_rank(std::string_view channel) noexcept {
     if (channel == k_perp_stats_all || channel == k_spot_stats_all) {
         return 0;
@@ -92,8 +85,6 @@ public:
         switch (kind) {
         case exec::SubKind::Funding:
         case exec::SubKind::MarkPrice:
-            // A spot row has no funding, and its stats stream is asked for
-            // the 24-hour window alone.
             state_->funding_wanted.insert(instrument.packed);
             channel = instrument.market() == MarketType::Spot ? k_spot_stats_all : k_perp_stats_all;
             break;
@@ -144,8 +135,6 @@ private:
     public:
         explicit Handler(LighterData& owner) : owner_{&owner} {}
 
-        // Nothing is resubscribed or invalidated here: the pool re-asks for
-        // this socket's keys, and on_socket_open drops the books they fed.
         void on_open() override {
             owner_->state_->sink->on_connectivity({.state = exec::ConnState::Resubscribed,
                                                    .stream_id = 0,
@@ -166,9 +155,7 @@ private:
         LighterData* owner_;
     };
 
-    // A reopened socket's books lost their chain at the close; the snapshot
-    // each resubscription brings is the only way back, and until it lands they
-    // publish nothing.
+    // A reopened socket's books lost their chain and publish nothing until a snapshot lands.
     void on_socket_open(std::span<const std::string> keys) {
         for (const auto& key : keys) {
             if (!key.starts_with(k_book_channel)) {
@@ -190,15 +177,14 @@ private:
     void on_frame(std::string_view frame, UnixNanos received) noexcept {
         const auto event = parse_event(frame);
         if (!event.has_value()) {
-            return; // unknown shapes are ignored, never fatal: venues add frames
+            return;
         }
         switch (event->kind) {
         case EventKind::OrderBook:
             on_book(frame, received);
             break;
         case EventKind::Trade:
-            // The subscribe frame replays the last fifty prints, some of them
-            // hours old; the tape starts at the first update.
+            // The subscribe frame replays the last fifty prints, some hours old.
             if (!event->snapshot) {
                 on_trades(frame, received);
             }
@@ -239,7 +225,7 @@ private:
             return;
         }
         if (result != BookResult::Applied && result != BookResult::Resynced) {
-            return; // unsynced or off the grid: silence, never a guess
+            return;
         }
         const UnixNanos ts_event{wire->updated_us != 0 ? wire->updated_us * 1'000ULL : received.ns};
         if (const auto top = book.top(ts_event, received); top.has_value()) {
@@ -254,10 +240,6 @@ private:
         }
     }
 
-    // Asked on the socket that carried the broken chain, which is the one
-    // being dispatched: reply() cannot reach any other. Two messages out of the
-    // IP's two hundred a minute, and only once per gap — the book answers
-    // Ignored, not Gap, until the new snapshot lands.
     void resubscribe_book(std::uint32_t market_id) noexcept {
         std::array<char, 48> buf{};
         const auto channel = channel_name(exec::SubKind::Depth, market_id, buf);
@@ -290,8 +272,6 @@ private:
         }
     }
 
-    // One `all` frame carries every market that changed; only the ones the
-    // gateway asked for reach the sink.
     void on_stats(std::string_view frame, UnixNanos received) noexcept {
         static thread_local const auto storage = std::make_unique<StatsBuffer>();
         const auto stats = parse_market_stats(frame, *storage);

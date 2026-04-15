@@ -14,7 +14,6 @@ namespace raikiri::venues::grvt::detail {
 
 namespace {
 
-// 90 kB for the whole list; more room than an order would get.
 constexpr std::uint64_t k_catalogue_timeout_ms = 20'000;
 
 class GrvtInstruments final : public exec::InstrumentSource {
@@ -64,11 +63,11 @@ public:
         for (const auto& row : *wire) {
             const auto instrument = map_instrument(row, market);
             if (!instrument.has_value()) {
-                continue; // delisted, or a step that will not parse
+                continue;
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                continue; // duplicate or table full: reported by count, not by throw
+                continue;
             }
             loaded.push_back(*state_->instruments.find(*id));
         }

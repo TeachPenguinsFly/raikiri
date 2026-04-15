@@ -1,6 +1,3 @@
-// Backpack parser tests, against bytes captured live from the venue on
-// 2026-09-24. See fixtures/README.md for provenance.
-
 #include <raikiri/venues/backpack/book.hpp>
 #include <raikiri/venues/backpack/catalogue.hpp>
 #include <raikiri/venues/backpack/envelope.hpp>
@@ -39,8 +36,6 @@ std::string data_of(std::string_view name) {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
-// The catalogue fixture holds the live SOL rows, so every table here is built
-// from what the venue actually said about tick, step and interval.
 exec::InstrumentTable table_for(MarketType market) {
     exec::InstrumentTable table;
     const auto body = fixture("rest_markets.json");
@@ -55,14 +50,11 @@ exec::InstrumentTable table_for(MarketType market) {
     return table;
 }
 
-// --- the catalogue -------------------------------------------------------
-
 TEST(BackpackCatalogue, OneListCarriesBothMarketsAndOnlyOpenRowsMap) {
     MarketBuffer storage;
     const auto body = fixture("rest_markets.json");
     const auto rows = parse_markets(body, storage);
     ASSERT_TRUE(rows.has_value());
-    // SOL spot, SOL perp, a stock perp, a Closed spot and a Closed perp.
     ASSERT_EQ(rows->size(), 5U);
 
     std::vector<std::string> spot;
@@ -95,7 +87,6 @@ TEST(BackpackCatalogue, TheFundingIntervalIsTheVenuesOwnFigureAndSpotHasNone) {
             ASSERT_TRUE(instrument.has_value());
             const auto& perp = std::get<PerpInstrument>(*instrument);
             EXPECT_EQ(perp.funding_interval_s, 3600U);
-            // Bounds are published in an unstated unit, so they are not caps.
             EXPECT_TRUE(perp.funding_cap.is_undef());
             EXPECT_TRUE(perp.funding_floor.is_undef());
             EXPECT_EQ(perp.base.local_symbol.view(), "SOL/USDC");
@@ -119,8 +110,6 @@ TEST(BackpackCatalogue, AnIntervalThatIsNotWholeSecondsIsLeftUnstated) {
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_interval_s, 0U);
 }
 
-// --- market data ---------------------------------------------------------
-
 TEST(BackpackWire, EveryStreamResolvesToItsKind) {
     for (const auto& [file, kind] : {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
                                      std::pair{"ws_trade.json", EventKind::Trade},
@@ -140,8 +129,7 @@ TEST(BackpackMap, BookTickerBecomesBboOnTheMicrosecondClock) {
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->bid.raw, 11'688);
     EXPECT_EQ(bbo->ask.raw, 11'689);
-    // T 1790280896113106 us, not ms: read as milliseconds this would be a
-    // date in the year 58 700.
+    // T is microseconds, not ms.
     EXPECT_EQ(bbo->ts_event.ns, 1'790'280'896'113'106'000ULL);
 }
 
@@ -167,7 +155,7 @@ TEST(BackpackMap, PerpetualMarkPriceCarriesRateNextSettlementAndInterval) {
     EXPECT_EQ(funding->rate.raw, 12'500); // 0.0000125
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(funding->mark_price.raw, 11'682);
-    // `n` is MILLIseconds on the same frame whose E is micro.
+    // `n` is milliseconds on the same frame whose E is microseconds.
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'283'600'000'000'000ULL);
     EXPECT_EQ(funding->interval_s, 3600U);
 }
@@ -186,7 +174,7 @@ TEST(BackpackMap, ALongRateIsTruncatedRatherThanRefused) {
     WireMarkPrice wire{};
     wire.symbol = "SOL_USDC_PERP";
     wire.mark_price = "116.82";
-    wire.funding_rate = "-0.0000092211954022829528621616"; // LIT_USDC_PERP, live
+    wire.funding_rate = "-0.0000092211954022829528621616";
     wire.next_funding_ms = 1'790'283'600'000ULL;
     const auto funding = map_funding(wire, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
@@ -210,12 +198,8 @@ TEST(BackpackMap, TickerRowsCarryBothVolumes) {
     EXPECT_TRUE(saw);
 }
 
-// --- the book ------------------------------------------------------------
-
 TEST(BackpackBook, ConsecutiveDepthFramesChainAsSuccessors) {
-    // THE INVARIANT: frame N+1's `U` is frame N's `u` + 1. Two consecutive
-    // frames captured in one session; if the venue stops chaining this way,
-    // every book here resynchronises forever.
+    // Frame N+1's `U` must be frame N's `u` + 1.
     LevelBuffer a_buf;
     LevelBuffer b_buf;
     const auto first = data_of("ws_depth.json");
@@ -241,24 +225,18 @@ TEST(BackpackBook, SnapshotReadsItsStringIdAndSeedsABook) {
 
     DepthBook book{base.id, base.tick_size, base.lot_size};
     EXPECT_TRUE(book.wants_seed());
-    // Live on the seed alone: ids are dense, so the seed IS the book at its
-    // id, and a quiet market must not wait for a delta to publish one.
     EXPECT_EQ(book.seed(*snapshot), BookResult::Applied);
     ASSERT_TRUE(book.live());
 
-    // The first aggregate frame usually straddles the seed's id; its sizes are
-    // absolute, so it applies whole.
     WireDepthUpdate next{};
     next.symbol = "SOL_USDC_PERP";
     next.first_id = snapshot->last_update_id - 2;
     next.last_id = snapshot->last_update_id + 1;
     EXPECT_EQ(book.apply(next), BookResult::Applied);
-    // Bids arrive worst first on the wire; the ladder puts the best on top.
     ASSERT_GE(book.bids().size(), 2U);
     EXPECT_GT(book.bids()[0].price.raw, book.bids()[1].price.raw);
     EXPECT_LT(book.bids()[0].price.raw, book.asks()[0].price.raw);
 
-    // A skipped id is a gap, and the book goes cold rather than guessing.
     WireDepthUpdate skipped{};
     skipped.symbol = "SOL_USDC_PERP";
     skipped.first_id = next.last_id + 2;
@@ -269,8 +247,6 @@ TEST(BackpackBook, SnapshotReadsItsStringIdAndSeedsABook) {
 }
 
 TEST(BackpackMap, ASnapshotTouchIsTheHighestBidWhereverTheVenuePutsIt) {
-    // The snapshot lists bids WORST first, so the first bid is the one that
-    // must not be taken for the touch.
     const auto table = table_for(MarketType::Perp);
     const auto& base = base_of(*table.find("SOL_USDC_PERP"));
     LevelBuffer storage;
@@ -286,7 +262,7 @@ TEST(BackpackMap, ASnapshotTouchIsTheHighestBidWhereverTheVenuePutsIt) {
 }
 
 TEST(BackpackMap, ARestingSizeFinerThanTheStepReadsAsWhatTheStepCanTake) {
-    // RAY_USDC, live 2026-09-24: stepSize 1 and a level of 9.09 resting on it.
+    // stepSize 1 with a level of 9.09 resting on it.
     WireMarket wire{};
     wire.symbol = "RAY_USDC";
     wire.base_asset = "RAY";
@@ -312,14 +288,12 @@ TEST(BackpackMap, ARestingSizeFinerThanTheStepReadsAsWhatTheStepCanTake) {
     EXPECT_EQ(bbo->bid_qty.raw, 9);
     EXPECT_EQ(bbo->ask_qty.raw, 0);
 
-    // A print is exact or nothing: 9.09 never traded as 9.
     WirePrint print{};
     print.symbol = "RAY_USDC";
     print.price = "2.25";
     print.qty = "9.09";
     EXPECT_FALSE(map_trade(print, table, k_ingest).has_value());
 
-    // And a book holding such a level seeds instead of refusing itself.
     const std::array<WireLevel, 2> bids{
         {{.price = "2.2", .qty = "0.54"}, {.price = "2.25", .qty = "9.09"}}};
     const std::array<WireLevel, 1> asks{{{.price = "2.2501", .qty = "3"}}};
@@ -411,8 +385,6 @@ TEST(BackpackBook, ALevelOffTheTickDropsTheBookInsteadOfSkippingIt) {
     EXPECT_EQ(book.apply(delta), BookResult::Gap);
     EXPECT_FALSE(book.live());
 }
-
-// --- requests and frames -------------------------------------------------
 
 TEST(BackpackWire, TheSeedAsksForALimitTheVenueAccepts) {
     RequestBuilder builder;

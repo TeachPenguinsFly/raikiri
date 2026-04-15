@@ -26,10 +26,8 @@ enum class VenueId : std::uint8_t {
     Hyperliquid,
     Coinbase,
     Kraken,
-    // RETIRED IN PLACE. A venue's number is the top byte of every InstrumentId
-    // and a field of every journal record, so taking one out of the middle
-    // renumbers everything after it: when bitmex was deleted outright, every
-    // stored weex id began to read back as aster. The slot stays; never reuse it.
+    // Retired in place: the number lives in every InstrumentId and journal record,
+    // so removing it would renumber every venue after it. Never reuse the slot.
     RetiredBitmex,
     Bitget,
     Htx,

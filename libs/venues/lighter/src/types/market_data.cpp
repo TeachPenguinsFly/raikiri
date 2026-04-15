@@ -62,8 +62,6 @@ std::expected<std::size_t, WireError> read_prints(detail::ondemand::object& root
     return count;
 }
 
-// One stats row. The volumes are read as raw number text; the funding fields
-// are absent on a spot row and read as empty.
 std::expected<WireMarketStats, WireError> read_stats(detail::ondemand::object& obj) {
     WireMarketStats out{};
     const auto market = detail::opt_u64(obj, "market_id");

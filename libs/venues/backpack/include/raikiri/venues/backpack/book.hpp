@@ -1,22 +1,5 @@
 #pragma once
 
-// The order book: what a frame says about it, and the chaining rule a reader
-// must hold to keep one in step.
-//
-// depth.<cadence>.<symbol> carries deltas and no snapshot, so the book is
-// seeded from GET /api/v1/depth and then chained. The rules, measured against
-// the live stream on 2026-09-24 rather than read off the docs, which state
-// none of them:
-//
-//   * a SUCCESSOR chain: each frame's `U` is the previous frame's `u` + 1.
-//     Held on every one of 5 167 consecutive realtime frames on BTC_USDC_PERP
-//     and on every throttled frame across five symbols in the same run.
-//   * the counter is per market and shared with bookTicker's `u`, and the REST
-//     snapshot's `lastUpdateId` is a value on it — as a digit STRING, where
-//     the stream writes a number.
-//   * the snapshot's bids arrive worst first and its asks best first; the
-//     ladder sorts, so nothing here depends on either.
-
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -33,7 +16,6 @@
 
 namespace raikiri::venues::backpack {
 
-// bookTicker.<symbol>: the touch alone, pushed on every change.
 struct WireBookTicker {
     std::string_view symbol;
     std::string_view bid_price;
@@ -41,23 +23,13 @@ struct WireBookTicker {
     std::string_view ask_price;
     std::string_view ask_qty;
     std::uint64_t update_id{0};
-    std::uint64_t engine_us{0}; // T, MICROseconds
+    std::uint64_t engine_us{0}; // T, microseconds
 };
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
 
-// A RESTING size, read as what can be taken of it on the instrument's step:
-// floored to whole lots, never refused for being finer.
-//
-// Refusing it would be the exact-or-nothing rule every price here follows,
-// and it is the wrong rule for this number. Measured 2026-09-24: 23 of the 52
-// Open spot books (and none of the 91 perpetual ones) held levels sized finer
-// than the pair's own stepSize — 9.09 RAY on a step of 1, 1924.7 KMNO on a
-// step of 10 — orders left resting from before the step was raised. Refused,
-// those books never seed and those quotes never publish; floored, a level
-// reads as the size an order on the current step can actually take, and one
-// smaller than a step reads as zero. Prices are never read this way, and no
-// price off its tick was seen anywhere.
+// Floored to whole lots, never refused: some spot books rest sizes finer than a
+// since-raised step. Prices are never read this way.
 [[nodiscard]] std::optional<std::int64_t> tradable_steps(std::string_view text,
                                                          FixedE9 step) noexcept;
 
@@ -96,7 +68,7 @@ struct WireDepthSnapshot {
 parse_depth_snapshot(std::string_view body, LevelBuffer& storage);
 
 enum class BookResult : std::uint8_t {
-    Applied,  // book advanced and is publishable
+    Applied,
     Buffered, // held until the seed lands
     Stale,    // wholly before the seed, or already applied
     Gap,      // the chain broke: book dropped, re-seed required
@@ -105,12 +77,11 @@ enum class BookResult : std::uint8_t {
 
 inline constexpr std::size_t k_max_buffered_deltas = 64;
 
-// The seed depth, and so the width of the band the book is trusted inside.
-// Matched to what a BookSnapshot holds. The venue takes only 5, 10, 20, 50,
-// 100, 500 or 1000 and answers anything else with a 400, and with no limit at
-// all it sends the whole book — 2 606 bids on BTC_USDC_PERP.
+// Matched to a BookSnapshot; the venue takes only 5, 10, 20, 50, 100, 500 or 1000.
 inline constexpr std::uint32_t k_seed_depth = 100;
 
+// Seeded from REST, then chained: each frame's U is the previous frame's u + 1, and
+// the snapshot's lastUpdateId is on the same counter.
 class DepthBook {
 public:
     using Level = book::Level;

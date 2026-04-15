@@ -676,115 +676,66 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
 
     table[static_cast<std::size_t>(VenueId::Grvt)] = {
         .venue = VenueId::Grvt,
-        // USDT-margined perpetuals only. Read live 2026-09-24: 194 rows, every
-        // one PERPETUAL (184 active, 10 delisted), and a query filtered to
-        // SPOT, FUTURE, CALL or PUT answered nothing.
         .markets = {.spot = false, .perp = true},
-        //
-        // MARKET DATA AND FUNDING ONLY. The order path signs every order with
-        // an EIP-712 typed-data signature from a wallet key, not an HMAC, so
-        // flipping any bit below needs a new signer, not a credential.
-        //
+        // Orders need an EIP-712 wallet signer, not a credential.
         .ws_order_entry = false,
         .fix_order_entry = false,
         .cancel_by_client_order_id = false,
         .batch_cancel = false,
         .amend_order = false,
         .native_post_only = false,
-        .book_checksum = false, // the book stream is chained by sequence, not checksummed
-        .position_pull = {},
-        .order_pull = {},
-        .fill_pull = {},
-        .balance_pull = {},
-        .funding_charge = {},
-        // v1.ticker.s states taker buy and sell volume in base and in quote,
-        // read live 2026-09-24; their sum is the day's turnover.
-        .ticker_stats = true,
-        .user_stream = UserStreamModel::None,
-        // GRVT's client_order_id is a uint64 the venue asks API clients to draw
-        // from [2^63, 2^64 - 1], so a ULID does not travel as text; a signer
-        // would have to map one into that range. None exists, so nothing here
-        // mints one.
-        .max_client_order_id_len = 0,
-        .headline_order_rate_per_s = 0,
-    };
-
-    table[static_cast<std::size_t>(VenueId::Lighter)] = {
-        .venue = VenueId::Lighter,
-        // Perpetuals and spot, both read live 2026-09-24 off
-        // /api/v1/orderBookDetails: 235 perps (210 active) and 11 spot pairs
-        // (10 active), every one of them quoted in USDC, on the same socket
-        // and the same channels keyed by integer market id.
-        .markets = {.spot = true, .perp = true},
-        //
-        // ===================================================================
-        // MARKET DATA AND FUNDING ONLY. Lighter is a zk-rollup: an order is a
-        // rollup transaction signed with the venue's own API-key scheme and
-        // submitted through sendTx, not a request authenticated by an HMAC
-        // secret. No credential this codebase carries could sign one, so
-        // flipping any bit below needs a signer, not a key.
-        // ===================================================================
-        //
-        .ws_order_entry = false,
-        .fix_order_entry = false,
-        .cancel_by_client_order_id = false,
-        .batch_cancel = false,
-        .amend_order = false,
-        .native_post_only = false,
-        // The book chains on a nonce and carries no checksum.
         .book_checksum = false,
         .position_pull = {},
         .order_pull = {},
         .fill_pull = {},
         .balance_pull = {},
         .funding_charge = {},
-        // market_stats and spot_market_stats both state the day's base and
-        // quote volume, read live 2026-09-24.
         .ticker_stats = true,
         .user_stream = UserStreamModel::None,
-        // Nothing here mints one: no order leaves this adapter.
         .max_client_order_id_len = 0,
         .headline_order_rate_per_s = 0,
     };
 
-    table[static_cast<std::size_t>(VenueId::Backpack)] = {
-        .venue = VenueId::Backpack,
-        // Both, on one host, one catalogue and one socket. Read live
-        // 2026-09-24: 190 rows, of which 91 perpetuals and 52 spot pairs are
-        // Open, everything quoted in USDC. A further 194 prediction markets
-        // sit behind ?marketType=PREDICTION and are not served. The funding
-        // interval is the venue's own per-contract figure, hourly on every
-        // perpetual.
+    table[static_cast<std::size_t>(VenueId::Lighter)] = {
+        .venue = VenueId::Lighter,
         .markets = {.spot = true, .perp = true},
-        //
-        // ===================================================================
-        // MARKET DATA AND FUNDING ONLY. The order path is not merely unbuilt:
-        // backpack signs every private request with an ED25519 key over the
-        // instruction name and the sorted parameters, and this codebase's
-        // signer computes HMACs. Flipping any bit below needs a new signer,
-        // not a credential.
-        // ===================================================================
-        //
+        // Orders are zk-rollup transactions: they need a signer, not a key.
         .ws_order_entry = false,
         .fix_order_entry = false,
         .cancel_by_client_order_id = false,
         .batch_cancel = false,
         .amend_order = false,
         .native_post_only = false,
-        .book_checksum = false, // the depth stream carries no checksum
+        .book_checksum = false,
         .position_pull = {},
         .order_pull = {},
         .fill_pull = {},
         .balance_pull = {},
         .funding_charge = {},
-        // GET /api/v1/tickers states `volume` (base) and `quoteVolume` (USDC)
-        // for every market in one call, read live 2026-09-24.
         .ticker_stats = true,
         .user_stream = UserStreamModel::None,
-        // The order endpoint's `clientId` is a uint32 in the OpenAPI document
-        // the venue's own docs page embeds (read 2026-09-24), so a ULID does
-        // not travel; a future order path must map each one to a number and
-        // keep the map. Nothing here mints one.
+        .max_client_order_id_len = 0,
+        .headline_order_rate_per_s = 0,
+    };
+
+    table[static_cast<std::size_t>(VenueId::Backpack)] = {
+        .venue = VenueId::Backpack,
+        .markets = {.spot = true, .perp = true},
+        // Orders need an ED25519 signer, not a credential.
+        .ws_order_entry = false,
+        .fix_order_entry = false,
+        .cancel_by_client_order_id = false,
+        .batch_cancel = false,
+        .amend_order = false,
+        .native_post_only = false,
+        .book_checksum = false,
+        .position_pull = {},
+        .order_pull = {},
+        .fill_pull = {},
+        .balance_pull = {},
+        .funding_charge = {},
+        .ticker_stats = true,
+        .user_stream = UserStreamModel::None,
         .max_client_order_id_len = 0,
         .headline_order_rate_per_s = 0,
     };

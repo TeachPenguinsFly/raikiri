@@ -1,7 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// detail, not anonymous: an anonymous type in a header differs in every includer.
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/instrument_table.hpp>

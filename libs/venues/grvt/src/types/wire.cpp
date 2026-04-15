@@ -13,8 +13,6 @@ namespace ondemand = simdjson::ondemand;
 using json::guarded;
 using json::session;
 
-// Absent and null are different facts on a delta stream: absent leaves the
-// field as it was, null clears it.
 std::expected<std::optional<std::string_view>, WireError> present_str(ondemand::object& obj,
                                                                       std::string_view key) {
     ondemand::value value;
@@ -264,8 +262,6 @@ std::expected<WireMessage, WireError> parse_control(ondemand::object& root,
         }
         storage.ack.latest[latest_count++] = json::digits_to_u64(*text);
     }
-    // Two arrays read in the same order; a length mismatch would pair a
-    // selector with another selector's sequence.
     if (latest_count != sub_count) {
         return std::unexpected(WireError::ShortArray);
     }
@@ -360,8 +356,6 @@ std::expected<WireMessage, WireError> parse_message(std::string_view frame,
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // A feed frame opens with its stream; a JSON-RPC answer has none at the
-        // top level, only inside `result`.
         const auto stream = json::opt_str(*root, "stream");
         if (!stream.has_value()) {
             return std::unexpected(stream.error());

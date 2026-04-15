@@ -64,7 +64,7 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
     return guarded([&]() -> std::expected<RestError, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
-            return RestError{}; // an array, or not JSON: not this shape
+            return RestError{};
         }
         const auto code = detail::opt_str(*root, "code");
         const auto message = detail::opt_str(*root, "message");

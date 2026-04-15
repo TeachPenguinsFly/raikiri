@@ -5,8 +5,7 @@ namespace raikiri::venues::grvt {
 
 Step Sequence::offer(std::uint64_t sequence, std::uint64_t prev) noexcept {
     if (sequence == 0) {
-        // A snapshot with no ack ahead of it has nothing to chain its first
-        // delta to. Never seen live; asking again is the only safe reading.
+        // A snapshot with no ack before it has nothing to chain to.
         if (!anchored_) {
             ++gaps_;
             drop();

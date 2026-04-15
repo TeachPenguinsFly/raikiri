@@ -206,10 +206,8 @@ http::Response create_strategy(Registry& live,
     if (body.type.empty()) {
         return http::problem(422, "type is required", "one of /v1/strategy-types");
     }
-    // REQUIRED, NEVER ALLOCATED HERE. The id is what the journal and the book
-    // key every order and position by, and a surface that picked "the next free
-    // one" would hand a new instance the id of one whose history is still in
-    // the journal.
+    // Never allocated here: "the next free id" could be one whose history is still
+    // in the journal.
     if (body.strategy_id == -1) {
         return http::problem(422, "strategy_id is required", "a whole number from 2 to 65535");
     }

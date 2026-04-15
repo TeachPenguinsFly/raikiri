@@ -360,10 +360,6 @@ struct VenueNameProbe {
     template <typename E> void on_enum_value(E, ::sbepp::unknown_enum_value_tag) noexcept {}
 };
 
-// Every number must carry the SAME venue in the schema as in the code. The
-// test above only asked whether a number was declared, and so passed while
-// deleting bitmex had shifted every later venue down one: the code wrote weex
-// as 17, which the schema and every older record call bitfinex.
 TEST(JournalSchema, EveryVenueNumberNamesTheSameVenueInBoth) {
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         VenueNameProbe probe{};

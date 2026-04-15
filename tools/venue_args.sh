@@ -29,22 +29,8 @@ declare -A MARKET=(
 # altcoin pairs that do not trade inside the window — and not a venue dropping
 # a chunk in silence.
 #
-# BITGET WAS MISSING FROM THIS LIST despite carrying its whole spot catalogue
-# (docs/CONNECTIONS.md's 2026-09-08 pool table: 1296 of 1296, the best result
-# of the thirteen tested) — nothing there records why, and re-run here today
-# subscribed 3161 of 3161. Added.
-#
-# HYPERLIQUID STAYS ON THE LIST BUT IS NOT A CARRY-BOARD SOURCE YET. The same
-# document flags it explicitly: "Do not count hyperliquid spot as a quote
-# source until it is [chased down]" — a 23-fold gap between `bbo` and `l2Book`
-# on one connection that was never explained. It is kept subscribable for
-# testing the gap, not for the board; kowalski's venue set for spot·perp carry
-# should exclude it until that is resolved.
-#
-# BACKPACK carries its whole spot catalogue, 52 of 52 Open pairs priced inside
-# five seconds (2026-09-25, admind's own `priced`). That needed a REST touch
-# per pair: its bookTicker sends no snapshot, and two pairs said nothing for
-# ninety seconds while their books sat two-sided.
+# hyperliquid is kept for testing its unexplained bbo/l2Book gap; it is not a
+# carry-board quote source yet.
 SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack"
 
 # A SPOT GATEWAY IS HERE FOR THE CARRY BOARD, which reads a quote and a

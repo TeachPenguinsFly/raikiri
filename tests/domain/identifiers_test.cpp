@@ -24,7 +24,6 @@ TEST(VenueNames, RoundTrip) {
     for (std::uint8_t v = 1; v < k_venue_count; ++v) {
         const auto venue = static_cast<VenueId>(v);
         if (is_retired(venue)) {
-            // A retired name must not parse back: nothing may start one again.
             EXPECT_EQ(venue_from_string(to_string(venue)), VenueId::Invalid);
             continue;
         }

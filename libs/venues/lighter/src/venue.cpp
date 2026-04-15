@@ -11,8 +11,6 @@ using namespace detail;
 
 namespace {
 
-// No credentials are read: nothing this adapter sends is signed, and the
-// venue's order path needs a key of a kind no config here names.
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);

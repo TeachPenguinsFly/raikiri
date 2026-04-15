@@ -55,7 +55,7 @@ public:
         for (const auto& row : *wire) {
             const auto instrument = map_instrument(row, market);
             if (!instrument.has_value()) {
-                continue; // not Open, not this market, or sizes that will not parse
+                continue;
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {

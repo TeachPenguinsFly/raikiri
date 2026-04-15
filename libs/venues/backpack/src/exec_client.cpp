@@ -1,20 +1,3 @@
-// An execution client that refuses, because this venue's order path needs a
-// signer this codebase does not have.
-//
-// THE REFUSAL IS THE FEATURE. `VenueAdapter::execution` is dereferenced
-// unconditionally — gatewayd calls `execution->start()` before it knows
-// whether anything will trade — so a null here is a crash at startup on a
-// gateway that was only ever asked for market data. Every method below
-// answers, and answers the same way: backpack signs every private request
-// with an ED25519 KEY — a base64 public key in X-API-Key and a signature over
-// the instruction name and the sorted parameters in X-Signature — rather than
-// the HMAC secret every other adapter's signer computes, so there is no
-// credential that would make these paths work. The caps row says the same
-// thing to anyone who asks BEFORE calling.
-//
-// Refusals are Terminal, never Retryable: a caller that retries a missing
-// signer retries forever.
-
 #include <raikiri/exec/execution_client.hpp>
 
 #include <memory>
@@ -35,13 +18,12 @@ constexpr std::string_view k_why =
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, k_why);
 }
 
+// Must exist, since gatewayd starts it unconditionally. Refusals are terminal:
+// a caller retrying a missing signer retries forever.
 class BackpackExecution final : public exec::ExecutionClient {
 public:
     explicit BackpackExecution(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}
 
-    // Not an error: a market-data gateway starts this client and must come up.
-    // What it must NOT do is report itself connected to an order path that
-    // does not exist, which is why `connected()` stays false.
     std::expected<void, exec::VenueError> start() override { return {}; }
 
     void stop() override {}
@@ -81,8 +63,6 @@ public:
     }
 
 private:
-    // The reason rides on `on_order_error`, because the terminal event has no
-    // room for one and a rejection nobody can explain costs an hour.
     void emit_reject(const OrderCmd& cmd, OrderEventType type) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, refusal());
         OrderEvent event{};
@@ -91,7 +71,6 @@ private:
         event.side = cmd.side;
         event.client_order_id = cmd.client_order_id;
         event.qty = cmd.qty;
-        // Nothing ever reached the book, so nothing is left on it.
         event.leaves_qty = QtyLots::from_raw(0);
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;

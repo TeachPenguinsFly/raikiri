@@ -19,7 +19,6 @@ std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) noexce
     return book::exact_steps(*value, step);
 }
 
-// Summing two stated halves; either one missing leaves the total unstated.
 FixedE9 sum_e9(std::string_view a, std::string_view b) noexcept {
     const auto x = parse_decimal_e9(a);
     const auto y = parse_decimal_e9(b);
@@ -53,9 +52,6 @@ FixedE9 percent_to_ratio(std::string_view text) noexcept {
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // Every row GRVT lists is a USDT-margined perpetual: 194 of 194 on
-    // 2026-09-24, active or delisted, and no spot, future or option kind
-    // answered a filtered query.
     if (market != MarketType::Perp || wire.kind != "PERPETUAL" || wire.status != "ACTIVE") {
         return std::nullopt;
     }
@@ -79,18 +75,12 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (const auto notional = parse_decimal_e9(wire.min_notional); notional.has_value()) {
         base.min_notional = *notional;
     }
-    // Sizes are in the base asset: one lot of BTC_USDT_Perp is 0.001 BTC.
     base.contract_value = FixedE9::from_raw(1'000'000'000);
     base.kind = ContractKind::Linear;
 
     PerpInstrument perp{};
     perp.base = base;
-    // THE VENUE STATES IT PER CONTRACT, and it is not one number: 124 of the
-    // 184 settle every eight hours and 60 every four. The funding history
-    // agrees row for row — BTC's last eight settlements 8 h apart, ASTER's
-    // and BERA's 4 h apart, read 2026-09-24. 0 stays 0: a row that states no
-    // interval is one the carry board must refuse, not one that settles on a
-    // default.
+    // Stated per contract, 4 h or 8 h; 0 stays 0 so the carry board refuses it.
     perp.funding_interval_s = wire.funding_interval_hours * 3600U;
     perp.funding_cap = percent_to_ratio(wire.funding_cap);
     perp.funding_floor = percent_to_ratio(wire.funding_floor);
@@ -131,11 +121,8 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     const auto& base = perp->base;
     FundingUpdate out{};
     out.instrument = base.id;
-    // The rate accruing now, settled at next_funding_time. GRVT publishes no
-    // separate estimate of the one after, so predicted_rate stays UNDEF.
     out.rate = rate;
-    // The mark carries nine decimals and sits off the tick grid, so it is
-    // truncated onto it rather than refused.
+    // The mark sits off the tick grid, so it is truncated rather than refused.
     if (const auto mark = parse_decimal_e9(wire.mark_price);
         mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);

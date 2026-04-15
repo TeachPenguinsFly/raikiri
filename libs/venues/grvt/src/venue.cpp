@@ -11,8 +11,6 @@ using namespace detail;
 
 namespace {
 
-// No credentials are read, since nothing this adapter sends is signed, and no
-// rate budget is taken: its one REST call is the catalogue, once per start.
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);

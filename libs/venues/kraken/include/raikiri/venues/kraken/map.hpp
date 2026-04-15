@@ -20,11 +20,7 @@
 
 namespace raikiri::venues::kraken {
 
-// Every perpetual settles funding hourly, on the hour. Verified rather than
-// assumed: historicalfundingrates for PF_XBTUSD, PF_DOGEUSD and PI_XBTUSD on
-// 2026-09-24 stepped 12:00, 13:00, 14:00Z. The ticker states the next instant
-// but never the period, so the period is this constant; if Kraken ever states
-// one per contract, that is what replaces it.
+// Hourly on the hour; the ticker states the next instant but never the period.
 inline constexpr std::uint32_t k_funding_interval_s = 3600;
 
 // Venue ms -> UnixNanos. A zero or absent venue timestamp yields ingest time:

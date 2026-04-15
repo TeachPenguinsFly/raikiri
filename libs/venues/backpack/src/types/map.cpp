@@ -10,8 +10,7 @@ namespace {
 
 using Level = book::Level;
 
-// Exact against the instrument's own step, or nothing: rounding is how a
-// price ends up one tick away from the one the venue sent.
+// Exact or nothing; never rounded.
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty()) {
         return std::nullopt;
@@ -35,8 +34,7 @@ std::optional<QtyLots> resting_lots(std::string_view text, const InstrumentBase&
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// UNDEF when absent or unreadable: a turnover of zero is a market that did not
-// trade, which is a different fact from one nobody reported.
+// UNDEF when absent: zero would claim the market did not trade.
 FixedE9 amount_or_undef(std::string_view text) {
     if (text.empty()) {
         return FixedE9::undef();
@@ -89,7 +87,7 @@ map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos t
             const auto price = to_ticks(level.price, base);
             const auto qty = resting_lots(level.qty, base);
             if (!price.has_value() || !qty.has_value()) {
-                return std::nullopt; // a filter changed under us: no touch rather than a wrong one
+                return std::nullopt; // off-grid: no touch rather than a wrong one
             }
             if (!out.has_value() ||
                 (highest ? price->raw > out->price.raw : price->raw < out->price.raw)) {
@@ -122,9 +120,7 @@ map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos t
     }
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.price, base);
-    // EXACT, unlike a resting size: a print says what changed hands, and a
-    // fill of a pre-step remainder floored to our grid would be a print of a
-    // size that never traded.
+    // Exact, unlike a resting size: a floored print would be a size that never traded.
     const auto qty = to_lots(wire.qty, base);
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
@@ -148,9 +144,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // TRUNCATED, not refused: the rate arrives with up to 28 fractional digits
-    // (-0.0000092211954022829528621616 on LIT_USDC_PERP, live) and an exact
-    // read would drop every frame that is not sitting on the floor.
+    // Truncated, not refused: the rate arrives with up to 28 fractional digits.
     const auto rate = parse_rate_e9(wire.funding_rate);
     if (!rate.has_value()) {
         return std::nullopt;
@@ -159,8 +153,6 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = *rate;
-    // predicted_rate stays UNDEF. `f` is already the rate the interval ending
-    // at `n` will settle at, and the venue publishes nothing beyond it.
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }
@@ -208,8 +200,6 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     case MarketType::Option:
         return std::nullopt;
     }
-    // Closed rows keep their filters and have no book; the one PostOnly row
-    // is hidden from the venue's own interface and takes no taker.
     if (wire.order_book_state != "Open") {
         return std::nullopt;
     }
@@ -225,29 +215,18 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
     base.id = InstrumentId::make(VenueId::Backpack, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *canonical;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // min_notional stays UNDEF: the venue states a minimum QUANTITY and no
-    // minimum notional anywhere on the row.
-    base.contract_value = *parse_decimal_e9("1"); // sizes are base units on both markets
+    base.contract_value = *parse_decimal_e9("1");
     base.kind = ContractKind::Linear;
     if (spot) {
         return SpotInstrument{base};
     }
-    // THE VENUE'S OWN FIGURE, per contract: `fundingInterval` in milliseconds,
-    // 3600000 on all 103 perpetual rows read 2026-09-24 and matched by the
-    // hourly step of /api/v1/fundingRates. A figure that is not a whole number
-    // of seconds is not one this can carry, and stays 0 rather than rounded.
-    //
-    // The caps stay UNDEF. `fundingRateUpperBound` reads "150" and
-    // `fundingRateLowerBound` "-150" on 100 rows and ±100 on three, and nothing
-    // the venue publishes says in what unit — as a fraction that is a 15 000%
-    // hourly cap, and read as basis points it is 1.5%. A cap assumed is a cap
-    // that will be compared against.
+    // An interval that is not whole seconds stays 0. The caps stay UNDEF: the
+    // venue's ±150 bounds state no unit.
     const auto interval_s =
         wire.funding_interval_ms % 1000 == 0 ? wire.funding_interval_ms / 1000 : 0;
     PerpInstrument out{};

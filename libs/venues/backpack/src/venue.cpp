@@ -11,8 +11,6 @@ using namespace detail;
 
 namespace {
 
-// No credentials are read. A configured key would name a secret this adapter
-// cannot use, and reading it would only put it in memory for nothing.
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);

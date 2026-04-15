@@ -20,31 +20,21 @@ namespace raikiri::venues::backpack::detail {
 
 namespace {
 
-// The venue states no message rate for its socket. Ten frames a second of 50
-// streams puts the whole catalogue on the wire in a second.
 constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
 
-// One socket carries everything (see ws.hpp); the rest are headroom for a
-// catalogue that grows, not a need anyone has measured.
 constexpr std::size_t k_max_connections = 4;
 
-// Book seeds and quote touches share one pace. Twenty a second is 1200 a
-// minute against an allowance of 2000, and a whole catalogue at every channel
-// is at most 143 of each — fifteen seconds.
+// Twenty a second: 1200 a minute against the venue's 2000.
 constexpr std::uint64_t k_seed_spacing_ns = 50ULL * 1'000'000ULL;
 
 // The touch needs one level a side; five is the smallest limit the venue takes.
 constexpr std::uint32_t k_touch_depth = 5;
 
-// A 24-hour figure barely moves in five minutes, and the whole table is one
-// request.
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
-// A 429 drains the bucket for a second, so what resumes is the refill rate.
-// The venue sends no header saying how far over we were, so its refusal is
-// the only correction our own count will ever get.
+// The venue sends no limit header, so a 429 is the only correction our count gets.
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget != nullptr && response.status == 429) {
         state.budget->penalize(exec::RateBucket::Shared, state.clock->mono(), 1'000'000'000ULL);
@@ -55,10 +45,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
     return std::ranges::find(state.funding_instruments, id) != state.funding_instruments.end();
 }
 
-// A FAILED SEED ASKS AGAIN BY ITSELF. Left for the next delta to notice, it
-// waits on a frame that a quiet pair never sends: measured 2026-09-24, two of
-// 52 spot books seeded at subscribe never came up in a minute, their seeds
-// lost and no delta arriving to ask again.
+// A failed seed asks again by itself: a quiet pair never sends the delta that would.
 void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
     if (std::ranges::find(queue, id) == queue.end()) {
         queue.push_back(id);
@@ -143,8 +130,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     const auto& base = base_of(*instrument);
     auto& book = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
                      .first->second;
-    // Asked before the delta is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
+    // Asked before the delta is offered, so the triggering frame is buffered behind it.
     if (book.wants_seed()) {
         if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
             state.pending_seeds.push_back(base.id);
@@ -152,7 +138,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
         book.seed_requested();
     }
     if (book.apply(*wire) != BookResult::Applied) {
-        return; // unseeded, stale or resynchronising: silence, never a guess
+        return;
     }
     if (!state.sink->wants_depth(base.id, received)) {
         return;
@@ -205,8 +191,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         handle_depth(state, *data, received);
         break;
     case EventKind::Error:
-        // Never observed: the venue answered an unknown symbol with silence.
-        // Counted in case it ever does say no.
         ++state.subscribe_refusals;
         break;
     case EventKind::Unknown:
@@ -286,8 +270,6 @@ public:
             if (!wants_funding(*state_, instrument)) {
                 state_->funding_instruments.push_back(instrument);
             }
-            // A spot pair's funding subscription is its turnover and nothing
-            // else: its markPrice frame carries no rate to publish.
             if (!perp) {
                 return {};
             }
@@ -302,7 +284,7 @@ public:
             return DataClient::subscribe(kind, instrument);
         }
         if (!desired_.emplace(stream).second) {
-            return {}; // a stream is asked for once
+            return {};
         }
         const std::array<std::string, 1> one{std::string{stream}};
         if (!pool_.subscribe(one)) {
@@ -312,8 +294,7 @@ public:
         if (kind == exec::SubKind::Bbo) {
             state_->pending_touches.push_back(instrument);
         }
-        // Seeded now rather than on the first delta, for the same reason the
-        // quote is: a pair whose book does not move sends no delta at all.
+        // Seeded now: a pair whose book does not move sends no delta to trigger it.
         if (kind == exec::SubKind::Depth) {
             const auto* listed = state_->instruments.find(instrument);
             const auto& base = base_of(*listed);
@@ -345,16 +326,8 @@ public:
     }
 
 private:
-    // A socket that opened broke the chain of the books it carries, and of
-    // nobody else's.
-    //
-    // ON THE FIRST OPEN TOO, which is the case that bit: seeds go out the
-    // moment the gateway subscribes, the socket takes longer than the first of
-    // them to come up, and the pool calls this on every open. A book seeded
-    // before its socket opened was wiped here, and one whose pair does not
-    // move then waited for a delta that never came — KMNO_USDC and USDT_USDC
-    // stayed cold for the whole of a 45 s run on 2026-09-25. So the book asks
-    // for its own seed rather than waiting to be asked.
+    // An open breaks the chain of this socket's books, the first open included. Each
+    // asks for its own seed, since a quiet pair sends no delta to trigger one.
     void invalidate_books(std::span<const std::string> keys) noexcept {
         for (const auto& key : keys) {
             const auto symbol = depth_symbol(key);
@@ -376,8 +349,7 @@ private:
         }
     }
 
-    // The quote first: once sends are paced, whatever goes last is what a
-    // short run never sees.
+    // Quote first: with paced sends, the last stream is what a short run never sees.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams(keys.begin(), keys.end());
         std::ranges::stable_partition(
@@ -396,11 +368,8 @@ private:
         return frames;
     }
 
-    // One seed per tick, while the budget will sell one. A refused seed keeps
-    // its place and leaves the deadline where it was.
-    //
-    // Book seeds go before quote touches: a delta is already waiting on the
-    // seed, while a touch only covers for a stream that has not spoken yet.
+    // One seed per tick while the budget allows. Book seeds go before touches: a
+    // delta is already waiting on the seed.
     void drain_seeds(UnixNanos now) noexcept {
         if (now.ns < state_->next_seed_ns) {
             return;
@@ -417,7 +386,7 @@ private:
             return;
         }
         if (!request_seed(*state_, entry->second, base_of(*listed))) {
-            return; // left queued; the next tick asks again
+            return;
         }
         state_->pending_seeds.erase(state_->pending_seeds.begin());
         state_->next_seed_ns = now.ns + k_seed_spacing_ns;
@@ -433,7 +402,7 @@ private:
         }
         const auto* listed = state_->instruments.find(queue.front());
         if (listed != nullptr && !request_touch(*state_, base_of(*listed))) {
-            return; // left queued; the next tick asks again
+            return;
         }
         queue.erase(queue.begin());
         state_->next_seed_ns = now.ns + k_seed_spacing_ns;
@@ -450,7 +419,7 @@ private:
                     state_->builder.tickers(),
                     [this](const net::RestResponse& response) { on_tickers(response); })) {
                 ticker_in_flight_ = false;
-                return; // refused: still due
+                return;
             }
         } catch (...) {
             ticker_in_flight_ = false;
@@ -478,9 +447,7 @@ private:
         }
     }
 
-    // A book that never seeds is silent, and silence reads as a dead venue.
-    // Said only when something has been cold across two looks, so one book
-    // resynchronising for a round trip does not cry wolf.
+    // Said only after two looks, so a book resynchronising for a round trip does not cry wolf.
     void report_books(UnixNanos now) noexcept {
         if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
             return;
@@ -521,8 +488,6 @@ private:
                       reseeds);
             return;
         }
-        // Named, a few of them: a count sends the reader to grep the journal
-        // for which instruments it means.
         std::string names;
         std::size_t named = 0;
         for (const auto& [packed, book] : state_->books) {
@@ -546,8 +511,6 @@ private:
             state_->books, [](const auto& entry) { return !entry.second.live(); }));
     }
 
-    // A library may not assume the process installed a logger; RLOG_*
-    // dereferences it.
     [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }
 
     std::shared_ptr<VenueState> state_;

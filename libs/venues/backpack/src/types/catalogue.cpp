@@ -10,9 +10,7 @@ namespace {
 using detail::guarded;
 using detail::session;
 
-// A JSON number that may be null. Named apart from wire::opt_u64 on purpose:
-// that one refuses null with WrongType, and `fundingInterval` is null on every
-// spot row.
+// Named apart from wire::opt_u64, which refuses the null every spot row sends.
 std::expected<std::uint64_t, WireError> nullable_u64(detail::ondemand::object& obj,
                                                      std::string_view key) {
     detail::ondemand::value value;

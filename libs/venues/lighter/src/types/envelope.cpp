@@ -18,7 +18,6 @@ struct Named {
     EventKind kind;
 };
 
-// By the part after the slash, so `subscribed/` and `update/` share one row.
 constexpr std::array<Named, 4> k_kinds{{
     {"order_book", EventKind::OrderBook},
     {"trade", EventKind::Trade},
@@ -39,7 +38,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return std::unexpected(type.error());
         }
         if (type->empty()) {
-            // The refusal is the one frame with no type at all.
             if (detail::has_field(*root, "error")) {
                 return EventInfo{.kind = EventKind::Error, .snapshot = false};
             }
@@ -57,7 +55,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         EventInfo out{};
         out.snapshot = verb == "subscribed";
         if (!out.snapshot && verb != "update") {
-            return EventInfo{}; // "unsubscribed/…" and anything new
+            return EventInfo{};
         }
         for (const auto& named : k_kinds) {
             if (noun == named.suffix) {
