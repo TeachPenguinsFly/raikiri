@@ -225,7 +225,7 @@ make fuzz FUZZ_SECONDS=60  # libFuzzer targets (Homebrew clang on macOS)
 
 ## Status
 
-**Usable today:** market data across all nineteen venues, order entry on the seventeen
+**Usable today:** market data across all twenty venues, order entry on the seventeen
 the table marks, the shared-memory transport, the SBE journals and their Postgres
 tail, and the HTTP/WebSocket admin plane behind
 [`schema/admin-api.yaml`](../schema/admin-api.yaml).

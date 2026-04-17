@@ -51,6 +51,7 @@ VENUES=(
   "backpack:BTC_USDC|--market=spot"
   "cryptocom:BTCUSD-PERP"
   "cryptocom:BTC_USD|--market=spot"
+  "blofin:BTC-USDT"
 )
 
 printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict

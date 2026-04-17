@@ -37,6 +37,7 @@
 #include <raikiri/venues/bingx/bingx_venue.hpp>
 #include <raikiri/venues/bitfinex/bitfinex_venue.hpp>
 #include <raikiri/venues/bitget/bitget_venue.hpp>
+#include <raikiri/venues/blofin/blofin_venue.hpp>
 #include <raikiri/venues/bybit/bybit_venue.hpp>
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
@@ -1224,6 +1225,7 @@ int main(int argc, char** argv) {
     venues::lighter::register_adapter();
     venues::backpack::register_adapter();
     venues::cryptocom::register_adapter();
+    venues::blofin::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

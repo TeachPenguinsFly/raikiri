@@ -31,6 +31,7 @@ CUSTODY = {
     "bingx": "CEX",
     "bitfinex": "CEX",
     "bitget": "CEX",
+    "blofin": "CEX",
     "bybit": "CEX",
     "coinbase": "CEX",
     "cryptocom": "CEX",

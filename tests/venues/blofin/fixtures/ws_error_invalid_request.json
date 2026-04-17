@@ -1,0 +1,1 @@
+{"event":"error","code":"60012","msg":"Invalid request: {\"op\":\"subscribe\",\"args\":[{\"channel\":\"books\",\"instId\":\"NOPE-USDT\"},{\"channel\":\"trades\",\"instId\":\"NOPE-USDT\"},{\"channel\":\"tickers\",\"instId\":\"NOPE-USDT\"},{\"channel\":\"funding-rate\",\"instId\":\"NOPE-USDT\"}]}"}

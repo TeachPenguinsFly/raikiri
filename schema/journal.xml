@@ -67,6 +67,7 @@
       <validValue name="Lighter">21</validValue>
       <validValue name="Backpack">22</validValue>
       <validValue name="CryptoCom">23</validValue>
+      <validValue name="Blofin">24</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">
