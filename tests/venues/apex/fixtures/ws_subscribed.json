@@ -1,0 +1,1 @@
+{"success":true,"ret_msg":"","conn_id":"24c22f77-0db2-4643-a3af-a48e56408c2b","request":{"op":"subscribe","args":["orderBook25.H.ETHUSDT","recentlyTrade.H.ETHUSDT","instrumentInfo.H.BTCUSDT"]}}

@@ -47,6 +47,7 @@ running a gateway, adding a venue.
 <!-- venues:begin -->
 | venue | custody | markets | order entry | WS | FIX | amend | private stream | funding ledger |
 | :-- | :-: | :-- | :-- | :-: | :-: | :-: | :-- | :-: |
+| `apex` | DEX | perp | **market data only** | – | – | – | – | – |
 | `aster` | DEX | perp | **market data only** | – | – | – | – | – |
 | `backpack` | CEX | spot · perp | **market data only** | – | – | – | – | – |
 | `binance` | CEX | perp | REST + WS | ✓ | ✓ | ✓ | ListenKey | ✓ |

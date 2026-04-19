@@ -25,6 +25,7 @@ README = ROOT / "README.md"
 # Non-custodial venues: you sign with a wallet key and the position lives in a
 # contract rather than in the venue's omnibus account.
 CUSTODY = {
+    "apex": "DEX",
     "aster": "DEX",
     "backpack": "CEX",
     "binance": "CEX",

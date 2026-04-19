@@ -52,6 +52,7 @@
 #include <raikiri/venues/okx/okx_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
+#include <raikiri/venues/apex/apex_venue.hpp>
 #include <raikiri/venues/aster/aster_venue.hpp>
 #include <raikiri/venues/backpack/backpack_venue.hpp>
 #include <raikiri/venues/cryptocom/cryptocom_venue.hpp>
@@ -1226,6 +1227,7 @@ int main(int argc, char** argv) {
     venues::backpack::register_adapter();
     venues::cryptocom::register_adapter();
     venues::blofin::register_adapter();
+    venues::apex::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

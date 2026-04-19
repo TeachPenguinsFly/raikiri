@@ -1,0 +1,1 @@
+{"success":false,"ret_msg":"error:topic:already subscribed orderBook25.H.ETHUSDT","conn_id":"134cf7ec-9e3e-45a9-8289-7c8d7b62e4cc","request":{"op":"subscribe","args":["orderBook25.H.ETHUSDT","recentlyTrade.H.ETHUSDT"]}}
