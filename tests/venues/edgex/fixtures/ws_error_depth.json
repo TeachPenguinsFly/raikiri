@@ -1,0 +1,1 @@
+{"type":"error","request":"{\"type\": \"subscribe\", \"channel\": \"depth.30000001.50\"}","content":{"code":"GATEWAY_INVALID_BOOK_DEPTH","msg":"invalid book depth : 50"}}
