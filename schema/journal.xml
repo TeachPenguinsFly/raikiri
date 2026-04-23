@@ -70,6 +70,7 @@
       <validValue name="Blofin">24</validValue>
       <validValue name="Apex">25</validValue>
       <validValue name="Edgex">26</validValue>
+      <validValue name="Dydx">27</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

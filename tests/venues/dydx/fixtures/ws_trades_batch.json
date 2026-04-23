@@ -1,0 +1,1 @@
+{"type":"channel_batch_data","connection_id":"5401f0e5-f1e2-42d6-b34a-f6f63849476b","message_id":9,"id":"ETH-USD","channel":"v4_trades","version":"2.1.0","contents":[{"trades":[{"id":"065df5c50000000200000002","size":"0.002","price":"2682.8","side":"BUY","createdAt":"2026-09-25T05:41:28.031Z","type":"LIMIT"}]}]}

@@ -38,6 +38,7 @@ CUSTODY = {
     "cryptocom": "CEX",
     "deribit": "CEX",
     "edgex": "DEX",
+    "dydx": "DEX",
     "gate": "CEX",
     "grvt": "DEX",
     "htx": "CEX",

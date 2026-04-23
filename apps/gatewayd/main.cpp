@@ -42,6 +42,7 @@
 #include <raikiri/venues/coinbase/coinbase_venue.hpp>
 #include <raikiri/venues/deribit/deribit_venue.hpp>
 #include <raikiri/venues/edgex/edgex_venue.hpp>
+#include <raikiri/venues/dydx/dydx_venue.hpp>
 #include <raikiri/venues/gate/gate_venue.hpp>
 #include <raikiri/venues/grvt/grvt_venue.hpp>
 #include <raikiri/venues/htx/htx_venue.hpp>
@@ -1230,6 +1231,7 @@ int main(int argc, char** argv) {
     venues::blofin::register_adapter();
     venues::apex::register_adapter();
     venues::edgex::register_adapter();
+    venues::dydx::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

@@ -69,6 +69,7 @@ raikiri_add_test(cryptocom_venue_test SRCS venues/cryptocom/venue_test.cpp LIBS 
 raikiri_add_test(blofin_venue_test SRCS venues/blofin/venue_test.cpp LIBS raikiri::venue_blofin raikiri::exec)
 raikiri_add_test(apex_venue_test SRCS venues/apex/venue_test.cpp LIBS raikiri::venue_apex raikiri::exec)
 raikiri_add_test(edgex_venue_test SRCS venues/edgex/venue_test.cpp LIBS raikiri::venue_edgex raikiri::exec)
+raikiri_add_test(dydx_venue_test SRCS venues/dydx/venue_test.cpp LIBS raikiri::venue_dydx raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 
