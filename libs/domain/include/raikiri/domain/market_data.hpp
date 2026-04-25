@@ -67,6 +67,13 @@ struct BookSnapshot {
     std::array<BookLevel, k_book_levels> asks{};
 };
 
+// Whether `next_funding_time` of zero means "not said" or "no such instant".
+enum class FundingAccrual : std::uint8_t {
+    Unknown = 0,
+    Discrete,   // paid at an instant
+    Continuous, // accrues every moment; `interval_s` is the rate's unit
+};
+
 struct FundingUpdate {
     InstrumentId instrument{};
     FixedE9 rate{};           // current interval rate
@@ -74,11 +81,13 @@ struct FundingUpdate {
     PriceTicks mark_price{};
     UnixNanos next_funding_time{};
     std::uint32_t interval_s{0};
-    std::uint8_t pad_[4]{};
+    FundingAccrual accrual{FundingAccrual::Unknown};
+    std::uint8_t pad_[3]{};
     UnixNanos ts_event{};
     UnixNanos ts_init{};
 };
 
+static_assert(sizeof(FundingUpdate) == 64);
 static_assert(std::is_trivially_copyable_v<FundingUpdate>);
 
 // What the venue's rolling 24-hour ticker says about turnover.

@@ -83,6 +83,7 @@ std::string build_journal(const std::string& dir) {
         m.markPrice(jt::priceTicks{500'100});
         m.nextFundingTime(jt::timestampNs{999});
         m.intervalS(28'800);
+        m.accrual(jt::fundingAccrualEnum::Continuous);
         m.tsEvent(jt::timestampNs{200});
         m.tsInit(jt::timestampNs{201});
     });
@@ -148,6 +149,7 @@ TEST(Mapper, FillProducesEventUpsertAndExecution) {
     // needs; they map to pnl_increments and not to anything asserted above.
     ASSERT_EQ(batch.pnl_increments.size(), 2U);
     EXPECT_EQ(batch.last_seq, 5U); // the BBO advanced the cursor without rows
+    EXPECT_EQ(batch.funding[0].accrual, std::optional<std::string>{"continuous"});
 
     const auto& ev = batch.order_events[0];
     EXPECT_EQ(ev.event_type, "filled");
@@ -268,7 +270,10 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     const auto dir = build_journal(scratch);
 
     PgSink sink{dsn};
-    for (const auto* migration : {"/migrations/0001_init.sql", "/migrations/0002_positions.sql"}) {
+    for (const auto* migration : {"/migrations/0001_init.sql",
+                                   "/migrations/0002_positions.sql",
+                                   "/migrations/0003_reject_reason.sql",
+                                   "/migrations/0004_funding_accrual.sql"}) {
         sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
     }
 

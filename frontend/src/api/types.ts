@@ -635,6 +635,13 @@ export interface components {
              *     by a factor of eight.
              */
             interval_seconds?: number | null;
+            /**
+             * @description Absent when the venue did not say. `continuous` has no payment
+             *     instant, and interval_seconds is then the rate's unit rather than a
+             *     payment cadence.
+             * @enum {string}
+             */
+            accrual?: "discrete" | "continuous";
             ts_event: components["schemas"]["Nanos"];
         };
         Ticker: {

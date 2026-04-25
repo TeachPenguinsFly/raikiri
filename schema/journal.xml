@@ -12,7 +12,7 @@
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="raikiri.journal"
                    id="1"
-                   version="2"
+                   version="3"
                    semanticVersion="0.1.0"
                    description="raikiri journal records"
                    byteOrder="littleEndian">
@@ -137,6 +137,12 @@
       <validValue name="Base">1</validValue>
     </enum>
 
+    <enum name="fundingAccrualEnum" encodingType="uint8">
+      <validValue name="Unknown">0</validValue>
+      <validValue name="Discrete">1</validValue>
+      <validValue name="Continuous">2</validValue>
+    </enum>
+
     <enum name="liquidityEnum" encodingType="uint8">
       <validValue name="Unknown">0</validValue>
       <validValue name="Maker">1</validValue>
@@ -215,6 +221,7 @@
     <field name="intervalS" id="6" type="uint32"/>
     <field name="tsEvent" id="7" type="timestampNs"/>
     <field name="tsInit" id="8" type="timestampNs"/>
+    <field name="accrual" id="9" type="fundingAccrualEnum" sinceVersion="3"/>
   </sbe:message>
 
   <sbe:message name="ConnectivityMsg" id="6" description="Connection state transition">

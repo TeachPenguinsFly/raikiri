@@ -59,6 +59,7 @@ running a gateway, adding a venue.
 | `coinbase` | CEX | spot | REST | – | – | – | AuthSubscribe | – |
 | `cryptocom` | CEX | spot · perp | **market data only** | – | – | – | – | – |
 | `deribit` | CEX | perp · futures · options | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
+| `dydx` | DEX | perp | **market data only** | – | – | – | – | – |
 | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – | – |
 | `gate` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
 | `grvt` | DEX | perp | **market data only** | – | – | – | – | – |

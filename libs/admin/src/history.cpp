@@ -331,6 +331,7 @@ private:
         .next_funding_time =
             next > 0 ? std::optional{digits(static_cast<std::uint64_t>(next))} : std::nullopt,
         .interval_seconds = interval > 0 ? std::optional{interval} : std::nullopt,
+        .accrual = opt_text(row.at("accrual")),
         .ts_event = digits_of(row.at("ts_event")),
     };
 }
@@ -779,7 +780,7 @@ FundingPage History::funding(const PageQuery& query) const {
     }
 
     const auto sql = "SELECT f.instrument_id, f.ts_event, f.rate_e9, f.predicted_e9, f.mark_ticks,"
-                     " f.next_funding_ts, f.interval_s, i.tick_size_e9"
+                     " f.next_funding_ts, f.interval_s, f.accrual, i.tick_size_e9"
                      " FROM raikiri.funding_observations f"
                      " LEFT JOIN raikiri.instruments i ON i.instrument_id = f.instrument_id" +
                      where.text() + " ORDER BY f.ts_event DESC, f.instrument_id DESC" +

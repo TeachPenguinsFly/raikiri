@@ -485,6 +485,7 @@ TEST(DeribitMap, PerpetualFundingSurvivesAnHonestZero) {
     // eight hours are the rate's UNIT, not a countdown.
     EXPECT_EQ(funding->next_funding_time.ns, 0U);
     EXPECT_EQ(funding->interval_s, 8U * 60U * 60U);
+    EXPECT_EQ(funding->accrual, FundingAccrual::Continuous);
     // Deribit publishes no forecast, so this stays undefined rather than
     // borrowing the trailing funding_8h and calling it a prediction.
     EXPECT_TRUE(funding->predicted_rate.is_undef());

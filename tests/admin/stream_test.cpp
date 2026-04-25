@@ -349,6 +349,21 @@ TEST(AdminStream, FundingSaysItsIntervalOrSaysNothing) {
     const std::vector<Funding> rows{row};
     const auto frame = funding_frame("f1", k_ts, rows);
     EXPECT_EQ(frame.find("interval_seconds"), std::string::npos) << frame;
+    EXPECT_EQ(frame.find("accrual"), std::string::npos) << frame;
+}
+
+TEST(AdminStream, FundingSaysWhetherItAccruesContinuously) {
+    const auto base = linear_base();
+    FundingUpdate update{};
+    update.instrument = base.id;
+    update.rate = *parse_decimal_e9("0.0001");
+    update.ts_event = k_ts;
+    update.interval_s = 28'800;
+    update.accrual = FundingAccrual::Continuous;
+
+    const std::vector<Funding> rows{funding_of(update, base)};
+    const auto frame = funding_frame("f1", k_ts, rows);
+    EXPECT_NE(frame.find(R"("accrual":"continuous")"), std::string::npos) << frame;
 }
 
 TEST(AdminStream, AVenuePositionAgesOutRatherThanDecayingIntoFlatness) {

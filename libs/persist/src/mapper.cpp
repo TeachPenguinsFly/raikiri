@@ -248,6 +248,15 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         });
     } else if (frame.schema_id == schema::message_id<msgs::FundingMsg>()) {
         const auto m = schema::view_msg<msgs::FundingMsg>(frame.payload);
+        std::optional<std::string> accrual;
+        if (frame.schema_version >= 3) {
+            using A = raikiri_journal::types::fundingAccrualEnum;
+            if (m.accrual() == A::Discrete) {
+                accrual = "discrete";
+            } else if (m.accrual() == A::Continuous) {
+                accrual = "continuous";
+            }
+        }
         batch.funding.push_back({
             .instrument_id = m.instrument().value(),
             .ts_event = m.tsEvent().value(),
@@ -256,6 +265,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .mark_ticks = m.markPrice().value(),
             .next_funding_ts = m.nextFundingTime().value(),
             .interval_s = m.intervalS().value(),
+            .accrual = std::move(accrual),
         });
     } else if (frame.schema_id == schema::message_id<msgs::ConnectivityMsg>()) {
         const auto m = schema::view_msg<msgs::ConnectivityMsg>(frame.payload);

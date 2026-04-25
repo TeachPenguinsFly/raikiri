@@ -1,4 +1,5 @@
 #include <raikiri/domain/identifiers.hpp>
+#include <raikiri/domain/market_data.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
@@ -86,6 +87,34 @@ TEST(Journal, WriteReadRoundTrip) {
         EXPECT_EQ(m.bid().value(), static_cast<std::int64_t>(100 + i));
     }
     EXPECT_EQ(reader->next(frame), ReadResult::Empty);
+}
+
+TEST(Journal, ContinuousFundingSurvivesTheRoundTrip) {
+    const FreshDir dir{"accrual"};
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+
+    FundingUpdate update{};
+    update.instrument = InstrumentId::make(VenueId::Deribit, MarketType::Perp, SymbolId{3});
+    update.rate = FixedE9::from_raw(50'660);
+    update.interval_s = 28'800;
+    update.accrual = FundingAccrual::Continuous;
+    const auto seq = schema::append_msg<msgs::FundingMsg>(*writer, 1, [&](auto m) {
+        m.instrument(raikiri_journal::types::instrumentId{update.instrument.packed});
+        m.rate(raikiri_journal::types::fixedE9{update.rate.raw});
+        m.intervalS(update.interval_s);
+        m.accrual(static_cast<raikiri_journal::types::fundingAccrualEnum>(update.accrual));
+    });
+    ASSERT_TRUE(seq.has_value());
+
+    auto reader = JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    FrameView frame{};
+    ASSERT_EQ(reader->next(frame), ReadResult::Item);
+    EXPECT_EQ(frame.schema_version, 3U);
+    const auto m = schema::view_msg<msgs::FundingMsg>(frame.payload);
+    EXPECT_EQ(m.nextFundingTime().value(), 0U);
+    EXPECT_EQ(static_cast<FundingAccrual>(m.accrual()), FundingAccrual::Continuous);
 }
 
 TEST(Journal, RotationIsSeamlessForTheReader) {

@@ -218,8 +218,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
 
     for (const auto& r : batch.funding) {
         tx.exec("INSERT INTO raikiri.funding_observations (instrument_id, ts_event, rate_e9,"
-                " predicted_e9, mark_ticks, next_funding_ts, interval_s)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7)"
+                " predicted_e9, mark_ticks, next_funding_ts, interval_s, accrual)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
                 " ON CONFLICT (instrument_id, ts_event) DO NOTHING",
                 pqxx::params{r.instrument_id,
                              r.ts_event,
@@ -227,7 +227,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.predicted_e9,
                              r.mark_ticks,
                              r.next_funding_ts,
-                             r.interval_s});
+                             r.interval_s,
+                             r.accrual});
     }
 
     for (const auto& r : batch.connectivity) {

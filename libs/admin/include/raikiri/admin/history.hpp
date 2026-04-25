@@ -142,6 +142,7 @@ struct FundingObservation {
     // The rate's own interval. Annualising without it is wrong by a factor of
     // eight where a venue quotes hourly, so it is absent rather than assumed.
     std::optional<std::int64_t> interval_seconds;
+    std::optional<std::string> accrual;
     std::string ts_event;
 };
 

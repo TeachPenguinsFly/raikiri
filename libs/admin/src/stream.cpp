@@ -457,6 +457,11 @@ Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base) {
     if (funding.interval_s != 0) {
         out.interval_seconds = static_cast<std::int64_t>(funding.interval_s);
     }
+    if (funding.accrual == FundingAccrual::Discrete) {
+        out.accrual = "discrete";
+    } else if (funding.accrual == FundingAccrual::Continuous) {
+        out.accrual = "continuous";
+    }
     out.ts_event = digits(funding.ts_event);
     return out;
 }

@@ -299,6 +299,7 @@ public:
                 m.markPrice(jt::priceTicks{funding.mark_price.raw});
                 m.nextFundingTime(jt::timestampNs{funding.next_funding_time.ns});
                 m.intervalS(funding.interval_s);
+                m.accrual(static_cast<jt::fundingAccrualEnum>(funding.accrual));
                 m.tsEvent(jt::timestampNs{funding.ts_event.ns});
                 m.tsInit(jt::timestampNs{funding.ts_init.ns});
             });

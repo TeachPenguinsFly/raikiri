@@ -162,6 +162,7 @@ struct Funding {
     std::string mark_price;
     std::string next_funding_time;
     std::optional<std::int64_t> interval_seconds;
+    std::optional<std::string> accrual; // discrete | continuous; absent when unknown
     std::string ts_event;
 };
 

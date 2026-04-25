@@ -7,6 +7,7 @@
 // documented path if MD analytics are ever wanted.
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -127,6 +128,7 @@ struct FundingRow {
     std::int64_t mark_ticks{0};
     std::uint64_t next_funding_ts{0};
     std::uint32_t interval_s{0};
+    std::optional<std::string> accrual; // null: unknown, or journalled before version 3
 };
 
 struct ConnectivityRow {

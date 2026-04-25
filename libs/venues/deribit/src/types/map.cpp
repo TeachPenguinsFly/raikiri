@@ -303,6 +303,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.instrument = base.id;
     out.rate = *rate;
     out.interval_s = k_funding_basis_s;
+    out.accrual = FundingAccrual::Continuous;
     if (const auto mark = to_ticks(wire.mark_price, base); mark.has_value()) {
         out.mark_price = *mark;
     }

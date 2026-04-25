@@ -932,6 +932,13 @@ components:
             The rate's own interval. Hyperliquid quotes hourly where most
             venues quote per eight hours, so annualising without this is wrong
             by a factor of eight.
+        accrual:
+          type: string
+          enum: [discrete, continuous]
+          description: |
+            Absent when the venue did not say. `continuous` has no payment
+            instant, and interval_seconds is then the rate's unit rather than a
+            payment cadence.
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     Ticker:

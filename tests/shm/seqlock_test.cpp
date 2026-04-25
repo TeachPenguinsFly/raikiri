@@ -1,3 +1,4 @@
+#include <raikiri/shm/records.hpp>
 #include <raikiri/shm/seqlock_table.hpp>
 
 #include <gtest/gtest.h>
@@ -18,6 +19,20 @@ struct Snapshot {
     // Writers keep a == b == c; a torn read shows mixed values.
     [[nodiscard]] bool coherent() const noexcept { return a == b && b == c; }
 };
+
+TEST(FundingTable, ContinuousAccrualCrossesTheCell) {
+    const auto table = std::make_unique<FundingTable>();
+    FundingUpdate update{};
+    update.interval_s = 28'800;
+    update.accrual = FundingAccrual::Continuous;
+    table->write(3, update);
+
+    FundingUpdate out{};
+    ASSERT_NE(table->read(3, out), 0U);
+    EXPECT_EQ(out.accrual, FundingAccrual::Continuous);
+    EXPECT_EQ(out.next_funding_time.ns, 0U);
+    EXPECT_EQ(out.interval_s, 28'800U);
+}
 
 TEST(Seqlock, UnwrittenCellReadsAsVersionZero) {
     SeqlockCell<Snapshot> cell{};
