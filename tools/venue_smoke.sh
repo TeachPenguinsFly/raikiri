@@ -55,6 +55,8 @@ VENUES=(
   "apex:BTCUSDT"
   "edgex:BTCUSDC"
   "dydx:BTC-USD"
+  "phemex:BTCUSDT"
+  "phemex:sBTCUSDT|--market=spot"
 )
 
 printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict

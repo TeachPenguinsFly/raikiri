@@ -71,6 +71,7 @@
       <validValue name="Apex">25</validValue>
       <validValue name="Edgex">26</validValue>
       <validValue name="Dydx">27</validValue>
+      <validValue name="Phemex">28</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

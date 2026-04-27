@@ -52,6 +52,7 @@
 #include <raikiri/venues/lighter/lighter_venue.hpp>
 #include <raikiri/venues/mexc/mexc_venue.hpp>
 #include <raikiri/venues/okx/okx_venue.hpp>
+#include <raikiri/venues/phemex/phemex_venue.hpp>
 #include <raikiri/venues/sim/sim_venue.hpp>
 #include <raikiri/venues/weex/weex_venue.hpp>
 #include <raikiri/venues/apex/apex_venue.hpp>
@@ -1233,6 +1234,7 @@ int main(int argc, char** argv) {
     venues::apex::register_adapter();
     venues::edgex::register_adapter();
     venues::dydx::register_adapter();
+    venues::phemex::register_adapter();
     // ONE BUDGET FOR THE PROCESS, shared by the order path and the account
     // poller below, because the venue counts them together against one IP.
     // A venue absent from the file, or one whose buckets are all zero, is

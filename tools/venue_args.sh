@@ -31,7 +31,7 @@ declare -A MARKET=(
 #
 # hyperliquid is kept for testing its unexplained bbo/l2Book gap; it is not a
 # carry-board quote source yet.
-SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack"
+SPOT_CAPABLE="bybit okx bitget kucoin xt hyperliquid bingx gate mexc backpack phemex"
 
 # A SPOT GATEWAY IS HERE FOR THE CARRY BOARD, which reads a quote and a
 # turnover and nothing else. Subscribing the ladder and the tape as well is

@@ -70,6 +70,7 @@ running a gateway, adding a venue.
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `phemex` | CEX | spot · perp | **market data only** | – | – | – | – | – |
 | `weex` | CEX | perp | REST | – | – | – | – | ✓ |
 | `xt` | CEX | spot · perp | REST | – | – | ✓ | ListenKey | ✓ |
 <!-- venues:end -->

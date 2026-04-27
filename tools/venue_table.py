@@ -48,6 +48,7 @@ CUSTODY = {
     "lighter": "DEX",
     "mexc": "CEX",
     "okx": "CEX",
+    "phemex": "CEX",
     "weex": "CEX",
     "xt": "CEX",
 }
