@@ -175,3 +175,12 @@ venues:
       account: { capacity: 0, window_ms: 0, reserve: 0 }
       ledger: { capacity: 0, window_ms: 0, reserve: 0 }
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+  extended:
+    order_answer_timeout_ms: 15000
+    rate:
+      # 1000 requests a minute per IP, stated; half declared for a fixed window.
+      shared: { capacity: 500, window_ms: 60000, reserve: 50 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }

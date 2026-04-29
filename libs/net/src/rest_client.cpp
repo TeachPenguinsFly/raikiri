@@ -43,6 +43,7 @@ using tcp = boost::asio::ip::tcp;
 
 using TlsStream = beast::ssl_stream<beast::tcp_stream>;
 
+// Never empty: extended refuses a request or handshake without one (403).
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
 // Header names a venue states its metering under. Matched by PREFIX and

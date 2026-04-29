@@ -46,6 +46,7 @@ using WsStream = websock::stream<TlsStream>;
 // reconnecting at reconnect_max_ms.
 constexpr std::uint64_t k_stable_connection_ns = 30'000'000'000ULL;
 
+// Never empty: extended refuses a request or handshake without one (403).
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
 // RFC 6066 forbids IP literals in SNI and OpenSSL refuses to set one, so the

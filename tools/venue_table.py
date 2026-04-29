@@ -39,6 +39,7 @@ CUSTODY = {
     "deribit": "CEX",
     "edgex": "DEX",
     "dydx": "DEX",
+    "extended": "DEX",
     "gate": "CEX",
     "grvt": "DEX",
     "htx": "CEX",
