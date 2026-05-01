@@ -62,6 +62,18 @@ TEST(AdminFormat, APriceIsResolvedThroughTheInstrumentThatGivesItMeaning) {
     EXPECT_EQ(size(*base.qty_to_lots(*parse_decimal_e9("2.5")), base), "2.5");
 }
 
+TEST(AdminFormat, ASizePastInt64AtE9IsStillRendered) {
+    // Phemex spot PEPE/USDT, lot 1, quoted 20 755 471 406 at the ask.
+    auto base = base_of_kind(MarketType::Spot, "PEPE/USDT");
+    base.lot_size = *parse_decimal_e9("1");
+    base.tick_size = *parse_decimal_e9("0.00000001");
+    EXPECT_EQ(size(QtyLots::from_raw(20'755'471'406), base), "20755471406");
+    EXPECT_EQ(size(QtyLots::from_raw(-20'755'471'406), base), "-20755471406");
+    EXPECT_EQ(price(PriceTicks::from_raw(444), base), "0.00000444");
+    EXPECT_EQ(price(PriceTicks::from_raw(0), base), "0");
+    EXPECT_EQ(size(QtyLots::undef(), base), "");
+}
+
 TEST(AdminRegistry, AnOptionCarriesItsStrikeAndExpiryAndASpotCarriesNeither) {
     // Absent, never zero: an expiry of zero is a date in 1970 and a strike of
     // zero is a free option, and both would be read as data.

@@ -1,9 +1,44 @@
 #include <raikiri/admin/format.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 
 namespace raikiri::admin {
+
+namespace {
+
+// Taken in 128 bits: a meme coin's book size in e9 passes int64, and the
+// checked multiply in lots_to_qty aborts there.
+std::string scaled(std::int64_t count, FixedE9 step) {
+    if (step.is_undef()) {
+        return {};
+    }
+    const __int128 product = static_cast<__int128>(count) * step.raw;
+    auto mag = product < 0 ? -static_cast<unsigned __int128>(product)
+                           : static_cast<unsigned __int128>(product);
+    std::string out;
+    for (int place = 0; mag != 0 || place <= 9; ++place) {
+        if (place == 9) {
+            out.push_back('.');
+        }
+        out.push_back(static_cast<char>('0' + static_cast<int>(mag % 10)));
+        mag /= 10;
+    }
+    if (product < 0) {
+        out.push_back('-');
+    }
+    std::ranges::reverse(out);
+    while (out.back() == '0') {
+        out.pop_back();
+    }
+    if (out.back() == '.') {
+        out.pop_back();
+    }
+    return out;
+}
+
+} // namespace
 
 std::string digits(std::uint64_t value) {
     std::array<char, 24> buf{};
@@ -19,11 +54,11 @@ std::string decimal(FixedE9 value) {
 }
 
 std::string price(PriceTicks ticks, const InstrumentBase& base) {
-    return decimal(base.ticks_to_price(ticks));
+    return ticks.is_undef() ? std::string{} : scaled(ticks.raw, base.tick_size);
 }
 
 std::string size(QtyLots lots, const InstrumentBase& base) {
-    return decimal(base.lots_to_qty(lots));
+    return lots.is_undef() ? std::string{} : scaled(lots.raw, base.lot_size);
 }
 
 std::string_view contract_kind_name(ContractKind kind) noexcept {
