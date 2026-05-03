@@ -26,7 +26,7 @@ else
 endif
 DEPS_DIR := build/deps/$(shell echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
 
-.PHONY: deps configure build test bench demo up down fuzz fmt clean db-up db-down db-migrate db-shell
+.PHONY: deps configure build test bench demo up dup web down fuzz fmt clean db-up db-down db-migrate db-shell
 
 deps:
 	conan install . --output-folder=$(DEPS_DIR) --build=missing \
@@ -48,11 +48,22 @@ up: build
 	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
 	PRESET=$(PRESET) ./tools/dev_up.sh
 
+# Postgres, the schema, and every backend process in one go; the terminal is
+# `make web`, in its own shell.
+dup: build db-up db-migrate
+	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
+	RAIKIRI_PG_DSN=$(PG_DSN) WEB=none PRESET=$(PRESET) ./tools/dev_up.sh
+
+web:
+	@test -d frontend/node_modules || (cd frontend && npm install)
+	cd frontend && npm run dev -- --host 127.0.0.1 --port $${WEB_PORT:-5173}
+
 # For when a run was killed rather than stopped: a gateway that did not clean
 # up leaves a segment whose owner is gone, and the next start refuses it.
 down:
 	-@pkill -f 'apps/gatewayd/gatewayd' 2>/dev/null || true
 	-@pkill -f 'apps/admind/admind' 2>/dev/null || true
+	-@pkill -f 'apps/persisterd/persisterd' 2>/dev/null || true
 	-@pkill -f 'vite' 2>/dev/null || true
 	@echo "stopped; segments in $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 

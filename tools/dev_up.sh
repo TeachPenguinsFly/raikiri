@@ -216,7 +216,21 @@ pids+=($!)
 echo "  admind → http://127.0.0.1:$PORT  (stream :$STREAM_PORT)"
 sleep 2
 
-if [[ -d frontend/node_modules ]]; then
+# One persisterd per journal: each gateway writes its own, and a directory left
+# untailed is half the record missing from Postgres.
+if [[ -n "${RAIKIRI_PG_DSN:-}" && -x "$BIN/persisterd/persisterd" ]]; then
+    for venue in $VENUES; do
+        "$BIN/persisterd/persisterd" --dir "$RAIKIRI_DATA_DIR/journal/gatewayd-$venue" \
+            --name "gatewayd-$venue" > "$RAIKIRI_DATA_DIR/persisterd-$venue.log" 2>&1 &
+        pids+=($!)
+    done
+    echo "  persisterd × $(wc -w <<< "$VENUES" | tr -d ' ') → Postgres"
+fi
+
+if [[ "${WEB:-}" == none ]]; then
+    echo
+    echo "  frontend not started — make web"
+elif [[ -d frontend/node_modules ]]; then
     # --host 127.0.0.1 IS NOT DECORATION. Vite binds the name `localhost`,
     # which on macOS resolves to ::1 first, so the dev server answered on IPv6
     # and refused every check that names 127.0.0.1 — both smoke scripts and the
