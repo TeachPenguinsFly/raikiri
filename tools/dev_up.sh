@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole thing, locally, in one command.
 #
-#   make up                          # a default set of venues
+#   make up                          # every venue, with the spot legs that pair
 #   make up VENUES="bybit gate"      # just these
 #   make up VENUES="deribit-opt"     # options only
 #
@@ -123,7 +123,7 @@ if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_
     echo "op is not on PATH — running public only" >&2
 fi
 
-VENUES="${VENUES:-bybit gate kucoin binance deribit-opt}"
+VENUES="${VENUES:-binance bybit okx gate kucoin bingx xt mexc hyperliquid bitget htx bitfinex kraken weex aster grvt lighter backpack cryptocom blofin apex edgex dydx phemex extended deribit deribit-opt coinbase-spot}"
 
 # A SPOT GATEWAY IS ONLY WORTH STARTING WHERE THE PERPETUAL IS UP, because the
 # carry board pairs one against the other and a spot leg with nothing to pair
