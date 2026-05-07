@@ -1319,8 +1319,30 @@ int main(int argc, char** argv) {
     if (venue == VenueId::Sim) {
         catalogue = demo::sim_instruments();
     } else {
-        auto loaded = adapter->instruments->fetch_all(market);
+        const auto load_deadline =
+            duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
+        const auto stopping = [&] {
+            return g_stop.load(std::memory_order_relaxed) || clock.mono() >= load_deadline;
+        };
+        auto loaded =
+            exec::load_catalogue(*adapter->instruments,
+                                 market,
+                                 stopping,
+                                 [&](const exec::VenueError& error,
+                                     std::uint32_t attempt,
+                                     std::chrono::milliseconds wait) {
+                                     RLOG_WARN("gatewayd[{}]: catalogue load failed (attempt {}): "
+                                               "{} (code {}) — retrying in {} ms",
+                                               account_name,
+                                               attempt,
+                                               error.message.view(),
+                                               error.venue_code,
+                                               wait.count());
+                                 });
         if (!loaded.has_value()) {
+            if (stopping()) {
+                return 0;
+            }
             RLOG_ERROR("gatewayd[{}]: catalogue load failed: {} (code {})",
                        account_name,
                        loaded.error().message.view(),

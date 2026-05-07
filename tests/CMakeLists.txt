@@ -60,6 +60,7 @@ raikiri_add_test(bitfinex_venue_test SRCS venues/bitfinex/venue_test.cpp LIBS ra
 raikiri_add_test(weex_venue_test SRCS venues/weex/venue_test.cpp LIBS raikiri::venue_weex raikiri::exec)
 raikiri_add_test(ladder_test SRCS book/ladder_test.cpp LIBS raikiri::book)
 raikiri_add_test(order_gate_test SRCS exec/order_gate_test.cpp LIBS raikiri::exec)
+raikiri_add_test(catalogue_load_test SRCS exec/catalogue_load_test.cpp LIBS raikiri::exec)
 raikiri_add_test(rate_budget_test SRCS exec/rate_budget_test.cpp LIBS raikiri::exec)
 raikiri_add_test(aster_venue_test SRCS venues/aster/venue_test.cpp LIBS raikiri::venue_aster raikiri::exec)
 raikiri_add_test(grvt_venue_test SRCS venues/grvt/venue_test.cpp LIBS raikiri::venue_grvt raikiri::exec)
