@@ -38,11 +38,6 @@ constexpr std::size_t k_max_live_orders = 8'192;
 
 // A subscription the gateway asked for, owned as strings because the
 // instrument table's views outlive nothing in particular.
-struct OwnedSubscription {
-    std::string feed;
-    std::string product_id;
-};
-
 // What an order removal frame does not say. `open_orders` reports a departure
 // as {"order_id":..., "is_cancel":true, "reason":...} — no instrument, no
 // side, no size — so an adapter that did not write this down cannot emit the
@@ -78,6 +73,7 @@ struct VenueState {
     net::Signer signer;
 
     std::vector<OwnedSubscription> desired;
+    std::vector<OwnedSubscription> unsent;
     std::unordered_map<std::uint64_t, Book> books;
     std::unordered_map<std::string, LiveOrder> live_orders;
 
@@ -114,16 +110,7 @@ struct VenueState {
     }
 
     void add_subscription(std::string_view feed, std::string_view product_id) {
-        for (const auto& existing : desired) {
-            if (existing.feed == feed && existing.product_id == product_id) {
-                return; // refcounting lives in the gateway core; this is a set
-            }
-        }
-        const auto after_feed = std::ranges::find_if(
-            desired, [&](const OwnedSubscription& entry) { return entry.feed != feed; });
-        desired.insert(
-            after_feed,
-            OwnedSubscription{.feed = std::string{feed}, .product_id = std::string{product_id}});
+        kraken::add_subscription(desired, feed, product_id);
     }
 };
 

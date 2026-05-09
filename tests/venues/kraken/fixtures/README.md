@@ -71,6 +71,7 @@ here.
 | file | source |
 |---|---|
 | `rest_instruments.json` | `GET /instruments` (298 rows) trimmed to six |
+| `rest_instruments_live.json` | `GET /instruments` 2026-09-25, all 299 rows, each cut to the fields the parser reads |
 | `rest_ticker.json` | `GET /tickers/PF_XBTUSD` |
 | `rest_error_bad_symbol.json` | `GET /orderbook?symbol=` — a real `invalidArgument` body |
 | `rest_error_auth.json` | `GET /accounts` with no credentials |

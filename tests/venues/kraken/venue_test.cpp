@@ -1,4 +1,5 @@
 #include <raikiri/net/signer.hpp>
+#include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
@@ -15,8 +16,10 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace raikiri::venues::kraken {
 namespace {
@@ -809,6 +812,52 @@ TEST(KrakenWs, ThreeKindsResolveToTheOneTickerFeed) {
     EXPECT_EQ(feed_for(exec::SubKind::Trades), "trade");
     EXPECT_EQ(feed_for(exec::SubKind::Depth), "book");
     EXPECT_TRUE(feed_for(exec::SubKind::Kline).empty());
+}
+
+TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds) {
+    static thread_local InstrumentBuffer storage;
+    const auto body = fixture("rest_instruments_live.json");
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+
+    std::vector<OwnedSubscription> set;
+    std::size_t perps = 0;
+    for (const auto& row : *wire) {
+        if (!map_instrument(row, MarketType::Perp).has_value()) {
+            continue;
+        }
+        ++perps;
+        for (const auto kind : {exec::SubKind::Bbo,
+                                exec::SubKind::Trades,
+                                exec::SubKind::Depth,
+                                exec::SubKind::Funding}) {
+            add_subscription(set, feed_for(kind), row.symbol);
+        }
+    }
+    ASSERT_GT(perps, 256U);
+    ASSERT_EQ(set.size(), perps * 3);
+
+    std::vector<Subscription> views;
+    for (const auto& entry : set) {
+        views.push_back({.feed = entry.feed, .product_id = entry.product_id});
+    }
+    Protocol protocol;
+    std::size_t sent = 0;
+    std::size_t frames = 0;
+    std::size_t tickers = 0;
+    while (sent < views.size()) {
+        const auto frame =
+            protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(sent));
+        ASSERT_TRUE(frame.has_value());
+        if (views[sent].feed == "ticker") {
+            tickers += frame->consumed;
+        }
+        sent += frame->consumed;
+        ++frames;
+    }
+    EXPECT_EQ(tickers, perps);
+    EXPECT_EQ(frames, 3 * ((perps + k_max_products_per_frame - 1) / k_max_products_per_frame));
+    EXPECT_LT(frames, net::WsConfig{}.send_queue_capacity);
 }
 
 TEST(KrakenWs, SubscribeFrameNamesOneFeedAndManyProducts) {

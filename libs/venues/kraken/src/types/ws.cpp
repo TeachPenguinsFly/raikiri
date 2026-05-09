@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 
 namespace raikiri::venues::kraken {
 
@@ -78,6 +79,23 @@ std::string_view feed_for(exec::SubKind kind) noexcept {
         return {}; // Kraken serves candles over a separate REST charts API
     }
     return {};
+}
+
+void add_subscription(std::vector<OwnedSubscription>& set,
+                      std::string_view feed,
+                      std::string_view product_id) {
+    auto run_end = set.end();
+    for (auto it = set.begin(); it != set.end(); ++it) {
+        if (it->feed != feed) {
+            continue;
+        }
+        if (it->product_id == product_id) {
+            return;
+        }
+        run_end = std::next(it);
+    }
+    set.insert(run_end,
+               OwnedSubscription{.feed = std::string{feed}, .product_id = std::string{product_id}});
 }
 
 std::expected<Protocol::Frame, WsBuildError>

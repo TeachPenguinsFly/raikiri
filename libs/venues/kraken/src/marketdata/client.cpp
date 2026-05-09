@@ -111,28 +111,35 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
+// Returns how many entries went out; the rest wait for the next flush or the
+// reconnect, which resends the whole set.
+std::size_t send_subscriptions(VenueState& state,
+                               net::WsClient& client,
+                               std::span<const OwnedSubscription> entries) {
+    std::vector<Subscription> views;
+    views.reserve(entries.size());
+    for (const auto& entry : entries) {
+        views.push_back({.feed = entry.feed, .product_id = entry.product_id});
+    }
+    std::size_t sent = 0;
+    while (sent < views.size()) {
+        const auto frame =
+            state.protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(sent));
+        if (!frame.has_value() || frame->consumed == 0 || !client.send(frame->text)) {
+            break;
+        }
+        sent += frame->consumed;
+    }
+    return sent;
+}
+
 class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
     void on_open() override {
-        std::vector<Subscription> views;
-        views.reserve(state_->desired.size());
-        for (const auto& entry : state_->desired) {
-            views.push_back({.feed = entry.feed, .product_id = entry.product_id});
-        }
-        std::size_t sent = 0;
-        while (sent < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(sent));
-            if (!frame.has_value() || frame->consumed == 0) {
-                break;
-            }
-            if (!client_->send(frame->text)) {
-                break; // wedged socket; the reconnect retries the whole set
-            }
-            sent += frame->consumed;
-        }
+        state_->unsent.clear();
+        (void)send_subscriptions(*state_, *client_, state_->desired);
         // Whatever the seq chain said before the socket dropped says nothing
         // about the book_snapshot Kraken is about to send.
         for (auto& [id, book] : state_->books) {
@@ -209,26 +216,37 @@ public:
             return {};
         }
         if (client_.connected()) {
-            const std::array<Subscription, 1> one{Subscription{.feed = feed, .product_id = symbol}};
-            if (const auto frame = state_->protocol.subscribe_frame(one); frame.has_value()) {
-                (void)client_.send(frame->text);
-            }
+            add_subscription(state_->unsent, feed, symbol);
         }
         return {};
     }
 
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
-        return started_ ? state_->io.run_for(timeout_ms) : 0;
+        if (!started_) {
+            return 0;
+        }
+        flush();
+        return state_->io.run_for(timeout_ms);
     }
 
     void poll(UnixNanos) noexcept override {
         if (!started_) {
             return;
         }
+        flush();
         state_->io.poll();
     }
 
 private:
+    void flush() {
+        auto& unsent = state_->unsent;
+        if (unsent.empty() || !client_.connected()) {
+            return;
+        }
+        const auto sent = send_subscriptions(*state_, client_, unsent);
+        unsent.erase(unsent.begin(), unsent.begin() + static_cast<std::ptrdiff_t>(sent));
+    }
+
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsClient client_;

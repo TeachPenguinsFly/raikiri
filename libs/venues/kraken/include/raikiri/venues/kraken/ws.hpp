@@ -14,7 +14,9 @@
 #include <cstdint>
 #include <expected>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::venues::kraken {
 
@@ -41,6 +43,17 @@ struct Subscription {
     std::string_view feed;
     std::string_view product_id;
 };
+
+struct OwnedSubscription {
+    std::string feed;
+    std::string product_id;
+};
+
+// Keeps each feed's entries contiguous so subscribe_frame batches them: one
+// frame per entry would outrun the socket's send queue.
+void add_subscription(std::vector<OwnedSubscription>& set,
+                      std::string_view feed,
+                      std::string_view product_id);
 
 inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
 inline constexpr std::size_t k_max_products_per_frame = 64;
