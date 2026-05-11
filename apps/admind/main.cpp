@@ -117,6 +117,14 @@ int main(int argc, char** argv) {
         RLOG_WARN("admind: no DSN — history paths will answer 503");
     } else {
         history = std::make_unique<admin::History>(dsn);
+        history->set_catalogue([&registry](InstrumentId id) -> admin::Scales {
+            const auto row = registry.catalogue_row(id);
+            if (!row.has_value()) {
+                return {};
+            }
+            const auto& base = base_of(*row->instrument);
+            return {.tick_size = base.tick_size, .lot_size = base.lot_size};
+        });
         if (history->connected()) {
             RLOG_INFO("admind: postgres reachable");
         } else {

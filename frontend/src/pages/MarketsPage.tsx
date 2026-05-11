@@ -11,6 +11,7 @@ import { enterDelay, useEntranceOnce } from '@/lib/entrance'
 import { compact } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { api, type Market } from '@/api/client'
+import type { components } from '@/api/types'
 import { num, type LiveListing, type LiveMarket } from '@/lib/live'
 import { useQuery } from '@/lib/query'
 import { useBook, useFunding, useQuotes, useTicker } from '@/lib/stream'
@@ -25,6 +26,12 @@ const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) :
 // Volume is the QUOTE column, never the base one: ranking sixteen venues by
 // coins traded puts an inverse contract on top, because its base is the coin
 // the contract is priced in rather than the one it settles.
+type MarketType = components['schemas']['MarketType']
+
+const k_market_order: MarketType[] = ['perp', 'spot', 'future', 'option']
+
+const venueCount = (m: Market) => new Set(m.listings.map((l) => l.venue)).size
+
 type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding' | 'volume'
 
 /** A venue that has not quoted sorts LAST whichever way the column runs, so a
@@ -93,6 +100,7 @@ export function MarketsPage() {
   const [query, setQuery] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
   const [venue, setVenue] = useState<string | null>(null)
+  const [market, setMarket] = useState<MarketType>('perp')
 
   const { favorites, toggle } = useFavorites()
   const [onlyFavorites, setOnlyFavorites] = useState(false)
@@ -113,12 +121,22 @@ export function MarketsPage() {
     () => markets.find((m) => m.symbol === chosen) ?? markets[0] ?? null,
     [markets, chosen],
   )
+  const counts = useMemo(() => {
+    const out = new Map<MarketType, number>()
+    for (const l of selected?.listings ?? []) out.set(l.market, (out.get(l.market) ?? 0) + 1)
+    return out
+  }, [selected])
+  const shownMarket: MarketType =
+    (counts.get(market) ?? 0) > 0
+      ? market
+      : (k_market_order.find((m) => (counts.get(m) ?? 0) > 0) ?? market)
+  const listings = useMemo(
+    () => (selected?.listings ?? []).filter((l) => l.market === shownMarket),
+    [selected, shownMarket],
+  )
   // Only the open market is subscribed. Subscribing to the whole catalogue
   // would be thousands of instruments to read sixteen rows.
-  const shown = useMemo(
-    () => (selected === null ? [] : selected.listings.map((l) => l.instrument_id)),
-    [selected],
-  )
+  const shown = useMemo(() => listings.map((l) => l.instrument_id), [listings])
   const quotes = useQuotes(shown)
   const funding = useFunding(shown)
   const ticker = useTicker(shown)
@@ -127,7 +145,7 @@ export function MarketsPage() {
     if (selected === null) return null
     return {
       symbol: selected.symbol,
-      listings: selected.listings.map((l) => {
+      listings: listings.map((l) => {
         const q = quotes.get(l.instrument_id)
         const f = funding.get(l.instrument_id)
         const t = ticker.get(l.instrument_id)
@@ -145,7 +163,7 @@ export function MarketsPage() {
         }
       }),
     }
-  }, [selected, quotes, funding, ticker])
+  }, [selected, listings, quotes, funding, ticker])
   const entering = useEntranceOnce(live !== null, live?.symbol)
 
   // The row you clicked is what the ticket writes against and what the ladder
@@ -191,7 +209,15 @@ export function MarketsPage() {
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <section className="panel flex min-h-0 flex-[3] flex-col">
-          <MarketHeader symbol={live?.symbol ?? '—'} venues={live?.listings.length ?? 0} />
+          <MarketHeader
+            symbol={live?.symbol ?? '—'}
+            market={shownMarket}
+            counts={counts}
+            onMarket={(m) => {
+              setMarket(m)
+              setVenue(null)
+            }}
+          />
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full border-collapse text-sm whitespace-nowrap">
               <thead className="sticky top-0 z-10 bg-panel">
@@ -221,7 +247,7 @@ export function MarketsPage() {
               <tbody>
                 {ordered.map((l, i) => (
                   <VenueRow
-                    key={l.venue}
+                    key={l.instrument_id}
                     listing={l}
                     selected={chosenVenue?.venue === l.venue}
                     onSelect={() => setVenue(l.venue)}
@@ -294,12 +320,42 @@ function base(symbol: string): string {
   return cut < 0 ? symbol : symbol.slice(0, cut)
 }
 
-function MarketHeader({ symbol, venues }: { symbol: string; venues: number }) {
+function MarketHeader({
+  symbol,
+  market,
+  counts,
+  onMarket,
+}: {
+  symbol: string
+  market: MarketType
+  counts: Map<MarketType, number>
+  onMarket: (market: MarketType) => void
+}) {
+  const offered = k_market_order.filter((m) => (counts.get(m) ?? 0) > 0)
   return (
     <div className="flex h-9 shrink-0 items-center gap-2.5 px-3">
       <span className="text-sm font-semibold tracking-[-0.01em] text-fg">{symbol}</span>
-      <span className="text-2xs text-fg-dim">PERP</span>
-      <span className="meta ml-auto">{venues} venues</span>
+      <span className="text-2xs text-fg-dim uppercase">{market}</span>
+      <div className="ml-auto flex items-center gap-4" role="tablist">
+        {offered.map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={m === market}
+            onClick={() => onMarket(m)}
+            className={cn(
+              'relative flex h-9 items-center gap-1.5 text-xs capitalize transition-colors duration-150',
+              m === market
+                ? 'font-medium text-fg after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent'
+                : 'text-fg-dim hover:text-fg-mid',
+            )}
+          >
+            {m}
+            <span className="num text-2xs text-fg-dim">{counts.get(m)}</span>
+          </button>
+        ))}
+      </div>
       <span className="size-[5px] rounded-full bg-up" />
     </div>
   )
@@ -432,7 +488,7 @@ function MarketList({
                       instruments to fill a sidebar — and a stale or invented
                       figure beside a name is worse than none. */}
                   <span className="num w-3 text-right text-2xs text-fg-dim">
-                    {m.listings.length}
+                    {venueCount(m)}
                   </span>
                 </span>
               </button>

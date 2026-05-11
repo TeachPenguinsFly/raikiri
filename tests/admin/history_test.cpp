@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <glaze/glaze.hpp>
+#include <pqxx/pqxx>
 #include <string>
 #include <string_view>
 
@@ -159,6 +160,16 @@ TEST(AdminHistoryUnits, ACatalogueRowWithAnImpossibleScaleRefusesRatherThanAbort
     const Scales negative{.tick_size = FixedE9::from_raw(-1), .lot_size = FixedE9::from_raw(0)};
     EXPECT_FALSE(negative.price(PriceTicks::from_raw(1)).has_value());
     EXPECT_FALSE(negative.size(QtyLots::from_raw(1)).has_value());
+}
+
+TEST(AdminHistoryUnits, TheLiveCatalogueFillsOnlyWhatTheTableLeftOut) {
+    const Scales table{.tick_size = *parse_decimal_e9("0.1"), .lot_size = FixedE9::undef()};
+    const Scales live{.tick_size = *parse_decimal_e9("0.5"),
+                      .lot_size = *parse_decimal_e9("0.001")};
+    const auto merged = table.or_from(live);
+    EXPECT_EQ(merged.price(PriceTicks::from_raw(10)), "1");
+    EXPECT_EQ(merged.size(QtyLots::from_raw(2'500)), "2.5");
+    EXPECT_FALSE(Scales{}.or_from(Scales{}).price(PriceTicks::from_raw(1)).has_value());
 }
 
 // ---------------------------------------------------------------- json ----
@@ -350,6 +361,55 @@ TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
     EXPECT_TRUE(history.orders(forged, std::nullopt).items.empty());
     EXPECT_TRUE(history.funding(forged).items.empty());
     survived("a forged cursor");
+}
+
+// raikiri.instruments is empty until something loads it, and persisterd writes
+// fills regardless: the gateways' own catalogue has to answer for those rows.
+TEST(AdminHistoryPg, AFillWhoseInstrumentTheTableLacksIsScaledByTheLiveCatalogue) {
+    const char* dsn = std::getenv("RAIKIRI_PG_DSN");
+    if (dsn == nullptr || *dsn == '\0') {
+        GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
+    }
+    History history{dsn};
+    if (!history.connected() || !history.health().reachable) {
+        GTEST_SKIP() << "sql/migrations not applied to $RAIKIRI_PG_DSN";
+    }
+    const auto instrument =
+        InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF0U});
+    const auto id = std::to_string(static_cast<std::int64_t>(instrument.packed));
+    pqxx::connection conn{dsn};
+    const auto scrub = [&] {
+        pqxx::work tx{conn};
+        tx.exec("DELETE FROM raikiri.executions WHERE venue = 'history-test'");
+        tx.exec("DELETE FROM raikiri.instruments WHERE instrument_id = " + id);
+        tx.commit();
+    };
+    scrub();
+    {
+        pqxx::work tx{conn};
+        tx.exec("INSERT INTO raikiri.executions (venue, exec_id, instrument_id, side, price_ticks,"
+                " qty_lots, fee_e9, ts_event) VALUES ('history-test', 'e-1', " +
+                id + ", 'buy', 36729, 137, 5031880, 1)");
+        tx.commit();
+    }
+
+    const PageQuery query{.instrument = instrument};
+    auto fills = history.fills(query).items;
+    ASSERT_EQ(fills.size(), 1U);
+    EXPECT_EQ(fills[0].price, "") << "no table row and no catalogue: no price, never a tick count";
+
+    history.set_catalogue([&](InstrumentId asked) -> Scales {
+        if (asked != instrument) {
+            return {};
+        }
+        return {.tick_size = *parse_decimal_e9("0.01"), .lot_size = *parse_decimal_e9("0.01")};
+    });
+    fills = history.fills(query).items;
+    scrub();
+    ASSERT_EQ(fills.size(), 1U);
+    EXPECT_EQ(fills[0].price, "367.29");
+    EXPECT_EQ(fills[0].qty, "1.37");
+    EXPECT_EQ(fills[0].fee, "0.00503188");
 }
 
 } // namespace

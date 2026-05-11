@@ -226,8 +226,23 @@ private:
     return {.tick_size = scale_of(tick), .lot_size = scale_of(lot)};
 }
 
-[[nodiscard]] Order read_order(pqxx::row_ref row) {
-    const auto scales = scales_of(row.at("tick_size_e9"), row.at("lot_size_e9"));
+[[nodiscard]] Scales complete(Scales found, pqxx::field_ref instrument, const ScaleLookup& live) {
+    if ((!found.tick_size.is_undef() && !found.lot_size.is_undef()) || !live) {
+        return found;
+    }
+    const auto id = opt_int(instrument);
+    return id.has_value() ? found.or_from(live(InstrumentId{static_cast<std::uint64_t>(*id)}))
+                          : found;
+}
+
+[[nodiscard]] Scales scales_of(pqxx::row_ref row, const ScaleLookup& live) {
+    return complete(scales_of(row.at("tick_size_e9"), row.at("lot_size_e9")),
+                    row.at("instrument_id"),
+                    live);
+}
+
+[[nodiscard]] Order read_order(pqxx::row_ref row, const ScaleLookup& live) {
+    const auto scales = scales_of(row, live);
     const ClientOrderId coid{static_cast<std::uint64_t>(int_of(row.at("client_order_id")))};
     const auto flags = static_cast<OrderFlags>(static_cast<std::uint8_t>(int_of(row.at("flags"))));
     return {
@@ -252,8 +267,8 @@ private:
     };
 }
 
-[[nodiscard]] OrderEvent read_order_event(pqxx::row_ref row) {
-    const auto scales = scales_of(row.at("tick_size_e9"), row.at("lot_size_e9"));
+[[nodiscard]] OrderEvent read_order_event(pqxx::row_ref row, const ScaleLookup& live) {
+    const auto scales = scales_of(row, live);
     return {
         .client_order_id = digits_of(row.at("client_order_id")),
         .instrument_id = digits_of(row.at("instrument_id")),
@@ -267,8 +282,8 @@ private:
     };
 }
 
-[[nodiscard]] Fill read_fill(pqxx::row_ref row) {
-    const auto scales = scales_of(row.at("tick_size_e9"), row.at("lot_size_e9"));
+[[nodiscard]] Fill read_fill(pqxx::row_ref row, const ScaleLookup& live) {
+    const auto scales = scales_of(row, live);
     return {
         .venue = text_of(row.at("venue")),
         .exec_id = text_of(row.at("exec_id")),
@@ -284,8 +299,9 @@ private:
     };
 }
 
-[[nodiscard]] Position read_position(pqxx::row_ref row) {
-    const Scales scales{.lot_size = scale_of(row.at("lot_size_e9"))};
+[[nodiscard]] Position read_position(pqxx::row_ref row, const ScaleLookup& live) {
+    const auto scales =
+        complete({.lot_size = scale_of(row.at("lot_size_e9"))}, row.at("instrument_id"), live);
     Position out{};
     out.instrument_id = opt_id(row.at("instrument_id")).value_or(std::string{});
     out.strategy_id = int_of(row.at("strategy_id"));
@@ -316,8 +332,9 @@ private:
     };
 }
 
-[[nodiscard]] FundingObservation read_funding(pqxx::row_ref row) {
-    const Scales scales{.tick_size = scale_of(row.at("tick_size_e9"))};
+[[nodiscard]] FundingObservation read_funding(pqxx::row_ref row, const ScaleLookup& live) {
+    const auto scales =
+        complete({.tick_size = scale_of(row.at("tick_size_e9"))}, row.at("instrument_id"), live);
     // Zero is not a time and not an interval: the journal writes zero where the
     // venue said nothing, and a next funding time of zero is a date in 1970
     // while an interval of zero divides.
@@ -404,6 +421,11 @@ std::optional<std::string> Scales::price(PriceTicks ticks) const {
     InstrumentBase base{};
     base.tick_size = tick_size;
     return admin::price(ticks, base);
+}
+
+Scales Scales::or_from(const Scales& other) const noexcept {
+    return {.tick_size = tick_size.is_undef() ? other.tick_size : tick_size,
+            .lot_size = lot_size.is_undef() ? other.lot_size : lot_size};
 }
 
 std::optional<std::string> Scales::size(QtyLots lots) const {
@@ -508,6 +530,7 @@ std::optional<PnlKind> pnl_kind_from_string(std::string_view text) noexcept {
 
 struct History::Impl {
     std::string dsn;
+    ScaleLookup catalogue;
     std::unique_ptr<pqxx::connection> conn;
 
     explicit Impl(std::string d) : dsn{std::move(d)} { (void)open(); }
@@ -543,6 +566,8 @@ struct History::Impl {
 };
 
 History::History(std::string dsn) : impl_{std::make_unique<Impl>(std::move(dsn))} {}
+
+void History::set_catalogue(ScaleLookup lookup) { impl_->catalogue = std::move(lookup); }
 
 History::~History() = default;
 
@@ -621,7 +646,9 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
     const auto sql = std::string{k_order_select} + where.text() +
                      " ORDER BY o.ts_created DESC, o.client_order_id DESC" + limit_clause(limit);
     return impl_->read(OrderPage{}, [&](pqxx::connection& conn) {
-        return fetch<Order>(conn, sql, where.params(), limit, read_order);
+        return fetch<Order>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
+            return read_order(row, impl_->catalogue);
+        });
     });
 }
 
@@ -633,7 +660,7 @@ std::optional<Order> History::order(ClientOrderId id) const {
         pqxx::read_transaction tx{conn};
         const auto rows = tx.exec(sql, params);
         tx.commit();
-        return rows.empty() ? std::nullopt : std::optional{read_order(rows[0])};
+        return rows.empty() ? std::nullopt : std::optional{read_order(rows[0], impl_->catalogue)};
     });
 }
 
@@ -659,7 +686,7 @@ std::vector<OrderEvent> History::order_events(ClientOrderId id) const {
         std::vector<OrderEvent> out;
         out.reserve(static_cast<std::size_t>(rows.size()));
         for (const auto row : rows) {
-            out.push_back(read_order_event(row));
+            out.push_back(read_order_event(row, impl_->catalogue));
         }
         return out;
     });
@@ -689,7 +716,9 @@ FillPage History::fills(const PageQuery& query) const {
                      " ORDER BY x.ts_event DESC, x.venue DESC, x.exec_id DESC" +
                      limit_clause(limit);
     return impl_->read(FillPage{}, [&](pqxx::connection& conn) {
-        return fetch<Fill>(conn, sql, where.params(), limit, read_fill);
+        return fetch<Fill>(conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
+            return read_fill(row, impl_->catalogue);
+        });
     });
 }
 
@@ -716,7 +745,7 @@ std::vector<Position> History::positions(std::optional<AccountId> account,
         std::vector<Position> out;
         out.reserve(static_cast<std::size_t>(rows.size()));
         for (const auto row : rows) {
-            out.push_back(read_position(row));
+            out.push_back(read_position(row, impl_->catalogue));
         }
         return out;
     });
@@ -786,7 +815,10 @@ FundingPage History::funding(const PageQuery& query) const {
                      where.text() + " ORDER BY f.ts_event DESC, f.instrument_id DESC" +
                      limit_clause(limit);
     return impl_->read(FundingPage{}, [&](pqxx::connection& conn) {
-        return fetch<FundingObservation>(conn, sql, where.params(), limit, read_funding);
+        return fetch<FundingObservation>(
+            conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
+                return read_funding(row, impl_->catalogue);
+            });
     });
 }
 

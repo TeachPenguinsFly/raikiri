@@ -17,6 +17,7 @@
 #include <raikiri/domain/identifiers.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,7 +40,13 @@ struct Scales {
 
     [[nodiscard]] std::optional<std::string> price(PriceTicks ticks) const;
     [[nodiscard]] std::optional<std::string> size(QtyLots lots) const;
+
+    // Each undefined half taken from `other`.
+    [[nodiscard]] Scales or_from(const Scales& other) const noexcept;
 };
+
+// The attached gateways' catalogue, asked when raikiri.instruments has no row.
+using ScaleLookup = std::function<Scales(InstrumentId)>;
 
 // Keyset pagination. CURSORS, NOT OFFSETS: rows arrive continuously and an
 // offset walks a moving list, so a page boundary names the last row it emitted
@@ -208,6 +215,8 @@ public:
     [[nodiscard]] bool connected() const noexcept;
 
     [[nodiscard]] DatabaseHealth health() const;
+
+    void set_catalogue(ScaleLookup lookup);
 
     // Newest first. Every read below answers with what it has: a database that
     // went away yields an empty page and reopens on the next call, because the

@@ -180,8 +180,10 @@ function Grid({
 const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
   <th className={cn('col-head px-3', right === true ? 'text-right' : 'text-left')}>{children}</th>
 )
-const Id = ({ children }: { children: ReactNode }) => (
-  <td className="num px-3 text-xs text-fg-dim">{children}</td>
+const Id = ({ children }: { children: string | number }) => (
+  <td className="num truncate px-3 text-xs text-fg-dim" title={String(children)}>
+    {children}
+  </td>
 )
 const N = ({ children, className }: { children: ReactNode; className?: string }) => (
   <td className={cn('num px-3 text-right text-fg', className)}>{children}</td>
@@ -206,7 +208,7 @@ function When({ nanos }: { nanos: string | undefined }) {
 function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
   return (
     <>
-      <td className="px-3">
+      <td className="truncate px-3">
         {listing === undefined ? (
           <Silent />
         ) : (
@@ -221,13 +223,15 @@ function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
           no way to tell that this row's gateway is simply not attached. */}
       {listing === undefined ? (
         <td
-          className="num px-3 text-2xs text-fg-dim"
+          className="num truncate px-3 text-2xs text-fg-dim"
           title="no attached gateway lists this instrument — the packed id is all there is"
         >
           {id}
         </td>
       ) : (
-        <td className="px-3 text-fg">{listing.exchange_symbol}</td>
+        <td className="truncate px-3 text-fg" title={listing.exchange_symbol}>
+          {listing.exchange_symbol}
+        </td>
       )}
     </>
   )
@@ -317,8 +321,8 @@ function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
           <td className="px-3">
             <StatusBadge status={t.side} />
           </td>
-          <N>{t.price}</N>
-          <N>{t.qty}</N>
+          <N>{t.price === '' ? <Silent /> : t.price}</N>
+          <N>{t.qty === '' ? <Silent /> : t.qty}</N>
           {/* A NEGATIVE FEE IS A MAKER REBATE and stays negative: folding it
               into a cost would hide the one case a desk is trying to earn. */}
           <td className="num px-3 text-right text-fg-mid">

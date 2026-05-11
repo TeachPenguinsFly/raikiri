@@ -142,5 +142,5 @@ raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 raikiri_add_test(sim_book_test SRCS simcore/book_test.cpp LIBS raikiri::simcore)
 raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simcore)
 
-raikiri_add_test(history_test SRCS admin/history_test.cpp LIBS raikiri::admin glaze::glaze)
+raikiri_add_test(history_test SRCS admin/history_test.cpp LIBS raikiri::admin glaze::glaze libpqxx::pqxx)
 raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)
