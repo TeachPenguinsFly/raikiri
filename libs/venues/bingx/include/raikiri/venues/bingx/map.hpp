@@ -57,6 +57,9 @@ namespace raikiri::venues::bingx {
                                                    MarketType market,
                                                    UnixNanos ts_init);
 
+// The top level of each side, for the swap, whose bookTicker is silent.
+[[nodiscard]] std::optional<Bbo> touch_of(const BookSnapshot& book) noexcept;
+
 // From the premiumIndex poll, not from a stream: BingX publishes no funding
 // channel. Returns nullopt when the response quotes no rate at all — a
 // contract without funding must not be reported as one funding at zero.

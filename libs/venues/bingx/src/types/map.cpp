@@ -236,6 +236,19 @@ std::optional<BookSnapshot> map_book(const WireDepth& wire,
     return out;
 }
 
+std::optional<Bbo> touch_of(const BookSnapshot& book) noexcept {
+    if (book.bid_count == 0 || book.ask_count == 0) {
+        return std::nullopt;
+    }
+    return Bbo{.instrument = book.instrument,
+               .bid = book.bids[0].price,
+               .ask = book.asks[0].price,
+               .bid_qty = book.bids[0].qty,
+               .ask_qty = book.asks[0].qty,
+               .ts_event = book.ts_event,
+               .ts_init = book.ts_init};
+}
+
 std::optional<FundingUpdate>
 map_funding(const WirePremiumIndex& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     const auto* base_ptr = base_for_market(wire.symbol, table, MarketType::Perp);

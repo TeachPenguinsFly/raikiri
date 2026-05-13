@@ -99,6 +99,11 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
         if (const auto book = map_book(*wire, state.instruments, state.market, received);
             book.has_value()) {
             state.sink->on_depth(*book);
+            if (state.market != MarketType::Spot) {
+                if (const auto touch = touch_of(*book); touch.has_value()) {
+                    state.sink->on_bbo(*touch);
+                }
+            }
         }
         break;
     }

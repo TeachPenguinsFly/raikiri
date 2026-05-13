@@ -48,7 +48,9 @@ std::string_view data_type_suffix(exec::SubKind kind, MarketType market) noexcep
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        return "bookTicker";
+        // The swap acks {sym}@bookTicker and then sends nothing (2026-09-25),
+        // so a perp's touch is read off the ladder it already streams.
+        return spot ? "bookTicker" : "depth100@100ms";
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:

@@ -723,6 +723,35 @@ TEST(BingxMap, BookSnapshotCrossesIntoTheDomain) {
     }
 }
 
+TEST(BingxMap, APerpTouchIsTheTopOfItsLadder) {
+    // The swap acks {sym}@bookTicker and never sends a frame on it, so a perp
+    // Bbo subscription is the depth channel and the quote is its top level.
+    EXPECT_EQ(data_type_suffix(exec::SubKind::Bbo, MarketType::Perp),
+              data_type_suffix(exec::SubKind::Depth, MarketType::Perp));
+    EXPECT_EQ(data_type_suffix(exec::SubKind::Bbo, MarketType::Spot), "bookTicker");
+
+    const auto table = catalogue();
+    LevelBuffer storage;
+    const auto frame = load("ws_depth100.json");
+    const auto wire = parse_depth(frame, storage, MarketType::Perp);
+    ASSERT_TRUE(wire.has_value());
+    const auto book = map_book(*wire, table, MarketType::Perp, UnixNanos{99});
+    ASSERT_TRUE(book.has_value());
+    const auto touch = touch_of(*book);
+    ASSERT_TRUE(touch.has_value());
+    EXPECT_EQ(touch->instrument.packed, base_for(table, "BTC-USDT").id.packed);
+    EXPECT_EQ(touch->bid.raw, book->bids[0].price.raw);
+    EXPECT_EQ(touch->ask.raw, book->asks[0].price.raw);
+    EXPECT_EQ(touch->bid_qty.raw, book->bids[0].qty.raw);
+    EXPECT_EQ(touch->ask_qty.raw, book->asks[0].qty.raw);
+    EXPECT_LT(touch->bid.raw, touch->ask.raw);
+    EXPECT_EQ(touch->ts_event.ns, 1786983056064ULL * 1'000'000ULL);
+
+    auto one_sided = *book;
+    one_sided.ask_count = 0;
+    EXPECT_FALSE(touch_of(one_sided).has_value());
+}
+
 TEST(BingxMap, ALevelOffTheStepTruncatesTheBookRatherThanRoundingIt) {
     const auto table = catalogue();
     const std::array<WireLevel, 3> bids{WireLevel{.price = "64120.1", .qty = "1.0"},
@@ -812,7 +841,7 @@ TEST(BingxWs, BuildsSubscriptionFrames) {
     const auto first = protocol.subscribe_frame(
         "BTC-USDT", data_type_suffix(exec::SubKind::Bbo, MarketType::Perp));
     ASSERT_TRUE(first.has_value());
-    EXPECT_EQ(first->text, R"({"id":"1","reqType":"sub","dataType":"BTC-USDT@bookTicker"})");
+    EXPECT_EQ(first->text, R"({"id":"1","reqType":"sub","dataType":"BTC-USDT@depth100@100ms"})");
 
     // The id is echoed in the answer, so it has to move.
     const auto second = protocol.subscribe_frame(
