@@ -46,14 +46,14 @@ std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
     return level;
 }
 
-std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
+std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
+                                                  std::span<WireLevel> into) {
+    detail::ondemand::array array;
+    if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
     }
     std::size_t count = 0;
-    for (auto entry : *array) {
+    for (auto entry : array) {
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
@@ -69,6 +69,82 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
         ++count;
     }
     return count;
+}
+
+std::expected<std::uint64_t, WireError> ms_of(detail::ondemand::value value) {
+    const auto text = scalar_of(value);
+    if (!text.has_value()) {
+        return std::unexpected(text.error());
+    }
+    return detail::digits_to_u64(*text);
+}
+
+// One forward walk over `data`: begin and end are absent on a snapshot, and
+// looking each key up by name would skip both ladders once per miss.
+std::expected<void, WireError>
+read_depth_data(detail::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
+    std::optional<std::size_t> bids;
+    std::optional<std::size_t> asks;
+    std::expected<std::int64_t, WireError> begin{0};
+    std::expected<std::int64_t, WireError> end{0};
+    std::expected<std::int64_t, WireError> version{0};
+    std::expected<std::uint64_t, WireError> cts{detail::digits_to_u64({})};
+    std::expected<std::uint64_t, WireError> timestamp{detail::digits_to_u64({})};
+    const auto int_of =
+        [](detail::ondemand::value value) -> std::expected<std::int64_t, WireError> {
+        std::int64_t n = 0;
+        if (const auto ec = value.get_int64().get(n); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        return n;
+    };
+    for (auto field : data) {
+        std::string_view key;
+        if (const auto ec = field.escaped_key().get(key); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        detail::ondemand::value value;
+        if (const auto ec = field.value().get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(detail::map_error(ec));
+        }
+        if (key == "bids" || key == "asks") {
+            const bool bid = key == "bids";
+            const auto count = read_levels(value, bid ? storage.bids : storage.asks);
+            if (!count.has_value()) {
+                return std::unexpected(count.error());
+            }
+            (bid ? bids : asks) = *count;
+        } else if (key == "begin") {
+            begin = int_of(value);
+        } else if (key == "end") {
+            end = int_of(value);
+        } else if (key == "version") {
+            version = int_of(value);
+        } else if (key == "cts") {
+            cts = ms_of(value);
+        } else if (key == "timestamp") {
+            timestamp = ms_of(value);
+        }
+    }
+    if (!bids.has_value() || !asks.has_value()) {
+        return std::unexpected(detail::map_error(simdjson::NO_SUCH_FIELD));
+    }
+    if (!begin.has_value() || !end.has_value() || !version.has_value() || !cts.has_value()) {
+        return std::unexpected(WireError::WrongType);
+    }
+    out.begin = *begin;
+    out.end = *end;
+    out.version = *version;
+    out.ts_ms = *cts;
+    if (out.ts_ms == 0) {
+        if (!timestamp.has_value()) {
+            return std::unexpected(timestamp.error());
+        }
+        out.ts_ms = *timestamp;
+    }
+    out.bids = {storage.bids.data(), *bids};
+    out.asks = {storage.asks.data(), *asks};
+    return {};
 }
 
 std::expected<WireLevel, WireError> read_stream_level(std::string_view encoded) {
@@ -119,40 +195,48 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         WireDepth out{};
         out.symbol = *symbol;
-        const auto bids = read_levels(*data, "bids", storage.bids);
-        if (!bids.has_value()) {
-            return std::unexpected(bids.error());
+        if (const auto read = read_depth_data(*data, storage, out); !read.has_value()) {
+            return std::unexpected(read.error());
         }
-        const auto asks = read_levels(*data, "asks", storage.asks);
-        if (!asks.has_value()) {
-            return std::unexpected(asks.error());
-        }
-        // begin/end are absent on a snapshot; version is on both.
-        const auto begin = opt_int(*data, "begin", 0);
-        const auto end = opt_int(*data, "end", 0);
-        const auto version = opt_int(*data, "version", 0);
-        const auto cts = scalar_ms(*data, "cts");
-        if (!begin.has_value() || !end.has_value() || !version.has_value() || !cts.has_value()) {
-            return std::unexpected(WireError::WrongType);
-        }
-        out.begin = *begin;
-        out.end = *end;
-        out.version = *version;
-        out.ts_ms = *cts;
-        if (out.ts_ms == 0) {
-            const auto ts = scalar_ms(*data, "timestamp");
-            if (!ts.has_value()) {
-                return std::unexpected(ts.error());
-            }
-            out.ts_ms = *ts;
-        }
-        out.bids = {storage.bids.data(), *bids};
-        out.asks = {storage.asks.data(), *asks};
         const auto channel = opt_scalar(*root, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
         out.snapshot = channel->empty() || *channel == "push.depth.full";
+        return out;
+    });
+}
+
+std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame,
+                                                           LevelBuffer& storage) {
+    return guarded([&]() -> std::expected<DepthEvent, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto symbol = envelope_symbol(*root);
+        if (!symbol.has_value()) {
+            return std::unexpected(symbol.error());
+        }
+        const auto channel = req_scalar(*root, "channel");
+        if (!channel.has_value()) {
+            return std::unexpected(channel.error());
+        }
+        DepthEvent out{.event = {.kind = kind_from_channel(*channel), .symbol = *symbol},
+                       .depth = std::nullopt};
+        if (out.event.kind != EventKind::DepthFull || root->reset().error() != simdjson::SUCCESS) {
+            return out;
+        }
+        auto data = detail::req_object(*root, "data");
+        if (!data.has_value()) {
+            return out;
+        }
+        WireDepth depth{};
+        depth.symbol = *symbol;
+        depth.snapshot = true;
+        if (read_depth_data(*data, storage, depth).has_value()) {
+            out.depth = depth;
+        }
         return out;
     });
 }

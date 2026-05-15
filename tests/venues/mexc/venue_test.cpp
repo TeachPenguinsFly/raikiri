@@ -14,12 +14,11 @@
 
 #include <gtest/gtest.h>
 
-#include <map>
-#include <memory>
-
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -174,6 +173,63 @@ TEST(MexcWire, EventDispatchResolvesChannelAndSymbol) {
         // The symbol is in the ENVELOPE, not in the payload.
         EXPECT_EQ(event->symbol, "BTC_USDT") << file;
     }
+}
+
+TEST(MexcWire, OneOpenReadsTheSameEventAndBookAsTwo) {
+    for (const char* file : {"ws_depth_full.json",
+                             "ws_depth_update.json",
+                             "ws_deal.json",
+                             "ws_ticker.json",
+                             "ws_subscribe_ack.json",
+                             "ws_error.json"}) {
+        const auto frame = fixture(file);
+        LevelBuffer one;
+        const auto both = parse_event_and_depth(frame, one);
+        const auto event = parse_event(frame);
+        ASSERT_TRUE(both.has_value()) << file;
+        ASSERT_TRUE(event.has_value()) << file;
+        EXPECT_EQ(both->event.kind, event->kind) << file;
+        EXPECT_EQ(both->event.symbol, event->symbol) << file;
+        EXPECT_EQ(both->depth.has_value(), event->kind == EventKind::DepthFull) << file;
+        if (!both->depth.has_value()) {
+            continue;
+        }
+        LevelBuffer two;
+        const auto depth = parse_depth(frame, two);
+        ASSERT_TRUE(depth.has_value()) << file;
+        EXPECT_EQ(both->depth->symbol, depth->symbol);
+        EXPECT_EQ(both->depth->snapshot, depth->snapshot);
+        EXPECT_EQ(both->depth->version, depth->version);
+        EXPECT_EQ(both->depth->begin, depth->begin);
+        EXPECT_EQ(both->depth->end, depth->end);
+        EXPECT_EQ(both->depth->ts_ms, depth->ts_ms);
+        ASSERT_EQ(both->depth->bids.size(), depth->bids.size());
+        ASSERT_EQ(both->depth->asks.size(), depth->asks.size());
+        for (std::size_t i = 0; i < depth->bids.size(); ++i) {
+            EXPECT_EQ(both->depth->bids[i].price, depth->bids[i].price) << i;
+            EXPECT_EQ(both->depth->bids[i].qty, depth->bids[i].qty) << i;
+        }
+        for (std::size_t i = 0; i < depth->asks.size(); ++i) {
+            EXPECT_EQ(both->depth->asks[i].price, depth->asks[i].price) << i;
+            EXPECT_EQ(both->depth->asks[i].qty, depth->asks[i].qty) << i;
+        }
+    }
+}
+
+TEST(MexcWire, ASnapshotWithoutBeginOrEndReadsThemAsZero) {
+    const auto frame = fixture("ws_depth_full.json");
+    ASSERT_EQ(frame.find("\"begin\""), std::string::npos);
+    ASSERT_EQ(frame.find("\"end\""), std::string::npos);
+    LevelBuffer storage;
+    const auto depth = parse_depth(frame, storage);
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_TRUE(depth->snapshot);
+    EXPECT_EQ(depth->begin, 0);
+    EXPECT_EQ(depth->end, 0);
+    EXPECT_EQ(depth->version, 40789901950);
+    EXPECT_EQ(depth->ts_ms, 1786982679141U);
+    EXPECT_FALSE(depth->bids.empty());
+    EXPECT_FALSE(depth->asks.empty());
 }
 
 TEST(MexcWire, DepthAndDepthFullAreNotConfused) {

@@ -115,14 +115,14 @@ void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos rece
 }
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    const auto event = parse_event(frame);
-    if (!event.has_value()) {
+    static thread_local LevelBuffer levels;
+    const auto parsed = parse_event_and_depth(frame, levels);
+    if (!parsed.has_value()) {
         return; // unknown shapes are ignored, never fatal
     }
-    switch (event->kind) {
+    switch (parsed->event.kind) {
     case EventKind::DepthFull: {
-        static thread_local LevelBuffer levels;
-        const auto wire = parse_depth(frame, levels);
+        const auto& wire = parsed->depth;
         if (!wire.has_value()) {
             return;
         }

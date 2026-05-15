@@ -3,11 +3,13 @@
 // The order book on both sockets: the futures depth channels, and the spot
 // protobuf feed that is the only book MEXC still serves for spot.
 
+#include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
 
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -50,6 +52,15 @@ struct WireDepth {
 
 [[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
                                                               LevelBuffer& storage);
+
+// parse_event, and parse_depth on a push.depth.full frame, off one open of it.
+struct DepthEvent {
+    EventInfo event;
+    std::optional<WireDepth> depth;
+};
+
+[[nodiscard]] std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame,
+                                                                         LevelBuffer& storage);
 
 // The spot socket, whose payloads are protobuf submessages the envelope has
 // already located. FIELD NUMBERS ARE STATED, NOT DERIVED — see envelope.hpp.

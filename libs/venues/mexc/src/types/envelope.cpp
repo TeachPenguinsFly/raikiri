@@ -16,6 +16,32 @@ namespace pb = raikiri::wire::pb;
 using detail::guarded;
 using detail::session;
 
+// Spot envelope fields, off a live capture.
+constexpr std::uint32_t k_field_channel = 1;
+constexpr std::uint32_t k_field_symbol = 3;
+constexpr std::uint32_t k_field_send_ms = 6;
+
+// Payload fields. Which one is present IS the frame's type — the channel
+// string names it too, but the number is what the decoder can act on.
+constexpr std::uint32_t k_field_depth = 303;
+constexpr std::uint32_t k_field_deals = 314;
+constexpr std::uint32_t k_field_book_ticker = 315;
+
+StreamKind kind_of(std::uint32_t number) noexcept {
+    switch (number) {
+    case k_field_book_ticker:
+        return StreamKind::Quote;
+    case k_field_deals:
+        return StreamKind::Trade;
+    case k_field_depth:
+        return StreamKind::Depth;
+    default:
+        return StreamKind::Unknown;
+    }
+}
+
+} // namespace
+
 EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "push.ticker") {
         return EventKind::Ticker;
@@ -52,32 +78,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     }
     return EventKind::Unknown;
 }
-
-// Spot envelope fields, off a live capture.
-constexpr std::uint32_t k_field_channel = 1;
-constexpr std::uint32_t k_field_symbol = 3;
-constexpr std::uint32_t k_field_send_ms = 6;
-
-// Payload fields. Which one is present IS the frame's type — the channel
-// string names it too, but the number is what the decoder can act on.
-constexpr std::uint32_t k_field_depth = 303;
-constexpr std::uint32_t k_field_deals = 314;
-constexpr std::uint32_t k_field_book_ticker = 315;
-
-StreamKind kind_of(std::uint32_t number) noexcept {
-    switch (number) {
-    case k_field_book_ticker:
-        return StreamKind::Quote;
-    case k_field_deals:
-        return StreamKind::Trade;
-    case k_field_depth:
-        return StreamKind::Depth;
-    default:
-        return StreamKind::Unknown;
-    }
-}
-
-} // namespace
 
 std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value value) {
     // raw_json() on a scalar returns the token plus whitespace up to the next

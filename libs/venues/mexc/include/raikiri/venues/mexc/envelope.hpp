@@ -57,6 +57,8 @@ struct EventInfo {
     std::string_view symbol; // empty on control frames
 };
 
+[[nodiscard]] EventKind kind_from_channel(std::string_view channel) noexcept;
+
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
 // No code field exists to carry: classification has nothing to key on, so the
