@@ -24,10 +24,10 @@ JournalWriter::JournalWriter(JournalWriter&& other) noexcept
       // segments kept eight, which is the shape this omission always takes:
       // correct at the call site, wrong by the first use.
       retain_segments_{other.retain_segments_}, pruned_{other.pruned_},
-      header_{std::exchange(other.header_, nullptr)},
-      base_{std::exchange(other.base_, nullptr)}, fd_{std::exchange(other.fd_, -1)},
-      lock_fd_{std::exchange(other.lock_fd_, -1)}, write_off_{other.write_off_},
-      segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_} {}
+      header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
+      fd_{std::exchange(other.fd_, -1)}, lock_fd_{std::exchange(other.lock_fd_, -1)},
+      write_off_{other.write_off_}, segment_seq_{other.segment_seq_}, next_seq_{other.next_seq_},
+      synced_seq_{other.synced_seq_}, syncs_{other.syncs_} {}
 
 JournalWriter::~JournalWriter() {
     close_segment();
@@ -89,11 +89,10 @@ void JournalWriter::close_segment() noexcept {
     }
 }
 
-std::expected<JournalWriter, JournalError>
-JournalWriter::open(std::string dir,
-                    std::string prefix,
-                    std::size_t segment_bytes,
-                    std::size_t retain_segments) {
+std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
+                                                               std::string prefix,
+                                                               std::size_t segment_bytes,
+                                                               std::size_t retain_segments) {
     JournalWriter w;
     w.dir_ = std::move(dir);
     w.prefix_ = std::move(prefix);
@@ -240,12 +239,17 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
 }
 
 void JournalWriter::flush() noexcept {
-    if (fd_ >= 0) {
+    if (fd_ < 0 || synced_seq_ == next_seq_) {
+        return;
+    }
 #if defined(__APPLE__)
-        ::fcntl(fd_, F_FULLFSYNC);
+    const int rc = ::fcntl(fd_, F_FULLFSYNC);
 #else
-        ::fdatasync(fd_);
+    const int rc = ::fdatasync(fd_);
 #endif
+    ++syncs_;
+    if (rc == 0) {
+        synced_seq_ = next_seq_;
     }
 }
 

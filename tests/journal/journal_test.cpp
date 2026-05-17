@@ -43,7 +43,10 @@ public:
     FreshDir& operator=(const FreshDir&) = delete;
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
-    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
+
+    operator const std::string&() const noexcept {
+        return path_;
+    } // NOLINT(google-explicit-constructor)
 
 private:
     void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }
@@ -87,6 +90,29 @@ TEST(Journal, WriteReadRoundTrip) {
         EXPECT_EQ(m.bid().value(), static_cast<std::int64_t>(100 + i));
     }
     EXPECT_EQ(reader->next(frame), ReadResult::Empty);
+}
+
+TEST(Journal, FlushSyncsOnlyWhatWasAppendedSinceTheLastSync) {
+    const FreshDir dir{"idle_flush"};
+    auto writer = JournalWriter::open(dir, "journal");
+    ASSERT_TRUE(writer.has_value());
+
+    writer->flush(); // the fresh segment itself
+    EXPECT_EQ(writer->syncs(), 1U);
+    writer->flush();
+    writer->flush();
+    EXPECT_EQ(writer->syncs(), 1U);
+
+    ASSERT_EQ(append_bbo(*writer, 1), 1U);
+    writer->flush();
+    EXPECT_EQ(writer->syncs(), 2U);
+    writer->flush();
+    EXPECT_EQ(writer->syncs(), 2U);
+
+    ASSERT_EQ(append_bbo(*writer, 2), 2U);
+    ASSERT_EQ(append_bbo(*writer, 3), 3U);
+    writer->flush();
+    EXPECT_EQ(writer->syncs(), 3U);
 }
 
 TEST(Journal, ContinuousFundingSurvivesTheRoundTrip) {
@@ -307,10 +333,8 @@ TEST(Journal, ASegmentCreatedButNeverHeaderedIsAdoptedRatherThanRefused) {
 
     {
         auto reopened = JournalWriter::open(dir, "journal", k_small);
-        ASSERT_TRUE(reopened.has_value())
-            << "a blank newest segment must not lock out the journal";
-        EXPECT_EQ(reopened->next_seq(), wrote + 1)
-            << "the sequence continues, it does not restart";
+        ASSERT_TRUE(reopened.has_value()) << "a blank newest segment must not lock out the journal";
+        EXPECT_EQ(reopened->next_seq(), wrote + 1) << "the sequence continues, it does not restart";
         EXPECT_EQ(append_bbo(*reopened, wrote + 1), wrote + 1);
     }
 
@@ -406,8 +430,8 @@ std::size_t segments_in(const std::string& dir) {
     std::size_t n = 0;
     for (std::uint64_t seq = 0; seq < 1000; ++seq) {
         char path[512];
-        std::snprintf(path, sizeof path, "%s/j.%06llu.rj", dir.c_str(),
-                      static_cast<unsigned long long>(seq));
+        std::snprintf(
+            path, sizeof path, "%s/j.%06llu.rj", dir.c_str(), static_cast<unsigned long long>(seq));
         struct ::stat st{};
         if (::stat(path, &st) == 0) {
             ++n;

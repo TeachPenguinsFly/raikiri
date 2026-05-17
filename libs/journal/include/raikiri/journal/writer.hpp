@@ -57,8 +57,11 @@ public:
            std::span<const std::byte> payload,
            std::uint64_t ts_ns) noexcept;
 
-    // Cold-thread group commit (fdatasync/F_FULLFSYNC of the current segment).
+    // Cold-thread group commit (fdatasync/F_FULLFSYNC of the current segment),
+    // skipped when nothing was appended since the last one that succeeded.
     void flush() noexcept;
+
+    [[nodiscard]] std::uint64_t syncs() const noexcept { return syncs_; }
 
     [[nodiscard]] std::uint64_t next_seq() const noexcept { return next_seq_; }
 
@@ -101,6 +104,8 @@ private:
     std::uint64_t write_off_{0}; // == committed_bytes, writer's cached copy
     std::uint64_t segment_seq_{0};
     std::uint64_t next_seq_{1};
+    std::uint64_t synced_seq_{0};
+    std::uint64_t syncs_{0};
 };
 
 } // namespace raikiri::journal
