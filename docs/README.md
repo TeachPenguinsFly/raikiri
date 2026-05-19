@@ -7,7 +7,7 @@ How the framework is put together and how to work with it. The
 - [Running a gateway](#running-a-gateway) — flags, credentials, the smoke test
 - [Venue table](#venue-table) — what each column means, and adding a venue
 - [Performance](#performance) — measured numbers
-- [Build and test](#build-and-test) — presets, sanitizers, fuzzing
+- [Build and test](#build-and-test) — presets and sanitizers
 - [Status](#status) — what is proven and what is merely written
 
 Deeper notes live beside this file: [`CONNECTIONS.md`](CONNECTIONS.md),
@@ -218,7 +218,6 @@ make deps                  # dependencies via Conan
 make test                  # ASan + UBSan
 make test PRESET=dev-tsan  # ThreadSanitizer
 make bench                 # Release benchmarks
-make fuzz FUZZ_SECONDS=60  # libFuzzer targets (Homebrew clang on macOS)
 ```
 
 ---

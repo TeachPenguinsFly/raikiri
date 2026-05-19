@@ -12,4 +12,4 @@ only, no credentials.
 | `*_initial.json` | a subscription's first answer (request id, not -1) |
 | `ws_error_unsupported.json` | the same session asking the book at 500 ms |
 | `ws_error_max_subscriptions.json` | a socket holding 400 `ticker` channels asked for a 401st |
-| `fuzz_*.json` | not captured: inputs `cryptocom_wire_fuzz` found crashing the book parser |
+| `fuzz_*.json` | not captured: inputs a fuzzer found crashing the book parser |

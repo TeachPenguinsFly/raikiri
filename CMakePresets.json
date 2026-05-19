@@ -41,18 +41,6 @@
       }
     },
     {
-      "name": "fuzz",
-      "displayName": "Clang + libFuzzer + ASan/UBSan (Homebrew clang on macOS; clang-18 in CI)",
-      "inherits": "base",
-      "toolchainFile": "${sourceDir}/build/deps/fuzz/conan_toolchain.cmake",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "RAIKIRI_SANITIZE": "address,undefined",
-        "RAIKIRI_BUILD_FUZZ": "ON",
-        "RAIKIRI_BUILD_BENCH": "OFF"
-      }
-    },
-    {
       "name": "bench",
       "displayName": "Release for benchmarking (pass RAIKIRI_MARCH explicitly on x86 deploy targets)",
       "inherits": "base",
@@ -67,7 +55,6 @@
     { "name": "dev-asan", "configurePreset": "dev-asan" },
     { "name": "dev-tsan", "configurePreset": "dev-tsan" },
     { "name": "rel", "configurePreset": "rel" },
-    { "name": "fuzz", "configurePreset": "fuzz" },
     { "name": "bench", "configurePreset": "bench" }
   ],
   "testPresets": [

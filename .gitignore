@@ -28,8 +28,6 @@ tools/op.env.*
 __pycache__/
 .pytest_cache/
 
-# Notes, research and the fuzz harnesses stay on this machine; only their READMEs are published.
+# Notes and research stay on this machine; only the manual is published.
 docs/*
 !docs/README.md
-fuzz/*
-!fuzz/README.md
