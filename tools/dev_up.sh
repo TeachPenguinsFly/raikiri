@@ -123,7 +123,7 @@ if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_
     echo "op is not on PATH — running public only" >&2
 fi
 
-VENUES="${VENUES:-binance bybit okx gate kucoin bingx xt mexc hyperliquid bitget htx bitfinex kraken weex aster grvt lighter backpack cryptocom blofin apex edgex dydx phemex extended deribit deribit-opt coinbase-spot}"
+VENUES="${VENUES:-binance bybit okx gate kucoin bingx xt mexc hyperliquid bitget htx bitfinex kraken weex aster grvt lighter backpack cryptocom blofin apex edgex dydx phemex extended deribit deribit-opt}"
 
 # A SPOT GATEWAY IS ONLY WORTH STARTING WHERE THE PERPETUAL IS UP, because the
 # carry board pairs one against the other and a spot leg with nothing to pair
