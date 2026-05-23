@@ -55,7 +55,10 @@ public:
         // caused it, and the books it unsynchronises are the only visible
         // symptom.
         if (reason != WsCloseReason::Requested) {
-            RLOG_WARN("ws pool {}: socket closed — {}", host_, to_string(reason));
+            RLOG_WARN("ws pool {}: socket closed — {} ({})",
+                      host_,
+                      to_string(reason),
+                      self_ != nullptr ? self_->close_detail() : std::string_view{});
         }
         shared_->on_close(reason);
     }

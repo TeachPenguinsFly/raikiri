@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <format>
 #include <memory>
 #include <random>
 #include <string>
@@ -56,6 +57,20 @@ constexpr std::string_view k_user_agent = "raikiri/0.1";
     boost::system::error_code ec;
     static_cast<void>(asio::ip::make_address(host, ec));
     return !ec;
+}
+
+[[nodiscard]] std::string describe(std::string_view stage, const beast::error_code& ec) {
+    return std::format("{}: {} {} {}", stage, ec.category().name(), ec.value(), ec.message());
+}
+
+[[nodiscard]] std::string describe(const websock::close_reason& frame) {
+    if (frame.code == websock::close_code::none) {
+        return "close frame without a code";
+    }
+    if (frame.reason.empty()) {
+        return std::format("close {}", static_cast<unsigned>(frame.code));
+    }
+    return std::format("close {} {}", static_cast<unsigned>(frame.code), frame.reason.c_str());
 }
 
 } // namespace
@@ -179,6 +194,8 @@ public:
 
     [[nodiscard]] WsClient::Stats stats() const noexcept { return stats_; }
 
+    [[nodiscard]] std::string_view close_detail() const noexcept { return close_detail_; }
+
 private:
     enum class State : std::uint8_t {
         Idle,
@@ -225,7 +242,7 @@ private:
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe("resolve", ec));
             return;
         }
         state_ = State::Connecting;
@@ -245,14 +262,14 @@ private:
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe("connect", ec));
             return;
         }
         state_ = State::TlsHandshake;
         if (!is_ip_literal(cfg_.host) &&
             !detail::set_sni_host(conn->stream.next_layer().native_handle(),
                                   cfg_.host.c_str())) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, "sni: refused");
             return;
         }
         conn->stream.next_layer().async_handshake(
@@ -267,7 +284,7 @@ private:
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe("tls handshake", ec));
             return;
         }
         state_ = State::WsHandshake;
@@ -305,7 +322,7 @@ private:
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe("ws handshake", ec));
             return;
         }
         state_ = State::Open;
@@ -317,7 +334,7 @@ private:
         try {
             handler_.on_open();
         } catch (...) {
-            close_with(WsCloseReason::ProtocolError);
+            close_with(WsCloseReason::ProtocolError, "on_open threw");
             return;
         }
         if (!current(gen, conn)) {
@@ -344,20 +361,20 @@ private:
             return;
         }
         if (ec == websock::error::closed) {
-            close_with(WsCloseReason::ServerClosed);
+            close_with(WsCloseReason::ServerClosed, describe(conn->stream.reason()));
             return;
         }
         if (ec == websock::error::message_too_big || ec == websock::error::buffer_overflow) {
-            close_with(WsCloseReason::ProtocolError);
+            close_with(WsCloseReason::ProtocolError, describe("read", ec));
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe("read", ec));
             return;
         }
         awaiting_pong_ = false;
         if (bytes > cfg_.max_message_bytes) {
-            close_with(WsCloseReason::ProtocolError);
+            close_with(WsCloseReason::ProtocolError, std::format("read: {} byte message", bytes));
             return;
         }
         ++stats_.messages_received;
@@ -408,7 +425,7 @@ private:
         }
         writing_ = false;
         if (ec) {
-            close_with(WsCloseReason::Transport);
+            close_with(WsCloseReason::Transport, describe(was_ping ? "ping" : "write", ec));
             return;
         }
         if (!was_ping) {
@@ -433,7 +450,8 @@ private:
         if (was_awaiting) {
             if (awaiting_pong_) {
                 ++stats_.pong_timeouts;
-                close_with(WsCloseReason::PongTimeout);
+                close_with(WsCloseReason::PongTimeout,
+                           std::format("no pong within {} ms", cfg_.pong_timeout_ms));
                 return;
             }
             arm_ping_timer(false);
@@ -445,10 +463,11 @@ private:
         arm_ping_timer(true);
     }
 
-    void close_with(WsCloseReason reason) {
+    void close_with(WsCloseReason reason, std::string detail = {}) {
         if (state_ == State::Idle) {
             return;
         }
+        close_detail_ = std::move(detail);
         const bool was_stable =
             state_ == State::Open && clock_.mono().ns - opened_at_.ns > k_stable_connection_ns;
         state_ = State::Idle;
@@ -509,6 +528,7 @@ private:
     std::shared_ptr<Conn> conn_;
     std::deque<std::string> send_queue_;
     std::string host_header_;
+    std::string close_detail_;
     WsClient::Stats stats_;
     MonoNanos opened_at_{};
     std::uint64_t generation_{0};
@@ -557,6 +577,10 @@ bool WsClient::send(std::string_view text) {
 
 WsClient::Stats WsClient::stats() const noexcept {
     return impl_->session->stats();
+}
+
+std::string_view WsClient::close_detail() const noexcept {
+    return impl_->session->close_detail();
 }
 
 } // namespace raikiri::net

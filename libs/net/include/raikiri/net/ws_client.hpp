@@ -85,6 +85,10 @@ public:
 
     [[nodiscard]] bool send(std::string_view text);
 
+    // The cause behind the last on_close: "read: asio.misc 2 End of file",
+    // "close 1001 going away". Empty for Requested. Valid until the next close.
+    [[nodiscard]] std::string_view close_detail() const noexcept;
+
     struct Stats {
         std::uint64_t messages_received{0};
         std::uint64_t messages_sent{0};

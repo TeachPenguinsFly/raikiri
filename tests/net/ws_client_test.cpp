@@ -69,6 +69,7 @@ struct ServerState {
     // Written before the listener starts and never mutated afterwards.
     std::vector<std::string> greeting;
     bool drop_first_after_message{false};
+    bool close_first_after_message{false};
 
     mutable std::mutex mu;
     std::vector<std::string> received;
@@ -143,6 +144,11 @@ private:
     void on_message() {
         state_.record(beast::buffers_to_string(buffer_.data()));
         buffer_.consume(buffer_.size());
+        if (state_.close_first_after_message && index_ == 1) {
+            ws_.async_close(websock::close_reason{websock::close_code::going_away, "node recycled"},
+                            [self = shared_from_this()](const boost::system::error_code&) {});
+            return;
+        }
         if (state_.drop_first_after_message && index_ == 1) {
             // Yank the TCP connection with no close frame — what a venue's
             // edge does when it recycles a node. Doing it only after the
@@ -175,12 +181,16 @@ public:
         stamps.push_back(received);
     }
 
-    void on_close(WsCloseReason reason) override { closes.push_back(reason); }
+    void on_close(WsCloseReason reason) override {
+        closes.push_back(reason);
+        details.emplace_back(client != nullptr ? client->close_detail() : std::string_view{});
+    }
 
     int opens{0};
     std::vector<std::string> messages;
     std::vector<UnixNanos> stamps;
     std::vector<WsCloseReason> closes;
+    std::vector<std::string> details;
     WsClient* client{nullptr};
     std::string greeting;
 };
@@ -275,6 +285,7 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
 
     ASSERT_FALSE(handler.closes.empty());
     EXPECT_NE(handler.closes.front(), WsCloseReason::Requested);
+    EXPECT_TRUE(handler.details.front().starts_with("read: asio.")) << handler.details.front();
     EXPECT_GE(client.stats().reconnects, 1U);
     EXPECT_GE(listener.accepted(), 2U);
 
@@ -283,6 +294,33 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
 
     client.stop();
     EXPECT_EQ(handler.closes.back(), WsCloseReason::Requested);
+    EXPECT_TRUE(handler.details.back().empty());
+}
+
+TEST(WsClient, AServerCloseFrameIsReportedWithItsCodeAndReason) {
+    ServerState state;
+    state.close_first_after_message = true;
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(
+            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
+            ->run();
+    }};
+
+    IoContext io;
+    auto config = loopback_config(listener.port());
+    config.reconnect_min_ms = 25;
+    config.reconnect_max_ms = 200;
+
+    RecordingHandler handler;
+    WsClient client{io, config, handler};
+    handler.client = &client;
+    handler.greeting = "{\"op\":\"subscribe\"}";
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return !handler.closes.empty(); }));
+    EXPECT_EQ(handler.closes.front(), WsCloseReason::ServerClosed);
+    EXPECT_EQ(handler.details.front(), "close 1001 node recycled");
+    client.stop();
 }
 
 TEST(WsClient, SendQueueFullIsReportedRatherThanBlocking) {
