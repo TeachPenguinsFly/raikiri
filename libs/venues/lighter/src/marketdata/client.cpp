@@ -10,7 +10,6 @@
 #include <raikiri/venues/lighter/market_data.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
-#include <algorithm>
 #include <array>
 #include <charconv>
 #include <memory>
@@ -28,17 +27,6 @@ constexpr std::uint64_t k_ramp_report_interval_ns = 30ULL * 1'000'000'000ULL;
 
 [[nodiscard]] bool has_logger() noexcept {
     return ::raikiri::log::logger() != nullptr;
-}
-
-// Stats first, one message for every perp; then books, which are the quote; trades last.
-[[nodiscard]] int ask_rank(std::string_view channel) noexcept {
-    if (channel == k_perp_stats_all || channel == k_spot_stats_all) {
-        return 0;
-    }
-    if (channel.starts_with(k_book_channel)) {
-        return 1;
-    }
-    return 2;
 }
 
 class LighterData final : public exec::DataClient {
@@ -300,8 +288,7 @@ private:
     }
 
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
-        std::vector<std::string_view> channels{keys.begin(), keys.end()};
-        std::ranges::stable_sort(channels, {}, ask_rank);
+        const auto channels = ask_order(keys);
         std::vector<std::string> frames;
         frames.reserve(channels.size());
         for (const auto channel : channels) {

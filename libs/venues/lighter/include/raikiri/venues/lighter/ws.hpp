@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <expected>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::venues::lighter {
 
@@ -35,6 +37,10 @@ inline constexpr std::size_t k_max_subscriptions_per_connection = 500;
 // silently; one socket spends all of it, so a second would double the rate.
 inline constexpr std::uint64_t k_subscribe_spacing_ns = 310ULL * 1'000'000ULL;
 inline constexpr std::size_t k_max_connections = 1;
+
+// A reopen resends the whole set at that pace, so books go first, then the stats, then
+// trades; each channel once.
+[[nodiscard]] std::vector<std::string_view> ask_order(std::span<const std::string> channels);
 
 // Empty for a kind not read per market.
 [[nodiscard]] std::string_view

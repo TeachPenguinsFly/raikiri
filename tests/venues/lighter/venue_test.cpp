@@ -14,6 +14,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace raikiri::venues::lighter {
 namespace {
@@ -387,6 +388,25 @@ TEST(LighterWs, FramesAreTheVenuesOwnShape) {
     const auto off = protocol.unsubscribe_frame(k_perp_stats_all);
     ASSERT_TRUE(off.has_value());
     EXPECT_EQ(*off, R"({"type":"unsubscribe","channel":"market_stats/all"})");
+}
+
+TEST(LighterWs, AReopenAsksForBooksFirstAndEachChannelOnce) {
+    const std::vector<std::string> carried{"market_stats/all",
+                                           "trade/1",
+                                           "order_book/1",
+                                           "trade/2",
+                                           "spot_market_stats/all",
+                                           "order_book/2048",
+                                           "order_book/1",
+                                           "trade/1"};
+    const auto order = ask_order(carried);
+    const std::vector<std::string_view> expected{"order_book/1",
+                                                 "order_book/2048",
+                                                 "market_stats/all",
+                                                 "spot_market_stats/all",
+                                                 "trade/1",
+                                                 "trade/2"};
+    EXPECT_EQ(order, expected);
 }
 
 TEST(LighterWs, OneSocketSpendsTheWholeIpBudget) {

@@ -1,8 +1,10 @@
 #include <raikiri/venues/lighter/endpoints.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cstring>
+#include <unordered_set>
 
 namespace raikiri::venues::lighter {
 
@@ -23,6 +25,16 @@ namespace {
     return {};
 }
 
+[[nodiscard]] int ask_rank(std::string_view channel) noexcept {
+    if (channel.starts_with(k_book_channel)) {
+        return 0;
+    }
+    if (channel == k_perp_stats_all || channel == k_spot_stats_all) {
+        return 1;
+    }
+    return 2;
+}
+
 } // namespace
 
 std::string_view to_string(WsBuildError err) noexcept {
@@ -39,6 +51,20 @@ std::string_view stream_host(bool testnet) noexcept {
 
 std::string_view stream_path() noexcept {
     return ep::k_ws_stream;
+}
+
+std::vector<std::string_view> ask_order(std::span<const std::string> channels) {
+    std::vector<std::string_view> order;
+    order.reserve(channels.size());
+    std::unordered_set<std::string_view> seen;
+    seen.reserve(channels.size());
+    for (const auto& channel : channels) {
+        if (seen.insert(channel).second) {
+            order.emplace_back(channel);
+        }
+    }
+    std::ranges::stable_sort(order, {}, ask_rank);
+    return order;
 }
 
 std::string_view
