@@ -1,11 +1,16 @@
 include(GoogleTest)
 
 function(raikiri_add_test name)
-  cmake_parse_arguments(ARG "" "" "SRCS;LIBS" ${ARGN})
+  cmake_parse_arguments(ARG "POSTGRES" "" "SRCS;LIBS" ${ARGN})
   add_executable(${name} ${ARG_SRCS})
   target_link_libraries(${name}
     PRIVATE ${ARG_LIBS} GTest::gtest_main raikiri::warnings)
-  gtest_discover_tests(${name} DISCOVERY_TIMEOUT 30)
+  if(ARG_POSTGRES)
+    # One at a time: a migration's DDL deadlocks against another test's.
+    gtest_discover_tests(${name} DISCOVERY_TIMEOUT 30 PROPERTIES RESOURCE_LOCK postgres)
+  else()
+    gtest_discover_tests(${name} DISCOVERY_TIMEOUT 30)
+  endif()
 endfunction()
 
 raikiri_add_test(histogram_test SRCS observ/histogram_test.cpp LIBS raikiri::observ)
@@ -24,7 +29,7 @@ raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::dom
 
 raikiri_add_test(journal_test SRCS journal/journal_test.cpp LIBS raikiri::journal raikiri::schema raikiri::domain)
 
-raikiri_add_test(mapper_test SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema raikiri::oms)
+raikiri_add_test(mapper_test POSTGRES SRCS persist/mapper_test.cpp LIBS raikiri::persist raikiri::schema raikiri::oms libpqxx::pqxx)
 target_compile_definitions(mapper_test PRIVATE RAIKIRI_SQL_DIR="${PROJECT_SOURCE_DIR}/sql")
 
 raikiri_add_test(credentials_test SRCS config/credentials_test.cpp LIBS raikiri::config)
@@ -142,5 +147,5 @@ raikiri_add_test(catalogue_test SRCS shm/catalogue_test.cpp LIBS raikiri::shm)
 raikiri_add_test(sim_book_test SRCS simcore/book_test.cpp LIBS raikiri::simcore)
 raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simcore)
 
-raikiri_add_test(history_test SRCS admin/history_test.cpp LIBS raikiri::admin glaze::glaze libpqxx::pqxx)
+raikiri_add_test(history_test POSTGRES SRCS admin/history_test.cpp LIBS raikiri::admin raikiri::persist raikiri::schema glaze::glaze libpqxx::pqxx)
 raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)

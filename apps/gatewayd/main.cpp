@@ -1166,8 +1166,9 @@ int main(int argc, char** argv) {
         RLOG_ERROR("gatewayd: cannot create runtime dir");
         return 1;
     }
-    auto owner = shm::SegmentOwner::create(
-        seg_path, shm::k_gateway_segment_bytes, clock.mono().ns, clock.mono().ns);
+    const auto generation = clock.mono().ns;
+    auto owner =
+        shm::SegmentOwner::create(seg_path, shm::k_gateway_segment_bytes, generation, generation);
     if (!owner.has_value()) {
         RLOG_ERROR("gatewayd: segment create failed ({})", static_cast<int>(owner.error()));
         return 1;
@@ -1362,6 +1363,26 @@ int main(int argc, char** argv) {
                        base_of(instrument).exchange_symbol.view());
             return 1;
         }
+    }
+
+    // Journalled so a stored row can be priced by the numbering it was made
+    // under after a restart has renumbered the catalogue.
+    const auto loaded_at = clock.wall().ns;
+    for (const auto& instrument : catalogue) {
+        const auto& base = base_of(instrument);
+        (void)schema::append_msg<msgs::InstrumentMsg>(*journal_writer, loaded_at, [&](auto m) {
+            namespace jt = raikiri_journal::types;
+            m.instrument(jt::instrumentId{base.id.packed});
+            m.generation(generation);
+            m.symbol().assign_range(base.exchange_symbol.view());
+            m.localSymbol().assign_range(base.local_symbol.view());
+            m.kind(static_cast<jt::contractKindEnum>(base.kind));
+            m.tickSize(jt::fixedE9{base.tick_size.raw});
+            m.lotSize(jt::fixedE9{base.lot_size.raw});
+            m.minNotional(jt::fixedE9{base.min_notional.raw});
+            m.contractValue(jt::fixedE9{base.contract_value.raw});
+            m.tsLoaded(jt::timestampNs{loaded_at});
+        });
     }
 
     std::size_t matched = 0;

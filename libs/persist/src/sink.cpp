@@ -231,6 +231,35 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.accrual});
     }
 
+    // A generation closes every other window holding this id at its start and
+    // takes its own end from any later one already here, so a replay in any
+    // order lands on the same windows.
+    for (const auto& r : batch.instruments) {
+        tx.exec("UPDATE raikiri.instruments SET valid_to = $3"
+                " WHERE instrument_id = $1 AND generation <> $2 AND valid_from < $3"
+                " AND (valid_to IS NULL OR valid_to > $3)",
+                pqxx::params{r.instrument_id, r.generation, r.valid_from});
+        tx.exec("INSERT INTO raikiri.instruments (instrument_id, generation, venue, market_type,"
+                " local_symbol, exchange_symbol, tick_size_e9, lot_size_e9, min_notional_e9,"
+                " contract_value_e9, contract_kind, valid_from, valid_to)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,"
+                "  (SELECT MIN(valid_from) FROM raikiri.instruments"
+                "    WHERE instrument_id = $1 AND generation <> $2 AND valid_from > $12))"
+                " ON CONFLICT (instrument_id, generation) DO NOTHING",
+                pqxx::params{r.instrument_id,
+                             r.generation,
+                             r.venue,
+                             r.market_type,
+                             r.local_symbol,
+                             r.exchange_symbol,
+                             r.tick_size_e9,
+                             r.lot_size_e9,
+                             r.min_notional_e9,
+                             r.contract_value_e9,
+                             r.contract_kind,
+                             r.valid_from});
+    }
+
     for (const auto& r : batch.connectivity) {
         tx.exec("INSERT INTO raikiri.connectivity_events (journal, journal_seq, venue, event,"
                 " stream_id, ts_recorded) VALUES ($1,$2,$3,$4,$5,$6)"

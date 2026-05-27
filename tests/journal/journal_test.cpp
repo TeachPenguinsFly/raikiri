@@ -137,7 +137,7 @@ TEST(Journal, ContinuousFundingSurvivesTheRoundTrip) {
     ASSERT_TRUE(reader.has_value());
     FrameView frame{};
     ASSERT_EQ(reader->next(frame), ReadResult::Item);
-    EXPECT_EQ(frame.schema_version, 3U);
+    EXPECT_EQ(frame.schema_version, 4U);
     const auto m = schema::view_msg<msgs::FundingMsg>(frame.payload);
     EXPECT_EQ(m.nextFundingTime().value(), 0U);
     EXPECT_EQ(static_cast<FundingAccrual>(m.accrual()), FundingAccrual::Continuous);

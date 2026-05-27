@@ -12,7 +12,7 @@
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="raikiri.journal"
                    id="1"
-                   version="3"
+                   version="4"
                    semanticVersion="0.1.0"
                    description="raikiri journal records"
                    byteOrder="littleEndian">
@@ -149,6 +149,12 @@
       <validValue name="Unknown">0</validValue>
       <validValue name="Maker">1</validValue>
       <validValue name="Taker">2</validValue>
+    </enum>
+
+    <enum name="contractKindEnum" encodingType="uint8">
+      <validValue name="Unknown">0</validValue>
+      <validValue name="Linear">1</validValue>
+      <validValue name="Inverse">2</validValue>
     </enum>
   </types>
 
@@ -307,5 +313,20 @@
     <field name="localQty" id="5" type="qtyLots"/>
     <field name="venueQty" id="6" type="qtyLots"/>
     <field name="tsSeen" id="7" type="timestampNs"/>
+  </sbe:message>
+  <!-- One catalogue entry as a gateway numbered it. The symbol half of an
+       instrument id is a load-order index, so an id means this instrument only
+       within one gateway generation, from tsLoaded until the next. -->
+  <sbe:message name="InstrumentMsg" id="11" description="Catalogue entry for one generation" sinceVersion="4">
+    <field name="instrument" id="1" type="instrumentId"/>
+    <field name="generation" id="2" type="uint64" description="the gateway segment's generation"/>
+    <field name="symbol" id="3" type="symbolText"/>
+    <field name="localSymbol" id="4" type="symbolText"/>
+    <field name="kind" id="5" type="contractKindEnum"/>
+    <field name="tickSize" id="6" type="fixedE9"/>
+    <field name="lotSize" id="7" type="fixedE9"/>
+    <field name="minNotional" id="8" type="fixedE9"/>
+    <field name="contractValue" id="9" type="fixedE9"/>
+    <field name="tsLoaded" id="10" type="timestampNs"/>
   </sbe:message>
 </sbe:messageSchema>

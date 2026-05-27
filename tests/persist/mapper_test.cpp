@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <pqxx/pqxx>
 #include <string>
 
 namespace raikiri::persist {
@@ -38,6 +39,7 @@ public:
     FreshDir& operator=(const FreshDir&) = delete;
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
+
     operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
 
 private:
@@ -127,6 +129,60 @@ std::string build_journal(const std::string& dir) {
         m.tsInit(jt::timestampNs{301});
     });
     return dir;
+}
+
+void append_instrument(journal::JournalWriter& writer,
+                       InstrumentId id,
+                       std::uint64_t generation,
+                       std::string_view symbol,
+                       std::int64_t tick_e9,
+                       std::uint64_t loaded_at) {
+    (void)schema::append_msg<msgs::InstrumentMsg>(writer, loaded_at, [&](auto m) {
+        m.instrument(jt::instrumentId{id.packed});
+        m.generation(generation);
+        m.symbol().assign_range(symbol);
+        m.localSymbol().assign_range(std::string_view{"BTC/USDT"});
+        m.kind(jt::contractKindEnum::Inverse);
+        m.tickSize(jt::fixedE9{tick_e9});
+        m.lotSize(jt::fixedE9{1'000'000});
+        m.minNotional(jt::fixedE9{5'000'000'000});
+        m.contractValue(jt::fixedE9{0});
+        m.tsLoaded(jt::timestampNs{loaded_at});
+    });
+}
+
+TEST(Mapper, ACatalogueEntryRoundTripsWithItsGeneration) {
+    const FreshDir dir{"instrument"};
+    const auto id = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{7});
+    {
+        auto writer = journal::JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        append_instrument(*writer, id, 77, "BTCUSD", 500'000'000, 1'000);
+        append_instrument(*writer, id, 78, "ZEROUSD", 0, 2'000);
+    }
+    auto reader = journal::JournalReader::open(dir, "journal");
+    ASSERT_TRUE(reader.has_value());
+    RowBatch batch;
+    journal::FrameView frame{};
+    while (reader->next(frame) == journal::ReadResult::Item) {
+        map_frame(frame, batch);
+    }
+
+    ASSERT_EQ(batch.instruments.size(), 1U) << "a zero tick is refused by the table, so dropped";
+    EXPECT_EQ(batch.last_seq, 2U);
+    const auto& row = batch.instruments[0];
+    EXPECT_EQ(row.instrument_id, id.packed);
+    EXPECT_EQ(row.generation, 77U);
+    EXPECT_EQ(row.venue, "bybit");
+    EXPECT_EQ(row.market_type, to_string(MarketType::Perp));
+    EXPECT_EQ(row.exchange_symbol, "BTCUSD");
+    EXPECT_EQ(row.local_symbol, "BTC/USDT");
+    EXPECT_EQ(row.contract_kind, "inverse");
+    EXPECT_EQ(row.tick_size_e9, 500'000'000);
+    EXPECT_EQ(row.lot_size_e9, 1'000'000);
+    EXPECT_EQ(row.min_notional_e9, 5'000'000'000);
+    EXPECT_EQ(row.contract_value_e9, 1'000'000'000);
+    EXPECT_EQ(row.valid_from, 1'000U);
 }
 
 TEST(Mapper, FillProducesEventUpsertAndExecution) {
@@ -258,6 +314,69 @@ TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
     EXPECT_LT(batch.pnl_increments[1].amount_e9, 0);
 }
 
+void migrate(PgSink& sink) {
+    for (const auto* migration : {"/migrations/0001_init.sql",
+                                  "/migrations/0002_positions.sql",
+                                  "/migrations/0003_reject_reason.sql",
+                                  "/migrations/0004_funding_accrual.sql",
+                                  "/migrations/0005_instrument_generations.sql"}) {
+        sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
+    }
+}
+
+// Every migration applies, twice, and a restart's catalogue closes the window
+// of the generation before it on the same id.
+TEST(PersistIntegration, AGenerationClosesThePreviousWindowOnItsId) {
+    const char* dsn = std::getenv("RAIKIRI_PG_DSN");
+    if (dsn == nullptr || *dsn == '\0') {
+        GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
+    }
+    PgSink sink{dsn};
+    migrate(sink);
+    migrate(sink);
+
+    const auto id = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF2U});
+    const auto key = std::to_string(static_cast<std::int64_t>(id.packed));
+    pqxx::connection conn{dsn};
+    const auto scrub = [&] {
+        pqxx::work tx{conn};
+        tx.exec("DELETE FROM raikiri.instruments WHERE instrument_id = " + key);
+        tx.commit();
+    };
+    scrub();
+
+    const FreshDir dir{"generations"};
+    {
+        auto writer = journal::JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        append_instrument(*writer, id, 1, "OLDUSD", 10'000'000, 1'000);
+        append_instrument(*writer, id, 2, "NEWUSD", 500'000'000, 2'000);
+    }
+    const auto replay = [&] {
+        auto reader = journal::JournalReader::open(dir, "journal");
+        ASSERT_TRUE(reader.has_value());
+        RowBatch batch;
+        journal::FrameView frame{};
+        while (reader->next(frame) == journal::ReadResult::Item) {
+            map_frame(frame, batch);
+        }
+        sink.commit("test-generations", batch);
+    };
+    replay();
+    replay();
+
+    pqxx::work tx{conn};
+    EXPECT_EQ(tx.query_value<std::string>(
+                  "SELECT string_agg(generation || ':' || exchange_symbol || ':' ||"
+                  " valid_from || '-' || COALESCE(valid_to::text, ''), ','"
+                  " ORDER BY generation) FROM raikiri.instruments"
+                  " WHERE instrument_id = " +
+                  key),
+              "1:OLDUSD:1000-2000,2:NEWUSD:2000-");
+    tx.commit();
+    scrub();
+}
+
 // Full pipeline against a live Postgres — skipped unless RAIKIRI_PG_DSN is set
 // (CI provides a service container; locally: infra postgres or docker).
 // The golden invariant: persisting the same journal twice changes nothing.
@@ -270,12 +389,7 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     const auto dir = build_journal(scratch);
 
     PgSink sink{dsn};
-    for (const auto* migration : {"/migrations/0001_init.sql",
-                                   "/migrations/0002_positions.sql",
-                                   "/migrations/0003_reject_reason.sql",
-                                   "/migrations/0004_funding_accrual.sql"}) {
-        sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
-    }
+    migrate(sink);
 
     const auto run_once = [&] {
         auto reader =

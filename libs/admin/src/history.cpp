@@ -597,20 +597,30 @@ DatabaseHealth History::health() const {
 
 namespace {
 
-constexpr std::string_view k_order_select =
+// The instrument row whose generation window holds `ts`, so an id a gateway
+// restart gave to another symbol still prices an old row with its own tick.
+[[nodiscard]] std::string instrument_at(std::string_view id, std::string_view ts) {
+    return std::string{" LEFT JOIN LATERAL (SELECT tick_size_e9, lot_size_e9"
+                       " FROM raikiri.instruments w WHERE w.instrument_id = "} +
+           std::string{id} + " AND w.valid_from <= " + std::string{ts} +
+           " AND (w.valid_to IS NULL OR " + std::string{ts} +
+           " < w.valid_to) ORDER BY w.valid_from DESC LIMIT 1) i ON TRUE";
+}
+
+const std::string k_order_select =
     "SELECT o.client_order_id, o.exchange_client_order_id, o.exchange_order_id,"
     " o.instrument_id, o.side, o.order_type, o.tif, o.flags, o.price_ticks, o.qty_lots,"
     " o.leaves_lots, o.status, o.reject_class, o.reject_code,"
     " o.ts_created, o.ts_updated, i.tick_size_e9, i.lot_size_e9"
-    " FROM raikiri.orders o"
-    " LEFT JOIN raikiri.instruments i ON i.instrument_id = o.instrument_id";
+    " FROM raikiri.orders o" +
+    instrument_at("o.instrument_id", "o.ts_created");
 
-constexpr std::string_view k_fill_select =
+const std::string k_fill_select =
     "SELECT x.venue, x.exec_id, x.exchange_order_id, x.client_order_id, x.instrument_id,"
     " x.side, x.price_ticks, x.qty_lots, x.fee_e9, x.liquidity, x.ts_event,"
     " i.tick_size_e9, i.lot_size_e9"
-    " FROM raikiri.executions x"
-    " LEFT JOIN raikiri.instruments i ON i.instrument_id = x.instrument_id";
+    " FROM raikiri.executions x" +
+    instrument_at("x.instrument_id", "x.ts_event");
 
 } // namespace
 
@@ -671,8 +681,8 @@ std::vector<OrderEvent> History::order_events(ClientOrderId id) const {
     const auto sql =
         "SELECT e.client_order_id, e.instrument_id, e.event_type, e.price_ticks, e.qty_lots,"
         " e.leaves_lots, e.fee_e9, e.exec_id, e.ts_event, i.tick_size_e9, i.lot_size_e9"
-        " FROM raikiri.order_events e"
-        " LEFT JOIN raikiri.instruments i ON i.instrument_id = e.instrument_id"
+        " FROM raikiri.order_events e" +
+        instrument_at("e.instrument_id", "e.ts_event") +
         " WHERE e.client_order_id = $1"
         " ORDER BY e.ts_event, e.journal, e.journal_seq"
         " LIMIT " +
@@ -735,9 +745,9 @@ std::vector<Position> History::positions(std::optional<AccountId> account,
 
     const auto sql = "SELECT p.strategy_id, p.venue, p.exchange_symbol, p.instrument_id,"
                      " p.net_qty_lots, p.realized_e9, p.ts_updated, i.lot_size_e9"
-                     " FROM raikiri.positions p"
-                     " LEFT JOIN raikiri.instruments i ON i.instrument_id = p.instrument_id" +
-                     where.text() + " ORDER BY p.venue, p.exchange_symbol, p.strategy_id";
+                     " FROM raikiri.positions p" +
+                     instrument_at("p.instrument_id", "p.ts_updated") + where.text() +
+                     " ORDER BY p.venue, p.exchange_symbol, p.strategy_id";
     return impl_->read(std::vector<Position>{}, [&](pqxx::connection& conn) {
         pqxx::read_transaction tx{conn};
         const auto rows = tx.exec(sql, where.params());
@@ -810,10 +820,9 @@ FundingPage History::funding(const PageQuery& query) const {
 
     const auto sql = "SELECT f.instrument_id, f.ts_event, f.rate_e9, f.predicted_e9, f.mark_ticks,"
                      " f.next_funding_ts, f.interval_s, f.accrual, i.tick_size_e9"
-                     " FROM raikiri.funding_observations f"
-                     " LEFT JOIN raikiri.instruments i ON i.instrument_id = f.instrument_id" +
-                     where.text() + " ORDER BY f.ts_event DESC, f.instrument_id DESC" +
-                     limit_clause(limit);
+                     " FROM raikiri.funding_observations f" +
+                     instrument_at("f.instrument_id", "f.ts_event") + where.text() +
+                     " ORDER BY f.ts_event DESC, f.instrument_id DESC" + limit_clause(limit);
     return impl_->read(FundingPage{}, [&](pqxx::connection& conn) {
         return fetch<FundingObservation>(
             conn, sql, where.params(), limit, [&](pqxx::row_ref row) {
@@ -849,7 +858,9 @@ ReconBreakPage History::recon_breaks(const PageQuery& query) const {
         "                           MIN(i.lot_size_e9) AS lot_size_e9, COUNT(*) AS matches"
         "                      FROM raikiri.instruments i"
         "                     WHERE i.venue = b.venue"
-        "                       AND i.exchange_symbol = b.exchange_symbol) m ON TRUE" +
+        "                       AND i.exchange_symbol = b.exchange_symbol"
+        "                       AND i.valid_from <= b.ts_seen"
+        "                       AND (i.valid_to IS NULL OR b.ts_seen < i.valid_to)) m ON TRUE" +
         where.text() + " ORDER BY b.ts_seen DESC, b.venue DESC, b.exchange_symbol DESC" +
         limit_clause(limit);
     return impl_->read(ReconBreakPage{}, [&](pqxx::connection& conn) {

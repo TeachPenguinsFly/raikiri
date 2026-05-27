@@ -3,6 +3,7 @@
 #include <raikiri/persist/mapper.hpp>
 #include <raikiri/schema/codec.hpp>
 
+#include <algorithm>
 #include <string>
 
 namespace raikiri::persist {
@@ -267,6 +268,31 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
             .interval_s = m.intervalS().value(),
             .accrual = std::move(accrual),
         });
+    } else if (frame.schema_id == schema::message_id<msgs::InstrumentMsg>()) {
+        const auto m = schema::view_msg<msgs::InstrumentMsg>(frame.payload);
+        const InstrumentId id{m.instrument().value()};
+        using K = raikiri_journal::types::contractKindEnum;
+        // The table refuses a non-positive step, and one refused row would
+        // stall every batch behind it.
+        if (m.tickSize().value() > 0 && m.lotSize().value() > 0) {
+            batch.instruments.push_back({
+                .instrument_id = id.packed,
+                .generation = m.generation().value(),
+                .venue = venue_of(id.packed),
+                .market_type = std::string{to_string(id.market())},
+                .exchange_symbol = trim_fixed(m.symbol()),
+                .local_symbol = trim_fixed(m.localSymbol()),
+                .contract_kind = m.kind() == K::Linear    ? "linear"
+                                 : m.kind() == K::Inverse ? "inverse"
+                                                          : "unknown",
+                .tick_size_e9 = m.tickSize().value(),
+                .lot_size_e9 = m.lotSize().value(),
+                .min_notional_e9 = std::max<std::int64_t>(m.minNotional().value(), 0),
+                .contract_value_e9 =
+                    m.contractValue().value() > 0 ? m.contractValue().value() : 1'000'000'000,
+                .valid_from = m.tsLoaded().value(),
+            });
+        }
     } else if (frame.schema_id == schema::message_id<msgs::ConnectivityMsg>()) {
         const auto m = schema::view_msg<msgs::ConnectivityMsg>(frame.payload);
         using CE = raikiri_journal::types::connEventEnum;

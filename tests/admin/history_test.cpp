@@ -1,6 +1,13 @@
 #include <raikiri/admin/history.hpp>
+#include <raikiri/journal/reader.hpp>
+#include <raikiri/journal/writer.hpp>
+#include <raikiri/persist/mapper.hpp>
+#include <raikiri/persist/sink.hpp>
+#include <raikiri/schema/codec.hpp>
 
 #include <gtest/gtest.h>
+
+#include <unistd.h>
 
 #include <cstdlib>
 #include <glaze/glaze.hpp>
@@ -410,6 +417,95 @@ TEST(AdminHistoryPg, AFillWhoseInstrumentTheTableLacksIsScaledByTheLiveCatalogue
     EXPECT_EQ(fills[0].price, "367.29");
     EXPECT_EQ(fills[0].qty, "1.37");
     EXPECT_EQ(fills[0].fee, "0.00503188");
+}
+
+// A restart renumbered the catalogue, so the id an old fill carries now names
+// another symbol with another tick. The fill is priced by the generation it
+// was made under, and the live catalogue answers only where no window does.
+TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
+    const char* dsn = std::getenv("RAIKIRI_PG_DSN");
+    if (dsn == nullptr || *dsn == '\0') {
+        GTEST_SKIP() << "RAIKIRI_PG_DSN not set";
+    }
+    History history{dsn};
+    if (!history.connected() || !history.health().reachable) {
+        GTEST_SKIP() << "sql/migrations not applied to $RAIKIRI_PG_DSN";
+    }
+    const auto instrument =
+        InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0xFFFF'FFF1U});
+    const auto id = std::to_string(static_cast<std::int64_t>(instrument.packed));
+    pqxx::connection conn{dsn};
+    const auto scrub = [&] {
+        pqxx::work tx{conn};
+        tx.exec("DELETE FROM raikiri.executions WHERE venue = 'history-test-gen'");
+        tx.exec("DELETE FROM raikiri.instruments WHERE instrument_id = " + id);
+        tx.commit();
+    };
+    scrub();
+
+    const std::string dir = "/tmp/raikiri-history-test-" + std::to_string(::getpid());
+    (void)std::system(("rm -rf " + dir).c_str());
+    {
+        auto writer = journal::JournalWriter::open(dir, "journal");
+        ASSERT_TRUE(writer.has_value());
+        namespace jt = raikiri_journal::types;
+        const auto load =
+            [&](std::uint64_t generation, std::int64_t tick, std::int64_t lot, std::uint64_t at) {
+                (void)schema::append_msg<raikiri_journal::schema::messages::InstrumentMsg>(
+                    *writer, at, [&](auto m) {
+                        m.instrument(jt::instrumentId{instrument.packed});
+                        m.generation(generation);
+                        m.symbol().assign_range(std::string_view{generation == 1 ? "OLD" : "NEW"});
+                        m.tickSize(jt::fixedE9{tick});
+                        m.lotSize(jt::fixedE9{lot});
+                        m.tsLoaded(jt::timestampNs{at});
+                    });
+            };
+        load(1, 10'000'000, 1'000'000, 1'000);
+        load(2, 500'000'000, 1'000'000'000, 2'000);
+    }
+    {
+        persist::PgSink sink{dsn};
+        auto reader = journal::JournalReader::open(dir, "journal");
+        ASSERT_TRUE(reader.has_value());
+        persist::RowBatch batch;
+        journal::FrameView frame{};
+        while (reader->next(frame) == journal::ReadResult::Item) {
+            persist::map_frame(frame, batch);
+        }
+        sink.commit("history-test-gen", batch);
+    }
+    (void)std::system(("rm -rf " + dir).c_str());
+    {
+        pqxx::work tx{conn};
+        for (const auto& [exec, ts] : {std::pair{"e-before", "500"},
+                                       std::pair{"e-old", "1500"},
+                                       std::pair{"e-new", "2500"}}) {
+            tx.exec(std::string{"INSERT INTO raikiri.executions (venue, exec_id, instrument_id,"
+                                " side, price_ticks, qty_lots, ts_event)"
+                                " VALUES ('history-test-gen', '"} +
+                    exec + "', " + id + ", 'buy', 36729, 137, " + ts + ")");
+        }
+        tx.commit();
+    }
+    history.set_catalogue([&](InstrumentId asked) -> Scales {
+        if (asked != instrument) {
+            return {};
+        }
+        return {.tick_size = *parse_decimal_e9("0.5"), .lot_size = *parse_decimal_e9("1")};
+    });
+
+    const auto fills = history.fills({.instrument = instrument}).items;
+    scrub();
+    ASSERT_EQ(fills.size(), 3U);
+    EXPECT_EQ(fills[0].exec_id, "e-new");
+    EXPECT_EQ(fills[0].price, "18364.5");
+    EXPECT_EQ(fills[0].qty, "137");
+    EXPECT_EQ(fills[1].exec_id, "e-old");
+    EXPECT_EQ(fills[1].price, "367.29") << "priced by the symbol the id names today";
+    EXPECT_EQ(fills[1].qty, "0.137");
+    EXPECT_EQ(fills[2].exec_id, "e-before");
+    EXPECT_EQ(fills[2].price, "18364.5") << "no window holds it, so the live catalogue answers";
 }
 
 } // namespace

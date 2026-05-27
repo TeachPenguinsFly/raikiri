@@ -29,10 +29,9 @@ inline constexpr std::size_t k_default_page = 200;
 inline constexpr std::size_t k_max_page = 1000;
 
 // One row's ticks and lots resolved through the instrument that gives them
-// meaning. Undefined when the row's instrument is not in raikiri.instruments —
-// which is a live state, since that table is loaded by ops tooling while
-// persisterd writes orders regardless — and then the row renders no price and
-// no size at all. A tick count emitted as a price is wrong by whatever the
+// meaning: the raikiri.instruments row whose generation window holds the row's
+// time. Undefined when there is none, and then the row renders no price and no
+// size at all. A tick count emitted as a price is wrong by whatever the
 // tick size is, and wrong by four orders of magnitude is the usual case.
 struct Scales {
     FixedE9 tick_size{FixedE9::undef()};
@@ -45,7 +44,9 @@ struct Scales {
     [[nodiscard]] Scales or_from(const Scales& other) const noexcept;
 };
 
-// The attached gateways' catalogue, asked when raikiri.instruments has no row.
+// The attached gateways' catalogue, asked only when no raikiri.instruments
+// window holds the row: rows journalled before gateways recorded their
+// catalogue, where today's numbering is the best guess there is.
 using ScaleLookup = std::function<Scales(InstrumentId)>;
 
 // Keyset pagination. CURSORS, NOT OFFSETS: rows arrive continuously and an

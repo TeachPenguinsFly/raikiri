@@ -131,6 +131,23 @@ struct FundingRow {
     std::optional<std::string> accrual; // null: unknown, or journalled before version 3
 };
 
+// One catalogue entry for one gateway generation, valid from valid_from until
+// the same id's next generation starts.
+struct InstrumentRow {
+    std::uint64_t instrument_id{0};
+    std::uint64_t generation{0};
+    std::string venue;
+    std::string market_type;
+    std::string exchange_symbol;
+    std::string local_symbol;
+    std::string contract_kind;
+    std::int64_t tick_size_e9{0};
+    std::int64_t lot_size_e9{0};
+    std::int64_t min_notional_e9{0};
+    std::int64_t contract_value_e9{0};
+    std::uint64_t valid_from{0};
+};
+
 struct ConnectivityRow {
     std::uint64_t journal_seq{0};
     std::string venue;
@@ -159,6 +176,7 @@ struct RowBatch {
     std::vector<ReconBreakRow> recon_breaks;
     std::vector<PositionRow> positions;
     std::vector<FundingRow> funding;
+    std::vector<InstrumentRow> instruments;
     std::vector<ConnectivityRow> connectivity;
     std::vector<LatencyRow> latency;
     std::uint64_t last_seq{0}; // highest journal seq contributing to this batch
@@ -166,7 +184,7 @@ struct RowBatch {
     [[nodiscard]] std::size_t size() const noexcept {
         return order_events.size() + order_upserts.size() + executions.size() +
                pnl_increments.size() + recon_breaks.size() + positions.size() + funding.size() +
-               connectivity.size() + latency.size();
+               instruments.size() + connectivity.size() + latency.size();
     }
 
     void clear() noexcept {
@@ -177,6 +195,7 @@ struct RowBatch {
         recon_breaks.clear();
         positions.clear();
         funding.clear();
+        instruments.clear();
         connectivity.clear();
         latency.clear();
     }
