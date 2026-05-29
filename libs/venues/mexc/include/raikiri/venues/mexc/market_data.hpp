@@ -31,11 +31,10 @@ struct WireTicker {
     // push — there are no deltas on this channel — so an empty view here is a
     // field MEXC did not send, never a window that traded nothing.
     //
-    // ONE COLUMN, NOT TWO. `amount24` is turnover in the QUOTE currency; the
-    // `volume24` sitting beside it counts CONTRACTS rather than base units and
-    // is deliberately not carried, because a contract count compares with no
-    // other venue.
-    std::string_view volume_24h_quote; // `amount24`
+    // `amount24` is turnover in the QUOTE currency; `volume24` counts
+    // CONTRACTS, which the mapper scales by the contract size into base units.
+    std::string_view volume_24h_quote;     // `amount24`
+    std::string_view volume_24h_contracts; // `volume24`
     std::uint64_t ts_ms{0};
 };
 
@@ -120,5 +119,21 @@ struct StreamTradeBuffer {
 
 [[nodiscard]] std::expected<std::span<const StreamTrade>, WireError>
 parse_stream_trades(std::string_view payload, StreamTradeBuffer& storage);
+
+// GET /api/v3/ticker/24hr with no symbol: every spot pair's rolling window in
+// one answer. The spot socket's 24h ticker costs a subscription key per pair.
+struct WireSpotTicker {
+    std::string_view symbol;
+    std::string_view volume_base;  // `volume`
+    std::string_view volume_quote; // `quoteVolume`
+    std::uint64_t close_ms{0};
+};
+
+struct SpotTickerBuffer {
+    std::array<WireSpotTicker, 4096> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError>
+parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage);
 
 } // namespace raikiri::venues::mexc

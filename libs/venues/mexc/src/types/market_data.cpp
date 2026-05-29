@@ -60,7 +60,39 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         // must still yield its funding rate, and this channel is the only
         // place MEXC states one.
         out.volume_24h_quote = opt_scalar(*data, "amount24").value_or(std::string_view{});
+        out.volume_24h_contracts = opt_scalar(*data, "volume24").value_or(std::string_view{});
         return out;
+    });
+}
+
+std::expected<std::span<const WireSpotTicker>, WireError>
+parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireSpotTicker>, WireError> {
+        auto array = session().open_array(body);
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        std::size_t count = 0;
+        for (auto entry : *array) {
+            if (count == storage.rows.size()) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            WireSpotTicker out{};
+            const auto symbol = req_scalar(obj, "symbol");
+            if (!symbol.has_value()) {
+                return std::unexpected(symbol.error());
+            }
+            out.symbol = *symbol;
+            out.volume_base = opt_scalar(obj, "volume").value_or(std::string_view{});
+            out.volume_quote = opt_scalar(obj, "quoteVolume").value_or(std::string_view{});
+            out.close_ms = scalar_ms(obj, "closeTime").value_or(0);
+            storage.rows[count++] = out;
+        }
+        return std::span<const WireSpotTicker>{storage.rows.data(), count};
     });
 }
 

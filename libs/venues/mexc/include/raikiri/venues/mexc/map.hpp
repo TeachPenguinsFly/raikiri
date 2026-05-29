@@ -78,9 +78,8 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
                                                         UnixNanos ts_init);
 
 // Returns nullopt when the frame quotes no rate at all — a contract without
-// funding must not be reported as one funding at zero. next_funding_time and
-// interval_s stay unset: the ticker frame states neither, and a zero interval
-// reads as "unknown" where a guessed 8h would read as fact.
+// funding must not be reported as one funding at zero. The frame states no
+// schedule: interval_s is the catalogue's, which stays 0 where MEXC stated none.
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
@@ -89,11 +88,14 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The 24-hour turnover off the same frame. QUOTE ONLY: the base column is left
-// at zero because MEXC's `volume24` counts CONTRACTS, and a contract count put
-// in a base-volume cell is a figure no other venue can be compared against.
+// The 24-hour window off the same frame; `volume24` contracts times the
+// contract size is the base column.
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+
+[[nodiscard]] std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
+                                                               const exec::InstrumentTable& table,
+                                                               UnixNanos ts_init);
 
 // Catalogue ---------------------------------------------------------------
 

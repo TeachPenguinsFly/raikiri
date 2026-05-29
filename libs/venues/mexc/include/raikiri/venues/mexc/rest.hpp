@@ -58,6 +58,7 @@ public:
 
     // GET /api/v3/exchangeInfo — the spot half of the catalogue.
     [[nodiscard]] net::RestRequest exchange_info() noexcept;
+    [[nodiscard]] net::RestRequest spot_ticker_24h() noexcept;
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 

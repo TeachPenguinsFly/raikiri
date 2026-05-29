@@ -4,6 +4,7 @@
 
 #include <array>
 #include <charconv>
+#include <limits>
 #include <optional>
 
 namespace raikiri::venues::mexc {
@@ -290,10 +291,11 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 
 std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    const auto* base = base_for(wire.symbol, table);
-    if (base == nullptr) {
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
         return std::nullopt;
     }
+    const auto* base = &base_of(*instrument);
     const auto rate = to_e9(wire.funding_rate);
     if (!rate.has_value()) {
         return std::nullopt; // contract quotes no funding: not the same as zero
@@ -304,6 +306,9 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.rate = *rate;
     if (const auto mark = to_ticks(wire.fair_price, *base); mark.has_value()) {
         out.mark_price = *mark;
+    }
+    if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
+        out.interval_s = perp->funding_interval_s;
     }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
@@ -353,13 +358,37 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     }
     TickerStats out{};
     out.instrument = base->id;
-    // NOT DERIVED, and not left undefined either. MEXC's only quantity column
-    // is `volume24`, a CONTRACT count; dividing the turnover by a price would
-    // put this process's own estimate in a column every other venue fills from
-    // what the venue itself said.
     out.volume_24h_base = FixedE9::from_raw(0);
+    if (const auto contracts = to_amount(wire.volume_24h_contracts);
+        contracts.has_value() && base->contract_value.raw > 0 && !base->contract_value.is_undef()) {
+        const auto units = mul_wide(contracts->raw, base->contract_value.raw).raw / k_e9;
+        if (units <= std::numeric_limits<std::int64_t>::max()) {
+            out.volume_24h_base = FixedE9::from_raw(static_cast<std::int64_t>(units));
+        }
+    }
     out.volume_24h_quote = *quote;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
+                                                 const exec::InstrumentTable& table,
+                                                 UnixNanos ts_init) {
+    const auto* base = base_for(wire.symbol, table);
+    if (base == nullptr) {
+        return std::nullopt;
+    }
+    const auto volume = to_amount(wire.volume_base);
+    const auto quote = to_amount(wire.volume_quote);
+    if (!volume.has_value() && !quote.has_value()) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base->id;
+    out.volume_24h_base = volume.value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = quote.value_or(FixedE9::from_raw(0));
+    out.ts_event = ms_to_unix(wire.close_ms, ts_init);
     out.ts_init = ts_init;
     return out;
 }

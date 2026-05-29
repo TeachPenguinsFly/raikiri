@@ -54,6 +54,8 @@ constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
 // and a measurement of what MEXC allows one IP; neither has been made.
 constexpr std::size_t k_max_connections = 16;
 
+constexpr std::uint64_t k_spot_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
+
 // One spot frame. Protobuf, so nothing here is text and the JSON classifier
 // never sees it: what the frame is is decided by WHICH payload field number is
 // present, and an unknown one is skipped rather than guessed at.
@@ -268,6 +270,8 @@ class MexcData final : public exec::DataClient {
 public:
     explicit MexcData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
+          spot_rest_{state_->io,
+                     net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
           pool_{state_->io,
                 net::WsConfig{.host = std::string{stream_host(state_->market)},
                               .port = std::string{stream_port()},
@@ -287,12 +291,16 @@ public:
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
+        if (state_->market == MarketType::Spot) {
+            spot_rest_.start();
+        }
         started_ = true;
         return {};
     }
 
     void stop() override {
         pool_.stop();
+        spot_rest_.stop();
         started_ = false;
     }
 
@@ -317,6 +325,12 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         const bool spot = state_->market == MarketType::Spot;
+        if (spot && kind == exec::SubKind::Funding) {
+            if (std::ranges::find(ticker_instruments_, instrument) == ticker_instruments_.end()) {
+                ticker_instruments_.push_back(instrument);
+            }
+            return {};
+        }
         auto channel = spot ? spot_channel_for(kind) : channel_for(kind);
         if (channel.empty()) {
             return DataClient::subscribe(kind, instrument);
@@ -355,6 +369,7 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        poll_spot_ticker(now);
         if (now.ns < state_->next_app_ping_ns) {
             return;
         }
@@ -369,6 +384,47 @@ public:
     }
 
 private:
+    void poll_spot_ticker(UnixNanos now) noexcept {
+        if (ticker_instruments_.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
+            return;
+        }
+        ticker_in_flight_ = true;
+        try {
+            if (!spot_rest_.send(state_->builder.spot_ticker_24h(),
+                                 [this](const net::RestResponse& response) {
+                                     on_spot_ticker(response);
+                                 })) {
+                ticker_in_flight_ = false;
+                return;
+            }
+        } catch (...) {
+            ticker_in_flight_ = false;
+            return;
+        }
+        next_ticker_poll_ns_ = now.ns + k_spot_ticker_poll_interval_ns;
+    }
+
+    void on_spot_ticker(const net::RestResponse& response) noexcept {
+        ticker_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<SpotTickerBuffer>();
+        const auto rows = parse_spot_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_spot_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() &&
+                std::ranges::find(ticker_instruments_, stats->instrument) !=
+                    ticker_instruments_.end()) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
+    }
+
     // Turns one connection's keys back into the frames that ask for them.
     // Called on every open of that socket, which is why the ordering lives here
     // rather than at subscribe time: on a reconnect the order that matters is
@@ -412,7 +468,11 @@ private:
 
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
+    net::RestClient spot_rest_;
     net::WsPool pool_;
+    std::vector<InstrumentId> ticker_instruments_;
+    std::uint64_t next_ticker_poll_ns_{0};
+    bool ticker_in_flight_{false};
     bool started_{false};
 };
 

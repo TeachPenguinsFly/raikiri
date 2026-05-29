@@ -116,6 +116,7 @@ against production. They are the evidence behind `classify` / `classify_spot`.
 | file | how |
 |---|---|
 | `rest_exchange_info.json` | `GET https://api.mexc.com/api/v3/exchangeInfo` (2123 rows), five rows sliced VERBATIM out of the response |
+| `rest_spot_ticker_24h.json` | `GET https://api.mexc.com/api/v3/ticker/24hr` (1923 rows) on 2026-09-25, three rows sliced VERBATIM out of the response |
 | `rest_error_not_logged_in.json` | `GET contract.mexc.com/api/v1/private/order/list/open_orders/BTC_USDT` with no headers |
 | `rest_error_key_expired.json` | the same call against `api.mexc.com` with `ApiKey: bogus` |
 | `rest_spot_error_key.json` | `POST api.mexc.com/api/v3/order` with `X-MEXC-APIKEY: bogus` |

@@ -627,7 +627,29 @@ TEST(MexcMap, FundingFromTheTickerHasNoSchedule) {
     EXPECT_EQ(funding->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
 }
 
-TEST(MexcMap, TickerStatsCarryTurnoverAndLeaveTheBaseColumnAlone) {
+TEST(MexcMap, FundingFromTheTickerCarriesTheCatalogueInterval) {
+    const auto body = fixture("rest_contract_detail.json");
+    static thread_local InstrumentBuffer storage;
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    exec::InstrumentTable table;
+    table.reserve(wire->size());
+    for (const auto& entry : *wire) {
+        if (auto instrument = map_instrument(entry, MarketType::Perp); instrument.has_value()) {
+            std::get<PerpInstrument>(*instrument).funding_interval_s = 4U * 3600U;
+            ASSERT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    const auto frame = fixture("ws_ticker.json");
+    const auto ticker = parse_ticker(frame);
+    ASSERT_TRUE(ticker.has_value());
+
+    const auto funding = map_funding(*ticker, table, k_ingest);
+    ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->interval_s, 4U * 3600U);
+}
+
+TEST(MexcMap, TickerStatsScaleContractsIntoBaseUnits) {
     const auto table = catalogue();
     const auto frame = fixture("ws_ticker.json");
     const auto ticker = parse_ticker(frame);
@@ -636,9 +658,8 @@ TEST(MexcMap, TickerStatsCarryTurnoverAndLeaveTheBaseColumnAlone) {
     const auto stats = map_ticker_stats(*ticker, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 4'912'147'390'018'210'000LL);
-    // MEXC states no base volume at all; the caps row is what tells a reader
-    // the column is unfilled rather than a market that traded no coins.
-    EXPECT_EQ(stats->volume_24h_base.raw, 0);
+    // 758957590 contracts of 0.0001 BTC.
+    EXPECT_EQ(stats->volume_24h_base.raw, 75'895'759'000'000LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
 
     // A frame that restated no turnover must publish nothing, or the board
@@ -975,6 +996,28 @@ TEST(MexcSpotStream, TheBookIsWholeAndItsSizesAreFinerThanTheLot) {
     EXPECT_LT(depth->bids[0].price.raw, depth->asks[0].price.raw) << "an uncrossed book";
     EXPECT_GT(depth->bids[0].price.raw, depth->bids[1].price.raw) << "bids best first";
     EXPECT_LT(depth->asks[0].price.raw, depth->asks[1].price.raw) << "asks best first";
+}
+
+TEST(MexcMap, SpotTickerTableYieldsBothVolumesForKnownPairs) {
+    const auto table = spot_catalogue();
+    const auto body = fixture("rest_spot_ticker_24h.json");
+    static thread_local SpotTickerBuffer storage;
+    const auto rows = parse_spot_tickers(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 3U);
+
+    std::map<std::string, TickerStats> seen;
+    for (const auto& row : *rows) {
+        if (const auto stats = map_spot_ticker_stats(row, table, k_ingest); stats.has_value()) {
+            seen.emplace(std::string{row.symbol}, *stats);
+        }
+    }
+    EXPECT_FALSE(seen.contains("METALUSDT")) << "not in the catalogue";
+    ASSERT_TRUE(seen.contains("BTCUSDT"));
+    const auto& btc = seen.at("BTCUSDT");
+    EXPECT_EQ(btc.volume_24h_base.raw, 8'277'248'852'990LL);
+    EXPECT_EQ(btc.volume_24h_quote.raw, 696'827'729'480'000'000LL);
+    EXPECT_EQ(btc.ts_event.ns, 1'790'329'980'160ULL * 1'000'000ULL);
 }
 
 } // namespace

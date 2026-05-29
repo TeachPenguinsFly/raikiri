@@ -64,6 +64,7 @@ inline constexpr std::string_view k_exchange_info = "/api/v3/exchangeInfo";
 // these stands in for the other.
 inline constexpr std::string_view k_futures_server_time = "/api/v1/contract/ping";
 inline constexpr std::string_view k_spot_server_time = "/api/v3/time";
+inline constexpr std::string_view k_spot_ticker_24h = "/api/v3/ticker/24hr";
 // The symbol is a trailing PATH SEGMENT on these two, a query parameter on the
 // ticker below.
 inline constexpr std::string_view k_contract_depth = "/api/v1/contract/depth";

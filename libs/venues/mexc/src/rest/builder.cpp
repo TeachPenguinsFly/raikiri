@@ -264,6 +264,10 @@ net::RestRequest RequestBuilder::exchange_info() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
 }
 
+net::RestRequest RequestBuilder::spot_ticker_24h() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_ticker_24h, .body = {}};
+}
+
 // Every builder below writes into the same buffer, so a request must be sent
 // before the next one is built. One catalogue load at a time is the only use.
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t limit) noexcept {
