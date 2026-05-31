@@ -135,6 +135,20 @@ mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
     return static_cast<std::int64_t>(quotient);
 }
 
+// A turnover a venue does not state, as quantity times price. Both operands
+// are the venue's numbers, so a product past i64 is UNDEF rather than an abort.
+[[nodiscard]] constexpr FixedE9 turnover_e9(FixedE9 qty, FixedE9 price) noexcept {
+    if (qty.is_undef() || price.is_undef()) {
+        return FixedE9::undef();
+    }
+    const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) / k_e9;
+    if (product > std::numeric_limits<std::int64_t>::max() ||
+        product <= std::numeric_limits<std::int64_t>::min()) {
+        return FixedE9::undef();
+    }
+    return FixedE9::from_raw(static_cast<std::int64_t>(product));
+}
+
 enum class ParseError : std::uint8_t {
     Empty,
     BadChar,

@@ -181,6 +181,10 @@ net::RestRequest RequestBuilder::contracts_active() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_contracts_active, .body = {}};
 }
 
+net::RestRequest RequestBuilder::spot_all_tickers() noexcept {
+    return {.method = net::HttpMethod::Get, .target = ep::k_spot_all_tickers, .body = {}};
+}
+
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }

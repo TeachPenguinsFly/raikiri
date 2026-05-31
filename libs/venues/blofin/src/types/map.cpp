@@ -118,6 +118,10 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
             return std::nullopt;
         }
         out.volume_24h_base = *volume;
+        // No turnover column on this venue; the day's coins at the last print.
+        if (const auto last = parse_amount_e9(wire.last); last.has_value()) {
+            out.volume_24h_quote = turnover_e9(*volume, *last);
+        }
     }
     out.instrument = base.id;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);

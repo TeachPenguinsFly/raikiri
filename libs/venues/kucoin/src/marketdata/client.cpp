@@ -421,6 +421,8 @@ public:
                 pending_funding_seeds_.emplace_back(symbol);
             }
             wanted_.push_back(instrument);
+        } else if (kind == exec::SubKind::Bbo && state_->market == MarketType::Spot) {
+            wanted_.push_back(instrument); // spot has no funding to put it on the list
         }
         return {};
     }
@@ -458,18 +460,24 @@ public:
         poll_ticker(now);
     }
 
-    // The 24-hour window comes off the CATALOGUE endpoint, which is the only
-    // place kucoin states it — no stream this adapter subscribes to carries a
-    // turnover. Slow, because the figure it reads covers a day.
+    // The 24-hour window comes off the CATALOGUE endpoint on futures and
+    // allTickers on spot, the only places kucoin states it — no stream this
+    // adapter subscribes to carries a turnover. Slow, because the figure it
+    // reads covers a day.
     void poll_ticker(UnixNanos now) noexcept {
         if (wanted_.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
             return;
         }
         ticker_in_flight_ = true;
+        const bool spot = state_->market == MarketType::Spot;
+        // depth_rest is pinned to the futures host; rest_ follows the market.
+        auto& client = spot ? rest_ : state_->depth_rest;
         try {
-            if (!state_->depth_rest.send(
-                    state_->builder.contracts_active(),
-                    [this](net::RestResponse&& response) { on_ticker(response); })) {
+            if (!client.send(spot ? state_->builder.spot_all_tickers()
+                                  : state_->builder.contracts_active(),
+                             [this, spot](net::RestResponse&& response) {
+                                 spot ? on_spot_ticker(response) : on_ticker(response);
+                             })) {
                 ticker_in_flight_ = false;
                 return; // refused: still due, so the next tick asks again
             }
@@ -496,6 +504,27 @@ public:
             return;
         }
         pending_funding_seeds_.pop_back();
+    }
+
+    void on_spot_ticker(const net::RestResponse& response) noexcept {
+        ticker_in_flight_ = false;
+        if (response.transport_failed() || response.status != 200) {
+            return;
+        }
+        static thread_local SpotTickerBuffer storage;
+        const auto rows = parse_spot_tickers(response.body, storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        const auto received = state_->clock->wall();
+        for (const auto& row : *rows) {
+            const auto stats = map_ticker_stats(row, state_->instruments, received);
+            if (stats.has_value() &&
+                std::ranges::any_of(
+                    wanted_, [id = stats->instrument](InstrumentId sub) { return sub == id; })) {
+                state_->sink->on_ticker_stats(*stats);
+            }
+        }
     }
 
     void on_ticker(const net::RestResponse& response) noexcept {

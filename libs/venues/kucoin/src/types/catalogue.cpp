@@ -142,4 +142,50 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
     });
 }
 
+std::expected<std::span<const WireSpotTicker>, WireError>
+parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireSpotTicker>, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto data = detail::req_object(*root, "data");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        const auto time = opt_u64(*data, "time");
+        if (!time.has_value()) {
+            return std::unexpected(time.error());
+        }
+        auto array = detail::req_array(*data, "ticker");
+        if (!array.has_value()) {
+            return std::unexpected(array.error());
+        }
+        const auto count = read_rows<WireSpotTicker>(
+            *array,
+            storage.tickers,
+            [&](auto& obj, WireSpotTicker& row) -> std::expected<void, WireError> {
+                const auto symbol = detail::req_str(obj, "symbol");
+                if (!symbol.has_value()) {
+                    return std::unexpected(symbol.error());
+                }
+                row.symbol = *symbol;
+                row.ts_ms = *time;
+                for (const auto& [key, field] :
+                     {std::pair{"vol", &row.vol}, std::pair{"volValue", &row.vol_value}}) {
+                    const auto value = opt_decimal(obj, key);
+                    if (!value.has_value()) {
+                        return std::unexpected(value.error());
+                    }
+                    *field = *value;
+                }
+                return {};
+            });
+        if (!count.has_value()) {
+            return std::unexpected(count.error());
+        }
+        return std::span<const WireSpotTicker>{storage.tickers.data(), *count};
+    });
+}
+
 } // namespace raikiri::venues::kucoin

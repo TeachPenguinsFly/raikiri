@@ -281,10 +281,40 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     }
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
-    out.volume_24h_base = to_e9(wire.volume_24h).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_e9(wire.turnover_24h).value_or(FixedE9::from_raw(0));
+    if (const auto base = to_e9(wire.volume_24h); base.has_value()) {
+        out.volume_24h_base = *base;
+    }
+    if (const auto quote = to_e9(wire.turnover_24h); quote.has_value()) {
+        out.volume_24h_quote = *quote;
+    }
     // The catalogue states no clock of its own, so the read is its own stamp.
     out.ts_event = ts_init;
+    out.ts_init = ts_init;
+    return out;
+}
+
+std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
+                                            const exec::InstrumentTable& table,
+                                            UnixNanos ts_init) {
+    // Java doubles past nine decimals ("3093.1776802805860382"); an exact read refuses them.
+    const auto base = wire.vol.empty() ? std::nullopt : parse_amount_e9(wire.vol);
+    const auto quote = wire.vol_value.empty() ? std::nullopt : parse_amount_e9(wire.vol_value);
+    if (!base.has_value() && !quote.has_value()) {
+        return std::nullopt;
+    }
+    const auto* instrument = table.find(wire.symbol);
+    if (instrument == nullptr) {
+        return std::nullopt;
+    }
+    TickerStats out{};
+    out.instrument = base_of(*instrument).id;
+    if (base.has_value()) {
+        out.volume_24h_base = *base;
+    }
+    if (quote.has_value()) {
+        out.volume_24h_quote = *quote;
+    }
+    out.ts_event = wire.ts_ms == 0 ? ts_init : UnixNanos{wire.ts_ms * 1'000'000ULL};
     out.ts_init = ts_init;
     return out;
 }

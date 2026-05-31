@@ -1916,5 +1916,24 @@ TEST(XtWs, PrivateHostsAreNotThePublicOnes) {
     EXPECT_NE(private_stream_path(), stream_path(MarketType::Perp));
 }
 
+TEST(XtMap, AFuturesTickerStatesItsBaseVolumeInContracts) {
+    exec::InstrumentTable table;
+    load_perp_table(table);
+    const auto body = fixture("ws_ticker.json");
+    const auto wire = parse_ticker(body, MarketType::Perp);
+    ASSERT_TRUE(wire.has_value());
+    const auto stats = map_ticker_stats(*wire, table, UnixNanos{1});
+    ASSERT_TRUE(stats.has_value());
+    // 166 727 460 contracts of 0.0001 BTC.
+    EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("16672.746"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_decimal_e9("1403037620.60655"));
+
+    WireTicker silent = *wire;
+    silent.contracts_24h = {};
+    const auto unstated = map_ticker_stats(silent, table, UnixNanos{1});
+    ASSERT_TRUE(unstated.has_value());
+    EXPECT_TRUE(unstated->volume_24h_base.is_undef());
+}
+
 } // namespace
 } // namespace raikiri::venues::xt

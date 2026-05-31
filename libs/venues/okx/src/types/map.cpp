@@ -304,13 +304,27 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     // asset and volCcy24h the quote; on every derivative volCcy24h is the base
     // and vol24h counts CONTRACTS, which is not a turnover in any currency.
     const bool is_spot = wire.inst_type == "SPOT" || wire.inst_type == "MARGIN";
-    const auto base_text = is_spot ? wire.vol_24h : wire.vol_ccy_24h;
-    const auto quote_text = is_spot ? wire.vol_ccy_24h : std::string_view{};
+    const auto& base = base_of(*instrument);
 
     TickerStats out{};
-    out.instrument = base_of(*instrument).id;
-    out.volume_24h_base = to_amount(base_text).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_amount(quote_text).value_or(FixedE9::from_raw(0));
+    out.instrument = base.id;
+    const auto coins = to_amount(is_spot ? wire.vol_24h : wire.vol_ccy_24h);
+    if (coins.has_value()) {
+        out.volume_24h_base = *coins;
+    }
+    if (is_spot) {
+        if (const auto quote = to_amount(wire.vol_ccy_24h); quote.has_value()) {
+            out.volume_24h_quote = *quote;
+        }
+    } else if (base.kind == ContractKind::Inverse) {
+        // An inverse contract is a fixed number of dollars, so the count is the turnover.
+        if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
+            out.volume_24h_quote = turnover_e9(*contracts, base.contract_value);
+        }
+    } else if (const auto last = to_amount(wire.last); coins.has_value() && last.has_value()) {
+        // No derivative turnover column: the day's coins at the last print.
+        out.volume_24h_quote = turnover_e9(*coins, *last);
+    }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

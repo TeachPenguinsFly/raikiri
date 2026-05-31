@@ -72,4 +72,20 @@ struct SpotSymbolBuffer {
 [[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
 parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
 
+// GET /api/v1/market/allTickers on the SPOT host: the only place spot states
+// its 24-hour window. `vol` is the base asset, `volValue` the quote.
+struct WireSpotTicker {
+    std::string_view symbol;
+    std::string_view vol;
+    std::string_view vol_value;
+    std::uint64_t ts_ms{0};
+};
+
+struct SpotTickerBuffer {
+    std::array<WireSpotTicker, k_max_spot_symbols> tickers{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireSpotTicker>, WireError>
+parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage);
+
 } // namespace raikiri::venues::kucoin

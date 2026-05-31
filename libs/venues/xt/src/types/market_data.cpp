@@ -125,6 +125,8 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, Market
                     // `a`, a CONTRACT count, and reading it here would put a
                     // number measured in contracts in a base-volume column.
                     out.volume_24h_base = opt_scalar(data, "q").value_or(std::string_view{});
+                } else {
+                    out.contracts_24h = opt_scalar(data, "a").value_or(std::string_view{});
                 }
                 return out;
             });

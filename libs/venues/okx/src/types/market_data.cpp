@@ -123,11 +123,13 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                 // every other fact on it.
                 const auto vol = detail::opt_str(obj, "vol24h");
                 const auto vol_ccy = detail::opt_str(obj, "volCcy24h");
-                if (!vol.has_value() || !vol_ccy.has_value()) {
+                const auto last = detail::opt_str(obj, "last");
+                if (!vol.has_value() || !vol_ccy.has_value() || !last.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
                 out.vol_24h = *vol;
                 out.vol_ccy_24h = *vol_ccy;
+                out.last = *last;
                 const auto ts = detail::opt_ms(obj, "ts");
                 if (!ts.has_value()) {
                     return std::unexpected(ts.error());

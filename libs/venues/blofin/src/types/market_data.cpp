@@ -48,13 +48,15 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
             }
             const auto vol = wire::opt_str(obj, "vol24h");
             const auto vol_ccy = wire::opt_str(obj, "volCurrency24h");
+            const auto last = wire::opt_str(obj, "last");
             const auto ts = wire::opt_ms(obj, "ts");
-            if (!vol.has_value() || !vol_ccy.has_value() || !ts.has_value()) {
+            if (!vol.has_value() || !vol_ccy.has_value() || !last.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.inst_id = *inst_id;
             out.vol_contracts = *vol;
             out.vol_currency = *vol_ccy;
+            out.last = *last;
             out.ts_ms = *ts;
             return {};
         });

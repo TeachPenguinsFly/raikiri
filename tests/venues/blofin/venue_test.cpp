@@ -324,6 +324,17 @@ TEST(BlofinTickers, ALinearContractStatesItsBaseVolume) {
     const auto stats = map_ticker_stats((*rows)[0], perp_of("BTC-USDT").base, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4072.6116"));
+    EXPECT_EQ(stats->volume_24h_quote, e9("343084539.14604"));
+}
+
+TEST(BlofinTickers, ALinearContractWithoutALastPrintHasNoTurnover) {
+    WireTicker wire{};
+    wire.inst_id = "BTC-USDT";
+    wire.vol_contracts = "4072611.6";
+    wire.vol_currency = "4072.6116";
+    const auto stats = map_ticker_stats(wire, perp_of("BTC-USDT").base, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base, e9("4072.6116"));
     EXPECT_TRUE(stats->volume_24h_quote.is_undef());
 }
 

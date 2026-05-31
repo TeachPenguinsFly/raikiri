@@ -63,6 +63,7 @@ public:
     [[nodiscard]] net::RestRequest bullet_public() noexcept;
 
     [[nodiscard]] net::RestRequest contracts_active() noexcept;
+    [[nodiscard]] net::RestRequest spot_all_tickers() noexcept;
 
     [[nodiscard]] net::RestRequest server_time() noexcept;
 

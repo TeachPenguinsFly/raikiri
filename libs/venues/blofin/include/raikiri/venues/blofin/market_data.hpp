@@ -35,6 +35,7 @@ struct WireTicker {
     std::string_view inst_id;
     std::string_view vol_contracts; // vol24h
     std::string_view vol_currency;  // volCurrency24h: base on linear, contracts again on inverse
+    std::string_view last;
     std::uint64_t ts_ms{0};
 };
 

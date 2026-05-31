@@ -398,7 +398,8 @@ std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     // ABSENT IS NOT ZERO. A frame that restated neither column says nothing
     // about the window, and a zero written here erases what the board had.
-    if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {
+    if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty() &&
+        wire.contracts_24h.empty()) {
         return std::nullopt;
     }
     const auto* base = base_for(wire.symbol, table);
@@ -407,11 +408,14 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     }
     TickerStats out{};
     out.instrument = base->id;
-    // Empty on futures by construction — see market_data.hpp. A zero there
-    // says the column is unfilled, which the caps row names; it is not a claim
-    // that no coins changed hands.
-    out.volume_24h_base = to_amount(wire.volume_24h_base).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_amount(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
+    if (const auto coins = to_amount(wire.volume_24h_base); coins.has_value()) {
+        out.volume_24h_base = *coins;
+    } else if (const auto contracts = to_amount(wire.contracts_24h); contracts.has_value()) {
+        out.volume_24h_base = turnover_e9(*contracts, base->contract_value);
+    }
+    if (const auto quote = to_amount(wire.volume_24h_quote); quote.has_value()) {
+        out.volume_24h_quote = *quote;
+    }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

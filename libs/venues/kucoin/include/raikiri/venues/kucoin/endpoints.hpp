@@ -50,6 +50,7 @@ inline constexpr std::string_view k_account_overview = "/api/v1/account-overview
 inline constexpr std::string_view k_contracts_active = "/api/v1/contracts/active";
 // Spot host.
 inline constexpr std::string_view k_spot_symbols = "/api/v2/symbols";
+inline constexpr std::string_view k_spot_all_tickers = "/api/v1/market/allTickers";
 // The symbol sits MID-PATH: k_funding_rate + "/" + symbol + k_funding_rate_current.
 inline constexpr std::string_view k_funding_rate = "/api/v1/funding-rate";
 inline constexpr std::string_view k_funding_rate_current = "/current";

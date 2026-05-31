@@ -48,6 +48,8 @@ map_book(const WireBookSnapshot& wire, const exec::InstrumentTable& table, UnixN
 // not read them, so a spot instrument has no volume rather than a zero.
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
+[[nodiscard]] std::optional<TickerStats>
+map_ticker_stats(const WireSpotTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 // `symbol` overrides the DTO's own, because the REST form names the funding
 // index rather than the contract. Returns nullopt when the frame quotes no

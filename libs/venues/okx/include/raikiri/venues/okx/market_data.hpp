@@ -81,6 +81,7 @@ struct WireTicker {
     std::string_view inst_type;   // "SWAP" | "SPOT" | ...: decides the two below
     std::string_view vol_24h;     // vol24h
     std::string_view vol_ccy_24h; // volCcy24h
+    std::string_view last;
     std::uint64_t ts_ms{0};
 };
 

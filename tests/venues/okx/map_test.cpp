@@ -248,10 +248,56 @@ TEST(OkxMap, SwapTurnoverIsTheBaseAssetAndNeverTheContractCount) {
     // 13 446 460.96 — a CONTRACT count, a hundred times larger, and the one
     // number on the frame that compares with no other venue.
     EXPECT_EQ(stats->volume_24h_base.raw, 134'464'609'600'000LL);
-    // OKX publishes no quote turnover for a derivative, so the column is zero
-    // rather than filled from a figure that does not mean it.
-    EXPECT_EQ(stats->volume_24h_quote.raw, 0);
+    // 134 464.6096 x 79 326.8 is 10.67e9 USDT, past what an e9 column holds.
+    EXPECT_TRUE(stats->volume_24h_quote.is_undef());
     EXPECT_EQ(stats->ts_event.ns, 1'788'532'273'172ULL * 1'000'000ULL);
+}
+
+TEST(OkxMap, SwapQuoteTurnoverIsTheBaseAtTheLastPrint) {
+    const auto table = table_with_btc();
+    WireTicker wire{};
+    wire.inst_id = "BTC-USDT-SWAP";
+    wire.inst_type = "SWAP";
+    wire.vol_24h = "7922892.8";
+    wire.vol_ccy_24h = "79228.928";
+    wire.last = "84555.3";
+    const auto stats = map_ticker_stats(wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 79'228'928'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 6'699'225'775'718'400'000LL);
+
+    wire.last = {};
+    const auto unpriced = map_ticker_stats(wire, table, k_ingest);
+    ASSERT_TRUE(unpriced.has_value());
+    EXPECT_TRUE(unpriced->volume_24h_quote.is_undef());
+}
+
+TEST(OkxMap, InverseSwapQuoteTurnoverIsContractsTimesTheirDollarValue) {
+    exec::InstrumentTable table;
+    WireInstrument row{};
+    row.inst_id = "BTC-USD-SWAP";
+    row.inst_type = "SWAP";
+    row.state = "live";
+    row.tick_size = "0.1";
+    row.lot_size = "1";
+    row.min_size = "1";
+    row.ct_val = "100";
+    row.ct_mult = "1";
+    row.ct_type = "inverse";
+    const auto inverse = map_instrument(row, MarketType::Perp);
+    ASSERT_TRUE(inverse.has_value());
+    ASSERT_TRUE(table.add(*inverse).has_value());
+
+    WireTicker wire{};
+    wire.inst_id = "BTC-USD-SWAP";
+    wire.inst_type = "SWAP";
+    wire.vol_24h = "7922892";
+    wire.vol_ccy_24h = "9370.2";
+    wire.last = "84555.3";
+    const auto stats = map_ticker_stats(wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_base.raw, 9'370'200'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 792'289'200'000'000'000LL);
 }
 
 TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {

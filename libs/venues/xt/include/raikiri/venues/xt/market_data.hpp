@@ -57,6 +57,7 @@ struct WireTicker {
     std::string_view symbol;
     std::string_view volume_24h_base;  // spot `q`; always empty on futures
     std::string_view volume_24h_quote; // `v` on both trees
+    std::string_view contracts_24h;    // futures `a`, in contracts
     std::uint64_t ts_ms{0};
 };
 

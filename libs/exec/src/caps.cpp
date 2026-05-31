@@ -168,9 +168,8 @@ constexpr std::array<VenueCaps, k_venue_count> k_caps = [] {
         // (/api/ua/v2/position/funding-history), carries no per-row id and
         // states no sign, and nothing here knows whether the account is UTA.
         .funding_charge = {},
-        // FUTURES ONLY, and off the catalogue rather than a stream:
-        // volumeOf24h / turnoverOf24h on /api/v1/contracts/active. A spot
-        // instrument gets no volume at all, which is not a zero.
+        // Off REST rather than a stream: volumeOf24h / turnoverOf24h on
+        // /api/v1/contracts/active, vol / volValue on spot's allTickers.
         .ticker_stats = true,
         .needs_passphrase = true,
         .user_stream = UserStreamModel::ListenKey, // bullet-token handshake
