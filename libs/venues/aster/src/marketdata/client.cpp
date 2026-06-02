@@ -45,7 +45,7 @@ constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 // Enough sockets for aster's whole catalogue AT THE PACKING ws.hpp CHOOSES,
 // and the two numbers have to be read together. 571 USD-M listings times the
 // three streams the gateway asks for — @bookTicker, @trade and @depth@<cadence>
-// — is 1713. At k_max_streams_per_connection that is six sockets, and eight
+// — is 1713. At k_max_streams_per_connection that is ten sockets, and twelve
 // leaves room for the listings aster adds.
 //
 // LOWERING THE PACKING WITHOUT RAISING THIS IS A SILENT COVERAGE LOSS: four
@@ -55,7 +55,7 @@ constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 //
 // Funding is not a fourth stream: @markPrice is acknowledged here and then
 // never sends, so the rate is pulled over REST instead.
-constexpr std::size_t k_max_connections = 8;
+constexpr std::size_t k_max_connections = 12;
 
 // SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
 // weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
@@ -297,10 +297,9 @@ public:
                               .port = "443",
                               .target = std::string{stream_path()}},
                 handler_,
-                // Aster caps one CONNECTION at 1024 streams; the pool turns
-                // that into a per-socket number instead of the process's,
-                // which is what left 342 of 571 listings subscribed and 229
-                // refused outright.
+                // Aster caps one CONNECTION at ep::k_ws_max_streams streams;
+                // the pool turns that into a per-socket number instead of the
+                // process's.
                 net::WsPoolConfig{.max_keys_per_connection = k_max_streams_per_connection,
                                   .send_spacing_ns = k_subscribe_spacing_ns,
                                   .max_connections = k_max_connections},
