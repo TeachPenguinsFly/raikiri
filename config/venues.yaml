@@ -44,6 +44,16 @@ venues:
       # after each: the income ledger costs six times what a balance does.
       costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
 
+  aster:
+    order_answer_timeout_ms: 15000
+    rate:
+      # 2400 weight a minute, as its exchangeInfo states; past it the venue answers 418 and bans the IP.
+      shared: { capacity: 2400, window_ms: 60000, reserve: 240 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
+
   bybit:
     order_answer_timeout_ms: 15000
     rate:
