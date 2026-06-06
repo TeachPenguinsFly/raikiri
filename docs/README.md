@@ -10,11 +10,6 @@ How the framework is put together and how to work with it. The
 - [Build and test](#build-and-test) — presets and sanitizers
 - [Status](#status) — what is proven and what is merely written
 
-Deeper notes live beside this file: [`CONNECTIONS.md`](CONNECTIONS.md),
-[`TESTING.md`](TESTING.md), [`execution-testing.md`](execution-testing.md),
-[`CI.md`](CI.md), [`UNBUILT.md`](UNBUILT.md), and the venue and market research
-under [`research/`](research/).
-
 ---
 
 ## Architecture

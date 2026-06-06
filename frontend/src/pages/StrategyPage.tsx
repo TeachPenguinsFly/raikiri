@@ -3,9 +3,7 @@ import { useParams } from 'react-router'
 /** One strategy's page, and why it cannot be drawn.
  *
  *  The deepest of the three: it needs run parameters, a slot structure and
- *  per-slot settlements, none of which any process publishes. The slot model
- *  and the report contract it was designed against are kept in
- *  docs/UNBUILT.md.
+ *  per-slot settlements, none of which any process publishes.
  *
  *  There is no Start/Stop here. There was, and it was removed rather than
  *  disabled: a greyed control still says the feature exists, and a second
