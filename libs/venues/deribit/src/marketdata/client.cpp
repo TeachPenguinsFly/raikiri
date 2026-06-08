@@ -6,6 +6,7 @@
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/deribit/book.hpp>
+#include <raikiri/venues/deribit/endpoints.hpp>
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/venues/deribit/map.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
@@ -25,15 +26,17 @@ namespace raikiri::venues::deribit::detail {
 
 namespace {
 
-// Deribit drops a client that floods a socket with subscribes. One frame per
-// tick, sixteen channels each, is far under the allowance it states for a
-// public connection.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
 // Enough sockets for deribit's whole catalogue at 1024 channels each: 1812
 // listings times four channels is 7248, so eight would do and sixteen leaves
 // room for the strikes deribit lists and expires daily.
 constexpr std::size_t k_max_connections = 16;
+
+// The pool spaces sends per socket while every socket spends ONE per-IP
+// bucket, so each gets 1/k_max_connections of half the refill.
+constexpr std::uint64_t k_subscribe_spacing_ns =
+    2ULL * 1'000'000'000ULL / ep::k_ip_requests_per_s * k_max_connections;
+
+static_assert(k_max_subscriptions_per_frame * (k_max_channel_len + 3) + 256 < ep::k_max_frame_bytes);
 
 // A pool key is one channel. Deribit names the instrument INSIDE it —
 // book.BTC-PERPETUAL.none.1.100ms — so unlike venues that carry the symbol in
@@ -63,10 +66,9 @@ public:
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
         if (handle_frame(*state_, payload, received)) {
-            // WHICH socket asked is not reported to a shared handler, so every
-            // one of them is answered. An unanswered test_request costs the
-            // connection.
-            pool_->broadcast(state_->protocol.test_frame().text);
+            // Answered on the asking socket alone: a broadcast spends the
+            // shared request bucket once per socket per socket.
+            (void)pool_->reply(state_->protocol.test_frame().text);
         }
     }
 

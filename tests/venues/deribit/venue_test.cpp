@@ -872,7 +872,7 @@ TEST(DeribitWs, ChannelNamesCarryTheInstrumentAndTheParameters) {
     EXPECT_TRUE(channel_for(exec::SubKind::Bbo, "BTC-PERPETUAL", tiny).empty());
 }
 
-TEST(DeribitWs, SubscribeFramesAreJsonRpcAndDeliberatelySmall) {
+TEST(DeribitWs, SubscribeFramesAreJsonRpcAndCapped) {
     Protocol protocol;
     const std::array<Subscription, 2> two{
         Subscription{.channel = "book.BTC-PERPETUAL.none.1.100ms"},

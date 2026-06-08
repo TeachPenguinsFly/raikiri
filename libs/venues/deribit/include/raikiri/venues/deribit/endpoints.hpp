@@ -13,6 +13,7 @@
 // path. These are the REST spellings; every private one is a GET whose
 // parameters ride in the query.
 
+#include <cstddef>
 #include <string_view>
 
 namespace raikiri::venues::deribit::ep {
@@ -57,5 +58,15 @@ inline constexpr std::string_view k_positions = "/api/v2/private/get_positions";
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_instruments = "/api/v2/public/get_instruments";
 inline constexpr std::string_view k_server_time = "/api/v2/public/get_time";
+
+// --- limits, measured 2026-09-25 on the public socket ----------------------
+// One request bucket per IP, shared by every socket and by public/test: a burst
+// of 100, refilled at 20 a second. The request past it is refused 10028
+// too_many_requests and the socket closed "over_limit".
+inline constexpr std::size_t k_ip_request_burst = 100;
+inline constexpr std::size_t k_ip_requests_per_s = 20;
+// A larger frame is closed 1009. Below it no channel count is refused: 500 in
+// one subscribe, 3000 on one socket.
+inline constexpr std::size_t k_max_frame_bytes = 32768;
 
 } // namespace raikiri::venues::deribit::ep
