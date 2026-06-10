@@ -425,8 +425,8 @@ private:
         std::uint64_t crossings = 0;
         std::uint64_t outside = 0;
         for (const auto& [packed, book] : state_->books) {
-            synced += book.synced() ? 1 : 0;
-            crossed += book.crossed() ? 1 : 0;
+            synced += book.synced() ? 1U : 0U;
+            crossed += book.crossed() ? 1U : 0U;
             crossings += book.crossings();
             outside += book.outside_band();
         }

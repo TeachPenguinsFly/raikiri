@@ -62,7 +62,7 @@ docker run --rm --platform linux/amd64 \
         cmake -S /src -B /build/rel -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=/build/deps/relwithdebinfo/conan_toolchain.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo
-        cmake --build /build/rel --target $TARGETS -j\$(nproc)
+        cmake --build /build/rel --target $TARGETS -j\$(nproc) -- -k 0
     "
 
 echo "==> out"

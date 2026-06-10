@@ -473,7 +473,7 @@ private:
         }
         std::size_t synced = 0;
         for (const auto& [index, book] : state_->books) {
-            synced += book.synced() ? 1 : 0;
+            synced += book.synced() ? 1U : 0U;
         }
         std::size_t priced = 0;
         std::size_t priced_rfq = 0;

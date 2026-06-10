@@ -1,4 +1,5 @@
 #include <raikiri/admin/format.hpp>
+#include <raikiri/common/int128.hpp>
 
 #include <algorithm>
 #include <array>
@@ -14,9 +15,9 @@ std::string scaled(std::int64_t count, FixedE9 step) {
     if (step.is_undef()) {
         return {};
     }
-    const __int128 product = static_cast<__int128>(count) * step.raw;
-    auto mag = product < 0 ? -static_cast<unsigned __int128>(product)
-                           : static_cast<unsigned __int128>(product);
+    const int128_t product = static_cast<int128_t>(count) * step.raw;
+    auto mag = product < 0 ? -static_cast<uint128_t>(product)
+                           : static_cast<uint128_t>(product);
     std::string out;
     for (int place = 0; mag != 0 || place <= 9; ++place) {
         if (place == 9) {

@@ -482,7 +482,7 @@ private:
         std::size_t live = 0;
         for (const auto& [packed, book] : books_) {
             gaps += book.gaps();
-            live += book.synced() ? 1 : 0;
+            live += book.synced() ? 1U : 0U;
         }
         std::map<std::uint32_t, std::size_t> periods;
         for (const auto packed : funded_) {
