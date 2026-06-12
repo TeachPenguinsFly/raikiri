@@ -37,10 +37,12 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -52,7 +54,18 @@ void on_signal(int) {
 
 } // namespace
 
+constexpr std::string_view k_usage = R"(usage: admind [--address 127.0.0.1] [--port 8787] [--stream-port 8788]
+              [--upstream <name>=<port>]...
+              [--dsn <postgres-dsn>]
+)";
+
 int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+            std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+    }
     const raikiri::log::Scope logging{"admind"};
     using namespace raikiri;
 

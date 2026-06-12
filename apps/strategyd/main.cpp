@@ -79,6 +79,7 @@
 #include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -1164,7 +1165,17 @@ struct Requested {
 }
 } // namespace
 
+constexpr std::string_view k_usage = R"(usage: strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
+                 [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
+)";
+
 int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+            std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+    }
     const raikiri::log::Scope logging{"strategyd"};
     // Stdout carries the end-of-run report and nothing else; the logger writes
     // to stderr. Line buffered so that a run redirected with 2>&1 keeps the

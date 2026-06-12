@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
@@ -41,7 +42,18 @@ void on_signal(int) {
 
 } // namespace
 
+constexpr std::string_view k_usage = R"(usage: persisterd --dir <journal-dir> [--prefix journal] [--name <cursor-key>]
+                  [--dsn <postgres-dsn>] [--flush-ms 50] [--batch-rows 5000]
+                  [--migrate <sql-file>] [--once]
+)";
+
 int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+            std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+    }
     const raikiri::log::Scope logging{"persisterd"};
     std::string dir;
     std::string prefix = "journal";

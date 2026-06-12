@@ -149,3 +149,8 @@ raikiri_add_test(sim_engine_test SRCS simcore/engine_test.cpp LIBS raikiri::simc
 
 raikiri_add_test(history_test POSTGRES SRCS admin/history_test.cpp LIBS raikiri::admin raikiri::persist raikiri::schema glaze::glaze libpqxx::pqxx)
 raikiri_add_test(admin_stream_test SRCS admin/stream_test.cpp LIBS raikiri::admin)
+
+add_test(NAME apps_help
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
+    $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>)
+set_tests_properties(apps_help PROPERTIES TIMEOUT 30)

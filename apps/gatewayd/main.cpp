@@ -77,6 +77,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -996,7 +997,18 @@ private:
     bool verbose_;
 };
 
+constexpr std::string_view k_usage = R"(usage: gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
+                [--channels=bbo,trades,depth,funding] [--testnet]
+                [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
+)";
+
 int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (const std::string_view arg{argv[i]}; arg == "--help" || arg == "-h") {
+            std::fputs(k_usage.data(), stdout);
+            return 0;
+        }
+    }
     // NOTHING HERE WRITES TO STDOUT. Every line this process emits goes to
     // stderr, which is unbuffered; a print added to stdout would need the line
     // buffering set back, or a redirected gateway shows an empty log while it
