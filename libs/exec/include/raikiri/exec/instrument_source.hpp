@@ -34,7 +34,8 @@ struct CatalogueBackoff {
 // Retries fetch_all until it succeeds, fails in a way no retry can fix
 // (Terminal, AuthFailure), or `stopping` turns true; the last two return the
 // error. `on_retry` hears each failure that will be retried, with its attempt
-// number and the wait before the next one.
+// number and the wait before the next one. `stopping` also abandons a request
+// in flight, through an AbandonScope held for the whole load.
 [[nodiscard]] std::expected<std::vector<Instrument>, VenueError> load_catalogue(
     InstrumentSource& source,
     MarketType market,

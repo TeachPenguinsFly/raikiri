@@ -19,7 +19,8 @@ namespace raikiri::net {
 
 class IoContext;
 
-// Pumps `io` until the answer arrives, or until `timeout_ms` passes with none.
+// Pumps `io` until the answer arrives, until `timeout_ms` passes with none, or
+// until an AbandonScope open on this thread says to give up.
 //
 // THE COMPLETION MUST NEVER BE ABLE TO WRITE INTO THIS FRAME. Giving up is not
 // cancelling: the pool still holds the callback, and delivers it whenever the

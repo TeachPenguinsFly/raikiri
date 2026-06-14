@@ -8,6 +8,7 @@
 // the destructor of an object that belonged to an earlier pull.
 
 #include <raikiri/common/time.hpp>
+#include <raikiri/exec/instrument_source.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -28,6 +29,7 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -276,6 +278,56 @@ TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
     EXPECT_TRUE(handler_ran) << "the posted handler never ran, so nothing was tested";
     EXPECT_TRUE(nested_was_refused) << "a nested await pumped the reactor from inside a handler";
     EXPECT_FALSE(io.pumping()) << "the flag is cleared when poll() returns";
+}
+
+class SlowSource final : public exec::InstrumentSource {
+public:
+    SlowSource(IoContext& io, RestClient& rest) : io_{io}, rest_{rest} {}
+
+    std::expected<std::vector<Instrument>, exec::VenueError>
+    fetch_all(MarketType) override {
+        RestRequest request;
+        request.method = HttpMethod::Get;
+        request.target = "/after/8000";
+        if (const auto got = await_response(io_, LiveClock{}, rest_, request, 10'000)) {
+            return std::vector<Instrument>{};
+        }
+        return std::unexpected{
+            exec::VenueError::make(ErrorClass::Connectivity, 0, "no answer")};
+    }
+
+private:
+    IoContext& io_;
+    RestClient& rest_;
+};
+
+TEST(RestAwait, AStopDuringACatalogueLoadAbandonsTheRequestInFlight) {
+    TlsListener listener{[](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<DelayedSession>(std::move(socket), tls)->run();
+    }};
+    IoContext io;
+    auto config = loopback_config(listener.port());
+    config.timeout_ms = 9'000;
+    RestClient rest{io, config};
+    rest.start();
+    SlowSource source{io, rest};
+
+    std::atomic<bool> stop{false};
+    std::jthread stopper{[&stop] {
+        std::this_thread::sleep_for(300ms);
+        stop.store(true);
+    }};
+    const auto started = std::chrono::steady_clock::now();
+    const auto loaded = exec::load_catalogue(
+        source,
+        MarketType::Perp,
+        [&stop] { return stop.load(); },
+        [](const exec::VenueError&, std::uint32_t, std::chrono::milliseconds) {});
+    const auto took = std::chrono::steady_clock::now() - started;
+
+    EXPECT_FALSE(loaded.has_value());
+    EXPECT_LT(took, 1s) << "the load waited out the request instead of abandoning it";
+    rest.stop();
 }
 
 } // namespace

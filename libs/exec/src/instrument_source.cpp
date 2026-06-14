@@ -1,5 +1,7 @@
 #include <raikiri/exec/instrument_source.hpp>
 
+#include <raikiri/common/abandon.hpp>
+
 #include <algorithm>
 #include <random>
 #include <thread>
@@ -15,6 +17,7 @@ std::expected<std::vector<Instrument>, VenueError> load_catalogue(
     CatalogueBackoff backoff) {
     using std::chrono::milliseconds;
     using std::chrono::steady_clock;
+    const AbandonScope abandon{stopping};
     std::minstd_rand rng{std::random_device{}()};
     auto delay = backoff.first;
     for (std::uint32_t attempt = 1;; ++attempt) {

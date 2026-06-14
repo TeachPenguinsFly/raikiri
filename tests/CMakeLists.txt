@@ -109,7 +109,7 @@ raikiri_add_test(ws_pool_test SRCS net/ws_pool_test.cpp LIBS raikiri::net)
 target_link_libraries(rest_client_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 
-raikiri_add_test(rest_await_test SRCS net/rest_await_test.cpp LIBS raikiri::net)
+raikiri_add_test(rest_await_test SRCS net/rest_await_test.cpp LIBS raikiri::net raikiri::exec)
 target_link_libraries(rest_await_test
   PRIVATE Boost::headers OpenSSL::Crypto OpenSSL::SSL)
 

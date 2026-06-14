@@ -1,3 +1,4 @@
+#include <raikiri/common/abandon.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 
@@ -33,7 +34,7 @@ std::optional<RestResponse> await_response(IoContext& io,
     // Refused rather than asserted, because the caller already handles "no
     // answer" and an assert in a release build is no guard at all. A caller
     // that reaches this is a caller that must be made asynchronous.
-    if (io.pumping()) {
+    if (io.pumping() || AbandonScope::abandoned()) {
         return std::nullopt;
     }
     auto landing = std::make_shared<Landing>();
@@ -46,7 +47,8 @@ std::optional<RestResponse> await_response(IoContext& io,
         return std::nullopt;
     }
     const auto deadline = clock.mono().ns + timeout_ms * 1'000'000ULL;
-    while (!landing->response.has_value() && clock.mono().ns < deadline) {
+    while (!landing->response.has_value() && clock.mono().ns < deadline &&
+           !AbandonScope::abandoned()) {
         if (io.poll() == 0) {
             io.run_for(5);
         }
