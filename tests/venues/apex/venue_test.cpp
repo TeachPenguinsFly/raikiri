@@ -269,7 +269,7 @@ TEST(ApexFunding, TheSnapshotStatesRateMarkAndNextHour) {
     const auto stats = map_ticker_stats(*wire, perp.base, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("3764.689"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("316688835.9246"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("316688835.9246"));
 }
 
 TEST(ApexFunding, APartialDeltaKeepsWhatWasSaidBefore) {

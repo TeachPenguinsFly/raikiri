@@ -147,7 +147,7 @@ TEST(DydxFunding, TheNextSettlementIsTheNextHour) {
 TEST(DydxFunding, TurnoverIsQuoteOnly) {
     const auto stats = map_ticker_stats(row("BTC-USD"), base_for("BTC-USD"), k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_quote, e9("7721124.7643"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("7721124.7643"));
     EXPECT_TRUE(stats->volume_24h_base.is_undef());
 }
 

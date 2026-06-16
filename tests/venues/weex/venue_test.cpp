@@ -629,7 +629,7 @@ TEST(WeexMap, TheTickerCarriesBothTurnoverColumnsAndNoQuote) {
     const auto stats = map_ticker_stats(*wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 15'056'620'000'000);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'199'459'641'663'590'000);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'199'459'641'663'590);
     // WHICH COLUMN IS WHICH, arithmetically rather than by name. Both raws are
     // e9, so their ratio is a price: 79663, which is this frame's own weighted
     // average `w` of 79663.27 and inside its 78947.5..80531.0 day range. Swap
@@ -637,7 +637,7 @@ TEST(WeexMap, TheTickerCarriesBothTurnoverColumnsAndNoQuote) {
     //
     // It is also the proof that sizes on this venue are BASE amounts rather
     // than contract counts, which is why contract_value is one.
-    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 79'663);
+    EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 79'663);
     // The window's close, not the send time.
     EXPECT_EQ(stats->ts_event.ns, 1'788'773'400'000'000'000ULL);
 }

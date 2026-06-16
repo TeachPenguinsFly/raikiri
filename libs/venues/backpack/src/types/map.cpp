@@ -176,7 +176,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = amount_or_undef(wire.volume);
-    out.volume_24h_quote = amount_or_undef(wire.quote_volume);
+    out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::undef());
     out.ts_event = received;
     out.ts_init = received;
     return out;

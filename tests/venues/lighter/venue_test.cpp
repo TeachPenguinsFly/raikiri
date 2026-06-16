@@ -353,7 +353,7 @@ TEST(LighterFunding, ASpotRowHasTurnoverAndNoRate) {
     const auto stats = map_ticker_stats(frame->rows[0], base, frame->ts_ms, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("205.6278"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("549839.412448"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("549839.412448"));
 }
 
 TEST(LighterFunding, VolumesAreReadFromTheNumberTextWithoutADouble) {
@@ -366,7 +366,7 @@ TEST(LighterFunding, VolumesAreReadFromTheNumberTextWithoutADouble) {
         map_ticker_stats(frame->rows[0], base_for(1, MarketType::Perp), frame->ts_ms, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("10699.68227"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("899521507.591693"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("899521507.591693"));
 }
 
 TEST(LighterWs, TheBookIsAskedForOnceForQuoteAndDepth) {

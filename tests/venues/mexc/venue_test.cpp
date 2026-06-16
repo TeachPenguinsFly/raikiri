@@ -657,7 +657,7 @@ TEST(MexcMap, TickerStatsScaleContractsIntoBaseUnits) {
 
     const auto stats = map_ticker_stats(*ticker, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_quote.raw, 4'912'147'390'018'210'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 4'912'147'390'018'210LL);
     // 758957590 contracts of 0.0001 BTC.
     EXPECT_EQ(stats->volume_24h_base.raw, 75'895'759'000'000LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
@@ -1016,7 +1016,7 @@ TEST(MexcMap, SpotTickerTableYieldsBothVolumesForKnownPairs) {
     ASSERT_TRUE(seen.contains("BTCUSDT"));
     const auto& btc = seen.at("BTCUSDT");
     EXPECT_EQ(btc.volume_24h_base.raw, 8'277'248'852'990LL);
-    EXPECT_EQ(btc.volume_24h_quote.raw, 696'827'729'480'000'000LL);
+    EXPECT_EQ(btc.volume_24h_quote.raw, 696'827'729'480'000LL);
     EXPECT_EQ(btc.ts_event.ns, 1'790'329'980'160ULL * 1'000'000ULL);
 }
 

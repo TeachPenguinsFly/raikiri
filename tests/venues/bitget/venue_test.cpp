@@ -688,7 +688,7 @@ TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
     const auto stats = map_ticker_stats(*wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 30'602'455'600'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'430'817'946ULL * 1'000'000ULL);
 
     // An instrument the catalogue has never heard of has no cell to write to,

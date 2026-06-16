@@ -153,7 +153,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
     if (const auto volume = parse_amount_e9(wire.volume_24h); volume.has_value()) {
         out.volume_24h_base = *volume;
     }
-    if (const auto turnover = parse_amount_e9(wire.turnover_24h); turnover.has_value()) {
+    if (const auto turnover = parse_turnover_e6(wire.turnover_24h); turnover.has_value()) {
         out.volume_24h_quote = *turnover;
     }
     out.ts_event = us_to_unix(wire.ts_us, ts_init);

@@ -189,7 +189,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     // NOT DERIVED. The channel states no turnover, and `price` times volume
     // would be this process's own estimate standing in a column every other
     // venue fills from what the venue itself said.
-    out.volume_24h_quote = FixedE9::from_raw(0);
+    out.volume_24h_quote = FixedE6::from_raw(0);
     out.ts_event = iso_to_unix(wire.time, ts_init);
     out.ts_init = ts_init;
     return out;

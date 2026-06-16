@@ -413,7 +413,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     } else if (const auto contracts = to_amount(wire.contracts_24h); contracts.has_value()) {
         out.volume_24h_base = turnover_e9(*contracts, base->contract_value);
     }
-    if (const auto quote = to_amount(wire.volume_24h_quote); quote.has_value()) {
+    if (const auto quote = parse_turnover_e6(wire.volume_24h_quote); quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);

@@ -2075,7 +2075,7 @@ TEST(KucoinSpotTickers, AllTickersStatesBothColumnsTruncatedAtNineDecimals) {
     const auto stats = map_ticker_stats((*rows)[0], table, UnixNanos{1});
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("3091.674104240"));
-    EXPECT_EQ(stats->volume_24h_quote, *parse_decimal_e9("260392729.755434675"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("260392729.755434675"));
     EXPECT_EQ(stats->ts_event, UnixNanos{1'790'330'198'482ULL * 1'000'000ULL});
 
     WireSpotTicker silent = (*rows)[0];

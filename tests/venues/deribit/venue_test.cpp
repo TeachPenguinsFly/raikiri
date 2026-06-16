@@ -547,11 +547,11 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     const auto stats = map_ticker_stats(*perp, perps, UnixNanos{11});
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 2'934'856'825'690);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 189'879'910'000'000'000);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 189'879'910'000'000);
     // COIN-MARGINED DOES NOT SWAP THEM. Both raws are e9, so their ratio is a
     // price: 64698, inside this contract's own 63764..65436 day range. Reading
     // `volume` as the USD side would price BTC at 1.5e-5.
-    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'698);
+    EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'698);
     EXPECT_EQ(stats->ts_event.ns, 1'786'395'070'130'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 11U);
 
@@ -563,8 +563,8 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     const auto future_stats = map_ticker_stats(*future, futures, UnixNanos{11});
     ASSERT_TRUE(future_stats.has_value());
     EXPECT_EQ(future_stats->volume_24h_base.raw, 155'337'460'510);
-    EXPECT_EQ(future_stats->volume_24h_quote.raw, 10'129'490'000'000'000);
-    EXPECT_EQ(future_stats->volume_24h_quote.raw / future_stats->volume_24h_base.raw, 65'209);
+    EXPECT_EQ(future_stats->volume_24h_quote.raw, 10'129'490'000'000);
+    EXPECT_EQ(future_stats->volume_24h_quote.raw * (k_e9 / k_e6) / future_stats->volume_24h_base.raw, 65'209);
 
     exec::InstrumentTable options;
     ASSERT_EQ(load_catalogue(options, MarketType::Option, catalogue), 2U);
@@ -577,8 +577,8 @@ TEST(DeribitMap, TheStatsBlockCarriesBothColumnsOnEveryKindOnThisChannel) {
     // notional: 4521.24 over 15.6 is 289 USD a contract, which is the 0.0044
     // BTC mark at a 64107 underlying. The ratio is still quote over base.
     EXPECT_EQ(option_stats->volume_24h_base.raw, 15'600'000'000);
-    EXPECT_EQ(option_stats->volume_24h_quote.raw, 4'521'240'000'000);
-    EXPECT_EQ(option_stats->volume_24h_quote.raw / option_stats->volume_24h_base.raw, 289);
+    EXPECT_EQ(option_stats->volume_24h_quote.raw, 4'521'240'000);
+    EXPECT_EQ(option_stats->volume_24h_quote.raw * (k_e9 / k_e6) / option_stats->volume_24h_base.raw, 289);
 }
 
 TEST(DeribitMap, ATickerWithoutStatsStillYieldsItsFunding) {

@@ -142,7 +142,10 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     TickerStats out{};
     out.instrument = base.id;
     out.volume_24h_base = sum_e9(wire.buy_volume_base, wire.sell_volume_base);
-    out.volume_24h_quote = sum_e9(wire.buy_volume_quote, wire.sell_volume_quote);
+    const auto buys = parse_turnover_e6(wire.buy_volume_quote);
+    const auto sells = parse_turnover_e6(wire.sell_volume_quote);
+    out.volume_24h_quote =
+        buys.has_value() && sells.has_value() ? *buys + *sells : FixedE6::undef();
     if (out.volume_24h_base.is_undef() && out.volume_24h_quote.is_undef()) {
         return std::nullopt;
     }

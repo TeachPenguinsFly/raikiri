@@ -346,7 +346,7 @@ map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base_of(*instrument).id;
     // `vol` on the same tick is the contract count and is not read here.
     out.volume_24h_base = rate_e9(wire.amount).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = rate_e9(wire.trade_turnover).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = parse_turnover_e6(wire.trade_turnover).value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

@@ -94,7 +94,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
     TickerStats out{};
     out.instrument = base.id;
     out.volume_24h_base = amount_or_undef(wire.volume);
-    out.volume_24h_quote = amount_or_undef(wire.quote_volume);
+    out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::undef());
     if (out.volume_24h_base.is_undef() && out.volume_24h_quote.is_undef()) {
         return std::nullopt;
     }

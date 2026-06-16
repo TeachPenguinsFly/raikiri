@@ -157,7 +157,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     if (const auto base_volume = parse_amount_e9(wire.volume); base_volume.has_value()) {
         out.volume_24h_base = *base_volume;
     }
-    if (const auto quote_volume = parse_amount_e9(wire.quote_volume); quote_volume.has_value()) {
+    if (const auto quote_volume = parse_turnover_e6(wire.quote_volume); quote_volume.has_value()) {
         out.volume_24h_quote = *quote_volume;
     }
     out.ts_event = ms_to_unix(wire.close_ms, ts_init);

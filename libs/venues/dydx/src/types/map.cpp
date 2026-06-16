@@ -216,7 +216,7 @@ map_funding(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_ini
 
 std::optional<TickerStats>
 map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
-    const auto turnover = parse_amount_e9(wire.volume_24h);
+    const auto turnover = parse_turnover_e6(wire.volume_24h);
     if (!turnover.has_value()) {
         return std::nullopt;
     }

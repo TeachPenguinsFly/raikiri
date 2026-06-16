@@ -284,7 +284,7 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     if (const auto base = to_e9(wire.volume_24h); base.has_value()) {
         out.volume_24h_base = *base;
     }
-    if (const auto quote = to_e9(wire.turnover_24h); quote.has_value()) {
+    if (const auto quote = parse_turnover_e6(wire.turnover_24h); quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
     // The catalogue states no clock of its own, so the read is its own stamp.
@@ -298,7 +298,7 @@ std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
                                             UnixNanos ts_init) {
     // Java doubles past nine decimals ("3093.1776802805860382"); an exact read refuses them.
     const auto base = wire.vol.empty() ? std::nullopt : parse_amount_e9(wire.vol);
-    const auto quote = wire.vol_value.empty() ? std::nullopt : parse_amount_e9(wire.vol_value);
+    const auto quote = wire.vol_value.empty() ? std::nullopt : parse_turnover_e6(wire.vol_value);
     if (!base.has_value() && !quote.has_value()) {
         return std::nullopt;
     }

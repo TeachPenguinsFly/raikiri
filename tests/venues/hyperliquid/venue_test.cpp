@@ -599,11 +599,11 @@ TEST(HyperliquidMap, TheDaysVolumeRidesTheSameContextAsFunding) {
     EXPECT_EQ(stats->volume_24h_base.raw, 27'652'045'870'000);
     // Truncated at 1e-9, not refused: the venue writes ten fractional digits
     // and an exact read would report a $1.7bn day as no volume at all.
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'786'723'009'146'250'724);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'786'723'009'146'250);
     // Both raws are e9, so their ratio is a price: 64614, between this
     // context's own markPx 64143 and prevDayPx 65105. The names do not say
     // which of Ntl and Base is the coin; this does.
-    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'614);
+    EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'614);
     // No timestamp on either transport, so ingest is the only honest one.
     EXPECT_EQ(stats->ts_event.ns, 11U);
     EXPECT_EQ(stats->ts_init.ns, 11U);
@@ -627,7 +627,7 @@ TEST(HyperliquidMap, ARestContextNamesNoCoinAndPublishesNoVolume) {
     btc.coin = "BTC";
     const auto stats = map_ticker_stats(btc, table, UnixNanos{1});
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_quote.raw / stats->volume_24h_base.raw, 64'614);
+    EXPECT_EQ(stats->volume_24h_quote.raw * (k_e9 / k_e6) / stats->volume_24h_base.raw, 64'614);
 }
 
 TEST(HyperliquidMap, ContractWithoutFundingIsNotReportedAsZero) {

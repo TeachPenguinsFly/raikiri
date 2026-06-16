@@ -97,6 +97,14 @@ using FixedE9 = Scaled64<E9Tag>;
 
 inline constexpr std::int64_t k_e9 = 1'000'000'000;
 
+struct E6Tag {};
+
+// Decimal scaled by 1e6: a 24-hour quote turnover, which passes i64 at 1e9
+// on a busy contract (okx BTC-USDT-SWAP trades over ten billion a day).
+using FixedE6 = Scaled64<E6Tag>;
+
+inline constexpr std::int64_t k_e6 = 1'000'000;
+
 // 128-bit value for notionals and other i64*i64 products. Comparable POD;
 // never serialized to the wire (recomputed where needed).
 struct Notional128 {
@@ -147,6 +155,18 @@ mul_div(std::int64_t a, std::int64_t b, std::int64_t d) noexcept {
         return FixedE9::undef();
     }
     return FixedE9::from_raw(static_cast<std::int64_t>(product));
+}
+
+[[nodiscard]] constexpr FixedE6 turnover_e6(FixedE9 qty, FixedE9 price) noexcept {
+    if (qty.is_undef() || price.is_undef()) {
+        return FixedE6::undef();
+    }
+    const int128_t product = (static_cast<int128_t>(qty.raw) * price.raw) / (k_e9 * (k_e9 / k_e6));
+    if (product > std::numeric_limits<std::int64_t>::max() ||
+        product <= std::numeric_limits<std::int64_t>::min()) {
+        return FixedE6::undef();
+    }
+    return FixedE6::from_raw(static_cast<std::int64_t>(product));
 }
 
 enum class ParseError : std::uint8_t {
@@ -200,5 +220,9 @@ enum class ParseError : std::uint8_t {
 //   Truncation errs DOWNWARD, which is the safe direction for a figure whose
 //   question is "how much may I commit". Not for a price or a size.
 [[nodiscard]] std::optional<FixedE9> parse_amount_e9(std::string_view text) noexcept;
+
+//   parse_turnover_e6 is parse_amount_e9 at 1e6, for the one figure that
+//   outgrows e9.
+[[nodiscard]] std::optional<FixedE6> parse_turnover_e6(std::string_view text) noexcept;
 
 } // namespace raikiri

@@ -326,7 +326,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_amount_e9(wire.stats_volume).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_amount_e9(wire.stats_volume_usd).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = parse_turnover_e6(wire.stats_volume_usd).value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;

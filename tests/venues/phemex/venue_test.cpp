@@ -331,7 +331,7 @@ TEST(PhemexFunding, TheRateIsPerTheContractsOwnIntervalAndTheNextTimeIsOnItsGrid
     const auto stats = map_ticker_stats(row_of("BTCUSDT"), base_of(btc.instrument), pack->ts_ns, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4551.127"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("382619179.95088"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("382619179.95088"));
 
     EXPECT_FALSE(map_funding(WirePackRow{}, base_of(btc.instrument), btc.listing, pack->ts_ns, k_ingest)
                      .has_value());
@@ -349,7 +349,7 @@ TEST(PhemexFunding, TheInverseTickerIsScaledAndCountsContractsAsTheQuote) {
     EXPECT_EQ(funding->mark_price.raw, 842170); // 84217.0 in 0.1 ticks
     const auto stats = map_ticker_stats(*wire, base_of(row.instrument), row.listing, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_quote, e9("195087675"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("195087675"));
     EXPECT_EQ(stats->volume_24h_base, e9("2329.70059866"));
 }
 
@@ -361,7 +361,7 @@ TEST(PhemexFunding, TheSpotTickerStatesBothVolumes) {
     const auto stats = map_ticker_stats(*wire, base_of(row.instrument), row.listing, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, *scaled_e9(*wire->volume_ev, 8));
-    EXPECT_EQ(stats->volume_24h_quote, *scaled_e9(*wire->turnover_ev, 8));
+    EXPECT_EQ(stats->volume_24h_quote, FixedE6::from_raw(*wire->turnover_ev / 100));
 }
 
 // --- the socket ----------------------------------------------------------

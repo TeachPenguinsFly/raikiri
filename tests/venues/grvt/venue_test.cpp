@@ -307,7 +307,7 @@ TEST(GrvtFeed, TheTickerCarriesFundingAsAPercentOfOneInterval) {
     const auto stats = map_ticker_stats(ticker.ticker, base_of(btc), k_ingest, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("28842.081"));
-    EXPECT_EQ(stats->volume_24h_quote, *parse_decimal_e9("77162625.81605"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("77162625.81605"));
 }
 
 TEST(GrvtFeed, AFrameStatingNoRateIsNotFundingAtZero) {

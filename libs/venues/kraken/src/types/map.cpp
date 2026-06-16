@@ -341,7 +341,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.volume_24h_base = base.kind == ContractKind::Inverse
                               ? FixedE9::from_raw(0)
                               : to_truncated_e9(wire.volume).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_truncated_e9(wire.volume_quote).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = parse_turnover_e6(wire.volume_quote).value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.time_ms, ts_init);
     out.ts_init = ts_init;
     return out;

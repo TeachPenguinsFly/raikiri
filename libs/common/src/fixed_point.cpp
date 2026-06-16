@@ -194,8 +194,8 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
     return out;
 }
 
-std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
-    int shift = parts.exponent + 9;
+std::optional<std::int64_t> scale_to(const Decomposed& parts, int digits, bool exact) noexcept {
+    int shift = parts.exponent + digits;
     if (shift > k_max_shift || shift < -k_max_shift) {
         return std::nullopt;
     }
@@ -216,7 +216,12 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
     if (value > k_i64_max || value < -k_i64_max) {
         return std::nullopt;
     }
-    return FixedE9::from_raw(static_cast<std::int64_t>(value));
+    return static_cast<std::int64_t>(value);
+}
+
+std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
+    const auto raw = scale_to(parts, 9, exact);
+    return raw.has_value() ? std::optional{FixedE9::from_raw(*raw)} : std::nullopt;
 }
 
 } // namespace
@@ -234,6 +239,15 @@ std::optional<FixedE9> parse_amount_e9(std::string_view text) noexcept {
 std::optional<FixedE9> parse_rate_e9(std::string_view text) noexcept {
     const auto parts = decompose(text);
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
+}
+
+std::optional<FixedE6> parse_turnover_e6(std::string_view text) noexcept {
+    const auto parts = decompose(text);
+    if (!parts.has_value()) {
+        return std::nullopt;
+    }
+    const auto raw = scale_to(*parts, 6, /*exact=*/false);
+    return raw.has_value() ? std::optional{FixedE6::from_raw(*raw)} : std::nullopt;
 }
 
 } // namespace raikiri

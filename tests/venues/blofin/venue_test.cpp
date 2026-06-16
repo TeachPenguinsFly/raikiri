@@ -324,7 +324,7 @@ TEST(BlofinTickers, ALinearContractStatesItsBaseVolume) {
     const auto stats = map_ticker_stats((*rows)[0], perp_of("BTC-USDT").base, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4072.6116"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("343084539.14604"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("343084539.14604"));
 }
 
 TEST(BlofinTickers, ALinearContractWithoutALastPrintHasNoTurnover) {
@@ -347,7 +347,7 @@ TEST(BlofinTickers, AnInverseContractStatesDollarsInBothColumns) {
     EXPECT_EQ((*rows)[0].vol_contracts, (*rows)[0].vol_currency);
     const auto stats = map_ticker_stats((*rows)[0], perp_of("BTC-USD").base, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_quote, e9("22426621"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("22426621"));
     EXPECT_TRUE(stats->volume_24h_base.is_undef());
 }
 

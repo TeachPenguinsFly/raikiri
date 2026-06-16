@@ -120,7 +120,7 @@ std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto volume = wire.volume_base.empty() ? std::nullopt : parse_amount_e9(wire.volume_base);
     const auto turnover =
-        wire.volume_quote.empty() ? std::nullopt : parse_amount_e9(wire.volume_quote);
+        wire.volume_quote.empty() ? std::nullopt : parse_turnover_e6(wire.volume_quote);
     if (!volume.has_value() && !turnover.has_value()) {
         return std::nullopt;
     }

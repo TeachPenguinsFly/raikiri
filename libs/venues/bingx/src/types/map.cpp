@@ -292,7 +292,7 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     TickerStats out{};
     out.instrument = base_ptr->id;
     out.volume_24h_base = to_e9(wire.volume).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_e9(wire.quote_volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = parse_turnover_e6(wire.quote_volume).value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.event_ms, ts_init);
     out.ts_init = ts_init;
     return out;

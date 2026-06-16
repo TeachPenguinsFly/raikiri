@@ -502,7 +502,7 @@ TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
     const auto linear_stats = map_ticker_stats(*linear, table, now);
     ASSERT_TRUE(linear_stats.has_value());
     EXPECT_EQ(linear_stats->volume_24h_base.raw, 5'279'687'700'000LL);        // 5279.6877 XBT
-    EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500'000LL); // 341115306.3365 USD
+    EXPECT_EQ(linear_stats->volume_24h_quote.raw, 341'115'306'336'500LL); // 341115306.3365 USD
     EXPECT_EQ(linear_stats->ts_event.ns, 1786395177000ULL * 1'000'000ULL);
     EXPECT_EQ(linear_stats->ts_init.ns, now.ns);
 
@@ -515,7 +515,7 @@ TEST(KrakenMap, TurnoverKeepsTheBaseColumnEmptyOnAnInverseContract) {
     const auto inverse_stats = map_ticker_stats(*inverse, table, now);
     ASSERT_TRUE(inverse_stats.has_value());
     EXPECT_EQ(inverse_stats->volume_24h_base.raw, 0);
-    EXPECT_EQ(inverse_stats->volume_24h_quote.raw, 36'162'000'000'000LL);
+    EXPECT_EQ(inverse_stats->volume_24h_quote.raw, 36'162'000'000LL);
 
     // A ticker_lite push states neither column, and an unknown product has no
     // cell at all. Neither is a market that traded nothing.

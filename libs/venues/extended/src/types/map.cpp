@@ -128,7 +128,7 @@ merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, 
 std::optional<TickerStats>
 map_ticker_stats(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto base_volume = parse_amount_e9(wire.volume_base);
-    const auto quote_volume = parse_amount_e9(wire.volume_quote);
+    const auto quote_volume = parse_turnover_e6(wire.volume_quote);
     if (!base_volume.has_value() && !quote_volume.has_value()) {
         return std::nullopt;
     }

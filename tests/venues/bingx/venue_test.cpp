@@ -431,7 +431,7 @@ TEST(BingxMap, TurnoverResolvesAgainstTheSocketsOwnMarket) {
     const auto stats = map_ticker_stats(*wire, table, MarketType::Perp, UnixNanos{99});
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 21'355'740'000'000LL);         // 21355.7400 BTC
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'723'468'750'410'000'000LL); // 1723468750.41 USDT
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'723'468'750'410'000LL); // 1723468750.41 USDT
     EXPECT_EQ(stats->ts_event.ns, 1788532398984ULL * 1'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 99U);
 
@@ -1025,7 +1025,7 @@ TEST(BingxSpotWire, TheSpotTickerSendsTheSameColumnsUnquoted) {
     EXPECT_EQ(stats->instrument.market(), MarketType::Spot);
     // 254483206.58 / 3150.99 = 80762, inside the frame's 79000-82280.99 band.
     EXPECT_EQ(stats->volume_24h_base.raw, 3'150'990'000'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 254'483'206'580'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 254'483'206'580'000LL);
 }
 
 TEST(BingxSpotMap, ASpotFrameResolvesAgainstTheSpotCatalogue) {

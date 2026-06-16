@@ -367,7 +367,7 @@ std::optional<TickerStats> map_ticker_stats(const WirePackRow& wire,
                                             std::uint64_t ts_ns,
                                             UnixNanos ts_init) {
     const auto volume = parse_amount_e9(wire.volume);
-    const auto turnover = parse_amount_e9(wire.turnover);
+    const auto turnover = parse_turnover_e6(wire.turnover);
     if (!volume.has_value() && !turnover.has_value()) {
         return std::nullopt;
     }
@@ -393,10 +393,13 @@ std::optional<TickerStats> map_ticker_stats(const WireInverseTicker& wire,
     if (wire.turnover_ev.has_value()) {
         coins = scaled_e9(*wire.turnover_ev, listing.turnover_scale);
     }
-    std::optional<FixedE9> quote;
-    if (wire.volume.has_value() && base.contract_value.raw > 0 &&
-        *wire.volume <= std::numeric_limits<std::int64_t>::max() / base.contract_value.raw) {
-        quote = FixedE9::from_raw(*wire.volume * base.contract_value.raw);
+    std::optional<FixedE6> quote;
+    if (wire.volume.has_value() && base.contract_value.raw > 0) {
+        const auto units = mul_wide(*wire.volume, base.contract_value.raw).raw / (k_e9 / k_e6);
+        if (units <= std::numeric_limits<std::int64_t>::max() &&
+            units >= std::numeric_limits<std::int64_t>::min()) {
+            quote = FixedE6::from_raw(static_cast<std::int64_t>(units));
+        }
     }
     if (!coins.has_value() && !quote.has_value()) {
         return std::nullopt;
@@ -419,12 +422,16 @@ std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
                                             const Listing& listing,
                                             UnixNanos ts_init) {
     std::optional<FixedE9> volume;
-    std::optional<FixedE9> turnover;
+    std::optional<FixedE6> turnover;
     if (wire.volume_ev.has_value()) {
         volume = scaled_e9(*wire.volume_ev, listing.volume_scale);
     }
     if (wire.turnover_ev.has_value()) {
-        turnover = scaled_e9(*wire.turnover_ev, listing.turnover_scale);
+        if (listing.turnover_scale >= 6 && listing.turnover_scale <= 15) {
+            turnover = FixedE6::from_raw(*wire.turnover_ev / k_pow10[listing.turnover_scale - 6]);
+        } else if (const auto whole = scaled_e9(*wire.turnover_ev, listing.turnover_scale)) {
+            turnover = FixedE6::from_raw(whole->raw / (k_e9 / k_e6));
+        }
     }
     if (!volume.has_value() && !turnover.has_value()) {
         return std::nullopt;

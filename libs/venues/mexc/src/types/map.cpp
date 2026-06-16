@@ -352,7 +352,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     if (base == nullptr) {
         return std::nullopt;
     }
-    const auto quote = to_amount(wire.volume_24h_quote);
+    const auto quote = parse_turnover_e6(wire.volume_24h_quote);
     if (!quote.has_value()) {
         return std::nullopt;
     }
@@ -380,14 +380,14 @@ std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
         return std::nullopt;
     }
     const auto volume = to_amount(wire.volume_base);
-    const auto quote = to_amount(wire.volume_quote);
+    const auto quote = parse_turnover_e6(wire.volume_quote);
     if (!volume.has_value() && !quote.has_value()) {
         return std::nullopt;
     }
     TickerStats out{};
     out.instrument = base->id;
     out.volume_24h_base = volume.value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = quote.value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = quote.value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.close_ms, ts_init);
     out.ts_init = ts_init;
     return out;

@@ -1926,7 +1926,7 @@ TEST(XtMap, AFuturesTickerStatesItsBaseVolumeInContracts) {
     ASSERT_TRUE(stats.has_value());
     // 166 727 460 contracts of 0.0001 BTC.
     EXPECT_EQ(stats->volume_24h_base, *parse_decimal_e9("16672.746"));
-    EXPECT_EQ(stats->volume_24h_quote, *parse_decimal_e9("1403037620.60655"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("1403037620.60655"));
 
     WireTicker silent = *wire;
     silent.contracts_24h = {};

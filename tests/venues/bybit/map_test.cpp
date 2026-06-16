@@ -341,7 +341,7 @@ TEST(BybitMapTickerStats, TurnoverPublishesAndAnAbsentColumnDoesNot) {
     const auto stats = map_ticker_stats(wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 91'705'276'000'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 1'570'383'121'943'499'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 1'570'383'121'943'499LL);
 
     // The same trap funding has: a delta that restated neither column must
     // publish nothing, or the board reads a day's turnover as zero until the

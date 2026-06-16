@@ -636,7 +636,7 @@ TEST(HtxMap, MapsTurnoverFromTheDetailTick) {
     const auto stats = map_ticker_stats(*wire, table, UnixNanos{4321});
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 8'021'738'000'000LL);        // 8021.738 BTC
-    EXPECT_EQ(stats->volume_24h_quote.raw, 647'118'134'337'400'000LL); // 647118134.3374 USDT
+    EXPECT_EQ(stats->volume_24h_quote.raw, 647'118'134'337'400LL); // 647118134.3374 USDT
     EXPECT_EQ(stats->ts_event.ns, 1788532163204ULL * 1'000'000ULL);
     EXPECT_EQ(stats->ts_init.ns, 4321U);
 

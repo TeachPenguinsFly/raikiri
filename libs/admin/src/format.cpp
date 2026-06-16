@@ -54,6 +54,10 @@ std::string decimal(FixedE9 value) {
     return std::string{text}; // empty when undefined; see the header
 }
 
+std::string decimal(FixedE6 value) {
+    return value.is_undef() ? std::string{} : scaled(value.raw, FixedE9::from_raw(k_e9 / k_e6));
+}
+
 std::string price(PriceTicks ticks, const InstrumentBase& base) {
     return ticks.is_undef() ? std::string{} : scaled(ticks.raw, base.tick_size);
 }

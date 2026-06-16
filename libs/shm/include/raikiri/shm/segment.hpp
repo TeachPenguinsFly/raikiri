@@ -32,7 +32,7 @@
 namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
-inline constexpr std::uint32_t k_abi_version = 10; // 10: FundingUpdate::accrual in old padding
+inline constexpr std::uint32_t k_abi_version = 11; // 11: TickerStats::volume_24h_quote at 1e6
 // Sized past today's nine so the next channel is a directory entry rather than
 // another header-layout change: every slot costs 32 bytes of segment header,
 // and the ABI bump that a resize forces costs every process a rebuild.

@@ -103,7 +103,7 @@ static_assert(std::is_trivially_copyable_v<FundingUpdate>);
 struct TickerStats {
     InstrumentId instrument{};
     FixedE9 volume_24h_base{};
-    FixedE9 volume_24h_quote{};
+    FixedE6 volume_24h_quote{};
     UnixNanos ts_event{};
     UnixNanos ts_init{};
 };

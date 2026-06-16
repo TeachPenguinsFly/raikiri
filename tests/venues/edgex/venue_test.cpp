@@ -402,7 +402,7 @@ TEST(EdgexFunding, TheTwentyFourHourWindowRidesTheSameRow) {
         map_ticker_stats(ticker_of(*rows, 30000001), base_of(perp(30000001)), k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("4729.559"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("397100885.7883"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("397100885.7883"));
 }
 
 TEST(EdgexFunding, ASpotRowHasTurnoverAndNoRate) {
@@ -417,7 +417,7 @@ TEST(EdgexFunding, ASpotRowHasTurnoverAndNoRate) {
     const auto stats = map_ticker_stats(row, base_of(eth), k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base, e9("6727.118297"));
-    EXPECT_EQ(stats->volume_24h_quote, e9("17993537.80200688"));
+    EXPECT_EQ(stats->volume_24h_quote, *parse_turnover_e6("17993537.80200688"));
 }
 
 TEST(EdgexWs, BboAndDepthShareOneBookKey) {

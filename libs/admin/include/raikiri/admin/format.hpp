@@ -33,6 +33,7 @@ namespace raikiri::admin {
 // An exact decimal. Empty for an undefined value — the caller decides whether
 // that is a field to omit or a bug, because those are different questions.
 [[nodiscard]] std::string decimal(FixedE9 value);
+[[nodiscard]] std::string decimal(FixedE6 value);
 
 // Ticks and lots resolved through the instrument that gives them meaning. A
 // tick count without its instrument is not a price.

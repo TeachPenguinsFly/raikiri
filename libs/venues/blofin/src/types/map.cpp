@@ -111,7 +111,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
         if (!contracts.has_value() || base.contract_value.raw % k_e9 != 0) {
             return std::nullopt;
         }
-        out.volume_24h_quote = contracts->scaled_by(base.contract_value.raw / k_e9);
+        out.volume_24h_quote = turnover_e6(*contracts, base.contract_value);
     } else {
         const auto volume = parse_amount_e9(wire.vol_currency);
         if (!volume.has_value()) {
@@ -120,7 +120,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
         out.volume_24h_base = *volume;
         // No turnover column on this venue; the day's coins at the last print.
         if (const auto last = parse_amount_e9(wire.last); last.has_value()) {
-            out.volume_24h_quote = turnover_e9(*volume, *last);
+            out.volume_24h_quote = turnover_e6(*volume, *last);
         }
     }
     out.instrument = base.id;

@@ -156,7 +156,7 @@ std::optional<TickerStats> map_ticker_stats(const WireMarketStats& wire,
                                             UnixNanos ts_init) {
     // Go-encoded floats (89.40990000000001): an exact read would refuse them.
     const auto volume = parse_amount_e9(wire.base_volume);
-    const auto turnover = parse_amount_e9(wire.quote_volume);
+    const auto turnover = parse_turnover_e6(wire.quote_volume);
     if (!volume.has_value() && !turnover.has_value()) {
         return std::nullopt;
     }

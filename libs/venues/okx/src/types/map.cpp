@@ -313,17 +313,17 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
         out.volume_24h_base = *coins;
     }
     if (is_spot) {
-        if (const auto quote = to_amount(wire.vol_ccy_24h); quote.has_value()) {
+        if (const auto quote = parse_turnover_e6(wire.vol_ccy_24h); quote.has_value()) {
             out.volume_24h_quote = *quote;
         }
     } else if (base.kind == ContractKind::Inverse) {
         // An inverse contract is a fixed number of dollars, so the count is the turnover.
         if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
-            out.volume_24h_quote = turnover_e9(*contracts, base.contract_value);
+            out.volume_24h_quote = turnover_e6(*contracts, base.contract_value);
         }
     } else if (const auto last = to_amount(wire.last); coins.has_value() && last.has_value()) {
         // No derivative turnover column: the day's coins at the last print.
-        out.volume_24h_quote = turnover_e9(*coins, *last);
+        out.volume_24h_quote = turnover_e6(*coins, *last);
     }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;

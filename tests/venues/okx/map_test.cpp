@@ -249,7 +249,7 @@ TEST(OkxMap, SwapTurnoverIsTheBaseAssetAndNeverTheContractCount) {
     // number on the frame that compares with no other venue.
     EXPECT_EQ(stats->volume_24h_base.raw, 134'464'609'600'000LL);
     // 134 464.6096 x 79 326.8 is 10.67e9 USDT, past what an e9 column holds.
-    EXPECT_TRUE(stats->volume_24h_quote.is_undef());
+    EXPECT_EQ(stats->volume_24h_quote.raw, 10'666'647'192'817'280LL);
     EXPECT_EQ(stats->ts_event.ns, 1'788'532'273'172ULL * 1'000'000ULL);
 }
 
@@ -264,7 +264,7 @@ TEST(OkxMap, SwapQuoteTurnoverIsTheBaseAtTheLastPrint) {
     const auto stats = map_ticker_stats(wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 79'228'928'000'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 6'699'225'775'718'400'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 6'699'225'775'718'400LL);
 
     wire.last = {};
     const auto unpriced = map_ticker_stats(wire, table, k_ingest);
@@ -297,7 +297,7 @@ TEST(OkxMap, InverseSwapQuoteTurnoverIsContractsTimesTheirDollarValue) {
     const auto stats = map_ticker_stats(wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_base.raw, 9'370'200'000'000LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 792'289'200'000'000'000LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 792'289'200'000'000LL);
 }
 
 TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {
@@ -325,7 +325,7 @@ TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {
     // vol24h is the base here and volCcy24h the quote — the exact opposite of
     // the swap frame above, under the same two field names.
     EXPECT_EQ(stats->volume_24h_base.raw, 10'451'543'743'020LL);
-    EXPECT_EQ(stats->volume_24h_quote.raw, 843'192'320'028'134'105LL);
+    EXPECT_EQ(stats->volume_24h_quote.raw, 843'192'320'028'134LL);
 }
 
 TEST(OkxMap, ATickerStatingNoVolumeIsNotAMarketAtZero) {

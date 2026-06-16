@@ -173,7 +173,7 @@ map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, U
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_amount_e9(wire.day_base_volume).value_or(FixedE9::from_raw(0));
-    out.volume_24h_quote = to_amount_e9(wire.day_notional_volume).value_or(FixedE9::from_raw(0));
+    out.volume_24h_quote = parse_turnover_e6(wire.day_notional_volume).value_or(FixedE6::from_raw(0));
     // No timestamp on either transport, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;

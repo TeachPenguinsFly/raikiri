@@ -317,7 +317,7 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     // NOT DERIVED. The channel states no quote-side figure, and last_price
     // times volume would be an average this process invented, published beside
     // a column every other venue takes from the venue itself.
-    out.volume_24h_quote = FixedE9::from_raw(0);
+    out.volume_24h_quote = FixedE6::from_raw(0);
     out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
     out.ts_init = ts_init;
     return out;

@@ -51,6 +51,13 @@ TEST(AdminFormat, EveryValueTooLargeForADoubleLeavesAsDigits) {
     }
 }
 
+TEST(AdminFormat, ATurnoverPastInt64AtE9IsStillANumber) {
+    EXPECT_EQ(decimal(parse_turnover_e6("10666647192.81728").value_or(FixedE6::undef())),
+              "10666647192.81728");
+    EXPECT_EQ(decimal(FixedE6::from_raw(5'000'000)), "5");
+    EXPECT_EQ(decimal(FixedE6::undef()), "");
+}
+
 TEST(AdminFormat, APriceIsResolvedThroughTheInstrumentThatGivesItMeaning) {
     // A tick count without its instrument is not a price. 40000 at a 0.0001
     // tick is 400 000 000 ticks, and rendering the count instead of the price
