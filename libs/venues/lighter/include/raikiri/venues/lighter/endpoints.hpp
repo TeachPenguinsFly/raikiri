@@ -29,4 +29,12 @@ inline constexpr std::string_view k_funding_comparison = "/api/v1/funding-rates"
 inline constexpr std::uint32_t k_rest_requests_per_minute = 60;
 inline constexpr std::uint64_t k_rest_cooldown_ns = 60ULL * 1'000'000'000ULL;
 
+// The venue takes 200 socket messages a minute per IP and refuses the rest with 30009.
+// A perp and a spot gateway on one host share it; RAIKIRI_LIGHTER_WS_PER_MINUTE
+// splits it between them.
+inline constexpr std::uint32_t k_ws_messages_per_minute = 180;
+inline constexpr std::string_view k_ws_messages_env = "RAIKIRI_LIGHTER_WS_PER_MINUTE";
+inline constexpr std::int64_t k_ws_rate_limited = 30009;
+inline constexpr std::uint64_t k_ws_refusal_hold_ns = 10ULL * 1'000'000'000ULL;
+
 } // namespace raikiri::venues::lighter::ep

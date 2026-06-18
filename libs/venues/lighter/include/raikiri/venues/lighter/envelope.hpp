@@ -21,6 +21,7 @@ enum class EventKind : std::uint8_t {
 struct EventInfo {
     EventKind kind{EventKind::Unknown};
     bool snapshot{false};
+    std::string_view channel; // the venue's "order_book:1"; valid until the next parse
 };
 
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);

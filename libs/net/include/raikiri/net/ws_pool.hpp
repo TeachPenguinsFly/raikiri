@@ -118,6 +118,16 @@ public:
     // unanswered, which is how a venue decides a socket has gone quiet.
     [[nodiscard]] bool reply(std::string_view text) noexcept;
 
+    // Asked before every frame the pool sends, paced, broadcast or replied. A
+    // venue that meters the IP rather than the socket answers false to hold the
+    // frame; a paced one stays queued, a reply or broadcast is not sent.
+    using Admit = std::function<bool(std::string_view frame)>;
+    void set_admit(Admit admit);
+
+    // Puts frames at the head of the queue of the connection carrying `key`,
+    // for a venue that refused or broke one subscription. False if none does.
+    [[nodiscard]] bool requeue(std::string_view key, std::vector<std::string> frames);
+
     // Drains one paced send per connection. Call it from the adapter's poll,
     // beside the io context.
     void poll(UnixNanos now) noexcept;

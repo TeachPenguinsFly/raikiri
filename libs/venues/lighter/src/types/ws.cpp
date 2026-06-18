@@ -83,6 +83,15 @@ channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) n
     return {out.data(), static_cast<std::size_t>(stop - out.data())};
 }
 
+std::string_view subscribed_channel(std::string_view frame) noexcept {
+    constexpr std::string_view k_open = R"({"type":"subscribe","channel":")";
+    constexpr std::string_view k_close = R"("})";
+    if (!frame.starts_with(k_open) || !frame.ends_with(k_close)) {
+        return {};
+    }
+    return frame.substr(k_open.size(), frame.size() - k_open.size() - k_close.size());
+}
+
 std::expected<std::string_view, WsBuildError> Protocol::subscribe_frame(std::string_view channel) {
     return frame("subscribe", channel);
 }

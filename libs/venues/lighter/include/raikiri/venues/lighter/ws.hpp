@@ -33,9 +33,7 @@ inline constexpr std::string_view k_spot_stats_all = "spot_market_stats/all";
 
 inline constexpr std::size_t k_max_subscriptions_per_connection = 500;
 
-// 200 subscribe messages a minute per IP, not per socket, and the excess is dropped
-// silently; one socket spends all of it, so a second would double the rate.
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 310ULL * 1'000'000ULL;
+// The message budget is the IP's, so a second socket would buy no subscriptions.
 inline constexpr std::size_t k_max_connections = 1;
 
 // A reopen resends the whole set at that pace, so books go first, then the stats, then
@@ -45,6 +43,9 @@ inline constexpr std::size_t k_max_connections = 1;
 // Empty for a kind not read per market.
 [[nodiscard]] std::string_view
 channel_name(exec::SubKind kind, std::uint32_t market_id, std::span<char> out) noexcept;
+
+// The channel a subscribe frame of ours asks for; empty for any other frame.
+[[nodiscard]] std::string_view subscribed_channel(std::string_view frame) noexcept;
 
 class Protocol {
 public:

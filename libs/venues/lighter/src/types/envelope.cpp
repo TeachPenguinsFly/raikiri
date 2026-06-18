@@ -33,6 +33,10 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
+        const auto channel = detail::opt_str(*root, "channel");
+        if (!channel.has_value()) {
+            return std::unexpected(channel.error());
+        }
         const auto type = detail::opt_str(*root, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
@@ -54,6 +58,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         const auto noun = type->substr(slash + 1);
         EventInfo out{};
         out.snapshot = verb == "subscribed";
+        out.channel = *channel;
         if (!out.snapshot && verb != "update") {
             return EventInfo{};
         }

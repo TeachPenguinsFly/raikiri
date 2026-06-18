@@ -4,6 +4,7 @@
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/lighter/book.hpp>
+#include <raikiri/venues/lighter/budget.hpp>
 #include <raikiri/venues/lighter/envelope.hpp>
 #include <raikiri/venues/lighter/errors.hpp>
 #include <raikiri/venues/lighter/map.hpp>
@@ -39,10 +40,14 @@ public:
                               .target = std::string{stream_path()}},
                 handler_,
                 net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
+                                  .send_spacing_ns = 0,
                                   .max_connections = k_max_connections},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { on_socket_open(keys); }} {}
+                [this](std::span<const std::string> keys) { on_socket_open(keys); }},
+          outbox_{state_->budget} {
+        pool_.set_admit(
+            [this](std::string_view frame) { return outbox_.admit(frame, state_->clock->mono()); });
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
@@ -145,6 +150,7 @@ private:
 
     // A reopened socket's books lost their chain and publish nothing until a snapshot lands.
     void on_socket_open(std::span<const std::string> keys) {
+        outbox_.reopened();
         for (const auto& key : keys) {
             if (!key.starts_with(k_book_channel)) {
                 continue;
@@ -167,6 +173,9 @@ private:
         if (!event.has_value()) {
             return;
         }
+        if (event->snapshot) {
+            outbox_.answered(event->channel);
+        }
         switch (event->kind) {
         case EventKind::OrderBook:
             on_book(frame, received);
@@ -185,6 +194,9 @@ private:
             if (const auto err = parse_stream_error(frame); err.has_value()) {
                 ++state_->subscribe_refusals;
                 state_->last_error_code = err->code;
+                if (const auto again = outbox_.refused(err->code, state_->clock->mono())) {
+                    ask_again(*again, {});
+                }
             }
             break;
         case EventKind::Connected:
@@ -228,17 +240,30 @@ private:
         }
     }
 
-    void resubscribe_book(std::uint32_t market_id) noexcept {
+    void resubscribe_book(std::uint32_t market_id) {
         std::array<char, 48> buf{};
         const auto channel = channel_name(exec::SubKind::Depth, market_id, buf);
         const auto off = state_->protocol.unsubscribe_frame(channel);
-        if (!off.has_value() || !pool_.reply(*off)) {
-            return; // the reconnect resubscribes it instead
+        if (!off.has_value()) {
+            return;
         }
-        const auto on = state_->protocol.subscribe_frame(channel);
-        if (on.has_value() && pool_.reply(*on)) {
+        if (ask_again(channel, std::string{*off})) {
             ++state_->resubscribes;
         }
+    }
+
+    // Queued at the head, spent from the same budget as everything else.
+    bool ask_again(std::string_view channel, std::string first) {
+        const auto on = state_->protocol.subscribe_frame(channel);
+        if (!on.has_value()) {
+            return false;
+        }
+        std::vector<std::string> frames;
+        if (!first.empty()) {
+            frames.push_back(std::move(first));
+        }
+        frames.emplace_back(*on);
+        return pool_.requeue(channel, std::move(frames));
     }
 
     void on_trades(std::string_view frame, UnixNanos received) noexcept {
@@ -313,10 +338,11 @@ private:
             return;
         }
         ramping_ = true;
-        RLOG_INFO("lighter: {} of {} subscriptions still queued — the venue takes 200 "
-                  "messages a minute per IP, so the rest of the catalogue is not priced yet",
+        RLOG_INFO("lighter: {} of {} subscriptions still queued — paced at {} messages a "
+                  "minute for this IP, so the rest of the catalogue is not priced yet",
                   queued,
-                  pool_.key_count());
+                  pool_.key_count(),
+                  state_->budget->per_minute());
     }
 
     void report_final() const noexcept {
@@ -350,6 +376,7 @@ private:
     std::shared_ptr<VenueState> state_;
     Handler handler_;
     net::WsPool pool_;
+    Outbox outbox_;
     bool started_{false};
     bool ramping_{false};
     std::uint64_t ramp_due_ns_{0};

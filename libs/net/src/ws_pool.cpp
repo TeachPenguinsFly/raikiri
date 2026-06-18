@@ -3,6 +3,7 @@
 #include <raikiri/log/log.hpp>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -108,6 +109,7 @@ struct WsPool::Impl {
     WsPoolConfig settings;
     BuildFrames build_frames;
     OnConnectionOpen on_open;
+    Admit admit;
     // First opens and reopens together; the first `conns.size()` of them are
     // the pool coming up and are not worth a line.
     std::size_t reopens{0};
@@ -217,7 +219,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
 
 void WsPool::broadcast(std::string_view text) noexcept {
     for (const auto& conn : impl_->conns) {
-        if (conn->client->connected()) {
+        if (conn->client->connected() && (!impl_->admit || impl_->admit(text))) {
             (void)conn->client->send(text);
         }
     }
@@ -228,7 +230,27 @@ bool WsPool::reply(std::string_view text) noexcept {
     if (conn == nullptr || !conn->connected()) {
         return false;
     }
+    if (impl_->admit && !impl_->admit(text)) {
+        return false;
+    }
     return conn->send(text);
+}
+
+void WsPool::set_admit(Admit admit) {
+    impl_->admit = std::move(admit);
+}
+
+bool WsPool::requeue(std::string_view key, std::vector<std::string> frames) {
+    for (const auto& conn : impl_->conns) {
+        if (std::ranges::find(conn->keys, key) == conn->keys.end()) {
+            continue;
+        }
+        conn->pending.insert(conn->pending.begin(),
+                             std::make_move_iterator(frames.begin()),
+                             std::make_move_iterator(frames.end()));
+        return true;
+    }
+    return false;
 }
 
 void WsPool::poll(UnixNanos now) noexcept {
@@ -238,6 +260,9 @@ void WsPool::poll(UnixNanos now) noexcept {
         }
         if (!conn->client->connected()) {
             continue; // the reconnect refills this one
+        }
+        if (impl_->admit && !impl_->admit(conn->pending.front())) {
+            continue;
         }
         if (!conn->client->send(conn->pending.front())) {
             continue; // wedged; the next tick tries the same frame again

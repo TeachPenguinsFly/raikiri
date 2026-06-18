@@ -6,6 +6,7 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/lighter/book.hpp>
+#include <raikiri/venues/lighter/budget.hpp>
 #include <raikiri/venues/lighter/ws.hpp>
 
 #include <cstdint>
@@ -28,6 +29,7 @@ struct VenueState {
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
+    std::shared_ptr<MessageBudget> budget{process_budget()};
 
     std::unordered_map<std::uint32_t, InstrumentId> by_market;
     std::unordered_map<std::uint64_t, std::uint32_t> market_of; // InstrumentId::packed
