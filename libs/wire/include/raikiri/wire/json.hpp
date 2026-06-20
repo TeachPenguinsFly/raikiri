@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <expected>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace raikiri::wire {
@@ -55,7 +56,40 @@ private:
 
 // Reads a JSON string as a view over the caller's buffer; JSON null reads as
 // empty.
-[[nodiscard]] std::expected<std::string_view, Error> str_of(ondemand::value value);
+[[nodiscard]] std::expected<std::string_view, Error> str_of(ondemand::value value,
+                                                            const Session& s = session());
+
+// The token as written, trimmed, whatever its type.
+[[nodiscard]] std::expected<std::string_view, Error> raw_of(ondemand::value value,
+                                                            const Session& s = session());
+
+[[nodiscard]] std::expected<std::uint64_t, Error> u64_of(ondemand::value value);
+[[nodiscard]] std::expected<std::int64_t, Error> i64_of(ondemand::value value);
+[[nodiscard]] std::expected<bool, Error> bool_of(ondemand::value value);
+
+// Every field of obj once, in wire order, as fn(key, value). A lookup by name
+// for a key that is absent or behind the cursor rescans the object, arrays and
+// all. fn may return void or std::expected<void, Error>; an error stops the walk.
+template <typename Fn>
+[[nodiscard]] std::expected<void, Error> for_each_field(ondemand::object& obj, Fn&& fn) {
+    for (auto field : obj) {
+        std::string_view key;
+        if (const auto ec = field.escaped_key().get(key); ec != simdjson::SUCCESS) {
+            return std::unexpected(map_error(ec));
+        }
+        ondemand::value value;
+        if (const auto ec = field.value().get(value); ec != simdjson::SUCCESS) {
+            return std::unexpected(map_error(ec));
+        }
+        if constexpr (std::is_void_v<
+                          std::invoke_result_t<Fn&, std::string_view, ondemand::value&>>) {
+            fn(key, value);
+        } else if (auto done = fn(key, value); !done.has_value()) {
+            return std::unexpected(done.error());
+        }
+    }
+    return {};
+}
 
 [[nodiscard]] std::expected<std::string_view, Error> opt_str(ondemand::object& obj,
                                                              std::string_view key);

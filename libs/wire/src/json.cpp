@@ -138,7 +138,7 @@ std::string_view trim(std::string_view s) noexcept {
 // client order ids and decimal strings cannot contain an escape, and letting
 // simdjson unescape would move every field into a buffer that cannot be
 // rebased.
-std::expected<std::string_view, Error> str_of(ondemand::value value) {
+std::expected<std::string_view, Error> str_of(ondemand::value value, const Session& s) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
@@ -150,7 +150,39 @@ std::expected<std::string_view, Error> str_of(ondemand::value value) {
     if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"') {
         return std::unexpected(Error::WrongType);
     }
-    return session().rebase(raw.substr(1, raw.size() - 2));
+    return s.rebase(raw.substr(1, raw.size() - 2));
+}
+
+std::expected<std::string_view, Error> raw_of(ondemand::value value, const Session& s) {
+    std::string_view raw;
+    if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
+        return std::unexpected(map_error(ec));
+    }
+    return s.rebase(trim(raw));
+}
+
+std::expected<std::uint64_t, Error> u64_of(ondemand::value value) {
+    std::uint64_t out = 0;
+    if (const auto ec = value.get_uint64().get(out); ec != simdjson::SUCCESS) {
+        return std::unexpected(map_error(ec));
+    }
+    return out;
+}
+
+std::expected<std::int64_t, Error> i64_of(ondemand::value value) {
+    std::int64_t out = 0;
+    if (const auto ec = value.get_int64().get(out); ec != simdjson::SUCCESS) {
+        return std::unexpected(map_error(ec));
+    }
+    return out;
+}
+
+std::expected<bool, Error> bool_of(ondemand::value value) {
+    bool out = false;
+    if (const auto ec = value.get_bool().get(out); ec != simdjson::SUCCESS) {
+        return std::unexpected(map_error(ec));
+    }
+    return out;
 }
 
 std::expected<std::string_view, Error> opt_str(ondemand::object& obj, std::string_view key) {
@@ -222,11 +254,7 @@ std::expected<std::string_view, Error> opt_raw(ondemand::object& obj, std::strin
     if (ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
-    std::string_view raw;
-    if (const auto raw_ec = value.raw_json().get(raw); raw_ec != simdjson::SUCCESS) {
-        return std::unexpected(map_error(raw_ec));
-    }
-    return session().rebase(trim(raw));
+    return raw_of(value);
 }
 
 std::expected<ondemand::array, Error> req_array(ondemand::object& obj, std::string_view key) {
