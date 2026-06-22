@@ -91,22 +91,30 @@ std::expected<std::string_view, WireError> raw_of(detail::ondemand::value value)
     return session().rebase(detail::trim(raw));
 }
 
+std::expected<std::string_view, WireError> decimal_of(detail::ondemand::value value) {
+    const auto raw = raw_of(value);
+    if (!raw.has_value()) {
+        return raw;
+    }
+    if (*raw == "null") {
+        return std::string_view{};
+    }
+    if (raw->size() >= 2 && raw->front() == '"' && raw->back() == '"') {
+        return raw->substr(1, raw->size() - 2);
+    }
+    return *raw;
+}
+
+std::int64_t i64_of_digits(std::string_view text) noexcept {
+    std::int64_t out = 0;
+    const auto* const end = text.data() + text.size();
+    const auto [stop, ec] = std::from_chars(text.data(), end, out);
+    return (ec == std::errc{} && stop == end) ? out : std::int64_t{0};
+}
+
 std::expected<std::string_view, WireError> opt_decimal(detail::ondemand::object& obj,
                                                        std::string_view key) {
-    return lookup(
-        obj, key, [](detail::ondemand::value v) -> std::expected<std::string_view, WireError> {
-            const auto raw = raw_of(v);
-            if (!raw.has_value()) {
-                return raw;
-            }
-            if (*raw == "null") {
-                return std::string_view{};
-            }
-            if (raw->size() >= 2 && raw->front() == '"' && raw->back() == '"') {
-                return raw->substr(1, raw->size() - 2);
-            }
-            return *raw;
-        });
+    return lookup(obj, key, decimal_of);
 }
 
 std::expected<std::string_view, WireError> req_decimal(detail::ondemand::object& obj,
@@ -133,10 +141,7 @@ std::expected<std::int64_t, WireError> opt_i64(detail::ondemand::object& obj,
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    std::int64_t out = 0;
-    const auto* const end = text->data() + text->size();
-    const auto [stop, ec] = std::from_chars(text->data(), end, out);
-    return (ec == std::errc{} && stop == end) ? out : std::int64_t{0};
+    return i64_of_digits(*text);
 }
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
@@ -145,7 +150,28 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto type = detail::req_str(*root, "type");
+        using Text = std::expected<std::string_view, WireError>;
+        Text type{std::unexpected(WireError::MissingField)};
+        Text subject{std::unexpected(WireError::MissingField)};
+        Text topic{std::unexpected(WireError::MissingField)};
+        const auto walked = detail::for_each_field(
+            *root, [&](std::string_view key, detail::ondemand::value& value) {
+                if (key == "type") {
+                    type = detail::str_of(value);
+                } else if (key == "subject") {
+                    subject = detail::str_of(value);
+                } else if (key == "topic") {
+                    topic = detail::str_of(value);
+                }
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
+        for (auto* text : {&type, &subject, &topic}) {
+            if (text->has_value() && (*text)->empty()) {
+                *text = std::unexpected(WireError::MissingField);
+            }
+        }
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
@@ -162,16 +188,17 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             }
             return info;
         }
-        const auto subject = detail::req_str(*root, "subject");
         if (!subject.has_value()) {
             return std::unexpected(subject.error());
         }
         info.kind = kind_from_subject(*subject);
-        const auto symbol = topic_symbol(*root);
-        if (!symbol.has_value()) {
-            return std::unexpected(symbol.error());
+        if (!topic.has_value()) {
+            return std::unexpected(topic.error());
         }
-        info.symbol = *symbol;
+        info.symbol = symbol_of_topic(*topic);
+        if (info.symbol.empty()) {
+            return std::unexpected(WireError::MissingField);
+        }
         return info;
     });
 }

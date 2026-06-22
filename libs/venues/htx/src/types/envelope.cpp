@@ -114,13 +114,47 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
 
-        const auto op = detail::opt_str(*root, "op");
+        using Text = std::expected<std::string_view, WireError>;
+        Text op{std::string_view{}};
+        Text action{std::string_view{}};
+        Text ch{std::string_view{}};
+        Text topic{std::string_view{}};
+        Text status{std::string_view{}};
+        Text ping{std::string_view{}};
+        Text ts{std::string_view{}};
+        Text err_code{std::string_view{}};
+        std::expected<std::int64_t, WireError> code{0};
+        const auto walked = detail::for_each_field(
+            *root, [&](std::string_view key, detail::ondemand::value& value) {
+                if (key == "ch") {
+                    ch = detail::str_of(value);
+                } else if (key == "ts") {
+                    ts = detail::raw_of(value);
+                } else if (key == "op") {
+                    op = detail::str_of(value);
+                } else if (key == "action") {
+                    action = detail::str_of(value);
+                } else if (key == "topic") {
+                    topic = detail::str_of(value);
+                } else if (key == "ping") {
+                    ping = detail::raw_of(value);
+                } else if (key == "status") {
+                    status = detail::str_of(value);
+                } else if (key == "err-code") {
+                    err_code = detail::raw_of(value);
+                } else if (key == "code") {
+                    code = detail::i64_of(value);
+                }
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
+
         if (!op.has_value()) {
             return std::unexpected(op.error());
         }
         if (!op->empty()) {
             if (*op == "ping") {
-                const auto ts = detail::opt_raw(*root, "ts");
                 if (!ts.has_value()) {
                     return std::unexpected(ts.error());
                 }
@@ -132,7 +166,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 info.kind = EventKind::AuthReply;
                 return info;
             }
-            const auto topic = detail::opt_str(*root, "topic");
             if (!topic.has_value()) {
                 return std::unexpected(topic.error());
             }
@@ -144,51 +177,51 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 }
                 return info;
             }
-            const auto code = detail::opt_raw(*root, "err-code");
-            if (!code.has_value()) {
-                return std::unexpected(code.error());
+            if (!err_code.has_value()) {
+                return std::unexpected(err_code.error());
             }
-            info.kind = (*op == "sub" && *code == "0") ? EventKind::SubscribeAck : EventKind::Error;
+            info.kind =
+                (*op == "sub" && *err_code == "0") ? EventKind::SubscribeAck : EventKind::Error;
             return info;
         }
 
         // The spot v2 socket speaks `action` where every other HTX endpoint
         // speaks `op`, and its keepalive hides the timestamp one level down.
-        const auto action = detail::opt_str(*root, "action");
         if (!action.has_value()) {
             return std::unexpected(action.error());
         }
         if (!action->empty()) {
             if (*action == "ping") {
+                if (root->reset().error() != simdjson::SUCCESS) {
+                    return std::unexpected(WireError::NotJson);
+                }
                 auto data = detail::req_object(*root, "data");
                 if (!data.has_value()) {
                     return std::unexpected(data.error());
                 }
-                const auto ts = detail::opt_raw(*data, "ts");
-                if (!ts.has_value()) {
-                    return std::unexpected(ts.error());
+                const auto data_ts = detail::opt_raw(*data, "ts");
+                if (!data_ts.has_value()) {
+                    return std::unexpected(data_ts.error());
                 }
                 info.kind = EventKind::SpotPing;
-                info.keepalive_ts = *ts;
+                info.keepalive_ts = *data_ts;
                 return info;
             }
-            const auto channel = detail::opt_str(*root, "ch");
-            if (!channel.has_value()) {
-                return std::unexpected(channel.error());
+            if (!ch.has_value()) {
+                return std::unexpected(ch.error());
             }
-            if (*channel == "auth") {
+            if (*ch == "auth") {
                 info.kind = EventKind::AuthReply;
                 return info;
             }
             if (*action == "push") {
-                if (channel->starts_with("orders#")) {
+                if (ch->starts_with("orders#")) {
                     info.kind = EventKind::PrivateOrder;
-                } else if (channel->starts_with("trade.clearing#")) {
+                } else if (ch->starts_with("trade.clearing#")) {
                     info.kind = EventKind::PrivateMatch;
                 }
                 return info;
             }
-            const auto code = detail::opt_i64(*root, "code");
             if (!code.has_value()) {
                 return std::unexpected(code.error());
             }
@@ -196,7 +229,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
 
-        const auto ch = detail::opt_str(*root, "ch");
         if (!ch.has_value()) {
             return std::unexpected(ch.error());
         }
@@ -213,7 +245,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
 
-        const auto ping = detail::opt_raw(*root, "ping");
         if (!ping.has_value()) {
             return std::unexpected(ping.error());
         }
@@ -223,7 +254,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
 
-        const auto status = detail::opt_str(*root, "status");
         if (!status.has_value()) {
             return std::unexpected(status.error());
         }

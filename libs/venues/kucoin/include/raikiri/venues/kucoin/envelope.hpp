@@ -101,6 +101,9 @@ struct WireBullet {
 
 // Numeric text with surrounding quotes removed, so that tickerV2's quoted prices
 // and its bare sizes reach the DTO through one reader.
+[[nodiscard]] std::expected<std::string_view, WireError> decimal_of(wire::ondemand::value value);
+[[nodiscard]] std::int64_t i64_of_digits(std::string_view text) noexcept;
+
 [[nodiscard]] std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj,
                                                                      std::string_view key);
 [[nodiscard]] std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj,

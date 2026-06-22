@@ -34,31 +34,51 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
                 return std::unexpected(detail::map_error(ec));
             }
             WirePrint print{};
-            const auto price = detail::req_str(item, "p");
+            std::expected<std::string_view, WireError> price{
+                std::unexpected(WireError::MissingField)};
+            std::expected<std::string_view, WireError> qty{
+                std::unexpected(WireError::MissingField)};
+            std::expected<std::string_view, WireError> id{std::string_view{}};
+            std::expected<std::uint64_t, WireError> trade_ms{0};
+            std::expected<bool, WireError> maker{false};
+            const auto walked = detail::for_each_field(
+                item, [&](std::string_view key, detail::ondemand::value& value) {
+                    if (key == "p") {
+                        price = detail::str_of(value);
+                    } else if (key == "q") {
+                        qty = detail::str_of(value);
+                    } else if (key == "t") {
+                        id = detail::str_of(value);
+                    } else if (key == "T") {
+                        trade_ms = detail::u64_of(value);
+                    } else if (key == "m") {
+                        maker = detail::bool_of(value);
+                    }
+                });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
+            for (auto* text : {&price, &qty}) {
+                if (text->has_value() && (*text)->empty()) {
+                    *text = std::unexpected(WireError::MissingField);
+                }
+            }
             if (!price.has_value()) {
                 return std::unexpected(price.error());
             }
             print.price = *price;
-            item.reset();
-            const auto qty = detail::req_str(item, "q");
             if (!qty.has_value()) {
                 return std::unexpected(qty.error());
             }
             print.qty = *qty;
-            item.reset();
-            const auto id = detail::opt_str(item, "t");
             if (!id.has_value()) {
                 return std::unexpected(id.error());
             }
             print.trade_id = *id;
-            item.reset();
-            const auto trade_ms = detail::opt_u64(item, "T");
             if (!trade_ms.has_value()) {
                 return std::unexpected(trade_ms.error());
             }
             print.trade_ms = *trade_ms;
-            item.reset();
-            const auto maker = detail::opt_bool(item, "m");
             if (!maker.has_value()) {
                 return std::unexpected(maker.error());
             }

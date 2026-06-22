@@ -2,6 +2,8 @@
 #include <raikiri/venues/htx/envelope.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <optional>
+
 namespace raikiri::venues::htx {
 
 namespace detail = raikiri::wire;
@@ -11,27 +13,14 @@ namespace {
 using detail::guarded;
 using detail::session;
 
-// The raw JSON text of a value, whatever its type, quotes included. Every
-// price and size on the ladder goes through this: HTX writes them as numbers,
-// and "1.00000000E-10" is a spelling only the token preserves.
-//
-// raw_json() on a scalar returns the token plus whitespace up to the next one,
-// so the trim is what makes the token exact. Contents stay escaped: HTX
-// contract codes and decimal tokens cannot contain an escape, and letting
-// simdjson unescape would move every field into a buffer that cannot be
-// rebased.
-std::expected<std::string_view, WireError> raw_of(detail::ondemand::value value) {
-    std::string_view raw;
-    if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
-    }
-    return session().rebase(detail::trim(raw));
-}
-
 // A level and a top-of-book quote are both [price, size], with both members
 // written as JSON numbers.
-std::expected<void, WireError>
-read_pair(detail::ondemand::value entry, std::string_view& price, std::string_view& qty) {
+// Every price and size goes through raw_of: HTX writes them as numbers, and
+// "1.00000000E-10" is a spelling only the token preserves.
+std::expected<void, WireError> read_pair(detail::ondemand::value entry,
+                                         std::string_view& price,
+                                         std::string_view& qty,
+                                         const detail::Session& s) {
     detail::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
@@ -43,7 +32,7 @@ read_pair(detail::ondemand::value entry, std::string_view& price, std::string_vi
             return std::unexpected(detail::map_error(ec));
         }
         if (field < 2) {
-            const auto raw = raw_of(value);
+            const auto raw = detail::raw_of(value, s);
             if (!raw.has_value()) {
                 return std::unexpected(raw.error());
             }
@@ -57,25 +46,15 @@ read_pair(detail::ondemand::value entry, std::string_view& price, std::string_vi
     return {};
 }
 
-std::expected<void, WireError> read_quote(detail::ondemand::object& tick,
-                                          std::string_view key,
-                                          std::string_view& price,
-                                          std::string_view& qty) {
-    detail::ondemand::value value;
-    if (const auto ec = tick.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
+std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
+                                                  std::span<WireLevel> into) {
+    detail::ondemand::array array;
+    if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
-    return read_pair(value, price, qty);
-}
-
-std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& tick, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(tick, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
-    }
+    const auto& s = session();
     std::size_t count = 0;
-    for (auto entry : *array) {
+    for (auto entry : array) {
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
@@ -83,7 +62,8 @@ read_levels(detail::ondemand::object& tick, std::string_view key, std::span<Wire
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
-        if (const auto ok = read_pair(value, into[count].price, into[count].qty); !ok.has_value()) {
+        if (const auto ok = read_pair(value, into[count].price, into[count].qty, s);
+            !ok.has_value()) {
             return std::unexpected(ok.error());
         }
         ++count;
@@ -109,14 +89,33 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
         }
         WireBbo out{};
         out.contract_code = code_of(*ch);
-        if (const auto ok = read_quote(*tick, "bid", out.bid_price, out.bid_qty); !ok.has_value()) {
-            return std::unexpected(ok.error());
+        bool bid = false;
+        bool ask = false;
+        std::expected<std::uint64_t, WireError> ts{0};
+        std::expected<std::uint64_t, WireError> version{0};
+        const auto walked = detail::for_each_field(
+            *tick,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "bid" || key == "ask") {
+                    const bool is_bid = key == "bid";
+                    (is_bid ? bid : ask) = true;
+                    return is_bid ? read_pair(value, out.bid_price, out.bid_qty, session())
+                                  : read_pair(value, out.ask_price, out.ask_qty, session());
+                }
+                if (key == "ts") {
+                    ts = detail::u64_of(value);
+                } else if (key == "version") {
+                    version = detail::u64_of(value);
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
         }
-        if (const auto ok = read_quote(*tick, "ask", out.ask_price, out.ask_qty); !ok.has_value()) {
-            return std::unexpected(ok.error());
+        if (!bid || !ask) {
+            return std::unexpected(WireError::MissingField);
         }
-        const auto ts = detail::opt_u64(*tick, "ts");
-        const auto version = detail::opt_u64(*tick, "version");
         if (!ts.has_value() || !version.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -142,24 +141,44 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         WireDepth out{};
         out.contract_code = code_of(*ch);
-        const auto mrid = detail::opt_u64(*tick, "mrid");
+        std::expected<std::uint64_t, WireError> mrid{0};
+        std::expected<std::uint64_t, WireError> ts{0};
+        std::expected<std::uint64_t, WireError> version{0};
+        std::optional<std::size_t> bids;
+        std::optional<std::size_t> asks;
+        const auto walked = detail::for_each_field(
+            *tick,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "bids" || key == "asks") {
+                    const bool bid = key == "bids";
+                    const auto count = read_levels(value, bid ? storage.bids : storage.asks);
+                    if (!count.has_value()) {
+                        return std::unexpected(count.error());
+                    }
+                    (bid ? bids : asks) = *count;
+                } else if (key == "mrid") {
+                    mrid = detail::u64_of(value);
+                } else if (key == "ts") {
+                    ts = detail::u64_of(value);
+                } else if (key == "version") {
+                    version = detail::u64_of(value);
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
         if (!mrid.has_value()) {
             return std::unexpected(mrid.error());
         }
-        out.mrid = *mrid;
-        const auto bids = read_levels(*tick, "bids", storage.bids);
-        if (!bids.has_value()) {
-            return std::unexpected(bids.error());
+        if (!bids.has_value() || !asks.has_value()) {
+            return std::unexpected(WireError::MissingField);
         }
-        const auto asks = read_levels(*tick, "asks", storage.asks);
-        if (!asks.has_value()) {
-            return std::unexpected(asks.error());
-        }
-        const auto ts = detail::opt_u64(*tick, "ts");
-        const auto version = detail::opt_u64(*tick, "version");
         if (!ts.has_value() || !version.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
+        out.mrid = *mrid;
         out.ts_ms = *ts;
         out.version = *version;
         out.bids = {storage.bids.data(), *bids};

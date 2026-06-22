@@ -1832,5 +1832,39 @@ TEST(BingxErrors, ClassifiesTheHttpStatusWhenThereIsNoEnvelope) {
     EXPECT_EQ(classify_http(404), exec::ErrorClass::Terminal);
 }
 
+TEST(BingxWire, ReadsFieldsInAnyOrder) {
+    LevelBuffer levels;
+    const auto depth =
+        parse_depth(R"({"data":{"asks":[["2","1"]],"x":[[1]],"bids":[["1","3"]]},"timestamp":5,)"
+                    R"("dataType":"ETH-USDT@depth5"})",
+                    levels,
+                    MarketType::Perp);
+    ASSERT_TRUE(depth.has_value());
+    EXPECT_EQ(depth->symbol, "ETH-USDT");
+    EXPECT_EQ(depth->ts_ms, 5U) << "no ts, so the spot stamp";
+    ASSERT_EQ(depth->bids.size(), 1U);
+    ASSERT_EQ(depth->asks.size(), 1U);
+    EXPECT_EQ(depth->asks[0].price, "2");
+
+    TradeBuffer trades;
+    const auto trade = parse_trades(
+        R"({"data":{"m":true,"T":4,"s":"ETH-USDT","q":"1","p":"2"},"code":0})", trades);
+    ASSERT_TRUE(trade.has_value());
+    ASSERT_EQ(trade->size(), 1U);
+    EXPECT_EQ((*trade)[0].symbol, "ETH-USDT");
+    EXPECT_EQ((*trade)[0].trade_ms, 4U);
+    EXPECT_TRUE((*trade)[0].buyer_is_maker);
+    EXPECT_FALSE(parse_trades(R"({"data":[{"p":"2","q":"1","T":4}]})", trades).has_value())
+        << "no symbol";
+
+    const auto top = parse_book_ticker(
+        R"({"data":{"A":"4","a":"3","B":"2","b":"1","s":"ETH-USDT","E":7,"u":6}})");
+    ASSERT_TRUE(top.has_value());
+    EXPECT_EQ(top->ask_qty, "4");
+    EXPECT_EQ(top->update_id, 6U);
+    EXPECT_EQ(top->transaction_ms, 0U);
+    EXPECT_EQ(top->event_ms, 7U);
+}
+
 } // namespace
 } // namespace raikiri::venues::bingx

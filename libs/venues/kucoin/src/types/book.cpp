@@ -3,6 +3,7 @@
 #include <raikiri/venues/kucoin/envelope.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <optional>
 #include <utility>
 
 namespace raikiri::venues::kucoin {
@@ -44,14 +45,15 @@ std::expected<void, WireError> split_change(std::string_view change, WireBookCha
 // The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
 // where the futures stream packs one into a comma-joined string. Same numbers,
 // nothing shared.
-std::expected<std::size_t, WireError>
-read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
+std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value side,
+                                                       std::span<WireLevel> into) {
+    detail::ondemand::array array;
+    if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
     }
+    const auto& s = session();
     std::size_t count = 0;
-    for (auto entry : *array) {
+    for (auto entry : array) {
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
@@ -72,7 +74,7 @@ read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<
             if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
                 text = text.substr(1, text.size() - 2);
             }
-            fields[seen++] = session().rebase(text);
+            fields[seen++] = s.rebase(text);
         }
         if (seen != 2) {
             return std::unexpected(WireError::MissingField);
@@ -81,6 +83,15 @@ read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<
         ++count;
     }
     return count;
+}
+
+std::expected<std::size_t, WireError>
+read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    detail::ondemand::value side;
+    if (const auto ec = obj.find_field_unordered(key).get(side); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
+    }
+    return read_pair_levels(side, into);
 }
 
 // A level is [price, size] with both members written as JSON numbers.
@@ -155,39 +166,64 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
         }
         return with_data(*root,
                          [&](detail::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-                             WireBbo out{};
-                             out.symbol = *symbol;
                              // Futures: bestBidPrice/bestBidSize and a NANOSECOND `ts`.
                              // Spot:    bestBid/bestBidSize and a MILLISECOND `time`, with
                              // the sequence as a digit string rather than a number.
-                             const auto bid = req_decimal(obj, spot ? "bestBid" : "bestBidPrice");
-                             const auto bid_qty = req_decimal(obj, "bestBidSize");
-                             const auto ask = req_decimal(obj, spot ? "bestAsk" : "bestAskPrice");
-                             const auto ask_qty = req_decimal(obj, "bestAskSize");
-                             if (!bid.has_value() || !bid_qty.has_value() || !ask.has_value() ||
-                                 !ask_qty.has_value()) {
-                                 return std::unexpected(WireError::MissingField);
+                             const std::string_view bid_key = spot ? "bestBid" : "bestBidPrice";
+                             const std::string_view ask_key = spot ? "bestAsk" : "bestAskPrice";
+                             using Text = std::expected<std::string_view, WireError>;
+                             Text bid{std::string_view{}};
+                             Text bid_qty{std::string_view{}};
+                             Text ask{std::string_view{}};
+                             Text ask_qty{std::string_view{}};
+                             Text time{std::string_view{}};
+                             Text ts{std::string_view{}};
+                             Text sequence{std::string_view{}};
+                             const auto walked = detail::for_each_field(
+                                 obj, [&](std::string_view key, detail::ondemand::value& value) {
+                                     if (key == bid_key) {
+                                         bid = decimal_of(value);
+                                     } else if (key == "bestBidSize") {
+                                         bid_qty = decimal_of(value);
+                                     } else if (key == ask_key) {
+                                         ask = decimal_of(value);
+                                     } else if (key == "bestAskSize") {
+                                         ask_qty = decimal_of(value);
+                                     } else if (key == "time") {
+                                         time = decimal_of(value);
+                                     } else if (key == "ts") {
+                                         ts = decimal_of(value);
+                                     } else if (key == "sequence") {
+                                         sequence = decimal_of(value);
+                                     }
+                                 });
+                             if (!walked.has_value()) {
+                                 return std::unexpected(walked.error());
                              }
+                             for (const auto* text : {&bid, &bid_qty, &ask, &ask_qty}) {
+                                 if (!text->has_value() || (*text)->empty()) {
+                                     return std::unexpected(WireError::MissingField);
+                                 }
+                             }
+                             WireBbo out{};
+                             out.symbol = *symbol;
                              out.bid_price = *bid;
                              out.bid_qty = *bid_qty;
                              out.ask_price = *ask;
                              out.ask_qty = *ask_qty;
                              if (spot) {
-                                 const auto ms = opt_u64(obj, "time");
-                                 if (!ms.has_value()) {
+                                 if (!time.has_value()) {
                                      return std::unexpected(WireError::WrongType);
                                  }
-                                 out.ts_ns = *ms * 1'000'000ULL;
+                                 out.ts_ns = detail::digits_to_u64(*time) * 1'000'000ULL;
                                  out.sequence = 0; // a digit string here; nothing reads it
                                  return out;
                              }
-                             const auto ts = opt_u64(obj, "ts");
-                             const auto sequence = opt_i64(obj, "sequence");
                              if (!ts.has_value() || !sequence.has_value()) {
                                  return std::unexpected(WireError::WrongType);
                              }
-                             out.ts_ns = *ts;
-                             out.sequence = *sequence;
+                             out.ts_ns = detail::digits_to_u64(*ts);
+                             out.sequence = i64_of_digits(*sequence);
                              return out;
                          });
     });
@@ -207,20 +243,37 @@ std::expected<WireBookChange, WireError> parse_book_change(std::string_view fram
             *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
                 WireBookChange out{};
                 out.symbol = *symbol;
-                const auto change = detail::req_str(obj, "change");
+                std::expected<std::string_view, WireError> change{
+                    std::unexpected(WireError::MissingField)};
+                std::expected<std::string_view, WireError> ts{std::string_view{}};
+                std::expected<std::string_view, WireError> sequence{std::string_view{}};
+                const auto walked = detail::for_each_field(
+                    obj, [&](std::string_view key, detail::ondemand::value& value) {
+                        if (key == "change") {
+                            change = detail::str_of(value);
+                        } else if (key == "timestamp") {
+                            ts = decimal_of(value);
+                        } else if (key == "sequence") {
+                            sequence = decimal_of(value);
+                        }
+                    });
+                if (!walked.has_value()) {
+                    return std::unexpected(walked.error());
+                }
+                if (change.has_value() && change->empty()) {
+                    return std::unexpected(WireError::MissingField);
+                }
                 if (!change.has_value()) {
                     return std::unexpected(change.error());
                 }
                 if (const auto ok = split_change(*change, out); !ok.has_value()) {
                     return std::unexpected(ok.error());
                 }
-                const auto ts = opt_u64(obj, "timestamp");
-                const auto sequence = opt_i64(obj, "sequence");
                 if (!ts.has_value() || !sequence.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
-                out.ts_ms = *ts;
-                out.sequence = *sequence;
+                out.ts_ms = detail::digits_to_u64(*ts);
+                out.sequence = i64_of_digits(*sequence);
                 return out;
             });
     });
@@ -261,8 +314,7 @@ std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view 
     });
 }
 
-std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame,
-                                                     LevelBuffer& storage) {
+std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireUtaBook, WireError> {
         auto root = session().open_object(frame);
         if (!root.has_value()) {
@@ -284,42 +336,59 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame,
         }
         WireUtaBook out{};
         out.is_snapshot = snapshot;
-        const auto symbol = detail::req_str(*data, "s");
+        std::expected<std::string_view, WireError> symbol{std::unexpected(WireError::MissingField)};
+        std::expected<std::int64_t, WireError> start{std::unexpected(WireError::MissingField)};
+        std::expected<std::int64_t, WireError> end{std::unexpected(WireError::MissingField)};
+        std::optional<std::size_t> asks;
+        std::optional<std::size_t> bids;
+        std::uint64_t ts_ns = 0;
+        const auto walked = detail::for_each_field(
+            *data,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "a" || key == "b") {
+                    const bool ask = key == "a";
+                    const auto count = read_pair_levels(value, ask ? storage.asks : storage.bids);
+                    if (!count.has_value()) {
+                        return std::unexpected(count.error());
+                    }
+                    (ask ? asks : bids) = *count;
+                } else if (key == "s") {
+                    symbol = detail::str_of(value);
+                } else if (key == "O") {
+                    start = detail::i64_of(value);
+                } else if (key == "C") {
+                    end = detail::i64_of(value);
+                } else if (key == "M") {
+                    ts_ns = detail::u64_of(value).value_or(0);
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
+        if (symbol.has_value() && symbol->empty()) {
+            return std::unexpected(WireError::MissingField);
+        }
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        // COMPACT KEYS, and every one of them is required. A frame missing its
-        // span cannot be chained, and one missing a side cannot be applied —
-        // there is no "absent means unchanged" here, an untouched side arrives
-        // as an empty array.
-        //
-        // PRESENCE IS CHECKED SEPARATELY because opt_i64 answers an absent
-        // field with zero rather than an error, and zero is a sequence a
-        // reader would happily chain from.
-        if (!detail::has_field(*data, "O") || !detail::has_field(*data, "C")) {
-            return std::unexpected(WireError::MissingField);
-        }
-        const auto start = detail::opt_i64(*data, "O");
-        const auto end = detail::opt_i64(*data, "C");
+        // Every compact key is required: a frame missing its span cannot be
+        // chained, and an untouched side arrives as an empty array.
         if (!start.has_value() || !end.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.seq_start = *start;
         out.seq_end = *end;
-        const auto asks = read_pair_levels(*data, "a", storage.asks);
-        if (!asks.has_value()) {
-            return std::unexpected(asks.error());
-        }
-        const auto bids = read_pair_levels(*data, "b", storage.bids);
-        if (!bids.has_value()) {
-            return std::unexpected(bids.error());
+        if (!asks.has_value() || !bids.has_value()) {
+            return std::unexpected(WireError::MissingField);
         }
         out.asks = {storage.asks.data(), *asks};
         out.bids = {storage.bids.data(), *bids};
         // `M` is the matching engine's own instant in NANOSECONDS, not the
         // milliseconds every classic KuCoin frame carries.
-        out.ts_ns = detail::opt_u64(*data, "M").value_or(0);
+        out.ts_ns = ts_ns;
         return out;
     });
 }
@@ -626,8 +695,7 @@ std::optional<BookSnapshot> UtaBook::snapshot(UnixNanos ts_event, UnixNanos ts_i
     if (!live_) {
         return std::nullopt;
     }
-    return ladders_.snapshot(
-        instrument_, static_cast<std::uint64_t>(last_end_), ts_event, ts_init);
+    return ladders_.snapshot(instrument_, static_cast<std::uint64_t>(last_end_), ts_event, ts_init);
 }
 
 std::optional<Bbo> UtaBook::bbo(UnixNanos ts_event, UnixNanos ts_init) const {

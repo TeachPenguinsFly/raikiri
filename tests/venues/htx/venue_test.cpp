@@ -963,5 +963,42 @@ TEST(HtxErrors, ClassifiesTheHttpStatusWhenThereIsNoEnvelope) {
     EXPECT_EQ(classify_http(404), exec::ErrorClass::Terminal);
 }
 
+TEST(HtxWire, ReadsFieldsInAnyOrderAndSkipsWhatItDoesNotKnow) {
+    const std::string depth =
+        R"({"tick":{"version":7,"asks":[[2.5,3]],"extra":{"x":[1,2]},"bids":[[2,4],[1.5,1]],)"
+        R"("ts":9},"ch":"market.ETH-USDT.depth.step0"})";
+    const auto event = parse_event(depth);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Depth);
+    EXPECT_EQ(event->contract_code, "ETH-USDT");
+    LevelBuffer levels;
+    const auto wire = parse_depth(depth, levels);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->mrid, 0U) << "absent reads as zero, as before";
+    EXPECT_EQ(wire->version, 7U);
+    EXPECT_EQ(wire->ts_ms, 9U);
+    ASSERT_EQ(wire->bids.size(), 2U);
+    EXPECT_EQ(wire->bids[1].price, "1.5");
+    ASSERT_EQ(wire->asks.size(), 1U);
+    EXPECT_EQ(wire->asks[0].qty, "3");
+
+    TradeBuffer trades;
+    const auto trade = parse_trades(
+        R"({"ch":"market.ETH-USDT.trade.detail","tick":{"data":[{"direction":"sell","price":2.5,)"
+        R"("id":4,"amount":2}]}})",
+        trades);
+    ASSERT_TRUE(trade.has_value());
+    ASSERT_EQ(trade->size(), 1U);
+    EXPECT_EQ((*trade)[0].price, "2.5");
+    EXPECT_EQ((*trade)[0].quantity, "");
+    EXPECT_EQ((*trade)[0].ts_ms, 0U);
+    EXPECT_FALSE((*trade)[0].aggressor_bought);
+    EXPECT_FALSE(parse_trades(R"({"ch":"market.ETH-USDT.trade.detail","tick":{"data":[)"
+                              R"({"price":2.5,"id":4,"amount":2}]}})",
+                              trades)
+                     .has_value())
+        << "direction is required";
+}
+
 } // namespace
 } // namespace raikiri::venues::htx

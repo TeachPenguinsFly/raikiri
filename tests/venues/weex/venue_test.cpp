@@ -1620,5 +1620,37 @@ TEST(WeexWire, TheServerClockIsReadBecauseASignatureExpires) {
     EXPECT_EQ(parse_server_time(R"({"noSuchField":1})").value_or(1), 0ULL);
 }
 
+TEST(WeexBook, ReadsFieldsInAnyOrder) {
+    static thread_local LevelBuffer storage;
+    const auto wire = parse_depth(
+        R"({"a":[["2","1"]],"b":[["1","3"],["0.5","1"]],"u":12,"x":[1,[2]],"d":"CHANGED",)"
+        R"("U":11,"s":"ETHUSDT","e":"depth","E":7})",
+        storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_FALSE(wire->is_snapshot);
+    EXPECT_EQ(wire->symbol, "ETHUSDT");
+    EXPECT_EQ(wire->first_id, 11U);
+    EXPECT_EQ(wire->last_id, 12U);
+    EXPECT_EQ(wire->event_ms, 7U);
+    EXPECT_EQ(wire->tier, 0U);
+    ASSERT_EQ(wire->bids.size(), 2U);
+    EXPECT_EQ(wire->bids[1].price, "0.5");
+    ASSERT_EQ(wire->asks.size(), 1U);
+    EXPECT_FALSE(parse_depth(R"({"a":[],"b":[],"u":2,"d":"CHANGED","U":1,"e":"depth"})", storage)
+                     .has_value())
+        << "no symbol";
+
+    PrintBuffer prints;
+    const auto trades =
+        parse_trades(R"({"d":[{"m":true,"q":"0.5","x":{},"p":"2","T":3}],"e":"trade"})", prints);
+    ASSERT_TRUE(trades.has_value());
+    ASSERT_EQ(trades->size(), 1U);
+    EXPECT_EQ((*trades)[0].price, "2");
+    EXPECT_EQ((*trades)[0].qty, "0.5");
+    EXPECT_EQ((*trades)[0].trade_id, "");
+    EXPECT_EQ((*trades)[0].trade_ms, 3U);
+    EXPECT_TRUE((*trades)[0].buyer_is_maker);
+}
+
 } // namespace
 } // namespace raikiri::venues::weex

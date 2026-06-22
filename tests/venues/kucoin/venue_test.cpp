@@ -1842,7 +1842,6 @@ TEST(KucoinSpotWire, TheSpotDepthTopicIsAWholeBook) {
     EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw) << "an uncrossed book";
 }
 
-
 // UTA v2's `obu` channel. Every frame below was captured from
 // wss://x-push-futures.kucoin.com on 2026-09-20 with no credentials of any
 // kind — the endpoint takes public market data without a token, which is what
@@ -1891,9 +1890,8 @@ TEST(KucoinUtaBook, BothSidesAreRequired) {
         parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[["1","1"]]}})", *storage)
             .has_value())
         << "no bids key at all";
-    const auto empty_side =
-        parse_uta_book(R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[],"b":[["1","1"]]}})",
-                       *storage);
+    const auto empty_side = parse_uta_book(
+        R"({"t":"delta","d":{"s":"X","O":1,"C":2,"a":[],"b":[["1","1"]]}})", *storage);
     ASSERT_TRUE(empty_side.has_value()) << "an empty side is a side";
     EXPECT_TRUE(empty_side->asks.empty());
     EXPECT_EQ(empty_side->bids.size(), 1U);
@@ -2086,5 +2084,47 @@ TEST(KucoinSpotTickers, AllTickersStatesBothColumnsTruncatedAtNineDecimals) {
     silent.vol = {};
     EXPECT_FALSE(map_ticker_stats(silent, table, UnixNanos{1}).has_value());
 }
+
+TEST(KucoinUtaBook, ReadsTheDataObjectInAnyOrder) {
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto wire = parse_uta_book(
+        R"({"t":"delta","P":1,"d":{"M":5,"b":[["1","2"]],"x":{"y":[1]},"C":9,"a":[],"O":8,)"
+        R"("s":"ETHUSDTM"}})",
+        *storage);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "ETHUSDTM");
+    EXPECT_EQ(wire->seq_start, 8);
+    EXPECT_EQ(wire->seq_end, 9);
+    EXPECT_EQ(wire->ts_ns, 5U);
+    EXPECT_TRUE(wire->asks.empty());
+    ASSERT_EQ(wire->bids.size(), 1U);
+    EXPECT_EQ(wire->bids[0].qty, "2");
+    EXPECT_FALSE(
+        parse_uta_book(R"({"t":"delta","d":{"a":[],"b":[],"C":2,"s":"X"}})", *storage).has_value())
+        << "no O";
+
+    const std::string ticker =
+        R"({"data":{"ts":5,"bestAskSize":2,"bestBidPrice":"1.5","sequence":7,"bestAskPrice":"2",)"
+        R"("bestBidSize":3,"symbol":"ETHUSDTM"},"subject":"tickerV2",)"
+        R"("topic":"/contractMarket/tickerV2:ETHUSDTM","type":"message"})";
+    const auto event = parse_event(ticker);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_EQ(event->kind, EventKind::Bbo);
+    EXPECT_EQ(event->symbol, "ETHUSDTM");
+    const auto bbo = parse_bbo(ticker, MarketType::Perp);
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid_price, "1.5");
+    EXPECT_EQ(bbo->bid_qty, "3");
+    EXPECT_EQ(bbo->ask_qty, "2");
+    EXPECT_EQ(bbo->ts_ns, 5U);
+    EXPECT_EQ(bbo->sequence, 7);
+
+    const auto change = parse_book_change(
+        R"({"data":{"change":"1.5,buy,3","sequence":9},"topic":"/contractMarket/level2:ETHUSDTM"})");
+    ASSERT_TRUE(change.has_value());
+    EXPECT_EQ(change->sequence, 9);
+    EXPECT_EQ(change->ts_ms, 0U) << "no timestamp reads as zero, as before";
+}
+
 } // namespace
 } // namespace raikiri::venues::kucoin

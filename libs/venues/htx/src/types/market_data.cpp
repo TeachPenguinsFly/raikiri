@@ -62,14 +62,35 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             }
             WireTrade out{};
             out.contract_code = code;
-            const auto amount = detail::opt_raw(obj, "amount");
-            const auto quantity = detail::opt_raw(obj, "quantity");
-            const auto ts = detail::opt_u64(obj, "ts");
-            const auto id = detail::opt_u64(obj, "id");
-            const auto price = detail::opt_raw(obj, "price");
-            const auto direction = detail::req_str(obj, "direction");
+            std::expected<std::string_view, WireError> amount{std::string_view{}};
+            std::expected<std::string_view, WireError> quantity{std::string_view{}};
+            std::expected<std::string_view, WireError> price{std::string_view{}};
+            std::expected<std::uint64_t, WireError> ts{0};
+            std::expected<std::uint64_t, WireError> id{0};
+            std::expected<std::string_view, WireError> direction{
+                std::unexpected(WireError::MissingField)};
+            const auto walked = detail::for_each_field(
+                obj, [&](std::string_view key, detail::ondemand::value& value) {
+                    if (key == "amount") {
+                        amount = detail::raw_of(value);
+                    } else if (key == "quantity") {
+                        quantity = detail::raw_of(value);
+                    } else if (key == "price") {
+                        price = detail::raw_of(value);
+                    } else if (key == "ts") {
+                        ts = detail::u64_of(value);
+                    } else if (key == "id") {
+                        id = detail::u64_of(value);
+                    } else if (key == "direction") {
+                        direction = detail::str_of(value);
+                    }
+                });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
             if (!amount.has_value() || !quantity.has_value() || !ts.has_value() ||
-                !id.has_value() || !price.has_value() || !direction.has_value()) {
+                !id.has_value() || !price.has_value() || !direction.has_value() ||
+                direction->empty()) {
                 return std::unexpected(WireError::MissingField);
             }
             if (amount->empty() || price->empty()) {

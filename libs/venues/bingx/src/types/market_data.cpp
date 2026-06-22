@@ -23,17 +23,37 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         std::size_t count = 0;
         const auto read_one = [&](detail::ondemand::object& obj) -> std::expected<void, WireError> {
             WireTrade out{};
-            const auto symbol = detail::req_str(obj, "s");
-            const auto price = detail::req_str(obj, "p");
-            const auto qty = detail::req_str(obj, "q");
-            if (!symbol.has_value() || !price.has_value() || !qty.has_value()) {
-                return std::unexpected(WireError::MissingField);
+            using Text = std::expected<std::string_view, WireError>;
+            Text symbol{std::unexpected(WireError::MissingField)};
+            Text price{std::unexpected(WireError::MissingField)};
+            Text qty{std::unexpected(WireError::MissingField)};
+            std::expected<std::uint64_t, WireError> trade_ms{0};
+            std::expected<bool, WireError> maker{false};
+            const auto walked = detail::for_each_field(
+                obj, [&](std::string_view key, detail::ondemand::value& value) {
+                    if (key == "s") {
+                        symbol = detail::str_of(value);
+                    } else if (key == "p") {
+                        price = detail::str_of(value);
+                    } else if (key == "q") {
+                        qty = detail::str_of(value);
+                    } else if (key == "T") {
+                        trade_ms = detail::u64_of(value);
+                    } else if (key == "m") {
+                        maker = detail::bool_of(value);
+                    }
+                });
+            if (!walked.has_value()) {
+                return std::unexpected(walked.error());
+            }
+            for (const auto* text : {&symbol, &price, &qty}) {
+                if (!text->has_value() || (*text)->empty()) {
+                    return std::unexpected(WireError::MissingField);
+                }
             }
             out.symbol = *symbol;
             out.price = *price;
             out.qty = *qty;
-            const auto trade_ms = detail::opt_u64(obj, "T");
-            const auto maker = detail::opt_bool(obj, "m");
             if (!trade_ms.has_value() || !maker.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -45,42 +65,51 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         };
 
         // The swap tree sends an array of prints under "data"; the spot tree
-        // sends ONE object under the same key. Same envelope, same field
-        // names, different arity — so the shape is read off the raw text and
-        // then decoded once. Asking for an array and falling back on failure
-        // does not work: a refused type conversion leaves the On-Demand
-        // document somewhere a rewind cannot recover.
-        const auto raw = detail::opt_raw(*root, "data");
-        if (!raw.has_value()) {
-            return std::unexpected(raw.error());
-        }
-        const auto text = detail::trim(*raw);
-        root->reset();
-        if (text.starts_with('[')) {
-            auto array = detail::req_array(*root, "data");
-            if (!array.has_value()) {
-                return std::unexpected(array.error());
-            }
-            for (auto entry : *array) {
-                if (count == k_max_trades) {
-                    return std::unexpected(WireError::TooManyEntries);
+        // sends ONE object under the same key. type() peeks without consuming:
+        // a refused conversion would leave the document where no rewind helps.
+        bool seen = false;
+        const auto walked = detail::for_each_field(
+            *root,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key != "data" || seen) {
+                    return {};
                 }
-                detail::ondemand::object obj;
-                if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                seen = true;
+                detail::ondemand::json_type type{};
+                if (const auto ec = value.type().get(type); ec != simdjson::SUCCESS) {
                     return std::unexpected(detail::map_error(ec));
                 }
-                if (const auto one = read_one(obj); !one.has_value()) {
-                    return std::unexpected(one.error());
+                if (type != detail::ondemand::json_type::array) {
+                    detail::ondemand::object single;
+                    if (const auto ec = value.get_object().get(single); ec != simdjson::SUCCESS) {
+                        return std::unexpected(detail::map_error(ec));
+                    }
+                    return read_one(single);
                 }
-            }
-            return std::span<const WireTrade>{storage.trades.data(), count};
+                detail::ondemand::array array;
+                if (const auto ec = value.get_array().get(array); ec != simdjson::SUCCESS) {
+                    return std::unexpected(detail::map_error(ec));
+                }
+                for (auto entry : array) {
+                    if (count == k_max_trades) {
+                        return std::unexpected(WireError::TooManyEntries);
+                    }
+                    detail::ondemand::object obj;
+                    if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
+                        return std::unexpected(detail::map_error(ec));
+                    }
+                    if (const auto one = read_one(obj); !one.has_value()) {
+                        return std::unexpected(one.error());
+                    }
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
         }
-        auto single = detail::req_object(*root, "data");
-        if (!single.has_value()) {
-            return std::unexpected(single.error());
-        }
-        if (const auto one = read_one(*single); !one.has_value()) {
-            return std::unexpected(one.error());
+        if (!seen) {
+            return std::unexpected(WireError::MissingField);
         }
         return std::span<const WireTrade>{storage.trades.data(), count};
     });

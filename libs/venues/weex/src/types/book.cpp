@@ -2,6 +2,8 @@
 #include <raikiri/venues/weex/book.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <optional>
+
 namespace raikiri::venues::weex {
 
 // The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer; a
@@ -16,14 +18,15 @@ using detail::session;
 
 // A level is a two-element array of strings, ["79375.3","2.5048"], on the socket
 // and in the REST body alike.
-std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(root, key);
-    if (!array.has_value()) {
-        return std::unexpected(array.error());
+std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
+                                                  std::span<WireLevel> into) {
+    detail::ondemand::array array;
+    if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
+        return std::unexpected(detail::map_error(ec));
     }
+    const auto& s = session();
     std::size_t count = 0;
-    for (auto entry : *array) {
+    for (auto entry : array) {
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
@@ -38,7 +41,7 @@ read_levels(detail::ondemand::object& root, std::string_view key, std::span<Wire
             if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
                 return std::unexpected(detail::map_error(ec));
             }
-            const auto text = detail::str_of(value);
+            const auto text = detail::str_of(value, s);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -73,29 +76,59 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto obj = *root;
+        using Text = std::expected<std::string_view, WireError>;
+        using Number = std::expected<std::uint64_t, WireError>;
+        Text event{std::unexpected(WireError::MissingField)};
+        Text symbol{std::unexpected(WireError::MissingField)};
+        Text disposition{std::unexpected(WireError::MissingField)};
+        Number first{0};
+        Number last{0};
+        Number event_ms{0};
+        Number tier{0};
+        std::optional<std::size_t> bids;
+        std::optional<std::size_t> asks;
+        const auto walked = detail::for_each_field(
+            *root,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "b" || key == "a") {
+                    const bool bid = key == "b";
+                    const auto count = read_levels(value, bid ? storage.bids : storage.asks);
+                    if (!count.has_value()) {
+                        return std::unexpected(count.error());
+                    }
+                    (bid ? bids : asks) = *count;
+                } else if (key == "e") {
+                    event = detail::str_of(value);
+                } else if (key == "s") {
+                    symbol = detail::str_of(value);
+                } else if (key == "d") {
+                    disposition = detail::str_of(value);
+                } else if (key == "U") {
+                    first = detail::u64_of(value);
+                } else if (key == "u") {
+                    last = detail::u64_of(value);
+                } else if (key == "E") {
+                    event_ms = detail::u64_of(value);
+                } else if (key == "l") {
+                    tier = detail::u64_of(value);
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
+        for (auto* text : {&event, &symbol, &disposition}) {
+            if (text->has_value() && (*text)->empty()) {
+                *text = std::unexpected(WireError::MissingField);
+            }
+            if (!text->has_value()) {
+                return std::unexpected(text->error());
+            }
+        }
 
         WireDepth out{};
-        const auto event = detail::req_str(obj, "e");
-        if (!event.has_value()) {
-            return std::unexpected(event.error());
-        }
-        obj.reset();
-        const auto symbol = detail::req_str(obj, "s");
-        if (!symbol.has_value()) {
-            return std::unexpected(symbol.error());
-        }
         out.symbol = *symbol;
-
-        obj.reset();
-        const auto disposition = detail::req_str(obj, "d");
-        if (!disposition.has_value()) {
-            return std::unexpected(disposition.error());
-        }
-        // TWO FIELDS, ONE FACT, AND THEY MUST AGREE. `e` names the frame and
-        // `d` names its disposition; a snapshot applied as a delta leaves a book
-        // that is a mixture of two moments and still reports itself live, so a
-        // frame whose two answers differ is refused rather than resolved.
         const bool snapshot_event = *event == "depthSnapshot";
         const bool snapshot_field = *disposition == "SNAPSHOT";
         if (snapshot_event != snapshot_field) {
@@ -106,14 +139,6 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         out.is_snapshot = snapshot_field;
 
-        obj.reset();
-        const auto first = detail::opt_u64(obj, "U");
-        obj.reset();
-        const auto last = detail::opt_u64(obj, "u");
-        obj.reset();
-        const auto event_ms = detail::opt_u64(obj, "E");
-        obj.reset();
-        const auto tier = detail::opt_u64(obj, "l");
         if (!first.has_value() || !last.has_value() || !event_ms.has_value() || !tier.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -124,16 +149,8 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         out.last_id = *last;
         out.event_ms = *event_ms;
         out.tier = static_cast<std::uint32_t>(*tier);
-
-        obj.reset();
-        const auto bids = read_levels(obj, "b", storage.bids);
-        if (!bids.has_value()) {
-            return std::unexpected(bids.error());
-        }
-        obj.reset();
-        const auto asks = read_levels(obj, "a", storage.asks);
-        if (!asks.has_value()) {
-            return std::unexpected(asks.error());
+        if (!bids.has_value() || !asks.has_value()) {
+            return std::unexpected(WireError::MissingField);
         }
         out.bids = {storage.bids.data(), *bids};
         out.asks = {storage.asks.data(), *asks};
