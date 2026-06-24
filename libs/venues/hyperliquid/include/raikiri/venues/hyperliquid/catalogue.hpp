@@ -36,6 +36,9 @@ inline constexpr std::size_t k_max_assets = 512;
 
 struct AssetBuffer {
     std::array<WireAsset, k_max_assets> assets{};
+    // The spot TOKEN index the dex margins in: 0 is USDC, and a HIP-3 dex may
+    // name another. Absent on the main dex's meta, which reads as USDC.
+    std::int64_t collateral_token{0};
 };
 
 // Reads the `universe` of a {"type":"meta"} body. A body of the bare literal
@@ -43,6 +46,22 @@ struct AssetBuffer {
 // fails here rather than yielding an empty catalogue.
 [[nodiscard]] std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view body,
                                                                               AssetBuffer& storage);
+
+// The HIP-3 dex names of a {"type":"perpDexs"} body. The first entry is a
+// literal null standing for the main dex and is skipped.
+inline constexpr std::size_t k_max_perp_dexs = 64;
+
+struct PerpDexBuffer {
+    std::array<std::string_view, k_max_perp_dexs> names{};
+};
+
+[[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
+parse_perp_dexs(std::string_view body, PerpDexBuffer& storage);
+
+// The name of spot token `index` in a {"type":"spotMeta"} body, or
+// MissingField when the body does not carry it.
+[[nodiscard]] std::expected<std::string_view, WireError> parse_token_name(std::string_view body,
+                                                                          std::int64_t index);
 
 // One tradable spot pair with BOTH its token names and the BASE token's
 // szDecimals already resolved. The pair row names its tokens by INDEX and the

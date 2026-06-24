@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cstring>
 #include <span>
+#include <string>
 
 namespace raikiri::venues::hyperliquid {
 
@@ -70,6 +71,17 @@ std::string_view exchange_path() noexcept {
 
 net::RestRequest RequestBuilder::meta() noexcept {
     return info(R"({"type":"meta"})");
+}
+
+net::RestRequest RequestBuilder::meta(std::string_view dex, std::string& body) {
+    body.assign(R"({"type":"meta","dex":")");
+    body.append(dex);
+    body.append(R"("})");
+    return info(body);
+}
+
+net::RestRequest RequestBuilder::perp_dexs() noexcept {
+    return info(R"({"type":"perpDexs"})");
 }
 
 net::RestRequest RequestBuilder::meta_and_asset_ctxs() noexcept {

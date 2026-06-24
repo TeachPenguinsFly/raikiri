@@ -998,7 +998,7 @@ private:
 };
 
 constexpr std::string_view k_usage = R"(usage: gatewayd --venue=bybit [--market=spot|perp] [--symbol=BTCUSDT] [--duration <sec>]
-                [--channels=bbo,trades,depth,funding] [--testnet]
+                [--channels=bbo,trades,depth,funding] [--feed=<adapter feed>] [--testnet]
                 [--api-key=<ref>] [--api-secret=<ref>] [--passphrase=<ref>]
 )";
 
@@ -1045,6 +1045,7 @@ int main(int argc, char** argv) {
     // fewer venues; the cost is about the venue, not about the channel.
     SubKinds wanted_channels{}; // all on
     std::string channels_arg;
+    std::optional<std::string> feed_arg; // wins over venues.yaml's market_data_feed
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg.starts_with("--venue=")) {
@@ -1057,6 +1058,8 @@ int main(int argc, char** argv) {
             market_arg = arg.substr(9);
         } else if (arg.starts_with("--channels=")) {
             channels_arg = arg.substr(11);
+        } else if (arg.starts_with("--feed=")) {
+            feed_arg = std::string{arg.substr(7)};
         } else if (arg.starts_with("--symbol=")) {
             symbols.emplace_back(arg.substr(9));
         } else if (arg.starts_with("--api-key=")) {
@@ -1288,6 +1291,9 @@ int main(int argc, char** argv) {
         RLOG_WARN("gatewayd: {} — running unlimited", settings.error());
     }
 
+    if (feed_arg.has_value()) {
+        market_data_feed = *feed_arg;
+    }
     auto adapter = exec::make_venue({.venue = venue,
                                      .market = market,
                                      .testnet = testnet,

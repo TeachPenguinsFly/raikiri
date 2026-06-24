@@ -81,7 +81,69 @@ private:
             // rows we kept shifts every asset after a delisted one.
             keep(std::move(*instrument), entry.index, loaded);
         }
+        if (auto dexes = load_dexes(loaded); !dexes.has_value()) {
+            return std::unexpected{dexes.error()};
+        }
         return loaded;
+    }
+
+    std::expected<void, exec::VenueError> load_dexes(std::vector<Instrument>& loaded) {
+        std::vector<std::string> names;
+        for (const auto& dex : state_->dexes) {
+            if (dex != "all") {
+                names.push_back(dex);
+                continue;
+            }
+            const auto body =
+                read_info(*state_, rest_, RequestBuilder::perp_dexs(), k_catalogue_timeout_ms);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            PerpDexBuffer listed;
+            const auto wire = parse_perp_dexs(*body, listed);
+            if (!wire.has_value()) {
+                return std::unexpected{unreadable(wire.error())};
+            }
+            names.insert(names.end(), wire->begin(), wire->end());
+        }
+
+        std::optional<std::string> spot_meta;
+        auto storage = std::make_unique<AssetBuffer>();
+        std::string request_body;
+        for (const auto& dex : names) {
+            const auto body = read_info(
+                *state_, rest_, RequestBuilder::meta(dex, request_body), k_catalogue_timeout_ms);
+            if (!body.has_value()) {
+                return std::unexpected{body.error()};
+            }
+            const auto wire = parse_meta(*body, *storage);
+            if (!wire.has_value()) {
+                return std::unexpected{unreadable(wire.error())};
+            }
+            std::string_view collateral{"USDC"};
+            if (storage->collateral_token != 0) {
+                if (!spot_meta.has_value()) {
+                    auto spot = read_info(
+                        *state_, rest_, RequestBuilder::spot_meta(), k_catalogue_timeout_ms);
+                    if (!spot.has_value()) {
+                        return std::unexpected{spot.error()};
+                    }
+                    spot_meta = std::string{*spot};
+                }
+                const auto token = parse_token_name(*spot_meta, storage->collateral_token);
+                if (!token.has_value()) {
+                    continue;
+                }
+                collateral = *token;
+            }
+            for (const auto& entry : *wire) {
+                if (auto instrument = map_dex_instrument(entry, collateral);
+                    instrument.has_value()) {
+                    keep(std::move(*instrument), std::nullopt, loaded);
+                }
+            }
+        }
+        return {};
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> load_spot() {
@@ -112,12 +174,18 @@ private:
         return loaded;
     }
 
-    void keep(Instrument instrument, std::int64_t asset, std::vector<Instrument>& loaded) {
+    // No asset id for a HIP-3 row, so the order path refuses it: its /exchange
+    // index is offset per dex and nothing here trades one.
+    void keep(Instrument instrument,
+              std::optional<std::int64_t> asset,
+              std::vector<Instrument>& loaded) {
         const auto id = state_->instruments.add(std::move(instrument));
         if (!id.has_value()) {
             return; // duplicate or table full: reported by count, not by throw
         }
-        state_->asset_ids.emplace(id->packed, asset);
+        if (asset.has_value()) {
+            state_->asset_ids.emplace(id->packed, *asset);
+        }
         // The table rewrote the id to the slot that indexes it.
         loaded.push_back(*state_->instruments.find(*id));
     }

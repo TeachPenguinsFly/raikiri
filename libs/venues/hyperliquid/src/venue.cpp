@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -33,6 +34,17 @@ exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
+    if (config.market == MarketType::Perp) {
+        std::string_view feed{config.market_data_feed};
+        while (!feed.empty()) {
+            const auto cut = feed.find(',');
+            const auto dex = feed.substr(0, cut);
+            if (!dex.empty()) {
+                state->dexes.emplace_back(dex);
+            }
+            feed = cut == std::string_view::npos ? std::string_view{} : feed.substr(cut + 1);
+        }
+    }
     // Dropped on the floor, as before: a venue factory has nowhere to report a
     // misconfigured reference to, so a typo still reads downstream as a revoked
     // key. Worth fixing, and not in the same change that moves the code.

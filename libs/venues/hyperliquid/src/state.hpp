@@ -60,6 +60,10 @@ struct VenueState {
     // it PUBLISHED, delisted ones included.
     std::unordered_map<std::uint64_t, std::int64_t> asset_ids;
 
+    // The HIP-3 dexes whose perps load beside the main dex's; "all" takes
+    // every one perpDexs lists. Empty by default.
+    std::vector<std::string> dexes;
+
     // The secp256k1 key orders are signed with, and the only place raw key
     // material lives in this adapter. Absent for a market-data-only gateway,
     // which is why every build path checks before it signs.

@@ -51,13 +51,12 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Venue-scale, not instrument-scaled: rates stay e9 rather than becoming ticks.
+// Venue-scale, not instrument-scaled, and truncated below 1e-9: the venue writes ten places.
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
-    return value.has_value() ? std::optional{*value} : std::nullopt;
+    return parse_rate_e9(text);
 }
 
 // A 24-hour aggregate is an AMOUNT: the venue writes dayNtlVlm to ten
@@ -153,6 +152,7 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
         out.mark_price = *mark;
     }
     out.interval_s = k_funding_interval_s;
+    out.accrual = FundingAccrual::Discrete;
     // No timestamp on this payload at all, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
@@ -180,11 +180,10 @@ map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, U
     return out;
 }
 
-std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType market) {
-    if (wire.delisted) {
-        return std::nullopt;
-    }
-    if (market != MarketType::Perp) {
+namespace {
+
+std::optional<Instrument> perp_instrument(const WireAsset& wire, std::string_view quote) {
+    if (wire.delisted || quote.empty()) {
         return std::nullopt;
     }
 
@@ -211,15 +210,15 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     // with a USDT perp would call the USDC/USDT basis an edge.
     std::array<char, 40> local{};
     const auto name = wire.name;
-    constexpr std::string_view k_quote = "/USDC";
-    if (name.size() + k_quote.size() > local.size()) {
+    if (name.size() + 1 + quote.size() > local.size()) {
         return std::nullopt;
     }
     std::size_t at = 0;
     for (const char c : name) {
         local[at++] = c;
     }
-    for (const char c : k_quote) {
+    local[at++] = '/';
+    for (const char c : quote) {
         local[at++] = c;
     }
     const auto local_symbol = SymbolText::from(std::string_view{local.data(), at});
@@ -229,7 +228,7 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
 
     InstrumentBase base{};
     // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
-    base.id = InstrumentId::make(VenueId::Hyperliquid, market, SymbolId{0});
+    base.id = InstrumentId::make(VenueId::Hyperliquid, MarketType::Perp, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *local_symbol;
     base.tick_size = *tick;
@@ -238,6 +237,23 @@ std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType marke
     base.contract_value = *parse_decimal_e9("1");
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, k_funding_interval_s};
+}
+
+} // namespace
+
+std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType market) {
+    if (market != MarketType::Perp || wire.name.find(':') != std::string_view::npos) {
+        return std::nullopt;
+    }
+    return perp_instrument(wire, "USDC");
+}
+
+std::optional<Instrument> map_dex_instrument(const WireAsset& wire, std::string_view collateral) {
+    const auto cut = wire.name.find(':');
+    if (cut == std::string_view::npos || cut == 0 || cut + 1 == wire.name.size()) {
+        return std::nullopt;
+    }
+    return perp_instrument(wire, collateral);
 }
 
 std::optional<BookSnapshot>

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace raikiri::venues::hyperliquid {
 
@@ -61,6 +62,14 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
 // nullopt for a delisted asset and for any row whose derived steps are
 // unusable.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireAsset& wire, MarketType market);
+
+// A HIP-3 dex's row. The wire name already carries the dex ("xyz:TSLA") and
+// stays the exchange symbol; the local symbol keeps the prefix too and takes the
+// dex's collateral as its quote: "xyz:TSLA/USDC". Nothing on the wire says a
+// ticker is an equity rather than a coin, and each dex prices its own oracle,
+// so a bare "TSLA/USDC" would pair with whatever else shares the letters.
+[[nodiscard]] std::optional<Instrument> map_dex_instrument(const WireAsset& wire,
+                                                           std::string_view collateral);
 
 // Spot rows come from a different response and a different index space, so
 // they get their own mapper rather than a MarketType branch inside the one

@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace raikiri::venues::hyperliquid {
@@ -40,6 +41,12 @@ class RequestBuilder {
 public:
     // The perp catalogue: {"universe":[{"name":"BTC","szDecimals":5,...},...]}.
     [[nodiscard]] static net::RestRequest meta() noexcept;
+
+    // A HIP-3 dex's catalogue, its body written into `body`, which the request
+    // views and so must outlive it.
+    [[nodiscard]] static net::RestRequest meta(std::string_view dex, std::string& body);
+
+    [[nodiscard]] static net::RestRequest perp_dexs() noexcept;
 
     [[nodiscard]] static net::RestRequest meta_and_asset_ctxs() noexcept;
 

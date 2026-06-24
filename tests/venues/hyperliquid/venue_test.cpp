@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -1896,6 +1897,178 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     // A cancel that arrived after the order was gone did not fail.
     EXPECT_TRUE(is_benign_cancel_failure("Order was never placed, already canceled, or filled."));
     EXPECT_FALSE(is_benign_cancel_failure("Insufficient margin to place order."));
+}
+
+
+// ------------------------------------------------------------- hip-3 ----
+
+exec::InstrumentTable dex_table() {
+    auto storage = std::make_unique<AssetBuffer>();
+    const auto body = fixture("rest_meta_dex_xyz.json");
+    const auto assets = parse_meta(body, *storage);
+    EXPECT_TRUE(assets.has_value());
+    exec::InstrumentTable table;
+    for (const auto& asset : *assets) {
+        if (const auto instrument = map_dex_instrument(asset, "USDC"); instrument.has_value()) {
+            EXPECT_TRUE(table.add(*instrument).has_value());
+        }
+    }
+    return table;
+}
+
+TEST(HyperliquidHip3, PerpDexsSkipsTheMainDexNull) {
+    PerpDexBuffer storage;
+    const auto body = fixture("rest_perp_dexs.json");
+    const auto names = parse_perp_dexs(body, storage);
+    ASSERT_TRUE(names.has_value());
+    ASSERT_EQ(names->size(), 10U);
+    EXPECT_EQ((*names)[0], "xyz");
+    EXPECT_NE(std::ranges::find(*names, "para"), names->end());
+    EXPECT_EQ(std::ranges::find(*names, ""), names->end());
+}
+
+TEST(HyperliquidHip3, ADexRequestNamesTheDex) {
+    std::string body;
+    const auto request = RequestBuilder::meta("xyz", body);
+    EXPECT_EQ(request.target, "/info");
+    EXPECT_EQ(request.body, R"({"type":"meta","dex":"xyz"})");
+    EXPECT_EQ(RequestBuilder::perp_dexs().body, R"({"type":"perpDexs"})");
+}
+
+TEST(HyperliquidHip3, ADexMetaCarriesItsCollateralToken) {
+    auto storage = std::make_unique<AssetBuffer>();
+    const auto xyz = fixture("rest_meta_dex_xyz.json");
+    const auto rows = parse_meta(xyz, *storage);
+    ASSERT_TRUE(rows.has_value());
+    EXPECT_EQ(rows->size(), 125U);
+    EXPECT_EQ(storage->collateral_token, 0);
+    EXPECT_EQ((*rows)[0].name, "xyz:XYZ100");
+
+    const auto flx = fixture("rest_meta_dex_flx.json");
+    ASSERT_TRUE(parse_meta(flx, *storage).has_value());
+    EXPECT_EQ(storage->collateral_token, 360);
+    const auto spot = fixture("rest_spot_meta.json");
+    const auto token = parse_token_name(spot, 360);
+    ASSERT_TRUE(token.has_value());
+    EXPECT_EQ(*token, "USDH");
+    EXPECT_FALSE(parse_token_name(spot, 999'999).has_value());
+
+    const auto main = fixture("rest_meta.json");
+    ASSERT_TRUE(parse_meta(main, *storage).has_value());
+    EXPECT_EQ(storage->collateral_token, 0) << "the main dex states none and margins in USDC";
+}
+
+TEST(HyperliquidHip3, TheDexStaysInBothSymbolsAndTheQuoteIsTheCollateral) {
+    const auto table = dex_table();
+    EXPECT_EQ(table.size(), 109U) << "125 rows, 16 delisted";
+    const auto* tsla = table.find(std::string_view{"xyz:TSLA"});
+    ASSERT_NE(tsla, nullptr);
+    const auto& base = base_of(*tsla);
+    EXPECT_EQ(base.exchange_symbol.view(), "xyz:TSLA");
+    EXPECT_EQ(base.local_symbol.view(), "xyz:TSLA/USDC");
+    EXPECT_EQ(base.id.venue(), VenueId::Hyperliquid);
+    EXPECT_EQ(base.id.market(), MarketType::Perp);
+    EXPECT_EQ(base.lot_size.raw, 1'000'000) << "szDecimals 3";
+    EXPECT_EQ(base.tick_size.raw, 1'000'000) << "6 - szDecimals, as on the main dex";
+    const auto* eur = table.find(std::string_view{"xyz:EUR"});
+    ASSERT_NE(eur, nullptr);
+    EXPECT_EQ(base_of(*eur).tick_size.raw, 10'000) << "szDecimals 1 quotes five places";
+
+    auto storage = std::make_unique<AssetBuffer>();
+    const auto flx = fixture("rest_meta_dex_flx.json");
+    const auto rows = parse_meta(flx, *storage);
+    ASSERT_TRUE(rows.has_value());
+    WireAsset live = (*rows)[0];
+    live.delisted = false;
+    const auto usdh = map_dex_instrument(live, "USDH");
+    ASSERT_TRUE(usdh.has_value());
+    EXPECT_EQ(base_of(*usdh).local_symbol.view(), "flx:TSLA/USDH");
+    EXPECT_FALSE(map_dex_instrument((*rows)[0], "USDH").has_value()) << "delisted";
+}
+
+TEST(HyperliquidHip3, EachMapperRefusesTheOthersRows) {
+    const WireAsset dex{.name = "xyz:TSLA", .sz_decimals = 3, .max_leverage = 20};
+    const WireAsset main{.name = "BTC", .sz_decimals = 5, .max_leverage = 40};
+    EXPECT_FALSE(map_instrument(dex, MarketType::Perp).has_value());
+    EXPECT_FALSE(map_dex_instrument(main, "USDC").has_value());
+    EXPECT_FALSE(map_dex_instrument({.name = ":TSLA", .sz_decimals = 3}, "USDC").has_value());
+    EXPECT_FALSE(map_dex_instrument(dex, "").has_value());
+}
+
+TEST(HyperliquidHip3, EveryLiveMarkOnTheDexSitsOnItsDerivedTick) {
+    const auto table = dex_table();
+    auto storage = std::make_unique<AssetCtxBuffer>();
+    const auto body = fixture("rest_meta_and_asset_ctxs_dex_xyz.json");
+    const auto ctxs = parse_asset_ctxs(body, *storage);
+    ASSERT_TRUE(ctxs.has_value());
+    auto meta = std::make_unique<AssetBuffer>();
+    const auto meta_body = fixture("rest_meta_dex_xyz.json");
+    const auto rows = parse_meta(meta_body, *meta);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(ctxs->size(), rows->size());
+    std::size_t checked = 0;
+    for (std::size_t i = 0; i < rows->size(); ++i) {
+        const auto* instrument = table.find((*rows)[i].name);
+        if (instrument == nullptr) {
+            continue;
+        }
+        EXPECT_TRUE(price_from_wire((*ctxs)[i].mark_price, base_of(*instrument)).has_value())
+            << (*rows)[i].name << " mark " << (*ctxs)[i].mark_price;
+        ++checked;
+    }
+    EXPECT_EQ(checked, 109U);
+}
+
+TEST(HyperliquidHip3, EveryChannelNamesTheCoinWithItsDex) {
+    const auto table = dex_table();
+    const auto ts = UnixNanos{1'790'412'300'000'000'000ULL};
+    const auto* coin = table.find(std::string_view{"xyz:XYZ100"});
+    ASSERT_NE(coin, nullptr);
+    const auto id = base_of(*coin).id;
+
+    const auto bbo_frame = fixture("ws_hip3_bbo.json");
+    EXPECT_EQ(parse_event(bbo_frame), EventKind::Bbo);
+    const auto bbo = parse_bbo(bbo_frame);
+    ASSERT_TRUE(bbo.has_value());
+    const auto quote = map_bbo(*bbo, table, ts);
+    ASSERT_TRUE(quote.has_value());
+    EXPECT_EQ(quote->instrument, id);
+    EXPECT_EQ(quote->bid.raw, 3'056'700) << "szDecimals 4, so a cent tick";
+    EXPECT_EQ(quote->ask.raw, 3'056'800);
+
+    TradeBuffer trades;
+    const auto trade_frame = fixture("ws_hip3_trades.json");
+    const auto prints = parse_trades(trade_frame, trades);
+    ASSERT_TRUE(prints.has_value());
+    ASSERT_FALSE(prints->empty());
+    const auto trade = map_trade((*prints)[0], table, ts);
+    ASSERT_TRUE(trade.has_value());
+    EXPECT_EQ(trade->instrument, id);
+    EXPECT_EQ(trade->price.raw, 3'056'700);
+
+    LevelBuffer levels;
+    const auto book_frame = fixture("ws_hip3_l2book.json");
+    const auto book = parse_book(book_frame, levels);
+    ASSERT_TRUE(book.has_value());
+    const auto snapshot = map_book(*book, table, ts);
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->instrument, id);
+    EXPECT_GT(snapshot->bid_count, 0U);
+
+    const auto ctx_frame = fixture("ws_hip3_active_asset_ctx.json");
+    const auto ctx = parse_asset_ctx(ctx_frame);
+    ASSERT_TRUE(ctx.has_value());
+    const auto funding = map_funding(*ctx, table, ts);
+    ASSERT_TRUE(funding.has_value()) << "ten fractional digits: " << ctx->funding;
+    EXPECT_EQ(funding->instrument, id);
+    EXPECT_EQ(funding->rate.raw, 5'564) << "0.0000055648, below 1e-9 dropped";
+    EXPECT_EQ(funding->interval_s, 3600U);
+    EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
+    EXPECT_EQ(funding->next_funding_time.ns, 0U) << "the venue states none";
+    EXPECT_EQ(funding->mark_price.raw, 3'056'900);
+    const auto stats = map_ticker_stats(*ctx, table, ts);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_quote.raw, 266'855'056'880'799LL);
 }
 
 } // namespace

@@ -142,6 +142,14 @@ fi
 [[ "$SPOT" == none ]] && SPOT=""
 VENUES+="$SPOT"
 
+# hyperliquid-hip3 IS the perpetual gateway with the builder dexes loaded, on
+# the same segment and the same per-IP thousand channels: see venue_args.sh.
+if [[ " $VENUES " == *" hyperliquid-hip3 "* ]]; then
+    VENUES=" $VENUES "
+    VENUES="${VENUES// hyperliquid / }"
+    VENUES="${VENUES// hyperliquid-spot / }"
+fi
+
 have_credentials=no
 if [[ -f "$ENV_FILE" ]]; then
     # ONLY BEFORE `op run` HAS RESOLVED THEM. This script re-execs itself

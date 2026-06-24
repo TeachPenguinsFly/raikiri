@@ -62,7 +62,24 @@ SPOT_CHANNELS="bbo,funding"
 # either gateway. There is no channel set that fits both whole, so the choice is
 # which one is served, and it is made here rather than by whichever process
 # happened to subscribe first.
-declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding )
+#
+# HIP-3 IS THE SAME PERPETUAL GATEWAY WITH MORE DEXES IN ITS CATALOGUE, not a
+# process beside it: one venue and one market are one segment (gw.hyperliquid)
+# and one SymbolId space, so hyperliquid-hip3 REPLACES hyperliquid rather than
+# joining it, and dev_up.sh drops the plain one and the spot arm when it is
+# named. It carries the main dex's 178 perpetuals plus the four live builder
+# dexes — xyz 109, para 29, io 8, mkts 4, 2026-09-26 — at three channels each:
+# bbo (gatewayd will not start without the quote), l2Book because bbo is silent
+# on a book whose top does not move, and activeAssetCtx for funding and turnover:
+#
+#     (178 + 150) x 3 = 984 of the 1000
+#
+# Five more listings on these dexes and the tail is refused, so trades stays
+# off and spot cannot run beside it.
+declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,depth,funding )
+
+# The adapter's feed, which for hyperliquid names the HIP-3 dexes to load.
+declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts )
 
 # Splits an account name into the arguments that start it. The suffix names the
 # market and wins over the table: one adapter serves several, and the account
@@ -73,6 +90,7 @@ venue_argv() {
         *-spot) adapter="${account%-spot}"; market=spot ;;
         *-opt)  adapter="${account%-opt}";  market=option ;;
         *-fut)  adapter="${account%-fut}";  market=future ;;
+        *-hip3) adapter="${account%-hip3}"; market=perp ;;
         *)      adapter="$account";         market="${MARKET[$account]:-perp}" ;;
     esac
     printf -- '--venue=%s --market=%s' "$adapter" "$market"
@@ -80,6 +98,8 @@ venue_argv() {
     channels="${CHANNELS[$account]:-}"
     [[ -z "$channels" && "$market" == spot ]] && channels="$SPOT_CHANNELS"
     [[ -n "$channels" ]] && printf -- ' --channels=%s' "$channels"
+    [[ -n "${FEED[$account]:-}" ]] && printf -- ' --feed=%s' "${FEED[$account]}"
+    return 0
 }
 
 # The spot ACCOUNT NAMES worth starting beside a given perpetual set: a spot leg

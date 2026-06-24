@@ -63,7 +63,71 @@ std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
+        const auto collateral = detail::opt_i64(*root, "collateralToken");
+        if (!collateral.has_value()) {
+            return std::unexpected(collateral.error());
+        }
+        storage.collateral_token = *collateral;
         return std::span<const WireAsset>{storage.assets.data(), *count};
+    });
+}
+
+std::expected<std::span<const std::string_view>, WireError>
+parse_perp_dexs(std::string_view body, PerpDexBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const std::string_view>, WireError> {
+        auto rows = session().open_array(body);
+        if (!rows.has_value()) {
+            return std::unexpected(rows.error());
+        }
+        std::size_t count = 0;
+        for (auto row : *rows) {
+            bool null_row = false;
+            if (row.is_null().get(null_row) == simdjson::SUCCESS && null_row) {
+                continue;
+            }
+            if (count == k_max_perp_dexs) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::object obj;
+            if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            const auto name = detail::req_str(obj, "name");
+            if (!name.has_value()) {
+                return std::unexpected(name.error());
+            }
+            storage.names[count++] = *name;
+        }
+        return std::span<const std::string_view>{storage.names.data(), count};
+    });
+}
+
+std::expected<std::string_view, WireError> parse_token_name(std::string_view body,
+                                                            std::int64_t index) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = session().open_object(body);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        auto rows = detail::req_array(*root, "tokens");
+        if (!rows.has_value()) {
+            return std::unexpected(rows.error());
+        }
+        for (auto row : *rows) {
+            detail::ondemand::object obj;
+            if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            const auto name = detail::req_str(obj, "name");
+            const auto at = detail::opt_i64(obj, "index");
+            if (!name.has_value() || !at.has_value()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            if (*at == index) {
+                return *name;
+            }
+        }
+        return std::unexpected(WireError::MissingField);
     });
 }
 
