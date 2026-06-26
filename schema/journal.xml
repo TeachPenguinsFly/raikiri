@@ -73,6 +73,7 @@
       <validValue name="Dydx">27</validValue>
       <validValue name="Phemex">28</validValue>
       <validValue name="Extended">29</validValue>
+      <validValue name="Pacifica">30</validValue>
     </enum>
 
     <enum name="sideEnum" encodingType="uint8">

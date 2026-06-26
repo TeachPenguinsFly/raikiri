@@ -58,6 +58,7 @@ VENUES=(
   "phemex:BTCUSDT"
   "phemex:sBTCUSDT|--market=spot"
   "extended:BTC-USD"
+  "pacifica:BTC"
 )
 
 printf '%-13s %10s %7s %7s %7s %7s %8s  %s\n' venue instruments bbo depth levels trades funding verdict

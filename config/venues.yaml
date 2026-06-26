@@ -194,3 +194,12 @@ venues:
       account: { capacity: 0, window_ms: 0, reserve: 0 }
       ledger: { capacity: 0, window_ms: 0, reserve: 0 }
       costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+  pacifica:
+    order_answer_timeout_ms: 15000
+    rate:
+      # 100 credits a minute for an unidentified IP, stated (1 a GET, 3-12 a heavy one); half declared.
+      shared: { capacity: 50, window_ms: 60000, reserve: 5 }
+      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
+      account: { capacity: 0, window_ms: 0, reserve: 0 }
+      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
+      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }

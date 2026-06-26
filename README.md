@@ -61,6 +61,7 @@ running a gateway, adding a venue.
 | `deribit` | CEX | perp · futures · options | REST + WS | ✓ | – | ✓ | AuthSubscribe | – |
 | `dydx` | DEX | perp | **market data only** | – | – | – | – | – |
 | `edgex` | DEX | spot · perp | **market data only** | – | – | – | – | – |
+| `extended` | DEX | perp | **market data only** | – | – | – | – | – |
 | `gate` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
 | `grvt` | DEX | perp | **market data only** | – | – | – | – | – |
 | `htx` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
@@ -70,6 +71,7 @@ running a gateway, adding a venue.
 | `lighter` | DEX | spot · perp | **market data only** | – | – | – | – | – |
 | `mexc` | CEX | spot · perp | REST | – | – | – | AuthSubscribe | ✓ |
 | `okx` | CEX | spot · perp | REST + WS | ✓ | – | ✓ | AuthSubscribe | ✓ |
+| `pacifica` | DEX | perp | **market data only** | – | – | – | – | – |
 | `phemex` | CEX | spot · perp | **market data only** | – | – | – | – | – |
 | `weex` | CEX | perp | REST | – | – | – | – | ✓ |
 | `xt` | CEX | spot · perp | REST | – | – | ✓ | ListenKey | ✓ |

@@ -78,6 +78,7 @@ raikiri_add_test(edgex_venue_test SRCS venues/edgex/venue_test.cpp LIBS raikiri:
 raikiri_add_test(dydx_venue_test SRCS venues/dydx/venue_test.cpp LIBS raikiri::venue_dydx raikiri::exec)
 raikiri_add_test(phemex_venue_test SRCS venues/phemex/venue_test.cpp LIBS raikiri::venue_phemex raikiri::exec)
 raikiri_add_test(extended_venue_test SRCS venues/extended/venue_test.cpp LIBS raikiri::venue_extended raikiri::exec)
+raikiri_add_test(pacifica_venue_test SRCS venues/pacifica/venue_test.cpp LIBS raikiri::venue_pacifica raikiri::exec)
 raikiri_add_test(binance_map_test SRCS venues/binance/map_test.cpp LIBS raikiri::venue_binance raikiri::exec)
 raikiri_add_test(binance_rest_test SRCS venues/binance/rest_test.cpp LIBS raikiri::venue_binance raikiri::net)
 

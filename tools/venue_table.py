@@ -40,6 +40,7 @@ CUSTODY = {
     "edgex": "DEX",
     "dydx": "DEX",
     "extended": "DEX",
+    "pacifica": "DEX",
     "gate": "CEX",
     "grvt": "DEX",
     "htx": "CEX",
