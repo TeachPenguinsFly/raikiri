@@ -20,7 +20,9 @@ class GrvtInstruments final : public exec::InstrumentSource {
 public:
     explicit GrvtInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{ep::host(state_->testnet)}}} {}
+          rest_{state_->io, net::RestConfig{.host = std::string{ep::host(state_->testnet)}}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {

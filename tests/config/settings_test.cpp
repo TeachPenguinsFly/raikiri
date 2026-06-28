@@ -1,3 +1,4 @@
+#include <raikiri/config/rest_limits.hpp>
 #include <raikiri/config/settings.hpp>
 
 #include <gtest/gtest.h>
@@ -36,62 +37,79 @@ TEST(Settings, TheCommittedVenueFileLoads) {
     ASSERT_TRUE(file->venues.contains("binance"));
     ASSERT_TRUE(file->venues.contains("bybit"));
 
-    // binance meters ONE pool; its per-endpoint buckets stay off.
-    const auto& bin = file->venues.at("binance").rate;
-    EXPECT_EQ(bin.shared.capacity, 2400U);
-    EXPECT_EQ(bin.shared.window_ms, 60000U);
-    EXPECT_GT(bin.shared.reserve, 0U) << "order entry must keep a floor";
-    EXPECT_EQ(bin.account.capacity, 0U) << "binance has no per-endpoint budget";
-    EXPECT_EQ(bin.costs.ledger, 30U) << "measured against the live venue";
+    const auto& bin = file->venues.at("binance");
+    ASSERT_EQ(bin.limits.size(), 1U) << "binance meters one pool";
+    EXPECT_EQ(bin.limits[0].window_ms, 60000U);
+    EXPECT_LE(bin.limits[0].max, 2400U);
+    EXPECT_GT(bin.limits[0].reserve, 0U) << "order entry must keep a floor";
+    EXPECT_TRUE(bin.limits[0].match.empty());
 
-    // bybit meters EACH endpoint; its shared pool stays off.
-    const auto& by = file->venues.at("bybit").rate;
-    EXPECT_EQ(by.shared.capacity, 0U);
-    EXPECT_EQ(by.account.capacity, 50U);
-    EXPECT_EQ(by.ledger.capacity, 25U) << "the transaction log is metered lower";
+    const auto& by = file->venues.at("bybit");
+    ASSERT_EQ(by.limits.size(), 3U) << "bybit meters each endpoint";
+    EXPECT_LT(by.limits[2].max, by.limits[1].max) << "the transaction log is metered lower";
 
-    // An unanswered order must become visible, so the window is required to be
-    // set and to be longer than the transport's own five-second deadline.
     for (const auto& name : {"binance", "bybit", "gate"}) {
         const auto ms = file->venues.at(name).order_answer_timeout_ms;
         EXPECT_GT(ms, 5'000U) << name << ": shorter than the REST deadline is a second timeout";
     }
 }
 
-// A venue nobody has measured must read as unlimited rather than as a guess.
-// bingx and bitget state a REMAINDER and no ceiling, so the ceiling could only
-// be inferred — which is the thing this file exists not to do.
-TEST(Settings, AnUnmeasuredVenueDisablesItsBucketsRatherThanInventingThem) {
+TEST(Settings, AnUnmeasuredVenueHasNoLimitsRatherThanInventedOnes) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
     for (const auto& name : {"bingx", "bitget"}) {
         ASSERT_TRUE(file->venues.contains(name)) << name;
-        const auto& rate = file->venues.at(name).rate;
-        EXPECT_EQ(rate.shared.capacity, 0U) << name;
-        EXPECT_EQ(rate.order_entry.capacity, 0U) << name;
-        EXPECT_EQ(rate.account.capacity, 0U) << name;
-        EXPECT_EQ(rate.ledger.capacity, 0U) << name;
+        EXPECT_TRUE(file->venues.at(name).limits.empty()) << name;
     }
 }
 
-// The other half of the same rule: a ceiling with no window is not a budget,
-// it is a number that would throttle on the first request and never refill.
-TEST(Settings, EveryBucketThatNamesACeilingAlsoNamesTheWindowItRefillsIn) {
+TEST(Settings, TheCommittedCostsPriceAsterLikeTheVenueDoes) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    for (const auto& [name, settings] : file->venues) {
-        for (const auto* bucket : {&settings.rate.shared,
-                                   &settings.rate.order_entry,
-                                   &settings.rate.account,
-                                   &settings.rate.ledger}) {
-            if (bucket->capacity == 0) {
-                continue; // disabled, which is the honest state for an unmeasured venue
-            }
-            EXPECT_GT(bucket->window_ms, 0U) << name;
-            EXPECT_LT(bucket->reserve, bucket->capacity)
-                << name << ": a reserve that is the whole bucket leaves nothing for anything else";
-        }
-    }
+    const auto& aster = file->venues.at("aster");
+    const exec::RateBudget budget{rest_limits(aster), rest_costs(aster), aster.default_cost};
+    EXPECT_EQ(budget.cost("/fapi/v1/premiumIndex"), 10U);
+    EXPECT_EQ(budget.cost("/fapi/v1/fundingInfo"), 10U);
+    EXPECT_EQ(budget.cost("/fapi/v1/exchangeInfo"), 1U);
+    EXPECT_EQ(budget.cost("/fapi/v1/ticker/24hr"), 40U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT&limit=5"), 2U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT&limit=100"), 5U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT&limit=500"), 10U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT&limit=1000"), 20U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT&limit=7"), 20U);
+    EXPECT_EQ(budget.cost("/fapi/v1/depth?symbol=BTCUSDT"), 20U);
+    EXPECT_EQ(budget.cost("/fapi/v1/somethingNobodyCosted"), 40U);
+}
+
+TEST(Settings, TheCommittedCostsWeighHyperliquidAndKraken) {
+    const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    const auto& hl = file->venues.at("hyperliquid");
+    const exec::RateBudget hyperliquid{rest_limits(hl), rest_costs(hl), hl.default_cost};
+    EXPECT_EQ(hyperliquid.cost("/info"), 20U) << "meta weighs 20";
+    EXPECT_EQ(hyperliquid.cost("/exchange"), 1U);
+    const auto& kr = file->venues.at("kraken");
+    const exec::RateBudget kraken{rest_limits(kr), rest_costs(kr), kr.default_cost};
+    EXPECT_EQ(kraken.cost("/derivatives/api/v3/instruments"), 0U) << "public costs nothing";
+    EXPECT_EQ(kraken.cost("/derivatives/api/v3/sendorder"), 10U);
+    EXPECT_EQ(kraken.cost("/derivatives/api/v3/openpositions"), 2U);
+}
+
+TEST(Settings, ABadLimitIsRefusedNamingTheVenueAndTheLimit) {
+    const auto load = [](std::string_view limit) {
+        return load_venues(write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} +
+                                      std::string{limit} + "\n"));
+    };
+    const auto zero_window = load("{ name: market, window_ms: 0, max: 18 }");
+    ASSERT_FALSE(zero_window.has_value());
+    EXPECT_NE(zero_window.error().find("okx limit 'market'"), std::string::npos)
+        << zero_window.error();
+    EXPECT_FALSE(load("{ name: m, window_ms: 1000, max: 5, reserve: 5 }").has_value());
+    EXPECT_FALSE(load("{ name: m, kind: ws_bogus, max: 5 }").has_value());
+    EXPECT_FALSE(load("{ name: m, kind: ws_streams, max: 5, window_ms: 1000 }").has_value());
+    EXPECT_FALSE(load("{ name: m, window_ms: 1000, maximum: 5 }").has_value())
+        << "an unknown key is refused, not ignored";
+    EXPECT_TRUE(load("{ name: m, window_ms: 1000, max: 5 }").has_value());
 }
 
 // The DSN carries a password, and this file is committed: it must name where
@@ -111,26 +129,6 @@ TEST(Settings, TheDatabaseFileNamesTheSecretRatherThanHoldingIt) {
 TEST(Settings, AMissingFileSaysSoRatherThanReadingAsEmpty) {
     const auto file = load_venues("config/there-is-no-such-file.yaml");
     EXPECT_FALSE(file.has_value());
-}
-
-TEST(Settings, ABucketWithNoWindowIsRefusedRatherThanTakenAsInstant) {
-    const auto path = write_temp(R"(
-venues:
-  sim:
-    rate:
-      shared: { capacity: 10, window_ms: 0, reserve: 0 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
-)");
-    const auto file = load_venues(path);
-    ASSERT_TRUE(file.has_value()) << file.error();
-    // The loader reports what the file says; refusing a capacity with no window
-    // is the budget builder's job, and this pins that the value survives intact
-    // for it to judge.
-    EXPECT_EQ(file->venues.at("sim").rate.shared.window_ms, 0U);
-    std::remove(path.c_str());
 }
 
 } // namespace

@@ -153,11 +153,11 @@ struct VenueState {
     // counts REQUESTS, not weight — gw-ratelimit-limit measured at 2000 over a
     // 30 s window on api-futures.kucoin.com — so one call is one unit. Poll,
     // never Order: a book seed may not spend the reserve a cancel needs.
-    [[nodiscard]] bool admit_poll() noexcept {
+    [[nodiscard]] bool admit_poll(std::string_view target = {}) noexcept {
         if (budget == nullptr) {
             return true; // unmeasured venue: unlimited, not closed
         }
-        return budget->take(exec::RateBucket::Shared, 1, clock->mono(), exec::RateClass::Poll)
+        return budget->take(target, clock->mono(), exec::RateClass::Poll)
             .has_value();
     }
 

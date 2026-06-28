@@ -68,21 +68,17 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
-        return state_->budget != nullptr ? state_->budget->costs() : exec::RateBudget::Costs{};
-    }
 
     // ONE POOL. aster meters weight across every endpoint together, so every
     // call here spends `Shared` and only the cost differs — thirty for the
     // income ledger against five for a balance, measured from its own
     // used-weight header rather than read off a page.
-    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::uint32_t cost,
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
                                                               exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
-        const auto taken =
-            state_->budget->take(exec::RateBucket::Shared, cost, state_->clock->mono(), cls);
+        const auto taken = state_->budget->take(target, state_->clock->mono(), cls);
         if (taken.has_value()) {
             return {};
         }
@@ -96,8 +92,7 @@ public:
         if (state_->budget != nullptr) {
             // The venue's answer outranks our accounting, which has just been
             // proven wrong.
-            state_->budget->penalize(
-                exec::RateBucket::Shared, state_->clock->mono(), 1'000'000'000ULL);
+            state_->budget->penalize_all(state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 

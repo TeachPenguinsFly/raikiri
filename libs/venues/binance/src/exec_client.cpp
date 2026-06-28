@@ -130,7 +130,7 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(api_.costs().order, exec::RateClass::Order);
+        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order);
             !allowed.has_value()) {
             emit(cmd, OrderEventType::Rejected, allowed.error());
             return;
@@ -152,7 +152,7 @@ public:
                  exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument"));
             return;
         }
-        if (const auto allowed = api_.spend(api_.costs().order, exec::RateClass::Order);
+        if (const auto allowed = api_.spend(ep::k_order, exec::RateClass::Order);
             !allowed.has_value()) {
             emit(cmd, OrderEventType::CancelRejected, allowed.error());
             return;

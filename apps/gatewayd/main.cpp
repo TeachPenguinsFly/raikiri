@@ -22,6 +22,7 @@
 
 #include <raikiri/common/platform.hpp>
 #include <raikiri/config/one_password.hpp>
+#include <raikiri/config/rest_limits.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/config/settings.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
@@ -151,26 +152,6 @@ struct SubKinds {
         return "connectivity";
     }
     return "unknown";
-}
-
-// The operator's numbers, turned into the shape exec understands.
-//
-// exec depends on domain and nothing else, so the translation happens here
-// rather than in the library: config/venues.yaml is an operations file, and a
-// trading library that parsed one would drag a parser into the order path.
-[[nodiscard]] raikiri::exec::RateBudget::Table
-budget_table(const raikiri::config::VenueRateSettings& rate) {
-    using raikiri::exec::RateBucket;
-    const auto to_bucket = [](const raikiri::config::RateBucketSettings& b) {
-        return raikiri::exec::RateBudget::BucketConfig{
-            .capacity = b.capacity, .window_ns = b.window_ms * 1'000'000ULL, .reserve = b.reserve};
-    };
-    raikiri::exec::RateBudget::Table table{};
-    table[static_cast<std::size_t>(RateBucket::Shared)] = to_bucket(rate.shared);
-    table[static_cast<std::size_t>(RateBucket::OrderEntry)] = to_bucket(rate.order_entry);
-    table[static_cast<std::size_t>(RateBucket::Account)] = to_bucket(rate.account);
-    table[static_cast<std::size_t>(RateBucket::Ledger)] = to_bucket(rate.ledger);
-    return table;
 }
 
 std::atomic<bool> g_stop{false};
@@ -1275,12 +1256,9 @@ int main(int argc, char** argv) {
     if (const auto settings = config::load_venues(venues_path); settings.has_value()) {
         if (const auto it = settings->venues.find(std::string{venue_name});
             it != settings->venues.end()) {
-            const auto& rate = it->second.rate;
-            budget.emplace(budget_table(rate),
-                           exec::RateBudget::Costs{.order = rate.costs.order,
-                                                   .positions = rate.costs.positions,
-                                                   .balances = rate.costs.balances,
-                                                   .ledger = rate.costs.ledger});
+            if (const auto limits = config::rest_limits(it->second); !limits.empty()) {
+                budget.emplace(limits, config::rest_costs(it->second), it->second.default_cost);
+            }
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;

@@ -16,35 +16,31 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace raikiri::config {
 
-// One meter a venue keeps. `capacity` of 0 disables it — a budget nobody has
-// established must not be invented, because refusing traffic the venue would
-// have accepted is the worse of the two errors.
-struct RateBucketSettings {
-    std::uint32_t capacity{0};
+// One limit a venue states. `kind` says what it counts:
+//   rest         REST cost in a sliding window, over the paths in `match`
+//   ws_messages  outbound socket frames in a window, per `scope` socket or ip
+//   ws_connects  connection attempts in a window, per ip
+//   ws_streams   subscriptions one socket may carry
+//   ws_sockets   sockets one ip may hold
+//   ws_channels  subscriptions across every socket of the ip
+//   ws_frame     subscriptions one subscribe frame may carry
+struct RateLimitSettings {
+    std::string name;
+    std::string kind{"rest"};
+    std::string scope;
     std::uint64_t window_ms{0};
-    // What only order traffic may spend, so a reconciliation sweep can never
-    // consume the allowance a cancel is about to need.
+    std::uint32_t max{0};
     std::uint32_t reserve{0};
+    std::vector<std::string> match;
 };
 
-// What one call costs in the venue's own units: binance charges weight per
-// endpoint, bybit counts requests.
 struct RateCostSettings {
-    std::uint32_t order{1};
-    std::uint32_t positions{1};
-    std::uint32_t balances{1};
-    std::uint32_t ledger{1};
-};
-
-struct VenueRateSettings {
-    RateBucketSettings shared{};
-    RateBucketSettings order_entry{};
-    RateBucketSettings account{};
-    RateBucketSettings ledger{};
-    RateCostSettings costs{};
+    std::string match;
+    std::uint32_t cost{1};
 };
 
 struct VenueSettings {
@@ -83,7 +79,9 @@ struct VenueSettings {
     // 27,391 times in seven minutes.
     std::string market_data_feed;
 
-    VenueRateSettings rate{};
+    std::vector<RateLimitSettings> limits;
+    std::vector<RateCostSettings> costs;
+    std::uint32_t default_cost{1};
 };
 
 struct VenuesFile {
@@ -105,6 +103,10 @@ struct DatabaseFile {
 // thing it configures is required. Neither of these decides that.
 [[nodiscard]] std::expected<VenuesFile, std::string> load_venues(std::string_view path);
 [[nodiscard]] std::expected<DatabaseFile, std::string> load_database(std::string_view path);
+
+// The venue's first limit of `kind` (and `scope`, when given), or none.
+[[nodiscard]] const RateLimitSettings*
+find_limit(const VenueSettings& venue, std::string_view kind, std::string_view scope = {}) noexcept;
 
 // Where the files live when nothing on the command line says otherwise:
 // $RAIKIRI_CONFIG_DIR, else "config" beside the working directory.

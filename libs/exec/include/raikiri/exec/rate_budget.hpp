@@ -1,91 +1,85 @@
 #pragma once
 
-// One venue's published budget, held where every client of that venue can see
-// it.
+// One venue's REST limits, as config/venues.yaml declares them: named sliding
+// windows, each metering the paths it matches, and per-path costs. A request
+// spends from every limit that matches it, or from none if any would refuse.
 //
-// TWO SHAPES, NOT ONE. binance meters a single pool of WEIGHT — 2400 a minute,
-// and its income ledger costs thirty of it against five for a balance — so one
-// bucket describes it. bybit meters EACH ENDPOINT separately, fifty a second
-// for positions and orders but twenty-five for the transaction log, so one
-// bucket would refuse traffic the venue would have taken. A budget therefore
-// holds several buckets and the caller names which it is spending from.
-//
-// SHARED, AND THEREFORE LOCKED. A gateway runs two adapters against one venue —
-// the order path and the account poller — and the venue counts them together,
-// because its budget is per IP rather than per connection. Two private buckets
-// would each believe they had the whole allowance and together spend twice it.
-// The lock costs tens of nanoseconds on a path that is already making a network
-// round trip.
+// SHARED, AND THEREFORE LOCKED: the order path, the account poller and the
+// market-data pools spend one per-IP allowance together.
 
+#include <raikiri/common/sliding_log.hpp>
+#include <raikiri/common/time.hpp>
 #include <raikiri/exec/order_gate.hpp>
 
-#include <array>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace raikiri::exec {
 
-// The meters a venue keeps. Named by what they measure rather than by endpoint,
-// so a venue with one pool uses one of them and says so.
-enum class RateBucket : std::uint8_t {
-    Shared = 0, // a single pool covering everything (binance)
-    OrderEntry, // create / cancel / amend
-    Account,    // positions, balances, open orders
-    Ledger,     // income, transaction log, account book — the expensive pulls
-    Count_,
+struct RateLimit {
+    std::string name;
+    std::uint64_t window_ns{0};
+    std::uint32_t max{0};
+    std::uint32_t reserve{0};       // only RateClass::Order may spend it
+    std::vector<std::string> match; // path rules; empty meters every request
 };
+
+struct RateCost {
+    std::string match;
+    std::uint32_t cost{1};
+};
+
+// `rule` is a path prefix, optionally followed by `?k=v&...` pairs that must
+// each appear in the target's query.
+[[nodiscard]] bool path_matches(std::string_view rule, std::string_view target) noexcept;
 
 class RateBudget {
 public:
-    struct BucketConfig {
-        std::uint32_t capacity{0}; // 0 disables this bucket
-        std::uint64_t window_ns{0};
-        std::uint32_t reserve{0}; // what only order traffic may spend
-    };
+    RateBudget(std::vector<RateLimit> limits,
+               std::vector<RateCost> costs,
+               std::uint32_t default_cost = 1);
 
-    // What one call costs in the venue's own units, carried beside the buckets
-    // so a caller names an intent rather than a number.
-    struct Costs {
-        std::uint32_t order{1};
-        std::uint32_t positions{1};
-        std::uint32_t balances{1};
-        std::uint32_t ledger{1};
-    };
+    // The most specific cost rule that matches, else the default.
+    [[nodiscard]] std::uint32_t cost(std::string_view target) const noexcept;
 
-    using Table = std::array<BucketConfig, static_cast<std::size_t>(RateBucket::Count_)>;
-
-    RateBudget(const Table& table, Costs costs) noexcept;
-
-    [[nodiscard]] const Costs& costs() const noexcept { return costs_; }
-
-    // Spends from `bucket`, or refuses with how long to wait. A bucket that was
-    // configured with capacity 0 always allows: a venue whose budget we have
-    // not established must not have one invented for it, because refusing
-    // traffic the venue would have accepted is the worse of the two errors.
     [[nodiscard]] std::expected<void, RateDenied>
-    take(RateBucket bucket, std::uint32_t cost, MonoNanos now, RateClass cls) noexcept;
+    take(std::string_view target, MonoNanos now, RateClass cls) noexcept;
 
-    // The venue refused. Drains that bucket and holds it for `backoff_ns`: its
-    // answer outranks our accounting, which has just been proven wrong.
-    void penalize(RateBucket bucket, MonoNanos now, std::uint64_t backoff_ns) noexcept;
+    // The venue refused: hold every limit the target spends from.
+    void penalize(std::string_view target, MonoNanos now, std::uint64_t backoff_ns) noexcept;
+    // An IP-wide refusal (a ban) holds every limit.
+    void penalize_all(MonoNanos now, std::uint64_t backoff_ns) noexcept;
 
-    [[nodiscard]] std::uint64_t denials(RateBucket bucket) noexcept;
+    [[nodiscard]] std::uint64_t denials() noexcept;
 
 private:
+    struct Slot {
+        RateLimit spec;
+        SlidingLog log;
+    };
+
+    [[nodiscard]] static bool meters(const RateLimit& limit, std::string_view target) noexcept;
+
     std::mutex mu_;
-    std::array<RateLimiter, static_cast<std::size_t>(RateBucket::Count_)> buckets_;
-    // An unconfigured bucket is UNLIMITED, not closed. RateLimiter reads a
-    // capacity of zero as "refuse everything", which is a legitimate state for
-    // it and the wrong reading of a venue nobody has measured — so the
-    // distinction is kept here, where the decision was made.
-    std::array<bool, static_cast<std::size_t>(RateBucket::Count_)> limited_{};
-    Costs costs_{};
+    std::vector<Slot> slots_;
+    std::vector<RateCost> costs_;
+    std::uint32_t default_cost_{1};
+    std::uint64_t denials_{0};
 };
 
-// NO NUMBERS LIVE IN THIS LIBRARY. The budgets are operator settings, read from
-// config/venues.yaml, and the gateway translates them into a Table before
-// constructing a budget. exec depends on domain and nothing else, which is why
-// the translation happens above rather than here.
+// The admit gate a market-data REST client asks before each send. No budget
+// is unlimited.
+[[nodiscard]] inline std::function<bool(std::string_view)> market_data_gate(RateBudget* budget,
+                                                                           const Clock& clock) {
+    return [budget, clock = &clock](std::string_view target) {
+        return budget == nullptr ||
+               budget->take(target, clock->mono(), RateClass::Poll).has_value();
+    };
+}
 
 } // namespace raikiri::exec

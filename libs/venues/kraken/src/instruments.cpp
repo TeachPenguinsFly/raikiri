@@ -5,6 +5,7 @@
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kraken/book.hpp>
+#include <raikiri/venues/kraken/endpoints.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/venues/kraken/map.hpp>
@@ -32,7 +33,9 @@ public:
         : state_{std::move(state)},
           rest_{state_->io,
                 net::RestConfig{
-                    .host = std::string{rest_host()}, .port = "443", .timeout_ms = 30'000}} {}
+                    .host = std::string{rest_host()}, .port = "443", .timeout_ms = 30'000}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         if (market != MarketType::Perp) {

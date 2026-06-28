@@ -182,15 +182,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 // delta asks for the seed again. The catalogue pull is the one caller with no
 // next tick, and it is a single request against a bucket still at capacity.
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
-    auto* owner = &state;
-    rest.set_admit([owner](std::string_view) {
-        if (owner->budget == nullptr) {
-            return true; // unmeasured venue: unlimited, not closed
-        }
-        return owner->budget
-            ->take(exec::RateBucket::Shared, 1, owner->clock->mono(), exec::RateClass::Poll)
-            .has_value();
-    });
+    rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }
 
 // Gate's code is a string label and VenueError carries an integer, so the

@@ -22,7 +22,7 @@ inline constexpr std::string_view k_stream_uat = "uat-stream.3ona.co";
 inline constexpr std::string_view k_ws_market = "/exchange/v1/market";
 inline constexpr std::string_view k_instruments = "/exchange/v1/public/get-instruments";
 
-// Per method, per IP. No metering header, so config/venues.yaml has no budget.
+// Per method, per IP; config/venues.yaml holds half of it.
 inline constexpr std::uint32_t k_public_rest_per_method_per_s = 100;
 inline constexpr std::uint32_t k_ws_requests_per_s = 100;
 

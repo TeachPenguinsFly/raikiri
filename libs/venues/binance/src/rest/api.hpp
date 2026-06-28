@@ -68,21 +68,17 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    [[nodiscard]] exec::RateBudget::Costs costs() const noexcept {
-        return state_->budget != nullptr ? state_->budget->costs() : exec::RateBudget::Costs{};
-    }
 
     // ONE POOL. binance meters weight across every endpoint together, so every
     // call here spends `Shared` and only the cost differs — thirty for the
     // income ledger against five for a balance, measured from its own
     // used-weight header rather than read off a page.
-    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::uint32_t cost,
+    [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
                                                               exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
-        const auto taken =
-            state_->budget->take(exec::RateBucket::Shared, cost, state_->clock->mono(), cls);
+        const auto taken = state_->budget->take(target, state_->clock->mono(), cls);
         if (taken.has_value()) {
             return {};
         }
@@ -96,8 +92,7 @@ public:
         if (state_->budget != nullptr) {
             // The venue's answer outranks our accounting, which has just been
             // proven wrong.
-            state_->budget->penalize(
-                exec::RateBucket::Shared, state_->clock->mono(), 1'000'000'000ULL);
+            state_->budget->penalize_all(state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 
@@ -111,7 +106,7 @@ public:
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType) {
         const auto request = builder().open_orders(state_->venue_now());
-        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_open_orders, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -142,7 +137,7 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType) {
-        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_order, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -175,7 +170,7 @@ public:
 
     std::expected<std::vector<exec::FillReport>, exec::VenueError> fill_reports(MarketType,
                                                                                 UnixNanos since) {
-        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_user_trades, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -211,7 +206,7 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
-        if (const auto allowed = spend(costs().balances, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_account, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -254,7 +249,7 @@ public:
 
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType,
                                                                               UnixNanos since) {
-        if (const auto allowed = spend(costs().ledger, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_income, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -321,7 +316,7 @@ public:
 
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType) {
-        if (const auto allowed = spend(costs().positions, exec::RateClass::Poll);
+        if (const auto allowed = spend(ep::k_position_risk, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }

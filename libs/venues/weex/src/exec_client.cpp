@@ -187,15 +187,10 @@ private:
                                                "weex accepts no API order for this contract"));
             return;
         }
-        // ORDER CLASS EITHER WAY, which may spend the reserve a poll may not —
-        // but not the same bucket, because WEEX does not meter the two the same
-        // way. A PLACEMENT costs no IP weight and is counted per account, a
-        // budget nothing in this process tracks; a CANCEL is metered per IP like
-        // any other call and comes out of the pool the market-data half shares.
-        const auto bucket =
-            kind == Kind::Create ? exec::RateBucket::OrderEntry : exec::RateBucket::Shared;
-        const auto cost = kind == Kind::Create ? k_cost_order : k_weight_cancel;
-        if (const auto allowed = api_.spend(bucket, cost, exec::RateClass::Order);
+        // A placement costs no IP weight; weex meters it per account instead.
+        if (const auto allowed = kind == Kind::Create
+                                     ? std::expected<void, exec::VenueError>{}
+                                     : api_.spend(ep::k_order, exec::RateClass::Order);
             !allowed.has_value()) {
             emit_reject(
                 cmd.client_order_id, cmd.instrument, cmd.side, cmd.qty, kind, allowed.error());
@@ -233,7 +228,7 @@ private:
             return;
         }
         if (const auto allowed =
-                api_.spend(exec::RateBucket::Shared, k_weight_cancel_batch, exec::RateClass::Order);
+                api_.spend(ep::k_batch_orders, exec::RateClass::Order);
             !allowed.has_value()) {
             for (const auto& cmd : cmds) {
                 emit_reject(cmd.client_order_id,

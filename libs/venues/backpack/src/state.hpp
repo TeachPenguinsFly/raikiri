@@ -55,18 +55,7 @@ struct VenueState {
 
 // A refusal leaves the caller due, so the next tick asks again.
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
-    auto* owner = &state;
-    rest.set_admit([owner](std::string_view) {
-        if (owner->budget == nullptr) {
-            return true; // unmeasured: unlimited, not closed
-        }
-        return owner->budget
-            ->take(exec::RateBucket::Shared,
-                   ep::k_request_cost,
-                   owner->clock->mono(),
-                   exec::RateClass::Poll)
-            .has_value();
-    });
+    rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }
 
 inline std::optional<net::RestResponse> await_response(VenueState& state,

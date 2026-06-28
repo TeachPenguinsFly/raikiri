@@ -3,6 +3,7 @@
 // detail, not anonymous: an anonymous type in a header differs in every includer.
 
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/lighter/book.hpp>
@@ -24,6 +25,7 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    exec::RateBudget* rest_budget{nullptr};
     bool testnet;
 
     net::IoContext io;

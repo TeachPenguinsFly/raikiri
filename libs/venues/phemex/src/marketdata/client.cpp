@@ -82,7 +82,9 @@ public:
                           net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
                                           .port = "443",
                                           .pool_size = 1,
-                                          .timeout_ms = k_catalogue_timeout_ms}} {}
+                                          .timeout_ms = k_catalogue_timeout_ms}} {
+        catalogue_rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();
@@ -425,7 +427,6 @@ private:
         if (now.ns < next_reread_ns_ || reread_in_flight_) {
             return;
         }
-        next_reread_ns_ = now.ns + k_reread_interval_ns;
         catalogue_rest_.start();
         const net::RestRequest request{
             .method = net::HttpMethod::Get, .target = ep::k_products, .body = {}};
@@ -433,6 +434,9 @@ private:
             reread_in_flight_ = false;
             on_catalogue(response);
         });
+        if (reread_in_flight_) {
+            next_reread_ns_ = now.ns + k_reread_interval_ns;
+        }
     }
 
     void on_catalogue(const net::RestResponse& response) noexcept {

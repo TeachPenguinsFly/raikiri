@@ -29,7 +29,9 @@ public:
                 net::RestConfig{.host = std::string{ep::host(state_->testnet)},
                                 .port = "443",
                                 .pool_size = 1,
-                                .timeout_ms = k_timeout_ms}} {}
+                                .timeout_ms = k_timeout_ms}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();

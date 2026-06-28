@@ -4,6 +4,7 @@
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/venues/phemex/book.hpp>
@@ -25,6 +26,7 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    exec::RateBudget* budget{nullptr};
     bool testnet;
 
     net::IoContext io;

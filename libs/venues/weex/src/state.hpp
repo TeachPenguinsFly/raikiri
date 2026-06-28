@@ -146,15 +146,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 // an order path would need. A refusal is not an error — the funding poll asks
 // again on its next tick.
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
-    auto* owner = &state;
-    rest.set_admit([owner](std::string_view) {
-        if (owner->budget == nullptr) {
-            return true; // unmeasured venue: unlimited, not closed
-        }
-        return owner->budget
-            ->take(exec::RateBucket::Shared, 1, owner->clock->mono(), exec::RateClass::Poll)
-            .has_value();
-    });
+    rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }
 
 // A desk with more than this many orders awaiting an answer at once has a

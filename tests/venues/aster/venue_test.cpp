@@ -170,31 +170,6 @@ TEST(AsterBook, ConsecutiveDepthFramesChainByPrevUpdateId) {
 
 // --- what a call costs ---------------------------------------------------
 
-TEST(AsterEndpoints, TheTwoPathsThatDifferFromTheOriginAreChargedTen) {
-    // MEASURED 2026-09-20 off the used-weight header, and the whole reason
-    // this file exists: the parsers were forked from a venue that charges 1
-    // for both of these, and the funding poller walks them every cycle.
-    EXPECT_EQ(ep::market_data_weight(ep::k_premium_index), 10U);
-    EXPECT_EQ(ep::market_data_weight(ep::k_funding_info), 10U);
-    EXPECT_EQ(ep::market_data_weight(ep::k_exchange_info), 1U);
-    EXPECT_EQ(ep::market_data_weight(ep::k_server_time), 1U);
-    EXPECT_EQ(ep::market_data_weight(ep::k_ticker_24h), 40U);
-}
-
-TEST(AsterEndpoints, DepthIsChargedOnTheLadderAndAnUnknownLimitPaysTheMost) {
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT&limit=5"), 2U);
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT&limit=100"), 5U);
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT&limit=500"), 10U);
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT&limit=1000"), 20U);
-    // Off the ladder falls to the dearest rung, never the cheapest.
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT&limit=7"), 20U);
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/depth?symbol=BTCUSDT"), 20U);
-}
-
-TEST(AsterEndpoints, AnUnknownPathIsChargedAtTheDearestUnsignedCall) {
-    EXPECT_EQ(ep::market_data_weight("/fapi/v1/somethingNobodyCosted"), ep::k_max_unsigned_weight);
-}
-
 TEST(AsterEndpoints, TestnetHasNowhereToPointSoBothAccessorsAnswerLive) {
     // Neither testnet host resolves (checked 2026-09-20). Naming a dead one
     // would fail at connect time, far from the config that asked for it.

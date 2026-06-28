@@ -73,7 +73,9 @@ public:
           rest_{state_->io,
                 net::RestConfig{.host = std::string{ep::host(state_->testnet)},
                                 .port = "443",
-                                .pool_size = 2}} {}
+                                .pool_size = 2}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         rest_.start();
@@ -414,7 +416,7 @@ private:
         } catch (...) {
             return;
         }
-        if (rates_in_flight_ || marks_in_flight_) {
+        if (rates_in_flight_ && marks_in_flight_) {
             next_poll_ns_ = now.ns + k_funding_poll_interval_ns;
         }
     }

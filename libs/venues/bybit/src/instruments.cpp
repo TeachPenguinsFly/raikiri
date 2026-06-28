@@ -44,14 +44,13 @@ public:
         // closed: this admits everything until somebody measures the public
         // meter and writes a capacity there, and then it bites with no change
         // here.
-        rest_.set_admit([this](std::string_view) noexcept {
+        rest_.set_admit([this](std::string_view target) noexcept {
             if (state_->budget == nullptr) {
                 return true; // unmeasured venue: unlimited, not closed
             }
             // Poll class: market data may not spend the slice held back for a
             // cancel. bybit counts requests, not weight, so a call costs one.
-            const auto taken = state_->budget->take(
-                exec::RateBucket::Shared, 1, state_->clock->mono(), exec::RateClass::Poll);
+            const auto taken = state_->budget->take(target, state_->clock->mono(), exec::RateClass::Poll);
             refused_ = !taken.has_value();
             return taken.has_value();
         });

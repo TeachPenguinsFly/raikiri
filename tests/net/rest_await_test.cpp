@@ -199,6 +199,42 @@ TEST(RestAwait, AnAnswerOnePullAbandonedNeverLandsInTheNext) {
     rest.stop();
 }
 
+// An exhausted budget delays a cold-path pull until it has room; it does not
+// fail the pull, which at startup would lose the catalogue.
+TEST(RestAwait, ARefusedSendWaitsForTheBudgetRatherThanFailing) {
+    TlsListener listener{[](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<DelayedSession>(std::move(socket), tls)->run();
+    }};
+
+    IoContext io;
+    LiveClock clock;
+    auto config = loopback_config(listener.port());
+    config.timeout_ms = 4'000;
+    RestClient rest{io, config};
+    const auto open_at = clock.mono().ns + 300'000'000ULL;
+    int refusals = 0;
+    rest.set_admit([&clock, &refusals, open_at](std::string_view) {
+        if (clock.mono().ns < open_at) {
+            ++refusals;
+            return false;
+        }
+        return true;
+    });
+    rest.start();
+
+    RestRequest request;
+    request.method = HttpMethod::Get;
+    request.target = "/after/0";
+    const auto got = await_response(io, clock, rest, request, 5'000);
+
+    ASSERT_TRUE(got.has_value()) << "a refused send was dropped instead of delayed";
+    EXPECT_EQ(got->body, "/after/0");
+    EXPECT_GT(refusals, 0);
+    EXPECT_GE(clock.mono().ns, open_at);
+
+    rest.stop();
+}
+
 // A listener that accepts the connection and then says nothing at all. The TLS
 // handshake never completes, so the slot never becomes ready and everything
 // sent behind it queues — which is exactly what a name lookup that never

@@ -135,8 +135,7 @@ private:
             reject(cmd, to_string(request.error()));
             return;
         }
-        if (const auto allowed = api_.spend(
-                exec::RateBucket::OrderEntry, api_.costs().order, exec::RateClass::Order);
+        if (const auto allowed = api_.spend(request->target, exec::RateClass::Order);
             !allowed.has_value()) {
             reject(cmd, allowed.error().message.view());
             return;
@@ -208,7 +207,7 @@ private:
             return;
         }
         if (classify(envelope->ret_code) == exec::ErrorClass::RateLimited) {
-            api_.penalize(exec::RateBucket::OrderEntry);
+            api_.penalize(kind == Kind::Create ? ep::k_order_create : ep::k_order_cancel);
         }
         emit_reject(client_order_id,
                     instrument,

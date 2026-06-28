@@ -34,28 +34,6 @@
 
 namespace raikiri::venues::weex::detail {
 
-// The venue's own weight for each endpoint, from the line printed beside it.
-// They differ by a factor of five, so one generic figure would either starve
-// the cheap reads or overspend on the expensive one.
-inline constexpr std::uint32_t k_weight_open_orders = 2;
-inline constexpr std::uint32_t k_weight_fills = 5;
-inline constexpr std::uint32_t k_weight_positions = 10;
-inline constexpr std::uint32_t k_weight_balance = 5;
-inline constexpr std::uint32_t k_weight_income = 2;
-
-// A CANCEL IS METERED LIKE A READ, not like a place. WEEX's rule is "except for
-// order PLACEMENT endpoints, all endpoints are rate limited by IP", and its
-// cancel pages state a weight beside them the way the reads do — so these spend
-// the same per-IP pool the market-data half spends.
-inline constexpr std::uint32_t k_weight_cancel = 1;
-inline constexpr std::uint32_t k_weight_cancel_batch = 5;
-
-// PLACING AN ORDER COSTS NO IP WEIGHT. WEEX states it plainly — "0 on IP rate
-// limit(X-USED-WEIGHT-1M)" — and meters placements per ACCOUNT instead, at 300
-// a minute. Nothing in this process counts that budget, so a create spends the
-// OrderEntry bucket, which config/venues.yaml leaves unconfigured and which an
-// unconfigured bucket reads as unlimited rather than closed.
-inline constexpr std::uint32_t k_cost_order = 1;
 
 class RestApi {
 public:
@@ -88,20 +66,20 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    void penalize(exec::RateBucket bucket) noexcept {
+    void penalize(std::string_view target) noexcept {
         if (state_->budget != nullptr) {
             // A second's hold. WEEX bans for ten after a breach it notices, so
             // the cost of pausing is far below the cost of provoking one.
-            state_->budget->penalize(bucket, state_->clock->mono(), 1'000'000'000ULL);
+            state_->budget->penalize(target, state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 
     [[nodiscard]] std::expected<void, exec::VenueError>
-    spend(exec::RateBucket bucket, std::uint32_t cost, exec::RateClass cls) noexcept {
+    spend(std::string_view target, exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
             return {}; // unmeasured venue: unlimited, not closed
         }
-        const auto taken = state_->budget->take(bucket, cost, state_->clock->mono(), cls);
+        const auto taken = state_->budget->take(target, state_->clock->mono(), cls);
         if (taken.has_value()) {
             return {};
         }
@@ -116,8 +94,7 @@ public:
     // alone would leave them pointing into a string destroyed on the way out.
     [[nodiscard]] std::expected<void, exec::VenueError>
     fetch(const std::expected<net::RestRequest, BuildError>& request,
-          std::string& body,
-          std::uint32_t weight) {
+          std::string& body) {
         if (!request.has_value()) {
             const auto cls = request.error() == BuildError::NotSigned
                                  ? exec::ErrorClass::AuthFailure
@@ -127,7 +104,7 @@ public:
         // Refused BEFORE the socket, so the venue never has to say no — its
         // refusals cost more than ours, because a 429 here bans this IP for ten
         // seconds and takes the market-data half down with it.
-        if (const auto allowed = spend(exec::RateBucket::Shared, weight, exec::RateClass::Poll);
+        if (const auto allowed = spend(request->target, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -151,7 +128,7 @@ public:
             if (cls == exec::ErrorClass::RateLimited) {
                 // THE VENUE'S ANSWER OUTRANKS OUR ACCOUNTING, which has just
                 // been proven wrong.
-                penalize(exec::RateBucket::Shared);
+                penalize(request->target);
             }
             return std::unexpected{exec::VenueError::make(cls, error->code, error->msg)};
         }
@@ -169,7 +146,7 @@ public:
     open_order_reports(MarketType market) {
         std::string body;
         if (const auto ok = fetch(
-                builder_.open_orders(market, state_->venue_now()), body, k_weight_open_orders);
+                builder_.open_orders(market, state_->venue_now()), body);
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
@@ -214,7 +191,7 @@ public:
                                                                                 UnixNanos since) {
         std::string body;
         if (const auto ok =
-                fetch(builder_.fills(market, since, state_->venue_now()), body, k_weight_fills);
+                fetch(builder_.fills(market, since, state_->venue_now()), body);
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
@@ -239,7 +216,7 @@ public:
     position_reports(MarketType market) {
         std::string body;
         if (const auto ok =
-                fetch(builder_.positions(market, state_->venue_now()), body, k_weight_positions);
+                fetch(builder_.positions(market, state_->venue_now()), body);
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
@@ -266,7 +243,7 @@ public:
             return std::unexpected{exec::not_implemented("weex serves the contract tree only")};
         }
         std::string body;
-        if (const auto ok = fetch(builder_.balances(state_->venue_now()), body, k_weight_balance);
+        if (const auto ok = fetch(builder_.balances(state_->venue_now()), body);
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }
@@ -295,9 +272,7 @@ public:
     std::expected<std::vector<LedgerEntry>, exec::VenueError> funding_charges(MarketType market,
                                                                               UnixNanos since) {
         std::string body;
-        if (const auto ok = fetch(builder_.funding_charges(market, since, state_->venue_now()),
-                                  body,
-                                  k_weight_income);
+        if (const auto ok = fetch(builder_.funding_charges(market, since, state_->venue_now()), body);
             !ok.has_value()) {
             return std::unexpected{ok.error()};
         }

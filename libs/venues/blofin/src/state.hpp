@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 
@@ -12,6 +13,7 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    exec::RateBudget* budget{nullptr};
     bool testnet;
 
     net::IoContext io;

@@ -1,205 +1,250 @@
 # What each venue lets us ask of it, and what each request costs there.
 #
-# THESE NUMBERS WERE MEASURED, not read off a documentation page, and the venue
-# states them in its own response headers — binance in `X-MBX-USED-WEIGHT-1M`,
-# bybit in `X-Bapi-Limit`. Re-measure rather than edit from memory when a venue
-# changes: a budget that is wrong in the generous direction is a ban, and one
-# that is wrong the other way silently throttles the desk.
+# `limits` is a table of named sliding windows. A REST request spends from EVERY
+# limit whose `match` prefixes its path (an empty match meters every request),
+# and from none if any would refuse. A sliding window never lets more than `max`
+# into any stretch of `window_ms`, so it is safe against a venue counting fixed
+# windows too, and a limit can be declared at about 90% of what the venue states.
+# `reserve` is the part only order traffic may spend, so a reconciliation sweep
+# never takes the allowance a cancel needs. `costs` prices paths in the venue's
+# own units; the longest matching rule wins, `?k=v` must appear in the query,
+# and anything unmatched costs `default_cost` (1).
 #
-# TWO SHAPES. binance meters ONE POOL of weight across every endpoint, so it
-# fills `shared` and leaves the rest at zero. bybit meters EACH ENDPOINT
-# separately, so it fills the per-purpose buckets and leaves `shared` at zero.
-# A bucket with capacity 0 is disabled — a venue whose budget nobody has
-# established must not have one invented for it, because refusing traffic the
-# venue would have accepted is the worse of the two errors.
-#
-# `reserve` is the part of a bucket only ORDER traffic may spend. It exists so
-# a reconciliation sweep can never consume the allowance a cancel is about to
-# need: a cancel that cannot be sent is an open position the strategy believes
-# is closed.
-#
-# A VENUE NOT LISTED HERE IS UNLIMITED, and eight of the seventeen are not
-# listed because they state no metering header at all on the traffic this
-# gateway makes — okx, mexc, deribit, hyperliquid, coinbase, kraken, bitmex and
-# bitfinex. Two more are listed with zeroes because what they do state is a
-# remainder without a ceiling. Not listing them is the honest reading; the
-# order-answer timeout does not depend on it and applies at its default either
-# way.
+# A VENUE NOT LISTED, or listed without limits, is unlimited.
 
 venues:
   binance:
-    # How long an order may go unanswered before the gateway says so out loud.
-    # Longer than the REST client's own 5s deadline on purpose: this is not a
-    # second timeout, it is the point at which an unanswered order stops being
-    # "in flight" and becomes a fact somebody has to look at.
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-01: 2400 weight per minute per IP. A tenth is held
-      # back for order entry, which is far more than order traffic can spend.
-      shared: { capacity: 2400, window_ms: 60000, reserve: 240 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # Weight per call, measured by reading the used-weight header before and
-      # after each: the income ledger costs six times what a balance does.
-      costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
+    limits:
+      # 2400 weight a minute per IP, measured 2026-09-01 from X-MBX-USED-WEIGHT-1M.
+      - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
+    default_cost: 40
+    costs:
+      - { match: "/fapi/v1/order", cost: 1 }
+      - { match: "/fapi/v1/openOrders", cost: 5 }
+      - { match: "/fapi/v1/userTrades", cost: 5 }
+      - { match: "/fapi/v2/account", cost: 5 }
+      - { match: "/fapi/v3/positionRisk", cost: 5 }
+      - { match: "/fapi/v1/income", cost: 30 }
+      - { match: "/fapi/v1/exchangeInfo", cost: 1 }
+      - { match: "/fapi/v1/time", cost: 1 }
+      - { match: "/fapi/v1/premiumIndex", cost: 1 }
+      - { match: "/fapi/v1/fundingInfo", cost: 1 }
+      - { match: "/fapi/v1/ticker/24hr", cost: 40 }
+      - { match: "/fapi/v1/depth", cost: 20 }
+      - { match: "/fapi/v1/depth?limit=5", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=10", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=20", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=50", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=100", cost: 5 }
+      - { match: "/fapi/v1/depth?limit=500", cost: 10 }
 
   aster:
     order_answer_timeout_ms: 15000
-    rate:
-      # 2400 weight a minute, as its exchangeInfo states; past it the venue answers 418 and bans the IP.
-      shared: { capacity: 2400, window_ms: 60000, reserve: 240 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 5, balances: 5, ledger: 30 }
+    limits:
+      # 2400 weight a minute, as its exchangeInfo states; past it a 418 and an IP ban.
+      - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
+    default_cost: 40
+    costs:
+      - { match: "/fapi/v1/order", cost: 1 }
+      - { match: "/fapi/v1/openOrders", cost: 5 }
+      - { match: "/fapi/v1/userTrades", cost: 5 }
+      - { match: "/fapi/v2/account", cost: 5 }
+      - { match: "/fapi/v3/positionRisk", cost: 5 }
+      - { match: "/fapi/v1/income", cost: 30 }
+      - { match: "/fapi/v1/exchangeInfo", cost: 1 }
+      - { match: "/fapi/v1/time", cost: 1 }
+      - { match: "/fapi/v1/premiumIndex", cost: 10 }
+      - { match: "/fapi/v1/fundingInfo", cost: 10 }
+      - { match: "/fapi/v1/ticker/24hr", cost: 40 }
+      - { match: "/fapi/v1/depth", cost: 20 }
+      - { match: "/fapi/v1/depth?limit=5", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=10", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=20", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=50", cost: 2 }
+      - { match: "/fapi/v1/depth?limit=100", cost: 5 }
+      - { match: "/fapi/v1/depth?limit=500", cost: 10 }
 
   bybit:
     order_answer_timeout_ms: 15000
-    rate:
-      shared: { capacity: 0, window_ms: 0, reserve: 0 }
-      # Measured 2026-09-01 from X-Bapi-Limit: fifty a second on positions,
-      # balances and open orders; twenty-five on the transaction log.
-      order_entry: { capacity: 50, window_ms: 1000, reserve: 10 }
-      account: { capacity: 50, window_ms: 1000, reserve: 10 }
-      ledger: { capacity: 25, window_ms: 1000, reserve: 0 }
-      # bybit counts requests, not weight, so every call costs one.
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 50 a second per endpoint, measured 2026-09-01 from X-Bapi-Limit; the transaction log 25.
+      - { name: orders, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/create", "/v5/order/cancel", "/v5/order/amend"] }
+      - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/account/wallet-balance", "/v5/execution/list"] }
+      - { name: ledger, window_ms: 1000, max: 22, match: ["/v5/account/transaction-log"] }
 
   gate:
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-06 from X-Gate-RateLimit-Limit and
-      # X-Gate-RateLimit-Reset-Timestamp on api.gateio.ws: 200, and the reset
-      # named the very second the response was read in, so the window is one
-      # second and not the ten a longer reset would have meant.
-      shared: { capacity: 200, window_ms: 1000, reserve: 20 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # Gate counts requests, not weight.
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 200 a second, measured 2026-09-06 from X-Gate-RateLimit-Limit and its reset.
+      - { name: requests, window_ms: 1000, max: 180, reserve: 18 }
 
   kucoin:
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset on
-      # api-futures.kucoin.com: 2000 across the pool, and the reset counted
-      # 27.7 s down from a full one, which is the 30 s window.
-      shared: { capacity: 2000, window_ms: 30000, reserve: 200 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # KuCoin counts requests, not weight.
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 2000 per 30 s, measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset.
+      - { name: requests, window_ms: 30000, max: 1800, reserve: 180 }
 
   xt:
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-06 from X-RateLimit-Burst-Capacity and
-      # X-RateLimit-Replenish-Rate on fapi.xt.com: a token bucket holding 1000
-      # and refilling 1000 a second, which is a 1000-per-second allowance.
-      shared: { capacity: 1000, window_ms: 1000, reserve: 100 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # X-RateLimit-Requested-Tokens was 1 on every call observed.
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 1000 a second, measured 2026-09-06 from X-RateLimit-Burst-Capacity and Replenish-Rate.
+      - { name: requests, window_ms: 1000, max: 900, reserve: 90 }
 
   htx:
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-06 from ratelimit-limit and ratelimit-interval on
-      # api.hbdm.com, which states both outright: 240 in a 3 s window.
-      shared: { capacity: 240, window_ms: 3000, reserve: 24 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 240 per 3 s, measured 2026-09-06 from ratelimit-limit and ratelimit-interval.
+      - { name: requests, window_ms: 3000, max: 216, reserve: 21 }
 
+  # bingx and bitget state a remainder but no ceiling, so they stay unlimited.
   bingx:
     order_answer_timeout_ms: 15000
-    # NOT MEASURED. open-api.bingx.com states X-RateLimit-Requests-Remain and
-    # X-RateLimit-Requests-Expire and NO capacity, so the ceiling would have to
-    # be inferred from where the countdown started — an inference, not a
-    # measurement, and this file holds the second kind. Unlimited until bingx
-    # states a limit or one is established by driving the counter to zero.
-    rate:
-      shared: { capacity: 0, window_ms: 0, reserve: 0 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
 
   bitget:
     order_answer_timeout_ms: 15000
-    # NOT MEASURED, for bingx's reason: api.bitget.com states only
-    # x-mbx-used-remain-limit — a remainder with neither a ceiling nor a window.
-    rate:
-      shared: { capacity: 0, window_ms: 0, reserve: 0 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
 
   weex:
     order_answer_timeout_ms: 15000
-    rate:
-      # Measured 2026-09-07 from x-remaining-weight-10s and x-used-weight-10s
-      # on api-contract.weex.com, which name the window in the header itself:
-      # 500 weight in TEN SECONDS, counting back up from 1 after a pause.
-      #
-      # THE HEADER AND THE BODY DISAGREE and the header wins. exchangeInfo's own
-      # `rateLimits` array says REQUEST_WEIGHT / interval MINUTE / intervalNum
-      # 10 / limit 500, which reads as 500 per ten MINUTES — sixty times
-      # stingier than what the venue actually enforces. Taking the body would
-      # throttle this gateway to a call every 1.2 s for no reason.
-      #
-      # ONE POOL COVERS BOTH HALVES. WEEX meters weight per IP and its market
-      # data and its signed reads come out of the same allowance, so `shared` is
-      # the only bucket configured and the adapter spends it for both.
-      shared: { capacity: 500, window_ms: 10000, reserve: 50 }
-      # DELIBERATELY UNCONFIGURED, which reads as unlimited rather than closed.
-      # WEEX charges an order ZERO IP weight — "0 on IP rate limit" in its own
-      # words — and meters orders per ACCOUNT instead, at 300 a minute from its
-      # exchangeInfo `rateLimits`. Nothing in this process counts that budget,
-      # and inventing a number for it would refuse traffic the venue accepts.
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      # NOT WHAT THE SIGNED READS SPEND. Every public call is weight 1, measured
-      # by reading x-used-weight-10s before and after each: the 685 KiB
-      # exchangeInfo and the 229 KiB premiumIndex cost exactly what the 30-byte
-      # clock read does. The private reads cost 2, 5 and 10 depending on the
-      # endpoint, which four generic slots cannot express — so they carry the
-      # venue's own figure at their call sites in the adapter and none of them
-      # reads this line.
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 500 weight per 10 s per IP, measured 2026-09-07 from x-used-weight-10s; placements cost none.
+      - { name: weight, window_ms: 10000, max: 450, reserve: 45 }
+    costs:
+      - { match: "/capi/v3/openOrders", cost: 2 }
+      - { match: "/capi/v3/userTrades", cost: 5 }
+      - { match: "/capi/v3/account/position/allPosition", cost: 10 }
+      - { match: "/capi/v3/account/balance", cost: 5 }
+      - { match: "/capi/v3/account/income", cost: 2 }
+      - { match: "/capi/v3/batchOrders", cost: 5 }
 
   backpack:
     order_answer_timeout_ms: 15000
-    rate:
-      # Stated in the support FAQ; backpack sends no limit header.
-      shared: { capacity: 2000, window_ms: 60000, reserve: 0 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 2000 a minute, stated in the support FAQ; no limit header.
+      - { name: requests, window_ms: 60000, max: 1800 }
+
   extended:
     order_answer_timeout_ms: 15000
-    rate:
-      # 1000 requests a minute per IP, stated; half declared for a fixed window.
-      shared: { capacity: 500, window_ms: 60000, reserve: 50 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 1000 requests a minute per IP, stated.
+      - { name: requests, window_ms: 60000, max: 900, reserve: 90 }
+
+  okx:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 20 per 2 s per public endpoint, stated.
+      - { name: market, window_ms: 2000, max: 18, match: ["/api/v5/public/", "/api/v5/market/"] }
+      # 60 per 2 s on order entry and order reads, stated.
+      - { name: orders, window_ms: 2000, max: 54, reserve: 10, match: ["/api/v5/trade/"] }
+      # 10 per 2 s on positions and balance, stated.
+      - { name: account, window_ms: 2000, max: 9, match: ["/api/v5/account/positions", "/api/v5/account/balance"] }
+      # 5 a second on bills, stated.
+      - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }
+
+  mexc:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 10 per 2 s on contract detail, stated.
+      - { name: detail, window_ms: 2000, max: 9, match: ["/api/v1/contract/detail"] }
+      # 20 per 2 s per futures endpoint, stated; code 510 past it.
+      - { name: market, window_ms: 2000, max: 18, match: ["/api/v1/contract/"] }
+      - { name: private, window_ms: 2000, max: 18, reserve: 4, match: ["/api/v1/private/"] }
+
+  hyperliquid:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 1200 weight a minute per IP, stated; meta and spotMeta weigh 20, an action 1.
+      - { name: weight, window_ms: 60000, max: 1080, reserve: 108 }
+    costs:
+      - { match: "/info", cost: 20 }
+      - { match: "/exchange", cost: 1 }
+
+  bitfinex:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 10 to 90 a minute per endpoint per IP, tickers 30, stated; past it a 60 s ban.
+      - { name: requests, window_ms: 60000, max: 27, reserve: 3 }
+
+  kraken:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 500 cost per 10 s on /derivatives, stated; public endpoints cost nothing.
+      - { name: derivatives, window_ms: 10000, max: 450, reserve: 45, match: ["/derivatives/api/v3/"] }
+    costs:
+      - { match: "/derivatives/api/v3/sendorder", cost: 10 }
+      - { match: "/derivatives/api/v3/editorder", cost: 10 }
+      - { match: "/derivatives/api/v3/cancelorder", cost: 10 }
+      - { match: "/derivatives/api/v3/openpositions", cost: 2 }
+      - { match: "/derivatives/api/v3/openorders", cost: 2 }
+      - { match: "/derivatives/api/v3/accounts", cost: 2 }
+      - { match: "/derivatives/api/v3/fills", cost: 25 }
+      - { match: "/derivatives/api/v3/instruments", cost: 0 }
+      - { match: "/derivatives/api/v3/tickers", cost: 0 }
+      - { match: "/derivatives/api/v3/orderbook", cost: 0 }
+
+  grvt:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 500 reads a minute (1500 for instruments), from endpoints.hpp.
+      - { name: reads, window_ms: 60000, max: 450 }
+
+  lighter:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 60 requests a minute per IP, from endpoints.hpp; a 429 throttles the sockets too.
+      - { name: requests, window_ms: 60000, max: 54 }
+
+  cryptocom:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 100 a second per method per IP, from endpoints.hpp.
+      - { name: requests, window_ms: 1000, max: 90 }
+
+  blofin:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 500 a minute and 1500 per 5 minutes per IP, from endpoints.hpp.
+      - { name: minute, window_ms: 60000, max: 450 }
+      - { name: five_minutes, window_ms: 300000, max: 1350 }
+
+  apex:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 600 a minute per IP, from endpoints.hpp; the 403 ban may be permanent.
+      - { name: requests, window_ms: 60000, max: 540 }
+
+  edgex:
+    order_answer_timeout_ms: 15000
+    limits:
+      # No stated limit; 135 a second measured without a refusal, from endpoints.hpp.
+      - { name: requests, window_ms: 1000, max: 60 }
+
+  dydx:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 100 per 10 s per IP, from endpoints.hpp.
+      - { name: requests, window_ms: 10000, max: 90 }
+
+  phemex:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 300 a minute per IP on /public, from endpoints.hpp.
+      - { name: public, window_ms: 60000, max: 270, match: ["/public/"] }
+
+  deribit:
+    order_answer_timeout_ms: 15000
+    limits:
+      # Burst 100 refilled at 20 a second per IP, shared with the sockets, from endpoints.hpp.
+      - { name: requests, window_ms: 1000, max: 10, reserve: 1 }
+
+  coinbase:
+    order_answer_timeout_ms: 15000
+    limits:
+      # 10 a second public and 15 per profile private, stated.
+      - { name: requests, window_ms: 1000, max: 9, reserve: 1 }
+
   pacifica:
     order_answer_timeout_ms: 15000
-    rate:
-      # 100 credits a minute for an unidentified IP, stated (1 a GET, 3-12 a heavy one); half declared.
-      shared: { capacity: 50, window_ms: 60000, reserve: 5 }
-      order_entry: { capacity: 0, window_ms: 0, reserve: 0 }
-      account: { capacity: 0, window_ms: 0, reserve: 0 }
-      ledger: { capacity: 0, window_ms: 0, reserve: 0 }
-      costs: { order: 1, positions: 1, balances: 1, ledger: 1 }
+    limits:
+      # 100 credits a minute for an unidentified IP, stated (1 a GET, 3-12 a heavy one).
+      - { name: credits, window_ms: 60000, max: 90, reserve: 9 }

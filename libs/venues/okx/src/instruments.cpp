@@ -28,7 +28,9 @@ class OkxInstruments final : public exec::InstrumentSource {
 public:
     explicit OkxInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
+          rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();

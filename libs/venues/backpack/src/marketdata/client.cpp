@@ -37,7 +37,7 @@ constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 // The venue sends no limit header, so a 429 is the only correction our count gets.
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget != nullptr && response.status == 429) {
-        state.budget->penalize(exec::RateBucket::Shared, state.clock->mono(), 1'000'000'000ULL);
+        state.budget->penalize_all(state.clock->mono(), 1'000'000'000ULL);
     }
 }
 

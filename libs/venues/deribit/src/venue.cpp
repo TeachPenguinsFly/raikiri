@@ -52,6 +52,7 @@ namespace {
 exec::VenueAdapter
 make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& clock) {
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
+    state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
     // Deribit's client_id is the api key and its client_secret the secret; the

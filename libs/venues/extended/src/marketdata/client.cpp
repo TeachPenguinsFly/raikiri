@@ -52,15 +52,7 @@ public:
             sockets_[i] = std::make_unique<Socket>(*this, static_cast<Stream>(i));
         }
         auto* owner = state_.get();
-        rest_.set_admit([owner](std::string_view) {
-            return owner->budget == nullptr ||
-                   owner->budget
-                       ->take(exec::RateBucket::Shared,
-                              1,
-                              owner->clock->mono(),
-                              exec::RateClass::Poll)
-                       .has_value();
-        });
+        rest_.set_admit(exec::market_data_gate(owner->budget, *owner->clock));
     }
 
     std::expected<void, exec::VenueError> start() override {
@@ -432,8 +424,7 @@ private:
         poll_in_flight_ = false;
         if (response.transport_failed() || response.status != 200) {
             if (response.status == 429 && state_->budget != nullptr) {
-                state_->budget->penalize(
-                    exec::RateBucket::Shared, state_->clock->mono(), 60ULL * 1'000'000'000ULL);
+                state_->budget->penalize_all(state_->clock->mono(), 60ULL * 1'000'000'000ULL);
             }
             return;
         }

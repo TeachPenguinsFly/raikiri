@@ -287,7 +287,9 @@ public:
                                           : k_max_subscriptions_per_connection,
                                   .send_spacing_ns = k_subscribe_spacing_ns,
                                   .max_connections = k_max_connections},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
+                [this](std::span<const std::string> keys) { return build_frames(keys); }} {
+        spot_rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         pool_.start();

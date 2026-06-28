@@ -119,37 +119,9 @@ struct VenueState {
     }
 };
 
-// Makes one market-data REST client ask the budget before every send.
-//
-// MARKET DATA SPENT NOTHING until now, and it is the larger half of what this
-// process asks aster for: see `pending_seeds` above for what that cost.
-//
-// ONE POOL. aster meters weight across every endpoint together, so `shared`
-// is the only bucket config/venues.yaml fills for it and every call here draws
-// from the same 2400 a minute the order path does.
-//
-// COST IS WEIGHT, NOT ONE — ep::market_data_weight prices each path from
-// aster's own table. A flat 1 would charge a depth snapshot a twentieth of
-// what aster charges for it, and the gate would not bite until after the ban.
-//
-// RateClass::Poll, never Order: a book seed may not draw the bucket into the
-// reserve a cancel is about to need. A refusal is not an error — the seed stays
-// queued and the polls leave their deadline where it was, so the next tick asks
-// again. The catalogue pull is the one caller with no next tick, and it is a
-// single request against a bucket still at capacity.
+// Market-data REST spends the venue's limits table as a poll; costs come from config.
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
-    auto* owner = &state;
-    rest.set_admit([owner](std::string_view target) {
-        if (owner->budget == nullptr) {
-            return true; // unmeasured venue: unlimited, not closed
-        }
-        return owner->budget
-            ->take(exec::RateBucket::Shared,
-                   ep::market_data_weight(target),
-                   owner->clock->mono(),
-                   exec::RateClass::Poll)
-            .has_value();
-    });
+    rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }
 
 inline std::optional<net::RestResponse> await_response(VenueState& state,

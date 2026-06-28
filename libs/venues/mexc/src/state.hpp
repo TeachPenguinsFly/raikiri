@@ -5,6 +5,7 @@
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -48,6 +49,7 @@ struct VenueState {
 
     exec::GatewaySink* sink;
     const Clock* clock;
+    exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
     // The one market this process serves. MEXC's two trees share nothing: not

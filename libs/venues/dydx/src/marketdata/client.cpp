@@ -57,7 +57,9 @@ public:
                 net::RestConfig{.host = std::string{ep::indexer_host(state_->testnet)},
                                 .port = "443",
                                 .pool_size = 1,
-                                .timeout_ms = k_poll_timeout_ms}} {}
+                                .timeout_ms = k_poll_timeout_ms}} {
+        rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
+    }
 
     std::expected<void, exec::VenueError> start() override {
         rest_.start();

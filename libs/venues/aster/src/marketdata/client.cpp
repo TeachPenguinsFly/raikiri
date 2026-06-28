@@ -102,7 +102,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
     if (!refused) {
         return;
     }
-    state.budget->penalize(exec::RateBucket::Shared, state.clock->mono(), 1'000'000'000ULL);
+    state.budget->penalize_all(state.clock->mono(), 1'000'000'000ULL);
 }
 
 // Fires the REST read that seeds one book. The response lands on the gateway

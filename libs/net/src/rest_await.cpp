@@ -2,8 +2,10 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_await.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <utility>
 
 namespace raikiri::net {
@@ -41,12 +43,18 @@ std::optional<RestResponse> await_response(IoContext& io,
     // BY VALUE. Capturing the shared_ptr is the whole safety property: the
     // callback keeps the cell alive for as long as the pool keeps the callback,
     // so a delivery at any later moment writes somewhere harmless.
-    if (!rest.send(request, [landing](RestResponse&& response) {
-            landing->response = std::move(response);
-        })) {
-        return std::nullopt;
-    }
     const auto deadline = clock.mono().ns + timeout_ms * 1'000'000ULL;
+    // A refused send (pool full, budget spent) waits for room rather than failing.
+    while (!rest.send(request, [landing](RestResponse&& response) {
+        landing->response = std::move(response);
+    })) {
+        if (clock.mono().ns >= deadline || AbandonScope::abandoned()) {
+            return std::nullopt;
+        }
+        if (io.poll() == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
+    }
     while (!landing->response.has_value() && clock.mono().ns < deadline &&
            !AbandonScope::abandoned()) {
         if (io.poll() == 0) {
