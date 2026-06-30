@@ -44,6 +44,10 @@ venues:
     limits:
       # 2400 weight a minute, as its exchangeInfo states; past it a 418 and an IP ban.
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
+      # 200 streams a socket, measured; 180 held, twelve sockets, a subscribe every 250 ms per socket.
+      - { name: ws_streams, kind: ws_streams, max: 180 }
+      - { name: ws_sockets, kind: ws_sockets, max: 12 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
     default_cost: 40
     costs:
       - { match: "/fapi/v1/order", cost: 1 }
@@ -140,6 +144,11 @@ venues:
       - { name: account, window_ms: 2000, max: 9, match: ["/api/v5/account/positions", "/api/v5/account/balance"] }
       # 5 a second on bills, stated.
       - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }
+      # 3 subscribe ops a second per socket and 3 connects a second per IP, stated; 1024 channels a socket.
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 350, max: 1 }
+      - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 3 }
+      - { name: ws_streams, kind: ws_streams, max: 1024 }
+      - { name: ws_sockets, kind: ws_sockets, max: 6 }
 
   mexc:
     order_answer_timeout_ms: 15000
@@ -149,12 +158,21 @@ venues:
       # 20 per 2 s per futures endpoint, stated; code 510 past it.
       - { name: market, window_ms: 2000, max: 18, match: ["/api/v1/contract/"] }
       - { name: private, window_ms: 2000, max: 18, reserve: 4, match: ["/api/v1/private/"] }
+      # 512 keys a futures socket and 30 a spot one, measured; a subscribe every 100 ms per socket.
+      - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 512 }
+      - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 30 }
+      - { name: ws_sockets, kind: ws_sockets, max: 16 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
 
   hyperliquid:
     order_answer_timeout_ms: 15000
     limits:
       # 1200 weight a minute per IP, stated; meta and spotMeta weigh 20, an action 1.
       - { name: weight, window_ms: 60000, max: 1080, reserve: 108 }
+      # 1000 subscriptions a socket and a subscribe every 100 ms held, measured 2026-09-08; 100 sockets an IP stated.
+      - { name: ws_streams, kind: ws_streams, max: 1000 }
+      - { name: ws_sockets, kind: ws_sockets, max: 6 }
+      - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
     costs:
       - { match: "/info", cost: 20 }
       - { match: "/exchange", cost: 1 }
@@ -193,6 +211,11 @@ venues:
     limits:
       # 60 requests a minute per IP, from endpoints.hpp; a 429 throttles the sockets too.
       - { name: requests, window_ms: 60000, max: 54 }
+      # 200 socket messages a minute per IP, stated, answered 30009 past it; one socket carries 500.
+      - { name: ws_minute, kind: ws_messages, scope: ip, window_ms: 60000, max: 180 }
+      - { name: ws_burst, kind: ws_messages, scope: ip, window_ms: 2000, max: 6 }
+      - { name: ws_streams, kind: ws_streams, max: 500 }
+      - { name: ws_sockets, kind: ws_sockets, max: 1 }
 
   cryptocom:
     order_answer_timeout_ms: 15000
@@ -236,6 +259,10 @@ venues:
     limits:
       # Burst 100 refilled at 20 a second per IP, shared with the sockets, from endpoints.hpp.
       - { name: requests, window_ms: 1000, max: 10, reserve: 1 }
+      # The same per-IP bucket as REST (20 a second), half of it for sockets; 1024 channels a socket.
+      - { name: ws_messages, kind: ws_messages, scope: ip, window_ms: 1000, max: 10 }
+      - { name: ws_streams, kind: ws_streams, max: 1024 }
+      - { name: ws_sockets, kind: ws_sockets, max: 16 }
 
   coinbase:
     order_answer_timeout_ms: 15000

@@ -32,20 +32,6 @@ namespace {
 // inside the window.
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 
-// OKX meters op messages per CONNECTION at three a second, and the app ping
-// draws on the same budget. One frame carries 64 subscriptions, so a full
-// socket is sixteen frames and under six seconds.
-constexpr std::uint64_t k_subscribe_spacing_ns = 350ULL * 1'000'000ULL;
-
-// Enough sockets for either of OKX's catalogues at 1024 subscriptions each.
-// A swap listing costs SIX channels — bbo-tbt, trades, books, funding-rate,
-// tickers and mark-price — so the 471 of them are 2826 and three sockets
-// would do. SPOT is the binding side: 1406 listings at the FOUR channels a
-// spot pair costs (no funding, no mark) is 5624, which needs all six. On one
-// socket the arithmetic ran the other way: 1024/6 is 170, and the gateway
-// subscribed 171 of the 471 swaps and was refused the other 300.
-constexpr std::size_t k_max_connections = 6;
-
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -227,9 +213,7 @@ public:
                 // OKX caps a CONNECTION at 1024 subscriptions; the pool turns
                 // that into a per-socket number instead of the process's,
                 // which is what left 171 of 471 instruments watched.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 
@@ -288,8 +272,7 @@ public:
             }
             // And the mark: OKX states it on a channel of its own,
             // `FundingUpdate` carries both, and nothing else opens it.
-            // THIS IS WHY A SWAP INSTRUMENT COSTS SIX CHANNELS AND NOT FOUR,
-            // which is the number k_max_connections above divides by.
+            // THIS IS WHY A SWAP INSTRUMENT COSTS SIX CHANNELS AND NOT FOUR.
             if (!open(channel_for(exec::SubKind::MarkPrice), symbol)) {
                 return pool_full();
             }

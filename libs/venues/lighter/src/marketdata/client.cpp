@@ -4,7 +4,7 @@
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/lighter/book.hpp>
-#include <raikiri/venues/lighter/budget.hpp>
+#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/envelope.hpp>
 #include <raikiri/venues/lighter/errors.hpp>
 #include <raikiri/venues/lighter/map.hpp>
@@ -39,12 +39,10 @@ public:
                               .port = "443",
                               .target = std::string{stream_path()}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = 0,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { on_socket_open(keys); }},
-          outbox_{state_->budget} {
+          outbox_{net::process_ip_meters()} {
         pool_.set_admit(
             [this](std::string_view frame) { return outbox_.admit(frame, state_->clock->mono()); });
     }
@@ -342,7 +340,9 @@ private:
                   "minute for this IP, so the rest of the catalogue is not priced yet",
                   queued,
                   pool_.key_count(),
-                  state_->budget->per_minute());
+                  net::process_ws_limits().ip_messages.empty()
+                      ? 0U
+                      : net::process_ws_limits().ip_messages.front().max);
     }
 
     void report_final() const noexcept {

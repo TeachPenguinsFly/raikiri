@@ -19,6 +19,7 @@
 #include <raikiri/common/time.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -38,6 +39,9 @@ struct WsConfig {
     std::size_t send_queue_capacity{256};
     std::size_t max_message_bytes{1 << 20};
     bool verify_tls{true}; // false only for local test servers
+    // Asked before every connect and reconnect: zero connects now, otherwise
+    // the nanoseconds to wait before asking again.
+    std::function<std::uint64_t()> connect_gate;
 };
 
 enum class WsCloseReason : std::uint8_t {

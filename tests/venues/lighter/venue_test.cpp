@@ -1,5 +1,5 @@
 #include <raikiri/venues/lighter/book.hpp>
-#include <raikiri/venues/lighter/budget.hpp>
+#include <raikiri/venues/lighter/outbox.hpp>
 #include <raikiri/venues/lighter/catalogue.hpp>
 #include <raikiri/venues/lighter/endpoints.hpp>
 #include <raikiri/venues/lighter/envelope.hpp>
@@ -410,12 +410,6 @@ TEST(LighterWs, AReopenAsksForBooksFirstAndEachChannelOnce) {
     EXPECT_EQ(order, expected);
 }
 
-TEST(LighterWs, OneSocketSpendsTheWholeIpBudget) {
-    EXPECT_EQ(k_max_connections, 1U);
-    EXPECT_LT(ep::k_ws_messages_per_minute, 200U);
-    EXPECT_EQ(k_max_subscriptions_per_connection, 500U);
-}
-
 constexpr std::uint64_t k_second = 1'000'000'000ULL;
 
 std::string subscribe(std::string_view channel) {
@@ -423,81 +417,22 @@ std::string subscribe(std::string_view channel) {
     return std::string{*protocol.subscribe_frame(channel)};
 }
 
-TEST(LighterBudget, RefillsAtTheMinuteRateAndNeverHoldsMoreThanABurst) {
-    MessageBudget budget{180};
-    EXPECT_EQ(budget.burst(), 6U);
-    std::uint64_t t = 1'000 * k_second;
-    std::uint32_t burst = 0;
-    while (budget.take(MonoNanos{t})) {
-        ++burst;
-    }
-    EXPECT_EQ(burst, 6U);
-    EXPECT_FALSE(budget.take(MonoNanos{t + (2 * k_second) - 1}));
-    EXPECT_TRUE(budget.take(MonoNanos{t + (2 * k_second)}));
-
-    t += 3'600 * k_second;
-    std::uint32_t after_idle = 0;
-    while (budget.take(MonoNanos{t})) {
-        ++after_idle;
-    }
-    EXPECT_EQ(after_idle, 6U);
-}
-
-TEST(LighterBudget, NoSlidingMinuteCarriesTheVenuesTwoHundred) {
-    MessageBudget budget{180};
-    std::vector<std::uint64_t> sent;
-    const std::uint64_t start = 50 * k_second;
-    for (std::uint64_t t = start; t < start + 300 * k_second; t += 10'000'000ULL) {
-        while (budget.take(MonoNanos{t})) {
-            sent.push_back(t);
-        }
-    }
-    std::size_t most = 0;
-    std::size_t tail = 0;
-    for (std::size_t head = 0; head < sent.size(); ++head) {
-        while (sent[head] - sent[tail] >= 60 * k_second) {
-            ++tail;
-        }
-        most = std::max(most, head - tail + 1);
-    }
-    EXPECT_LE(most, 186U);
-    EXPECT_GE(sent.size(), 880U);
-}
-
-TEST(LighterBudget, AReopenResendsFromWhatTheDroppedSocketLeft) {
-    const auto budget = std::make_shared<MessageBudget>(180);
-    Outbox before{budget};
-    const std::uint64_t t = 7 * k_second;
-    for (int i = 0; i < 6; ++i) {
-        EXPECT_TRUE(before.admit(subscribe("order_book/1"), MonoNanos{t}));
-    }
-    before.reopened();
-    EXPECT_EQ(before.unanswered(), 0U);
-    Outbox after{budget};
-    EXPECT_FALSE(before.admit(subscribe("order_book/1"), MonoNanos{t + 1}));
-    EXPECT_FALSE(after.admit(subscribe("order_book/1"), MonoNanos{t + 1}));
-    EXPECT_FALSE(after.admit(subscribe("order_book/1"), MonoNanos{t + k_second}));
-    EXPECT_TRUE(after.admit(subscribe("order_book/1"), MonoNanos{t + (2 * k_second)}));
-}
-
-TEST(LighterBudget, ARateRefusalAsksForTheOldestUnansweredChannelAgain) {
-    Outbox outbox{std::make_shared<MessageBudget>(180)};
-    const std::uint64_t t = 9 * k_second;
-    ASSERT_TRUE(outbox.admit(subscribe("order_book/1"), MonoNanos{t}));
-    ASSERT_TRUE(outbox.admit(subscribe("market_stats/all"), MonoNanos{t}));
-    ASSERT_TRUE(outbox.admit(subscribe("trade/1"), MonoNanos{t}));
-    ASSERT_TRUE(outbox.admit(R"({"type":"unsubscribe","channel":"order_book/2"})", MonoNanos{t}));
+TEST(LighterOutbox, ARateRefusalAsksForTheOldestUnansweredChannelAgainAndHoldsTheIp) {
+    net::IpMeters meters{net::WsLimits{.ip_messages = {{.max = 180, .window_ns = 60 * k_second}}}};
+    Outbox outbox{meters};
+    const MonoNanos t{9 * k_second};
+    ASSERT_TRUE(outbox.admit(subscribe("order_book/1"), t));
+    ASSERT_TRUE(outbox.admit(subscribe("market_stats/all"), t));
+    ASSERT_TRUE(outbox.admit(subscribe("trade/1"), t));
+    ASSERT_TRUE(outbox.admit(R"({"type":"unsubscribe","channel":"order_book/2"})", t));
     EXPECT_EQ(outbox.unanswered(), 3U);
 
     outbox.answered("order_book:1");
     outbox.answered("market_stats:all");
-    EXPECT_EQ(outbox.refused(ep::k_ws_rate_limited, MonoNanos{t}), "trade/1");
+    EXPECT_EQ(outbox.refused(ep::k_ws_rate_limited, t), "trade/1");
     EXPECT_EQ(outbox.unanswered(), 0U);
-
-    EXPECT_FALSE(outbox.admit(subscribe("trade/1"), MonoNanos{t + k_second}));
-    EXPECT_TRUE(outbox.admit(subscribe("trade/1"), MonoNanos{t + ep::k_ws_refusal_hold_ns}));
-    EXPECT_EQ(outbox.refused(30003, MonoNanos{t + ep::k_ws_refusal_hold_ns}), std::nullopt);
-    EXPECT_EQ(outbox.unanswered(), 0U);
+    EXPECT_FALSE(meters.take_message(net::steady_ns())) << "a 30009 holds the whole IP";
+    EXPECT_EQ(outbox.refused(30003, t), std::nullopt);
 }
 
 TEST(LighterEnvelope, TheSnapshotNamesItsChannel) {

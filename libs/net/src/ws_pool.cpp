@@ -1,3 +1,4 @@
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 
 #include <raikiri/log/log.hpp>
@@ -90,7 +91,24 @@ struct WsPool::Impl {
          BuildFrames build,
          OnConnectionOpen opened)
         : io{&io_ref}, config{std::move(cfg)}, handler{&shared}, settings{pool},
-          build_frames{std::move(build)}, on_open{std::move(opened)} {}
+          build_frames{std::move(build)}, on_open{std::move(opened)} {
+        const auto& limits = process_ws_limits();
+        if (!limits.configured) {
+            return;
+        }
+        if (limits.streams_per_socket != 0) {
+            settings.max_keys_per_connection = limits.streams_per_socket;
+        }
+        if (limits.sockets != 0) {
+            settings.max_connections = limits.sockets;
+        }
+        settings.send_spacing_ns = limits.socket_messages.max != 0
+                                       ? limits.socket_messages.window_ns / limits.socket_messages.max
+                                       : 0;
+        if (limits.connects.max != 0 && !config.connect_gate) {
+            config.connect_gate = [] { return process_ip_meters().connect(steady_ns()); };
+        }
+    }
 
     // Re-asks for everything one connection holds. On a first open that is the
     // keys just placed; on a reconnect it is the same set again, because the
@@ -152,6 +170,15 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
         return true;
     }
     auto& impl = *impl_;
+    const auto room_on_ip = process_ip_meters().claim_channels(keys.size());
+    if (room_on_ip < keys.size() && ::raikiri::log::logger() != nullptr) {
+        RLOG_WARN("ws pool {}: the IP carries {} subscriptions at most; {} of {} were not placed",
+                  impl.config.host,
+                  process_ws_limits().channels,
+                  keys.size() - room_on_ip,
+                  keys.size());
+    }
+    keys = keys.first(room_on_ip);
     std::size_t placed = 0;
     while (placed < keys.size()) {
         Impl::Conn* target = nullptr;
@@ -219,7 +246,8 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
 
 void WsPool::broadcast(std::string_view text) noexcept {
     for (const auto& conn : impl_->conns) {
-        if (conn->client->connected() && (!impl_->admit || impl_->admit(text))) {
+        if (conn->client->connected() && process_ip_meters().take_message(steady_ns()) &&
+            (!impl_->admit || impl_->admit(text))) {
             (void)conn->client->send(text);
         }
     }
@@ -230,7 +258,7 @@ bool WsPool::reply(std::string_view text) noexcept {
     if (conn == nullptr || !conn->connected()) {
         return false;
     }
-    if (impl_->admit && !impl_->admit(text)) {
+    if (!process_ip_meters().take_message(steady_ns()) || (impl_->admit && !impl_->admit(text))) {
         return false;
     }
     return conn->send(text);
@@ -260,6 +288,9 @@ void WsPool::poll(UnixNanos now) noexcept {
         }
         if (!conn->client->connected()) {
             continue; // the reconnect refills this one
+        }
+        if (!process_ip_meters().take_message(steady_ns())) {
+            continue;
         }
         if (impl_->admit && !impl_->admit(conn->pending.front())) {
             continue;

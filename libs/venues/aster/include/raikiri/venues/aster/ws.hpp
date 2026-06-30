@@ -53,11 +53,6 @@ inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
-// A connection accepts at most ep::k_ws_max_streams streams and is closed
-// past it, and a single SUBSCRIBE message is rejected whole if it is too
-// large, so callers batch through subscribe_frame() until it reports
-// everything consumed.
-inline constexpr std::size_t k_max_streams_per_connection = ep::k_ws_max_streams - 20;
 inline constexpr std::size_t k_max_streams_per_frame = 32;
 
 // Builds "btcusdt@bookTicker" and friends into `out`. Returns empty for a

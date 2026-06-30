@@ -38,9 +38,6 @@ inline constexpr std::string_view k_stream_live = "fstream.asterdex.com";
 
 // --- sockets -------------------------------------------------------------
 inline constexpr std::string_view k_ws_combined = "/stream";
-// MEASURED 2026-09-25: one socket subscribed a stream at a time is closed
-// with 3003 "subscribed channels exceeds limit" at 200, the documented number.
-inline constexpr std::size_t k_ws_max_streams = 200;
 
 // --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_exchange_info = "/fapi/v1/exchangeInfo";

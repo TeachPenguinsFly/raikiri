@@ -31,10 +31,6 @@ inline constexpr std::string_view k_trade_channel = "trade";
 inline constexpr std::string_view k_perp_stats_all = "market_stats/all";
 inline constexpr std::string_view k_spot_stats_all = "spot_market_stats/all";
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 500;
-
-// The message budget is the IP's, so a second socket would buy no subscriptions.
-inline constexpr std::size_t k_max_connections = 1;
 
 // A reopen resends the whole set at that pace, so books go first, then the stats, then
 // trades; each channel once.

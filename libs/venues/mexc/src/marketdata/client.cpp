@@ -33,27 +33,6 @@ namespace {
 // missed ping and a reconnect inside the window.
 constexpr std::uint64_t k_app_ping_interval_ns = 10'000'000'000ULL;
 
-// MEXC states no message rate for the futures socket. MEASURED 2026-09-07
-// against contract.mexc.com/edge: 4744 subscribe frames sent at 25 a second on
-// ONE connection were all accepted, none refused, and 1185 of 1186 contracts
-// pushed on all four channels. Ten a second is that with a margin of 2.5, and
-// the pool spends it per connection rather than once for the process.
-constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
-
-// Enough sockets for MEXC's whole FUTURES catalogue at 512 keys each: 1183
-// contracts times the four channels the gateway asks for — depth.full, deal,
-// depth and ticker — is 4732, so ten would do and sixteen leaves room for the
-// contracts MEXC lists. It is the largest catalogue any venue here serves, and
-// the one socket before this refused every instrument past the 128th.
-//
-// SIXTEEN DOES NOT COVER SPOT, and no number here can hide that: at the venue's
-// measured 30 keys a socket (ws.hpp) sixteen carry 480 keys, which is 160 of
-// the 375 listed pairs across bbo, trades and depth. The rest are REFUSED —
-// said out loud by the gateway rather than dropped by the venue in silence,
-// which is what the 512 above bought. Covering the catalogue needs 38 sockets
-// and a measurement of what MEXC allows one IP; neither has been made.
-constexpr std::size_t k_max_connections = 16;
-
 constexpr std::uint64_t k_spot_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 // One spot frame. Protobuf, so nothing here is text and the JSON classifier
@@ -281,12 +260,7 @@ public:
                 // socket rather than a number MEXC states; ws.hpp records what
                 // one connection was measured to carry and why the share is
                 // what bounds the ask.
-                net::WsPoolConfig{.max_keys_per_connection =
-                                      state_->market == MarketType::Spot
-                                          ? k_max_spot_subscriptions_per_connection
-                                          : k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
         spot_rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
     }

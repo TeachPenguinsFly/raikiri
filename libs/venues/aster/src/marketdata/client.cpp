@@ -37,26 +37,6 @@ namespace {
 // continuously; a poll a minute is far finer than the fact changes.
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// Aster drops a connection that sends more than about five messages a
-// second, counted per socket. Four a second leaves room for the pings sharing
-// the same budget.
-constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
-
-// Enough sockets for aster's whole catalogue AT THE PACKING ws.hpp CHOOSES,
-// and the two numbers have to be read together. 571 USD-M listings times the
-// three streams the gateway asks for — @bookTicker, @trade and @depth@<cadence>
-// — is 1713. At k_max_streams_per_connection that is ten sockets, and twelve
-// leaves room for the listings aster adds.
-//
-// LOWERING THE PACKING WITHOUT RAISING THIS IS A SILENT COVERAGE LOSS: four
-// sockets at 300 keys is a ceiling of 1200 against 1713 asked for, and the
-// pool refuses the rest. Measured that way: 400 depth books of 571, and 377 of
-// 538 instruments quoting, with no error anywhere but the refusal counter.
-//
-// Funding is not a fourth stream: @markPrice is acknowledged here and then
-// never sends, so the rate is pulled over REST instead.
-constexpr std::size_t k_max_connections = 12;
-
 // SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
 // weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
 // the queue from arriving as one burst; what actually bounds it is the admit
@@ -297,12 +277,7 @@ public:
                               .port = "443",
                               .target = std::string{stream_path()}},
                 handler_,
-                // Aster caps one CONNECTION at ep::k_ws_max_streams streams;
-                // the pool turns that into a per-socket number instead of the
-                // process's.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_streams_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
         // The seeds, the funding pull and the 24-hour table all ride this one
         // pool, and aster counts every one of them against the same weight

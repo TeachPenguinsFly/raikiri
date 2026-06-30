@@ -66,9 +66,6 @@ inline constexpr std::string_view k_orders_channel = "orders";
 // letting the turnover column stay blank on every OKX row.
 inline constexpr std::string_view k_tickers_channel = "tickers";
 
-// A connection's subscription ceiling is generous; the op-message budget is
-// the real constraint, so frames carry as many args as fit.
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
 inline constexpr std::size_t k_max_subscriptions_per_frame = 64;
 
 class Protocol {

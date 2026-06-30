@@ -26,16 +26,6 @@ namespace raikiri::venues::deribit::detail {
 
 namespace {
 
-// Enough sockets for deribit's whole catalogue at 1024 channels each: 1812
-// listings times four channels is 7248, so eight would do and sixteen leaves
-// room for the strikes deribit lists and expires daily.
-constexpr std::size_t k_max_connections = 16;
-
-// The pool spaces sends per socket while every socket spends ONE per-IP
-// bucket, so each gets 1/k_max_connections of half the refill.
-constexpr std::uint64_t k_subscribe_spacing_ns =
-    2ULL * 1'000'000'000ULL / ep::k_ip_requests_per_s * k_max_connections;
-
 static_assert(k_max_subscriptions_per_frame * (k_max_channel_len + 3) + 256 < ep::k_max_frame_bytes);
 
 // A pool key is one channel. Deribit names the instrument INSIDE it —
@@ -96,9 +86,7 @@ public:
                 // Deribit caps a CONNECTION at 1024 channels; the pool turns
                 // that into a per-socket number instead of the process's, which
                 // is what left 256 of 1812 listings watched.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
         handler_.attach(pool_);
     }

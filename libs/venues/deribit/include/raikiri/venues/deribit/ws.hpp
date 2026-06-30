@@ -66,8 +66,6 @@ struct Subscription {
     std::string_view channel;
 };
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
-
 // Every subscribe spends one request of the per-IP bucket whatever it carries,
 // so a frame holds as many channels as fit well inside ep::k_max_frame_bytes.
 inline constexpr std::size_t k_max_subscriptions_per_frame = 256;

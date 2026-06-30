@@ -95,6 +95,19 @@ TEST(Settings, TheCommittedCostsWeighHyperliquidAndKraken) {
     EXPECT_EQ(kraken.cost("/derivatives/api/v3/openpositions"), 2U);
 }
 
+TEST(Settings, LighterHoldsOneSocketUnderTheIpsTwoHundredAMinute) {
+    const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    const auto& lighter = file->venues.at("lighter");
+    const auto* sockets = find_limit(lighter, "ws_sockets");
+    const auto* minute = find_limit(lighter, "ws_messages", "ip");
+    ASSERT_NE(sockets, nullptr);
+    ASSERT_NE(minute, nullptr);
+    EXPECT_EQ(sockets->max, 1U);
+    EXPECT_LT(minute->max, 200U);
+    EXPECT_EQ(minute->window_ms, 60000U);
+}
+
 TEST(Settings, ABadLimitIsRefusedNamingTheVenueAndTheLimit) {
     const auto load = [](std::string_view limit) {
         return load_venues(write_temp(std::string{"venues:\n  okx:\n    limits:\n      - "} +

@@ -31,6 +31,7 @@
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
@@ -1259,6 +1260,8 @@ int main(int argc, char** argv) {
             if (const auto limits = config::rest_limits(it->second); !limits.empty()) {
                 budget.emplace(limits, config::rest_costs(it->second), it->second.default_cost);
             }
+            net::set_process_ws_limits(net::ws_limits(
+                venue_name, it->second, market == MarketType::Spot ? "spot" : "perp"));
             answer_timeout_ns = it->second.order_answer_timeout_ms * 1'000'000ULL;
             book_depth = it->second.book_depth;
             market_data_feed = it->second.market_data_feed;

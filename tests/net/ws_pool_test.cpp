@@ -1,8 +1,12 @@
 #include <raikiri/net/io_context.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -191,6 +195,105 @@ TEST(WsPool, AnEmptyAskIsNotAnError) {
     auto pool = make(io, handler, {});
     EXPECT_TRUE(pool.subscribe({}));
     EXPECT_EQ(pool.connection_count(), 0U);
+}
+
+struct ProcessLimits {
+    explicit ProcessLimits(const WsLimits& limits) { set_process_ws_limits(limits); }
+    ~ProcessLimits() { set_process_ws_limits(WsLimits{}); }
+    ProcessLimits(const ProcessLimits&) = delete;
+    ProcessLimits& operator=(const ProcessLimits&) = delete;
+};
+
+TEST(WsPoolLimits, TheTableSizesThePoolOverWhatTheAdapterPassed) {
+    const ProcessLimits limits{WsLimits{.configured = true, .streams_per_socket = 180, .sockets = 2}};
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 50, .max_connections = 16});
+    EXPECT_TRUE(pool.subscribe(names(360)));
+    EXPECT_EQ(pool.connection_count(), 2U) << "180 a socket, not the adapter's 50";
+    EXPECT_FALSE(pool.subscribe(names(1, "extra"))) << "two sockets is the ceiling";
+}
+
+TEST(WsPoolLimits, AnIpChannelCapIsSharedByEveryPoolOfTheProcess) {
+    const ProcessLimits limits{WsLimits{.configured = true, .channels = 100}};
+    IoContext io;
+    Silent handler;
+    auto first = make(io, handler, {.max_keys_per_connection = 50});
+    auto second = make(io, handler, {.max_keys_per_connection = 50});
+    EXPECT_TRUE(first.subscribe(names(70, "a")));
+    EXPECT_TRUE(second.subscribe(names(70, "b")));
+    EXPECT_EQ(first.key_count() + second.key_count(), 100U);
+}
+
+// The per-IP log belongs to the process, so a socket that reopens — or a second
+// pool — spends the same allowance rather than starting a fresh one.
+TEST(WsPoolLimits, PacingNeverExceedsTheIpLimitAcrossAReconnect) {
+    const WsLimits table{.configured = true,
+                         .ip_messages = {{.max = 6, .window_ns = 2'000'000'000ULL},
+                                         {.max = 180, .window_ns = 60'000'000'000ULL}}};
+    const ProcessLimits limits{table};
+    auto& meters = process_ip_meters();
+    std::vector<std::uint64_t> sent;
+    IoContext io;
+    Silent handler;
+    auto pool = std::make_unique<WsPool>(io, WsConfig{.host = "example.invalid"}, handler, WsPoolConfig{}, one_each);
+    for (std::uint64_t t = 0; t < 300'000'000'000ULL; t += 10'000'000ULL) {
+        if (t % 50'000'000'000ULL == 0) {
+            pool = std::make_unique<WsPool>(io, WsConfig{.host = "example.invalid"}, handler, WsPoolConfig{}, one_each);
+            ASSERT_EQ(&process_ip_meters(), &meters) << "a reopened pool must not start a fresh allowance";
+        }
+        while (meters.take_message(t)) {
+            sent.push_back(t);
+        }
+    }
+    std::size_t most_minute = 0;
+    std::size_t most_two_s = 0;
+    for (std::size_t head = 0, tail_m = 0, tail_s = 0; head < sent.size(); ++head) {
+        while (sent[head] - sent[tail_m] >= 60'000'000'000ULL) {
+            ++tail_m;
+        }
+        while (sent[head] - sent[tail_s] >= 2'000'000'000ULL) {
+            ++tail_s;
+        }
+        most_minute = std::max(most_minute, head - tail_m + 1);
+        most_two_s = std::max(most_two_s, head - tail_s + 1);
+    }
+    EXPECT_LE(most_minute, 180U);
+    EXPECT_LE(most_two_s, 6U);
+    EXPECT_GE(sent.size(), 880U) << "five minutes at the stated rate";
+}
+
+TEST(WsPoolLimits, ConnectsAreMeteredPerIpAndHeldWhenRefused) {
+    IpMeters meters{WsLimits{.connects = {.max = 3, .window_ns = 1'000'000'000ULL}}};
+    EXPECT_EQ(meters.connect(0), 0U);
+    EXPECT_EQ(meters.connect(1), 0U);
+    EXPECT_EQ(meters.connect(2), 0U);
+    EXPECT_EQ(meters.connect(3), 1'000'000'000ULL - 3) << "the fourth waits for the first to age";
+    EXPECT_EQ(meters.connect(1'000'000'000ULL), 0U);
+    meters.hold_messages(0, 1);
+}
+
+TEST(WsPoolLimits, ARefusedSubscribeIsRequeuedOnItsOwnSocket) {
+    IoContext io;
+    Silent handler;
+    auto pool = make(io, handler, {.max_keys_per_connection = 2});
+    ASSERT_TRUE(pool.subscribe(names(4)));
+    const auto before = pool.pending_sends();
+    EXPECT_TRUE(pool.requeue("k3", {"again"}));
+    EXPECT_EQ(pool.pending_sends(), before + 1);
+    EXPECT_FALSE(pool.requeue("nobody", {"again"}));
+}
+
+TEST(WsLimitsFromConfig, AMarketRowAppliesOnlyToItsMarketAndAShareScalesThePerIpRows) {
+    config::VenueSettings venue;
+    venue.limits = {{.name = "perp", .kind = "ws_streams", .market = "perp", .max = 512},
+                    {.name = "spot", .kind = "ws_streams", .market = "spot", .max = 30},
+                    {.name = "ip", .kind = "ws_messages", .scope = "ip", .window_ms = 60000, .max = 180}};
+    EXPECT_EQ(ws_limits("mexc", venue, "perp").streams_per_socket, 512U);
+    EXPECT_EQ(ws_limits("mexc", venue, "spot").streams_per_socket, 30U);
+    ::setenv("RAIKIRI_MEXC_WS_SHARE", "50", 1);
+    EXPECT_EQ(ws_limits("mexc", venue, "perp").ip_messages.front().max, 90U);
+    ::unsetenv("RAIKIRI_MEXC_WS_SHARE");
 }
 
 } // namespace

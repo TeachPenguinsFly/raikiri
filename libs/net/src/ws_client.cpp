@@ -145,7 +145,7 @@ public:
         }
         running_ = true;
         backoff_ms_ = cfg_.reconnect_min_ms;
-        begin_connect();
+        admit_connect();
     }
 
     void stop() {
@@ -512,7 +512,23 @@ private:
                 if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
                     return;
                 }
-                self->begin_connect();
+                self->admit_connect();
+            });
+    }
+
+    void admit_connect() {
+        const auto wait_ns = cfg_.connect_gate ? cfg_.connect_gate() : 0;
+        if (wait_ns == 0) {
+            begin_connect();
+            return;
+        }
+        reconnect_timer_.expires_after(std::chrono::nanoseconds{wait_ns});
+        reconnect_timer_.async_wait(
+            [self = shared_from_this(), gen = generation_](const beast::error_code& ec) {
+                if (self->dead_ || ec || !self->running_ || gen != self->generation_) {
+                    return;
+                }
+                self->admit_connect();
             });
     }
 

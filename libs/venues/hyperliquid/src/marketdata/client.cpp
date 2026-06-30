@@ -33,30 +33,6 @@ namespace {
 // toward that timer, so the app ping runs well inside it.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
-// MEASURED 2026-09-08 against api.hyperliquid.xyz/ws. The venue polices a
-// subscribe burst nowhere near this hard — 1000 frames sent in a tight loop on
-// ONE connection were all acked, none refused, and the socket stayed open — but
-// a burst inside one minute says nothing about a rate held for longer, so the
-// pace is what WAS held: 1304 frames over 65 s, once on a single socket and
-// once split across two, with no refusal either way.
-//
-// It buys a ramp rather than a drop. A connection's keys are asked at ten a
-// second, quote first, so a spot gateway is fully subscribed about a minute
-// after it starts and the later channels on the later coins are not there yet.
-constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
-
-// Enough sockets for the spot catalogue at 1000 keys each: 326 pairs times the
-// four channels the gateway asks for — bbo, trades, l2Book and activeAssetCtx
-// — is 1304, so two carry it, and the 177 perpetuals are 708 keys on one. Six
-// covers the 1024 pairs catalogue.hpp sizes its buffer for, and is far under
-// the hundred connections one IP is allowed.
-//
-// WHAT SCALES WITH IT IS THE SEND RATE, not the socket count. Two sockets at
-// the spacing above were measured to hold; six would spend three times that
-// from one address and nothing here has measured that. A catalogue that ever
-// needs the sixth needs k_subscribe_spacing_ns widened in the same change.
-constexpr std::size_t k_max_connections = 6;
-
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto kind = parse_event(frame);
     if (!kind.has_value()) {
@@ -221,9 +197,7 @@ public:
                 // The ceiling is a CONNECTION's, not the process's — reading it
                 // as the process's refused 76 of the 326 spot pairs outright,
                 // and ws.hpp has what one socket was measured to serve.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {

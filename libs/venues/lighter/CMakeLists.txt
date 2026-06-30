@@ -8,7 +8,7 @@ add_library(raikiri_venue_lighter STATIC
   src/types/map.cpp
   src/types/market_data.cpp
   src/types/ws.cpp
-  src/budget.cpp
+  src/outbox.cpp
   src/marketdata/client.cpp
 )
 add_library(raikiri::venue_lighter ALIAS raikiri_venue_lighter)
