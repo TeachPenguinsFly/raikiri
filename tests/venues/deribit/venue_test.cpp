@@ -897,14 +897,14 @@ TEST(DeribitWs, SubscribeFramesAreJsonRpcAndCapped) {
     EXPECT_FALSE(protocol.subscribe_frame(poisoned).has_value());
     EXPECT_FALSE(protocol.subscribe_frame({}).has_value());
 
-    // The batch ceiling is what bounds that blast radius.
-    std::array<Subscription, k_max_subscriptions_per_frame + 4> many{};
+    // The table's ws_frame bounds that blast radius; the builder takes what it is handed.
+    std::array<Subscription, 260> many{};
     for (auto& entry : many) {
         entry.channel = "ticker.BTC-PERPETUAL.100ms";
     }
     const auto capped = protocol.subscribe_frame(many);
     ASSERT_TRUE(capped.has_value());
-    EXPECT_EQ(capped->consumed, k_max_subscriptions_per_frame);
+    EXPECT_EQ(capped->consumed, many.size());
 }
 
 TEST(DeribitWs, HeartbeatFramesMatchWhatDeribitAnswered) {

@@ -66,7 +66,6 @@ inline constexpr std::string_view k_orders_channel = "orders";
 // letting the turnover column stay blank on every OKX row.
 inline constexpr std::string_view k_tickers_channel = "tickers";
 
-inline constexpr std::size_t k_max_subscriptions_per_frame = 64;
 
 class Protocol {
 public:

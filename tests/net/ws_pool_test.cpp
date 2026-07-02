@@ -296,5 +296,14 @@ TEST(WsLimitsFromConfig, AMarketRowAppliesOnlyToItsMarketAndAShareScalesThePerIp
     ::unsetenv("RAIKIRI_MEXC_WS_SHARE");
 }
 
+TEST(WsLimitsFromConfig, AFrameRowSetsSubscriptionsPerFrameAndOneWhenUnset) {
+    config::VenueSettings venue;
+    venue.limits = {{.name = "frame", .kind = "ws_frame", .max = 64}};
+    EXPECT_EQ(ws_limits("okx", venue, "perp").subscriptions_per_frame, 64U);
+    EXPECT_EQ(frame_subscriptions(), 1U);
+    const ProcessLimits limits{ws_limits("okx", venue, "perp")};
+    EXPECT_EQ(frame_subscriptions(), 64U);
+}
+
 } // namespace
 } // namespace raikiri::net

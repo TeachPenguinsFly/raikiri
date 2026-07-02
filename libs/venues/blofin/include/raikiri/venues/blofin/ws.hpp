@@ -15,9 +15,6 @@ inline constexpr std::string_view k_trades_channel = "trades";
 inline constexpr std::string_view k_funding_channel = "funding-rate";
 inline constexpr std::string_view k_tickers_channel = "tickers";
 
-inline constexpr std::size_t k_max_keys_per_connection = 1000;
-inline constexpr std::size_t k_max_connections = 3;
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 50ULL * 1'000'000ULL;
 // The venue closes a socket that has pushed nothing for 30 s; its docs ask for a text ping.
 inline constexpr std::uint64_t k_ping_interval_ns = 15ULL * 1'000'000'000ULL;
 

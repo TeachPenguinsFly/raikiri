@@ -22,12 +22,6 @@ inline constexpr std::string_view k_perp_pack = "perp_market24h_pack_p";
 inline constexpr std::string_view k_inverse_ticker = "market24h";
 inline constexpr std::string_view k_spot_ticker = "spot_market24h";
 
-// The venue refuses the 102nd subscription on a socket with 6015, across
-// every channel together; the docs' 20 is not what it enforces.
-inline constexpr std::size_t k_max_keys_per_connection = 90;
-inline constexpr std::size_t k_max_connections = 8;
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 60ULL * 1'000'000ULL;
-
 // Unpinged, the venue drops a socket at ~31 s with no close frame.
 inline constexpr std::uint64_t k_ping_interval_ns = 10ULL * 1'000'000'000ULL;
 

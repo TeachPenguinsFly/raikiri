@@ -108,7 +108,7 @@ Protocol::event_frame(std::string_view event, std::span<const Subscription> subs
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t batch = 0;
-    while (batch < subscriptions.size() && batch < k_max_products_per_frame &&
+    while (batch < subscriptions.size() &&
            subscriptions[batch].feed == feed) {
         if (subscriptions[batch].product_id.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};

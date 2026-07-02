@@ -16,7 +16,6 @@ inline constexpr std::string_view k_mark_price_stream = "markPrice.";
 // The 200 ms aggregate, not realtime: the same chain at a fraction of the frames.
 inline constexpr std::string_view k_depth_stream = "depth.200ms.";
 
-inline constexpr std::size_t k_max_streams_per_connection = 1000;
 inline constexpr std::size_t k_max_streams_per_frame = 50;
 
 [[nodiscard]] std::string_view stream_prefix(exec::SubKind kind) noexcept;

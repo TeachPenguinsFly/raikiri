@@ -24,10 +24,6 @@ inline constexpr std::string_view k_instruments = "/exchange/v1/public/get-instr
 
 // Per method, per IP; config/venues.yaml holds half of it.
 inline constexpr std::uint32_t k_public_rest_per_method_per_s = 100;
-inline constexpr std::uint32_t k_ws_requests_per_s = 100;
-
-// Past this the venue refuses each subscribe with 40107.
-inline constexpr std::size_t k_max_channels_per_connection = 400;
 
 // A larger subscribe frame is dropped whole, with no error and no data.
 inline constexpr std::size_t k_max_frame_bytes = 4000;

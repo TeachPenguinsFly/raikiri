@@ -34,21 +34,6 @@ namespace {
 // rather than for the one measured; the value is a ceiling, not a buffer.
 constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
 
-// Coinbase allows 8 subscribe/unsubscribe frames a second PER IP, and that is
-// the one place the pool's pacing has to be told the difference: its spacing
-// is per connection, while every socket here spends the SAME budget. Each
-// gets 1/k_max_connections of it, with a fifth held back.
-constexpr std::uint64_t k_ip_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
-// Room for Coinbase's whole product list to more than double: eight sockets
-// at the 512 keys ws.hpp gives one is 4096, which is 1365 products across
-// ticker, matches and level2_batch — against the 522 online today, and
-// against the 837 the venue lists at all with the delisted counted in.
-// Today's catalogue is 1566 keys and takes four of the eight.
-constexpr std::size_t k_max_connections = 8;
-
-constexpr std::uint64_t k_subscribe_spacing_ns = k_ip_subscribe_spacing_ns * k_max_connections;
-
 // The book's own ts_event: every Coinbase timestamp is ISO-8601 text, and an
 // unreadable one falls back to ingest rather than to zero.
 UnixNanos book_time(std::string_view text, UnixNanos fallback) {
@@ -213,9 +198,7 @@ public:
                 // it as the process's left 342 of 522 products watched and the
                 // other 180 rows blank. ws.hpp has what one socket was
                 // measured to serve and why the share it is given is smaller.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 

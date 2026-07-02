@@ -23,12 +23,6 @@ namespace raikiri::venues::bitfinex::detail {
 
 namespace {
 
-// Bitfinex takes subscriptions one channel to a frame, so a socket's whole ask
-// costs its key count in sends. MEASURED 2026-09-08: 549 of them went out at
-// eight a second on one connection and not one was refused for pace — only for
-// the channel limit. 150 ms is that with margin, spent per connection.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
 // Enough sockets for bitfinex's whole SPOT catalogue at 36 channels each: 183
 // pairs times three channels — ticker, trades and book — is 549, which fills
 // fifteen sockets and leaves nine keys on a sixteenth (MEASURED: exactly that).
@@ -441,7 +435,6 @@ private:
             // connection's. The pool's own placement is what `place` does
             // across these single-socket pools instead.
             net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                              .send_spacing_ns = k_subscribe_spacing_ns,
                               .max_connections = 1},
             [this](std::span<const std::string> keys) { return build_frames(keys); });
         return socket;

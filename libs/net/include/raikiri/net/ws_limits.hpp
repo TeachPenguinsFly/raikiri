@@ -27,6 +27,7 @@ struct WsLimits {
     std::size_t streams_per_socket{0};
     std::size_t sockets{0};
     std::size_t channels{0};
+    std::size_t subscriptions_per_frame{0};
     WsRate socket_messages;
     std::vector<WsRate> ip_messages;
     WsRate connects;
@@ -72,6 +73,9 @@ private:
     std::size_t channels_max_{0};
     std::size_t channels_used_{0};
 };
+
+// How many subscriptions one subscribe frame may carry; one when unconfigured.
+[[nodiscard]] std::size_t frame_subscriptions() noexcept;
 
 void set_process_ws_limits(const WsLimits& limits);
 [[nodiscard]] const WsLimits& process_ws_limits() noexcept;

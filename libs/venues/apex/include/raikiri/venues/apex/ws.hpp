@@ -23,10 +23,6 @@ enum class WsBuildError : std::uint8_t {
 // instrument's topics and never more.
 inline constexpr std::size_t k_max_topics_per_frame = 4;
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 256;
-inline constexpr std::size_t k_max_connections = 4;
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 50ULL * 1'000'000ULL;
-
 inline constexpr std::string_view k_book_prefix = "orderBook25.H.";
 inline constexpr std::string_view k_trade_prefix = "recentlyTrade.H.";
 inline constexpr std::string_view k_instrument_prefix = "instrumentInfo.H.";

@@ -34,23 +34,6 @@ namespace {
 // contracts the gateway watches.
 constexpr std::uint64_t k_funding_poll_interval_ns = 2'000'000'000ULL;
 
-// How long between two subscribe sends on ONE connection. BingX names a single
-// dataType per message, so a connection at its 200-topic ceiling is 200 frames
-// and takes 30 seconds to ask for all of them — every connection draining in
-// parallel, so that is the whole catalogue's ramp and not a multiple of it. The
-// venue states no websocket message allowance at all, which is a reason to keep
-// gate's spacing rather than to invent a faster one.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
-// Enough sockets for BingX's whole catalogue at 200 topics each: 1002
-// perpetual contracts, measured 2026-09-07, times four dataTypes — bookTicker,
-// trade, depth100@100ms, and the ticker a Funding subscription registers — is
-// 4008, so twenty-one would do and twenty-four leaves room for the contracts
-// BingX lists. The ceiling that would hurt to trip is the IP's sixty
-// websockets (ws.hpp), and twenty-four leaves that room for the user stream
-// and for a spot gateway beside this one.
-constexpr std::size_t k_max_connections = 24;
-
 // A pool key is one symbol and one dataType suffix, joined by a byte neither
 // can contain. The pool stores keys as opaque strings and hands them back when
 // a socket reconnects, so this is the only place that knows the shape.
@@ -200,9 +183,7 @@ public:
                 handler_,
                 // BingX caps a CONNECTION at 200 topics; the pool turns that
                 // into a per-socket number instead of the process's ceiling.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
         handler_.attach(pool_);

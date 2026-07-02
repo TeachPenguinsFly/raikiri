@@ -408,7 +408,7 @@ private:
     //
     // ONE FRAME PER KEY. `param` names a single symbol on futures and `params`
     // a single channel on spot, so a connection's set costs its key count in
-    // sends — which is what k_max_subscriptions_per_connection bounds.
+    // sends — which is what the venues table's ws_streams bounds.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         const bool spot = state_->market == MarketType::Spot;
         std::vector<Subscription> views;

@@ -20,15 +20,6 @@ namespace raikiri::venues::pacifica::ep {
 inline constexpr std::string_view k_markets = "/api/v1/info";
 inline constexpr std::string_view k_ws_path = "/ws";
 
-// The stated default is 20 subscriptions per channel per connection; holding
-// the whole socket to 20 keeps any mix of channels under it.
-inline constexpr std::size_t k_max_keys_per_connection = 20;
-
-// 100 connections per IP, stated.
-inline constexpr std::size_t k_max_connections = 24;
-
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
-
 // A socket that has sent nothing for 60 s is closed; inbound data does not count.
 inline constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 

@@ -52,24 +52,6 @@ inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
-// A connection accepts at most 1024 streams, and a single SUBSCRIBE message
-// is rejected whole if it is too large, so callers batch through
-// subscribe_frame() until it reports everything consumed.
-//
-// FILLED TO 1024 THE SOCKET GETS KICKED, and that is a rate limit rather than
-// a count limit. Depth here is a diff stream at 100 ms, so a thousand streams
-// is ten thousand frames a second down one TCP connection; the venue drops a
-// client it decides is reading too slowly, and every book on that socket loses
-// its delta chain at once. Measured on the deployed box: one socket carrying
-// 1024 keys, four reopens in five minutes, and a depth-book count that
-// converged to five unseeded and then jumped back to a hundred and seventy
-// every time — with a reseed burst behind each jump that pushed the weight
-// counter to 2297 of an allowed 2400. bybit, gate and okx on the same host
-// reopened zero times; they publish snapshots rather than a diff firehose.
-//
-// Three hundred is the number the socket survives. It costs more connections —
-// about six for a full perpetual catalogue — which binance does not meter.
-inline constexpr std::size_t k_max_streams_per_connection = 300;
 inline constexpr std::size_t k_max_streams_per_frame = 32;
 
 // Builds "btcusdt@bookTicker" and friends into `out`. Returns empty for a

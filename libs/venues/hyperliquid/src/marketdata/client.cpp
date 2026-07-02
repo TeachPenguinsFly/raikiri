@@ -194,9 +194,8 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path()}},
                 handler_,
-                // The ceiling is a CONNECTION's, not the process's — reading it
-                // as the process's refused 76 of the 326 spot pairs outright,
-                // and ws.hpp has what one socket was measured to serve.
+                // 1000 a socket, and usually 1000 an IP too: both are in the
+                // venues table.
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
@@ -270,7 +269,7 @@ private:
     //
     // ONE FRAME PER KEY — the subscription object holds a single type and coin
     // — so a connection's set costs its key count in sends, which is what
-    // k_max_subscriptions_per_connection bounds.
+    // the venues table's ws_streams bounds.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
         views.reserve(keys.size());

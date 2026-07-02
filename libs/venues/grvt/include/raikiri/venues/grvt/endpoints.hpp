@@ -33,13 +33,5 @@ inline constexpr std::string_view k_book_rate = "@500";
 inline constexpr std::string_view k_ticker_stream = "v1.ticker.s";
 inline constexpr std::string_view k_ticker_rate = "@5000";
 
-// Below what the venue allows, so a dropped socket re-snapshots only part of the catalogue.
-inline constexpr std::size_t k_max_keys_per_connection = 400;
-inline constexpr std::size_t k_max_connections = 4;
-
-inline constexpr std::size_t k_max_selectors_per_frame = 50;
-
-// Stays under the stated 300 subscriptions a minute.
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 250ULL * 1'000'000ULL;
 
 } // namespace raikiri::venues::grvt::ep

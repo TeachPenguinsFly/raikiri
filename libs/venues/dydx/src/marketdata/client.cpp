@@ -28,9 +28,6 @@ constexpr std::uint64_t k_ns_per_s = 1'000'000'000ULL;
 constexpr std::uint64_t k_catalogue_poll_ns = 60 * k_ns_per_s;
 constexpr std::uint32_t k_poll_timeout_ms = 10'000;
 
-constexpr std::uint64_t k_subscribe_spacing_ns = 50ULL * 1'000'000ULL;
-constexpr std::size_t k_max_connections = 4;
-
 // How long after the last subscribe goes out before the unanswered ones are named.
 constexpr std::uint64_t k_coverage_grace_ns = 10 * k_ns_per_s;
 
@@ -48,9 +45,7 @@ public:
                               .target = std::string{ep::k_ws}},
                 handler_,
                 // One key is one ticker and costs one subscription on each channel.
-                net::WsPoolConfig{.max_keys_per_connection = ep::k_max_subscriptions_per_channel,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { on_socket_open(keys); }},
           rest_{state_->io,

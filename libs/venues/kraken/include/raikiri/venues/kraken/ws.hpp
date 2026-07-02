@@ -55,8 +55,6 @@ void add_subscription(std::vector<OwnedSubscription>& set,
                       std::string_view feed,
                       std::string_view product_id);
 
-inline constexpr std::size_t k_max_subscriptions_per_connection = 1024;
-inline constexpr std::size_t k_max_products_per_frame = 64;
 
 // The private feeds. They ride the SAME socket shape as the public ones and
 // differ only in the three credential fields the subscribe carries, which is

@@ -50,6 +50,8 @@ ws_limits(std::string_view venue, const config::VenueSettings& settings, std::st
             out.streams_per_socket = limit.max;
         } else if (limit.kind == "ws_sockets") {
             out.sockets = scaled<std::size_t>(limit.max, share);
+        } else if (limit.kind == "ws_frame") {
+            out.subscriptions_per_frame = limit.max;
         } else if (limit.kind == "ws_channels") {
             out.channels = scaled<std::size_t>(limit.max, share);
         } else if (limit.kind == "ws_connects") {
@@ -129,6 +131,10 @@ std::size_t IpMeters::channels_claimed() const noexcept {
 void set_process_ws_limits(const WsLimits& limits) {
     g_limits = limits;
     g_meters = std::make_unique<IpMeters>(limits);
+}
+
+std::size_t frame_subscriptions() noexcept {
+    return std::max<std::size_t>(1, g_limits.subscriptions_per_frame);
 }
 
 const WsLimits& process_ws_limits() noexcept {

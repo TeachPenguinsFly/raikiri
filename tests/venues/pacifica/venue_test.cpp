@@ -245,7 +245,6 @@ TEST(PacificaCaps, PerpMarketDataOnly) {
     EXPECT_EQ(to_string(VenueId::Pacifica), "pacifica");
     EXPECT_EQ(venue_from_string("pacifica"), VenueId::Pacifica);
     EXPECT_EQ(static_cast<int>(VenueId::Pacifica), 30);
-    EXPECT_EQ(ep::k_max_keys_per_connection, 20U);
 }
 
 } // namespace

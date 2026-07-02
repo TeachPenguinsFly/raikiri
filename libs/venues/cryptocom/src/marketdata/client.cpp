@@ -20,12 +20,6 @@ namespace raikiri::venues::cryptocom::detail {
 
 namespace {
 
-constexpr std::uint64_t k_subscribe_spacing_ns = 50ULL * 1'000'000ULL;
-
-// A perpetual costs six channels and a pair three: the full perp catalogue
-// needs six sockets at 400. Lowering this refuses instruments.
-constexpr std::size_t k_max_connections = 8;
-
 [[nodiscard]] bool has_logger() noexcept {
     return ::raikiri::log::logger() != nullptr;
 }
@@ -53,9 +47,7 @@ public:
                               .port = "443",
                               .target = std::string{ep::k_ws_market}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = ep::k_max_channels_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 

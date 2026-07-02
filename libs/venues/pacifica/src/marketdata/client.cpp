@@ -213,9 +213,7 @@ public:
                               .port = "443",
                               .target = std::string{ep::k_ws_path}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = ep::k_max_keys_per_connection,
-                                  .send_spacing_ns = ep::k_subscribe_spacing_ns,
-                                  .max_connections = ep::k_max_connections},
+                net::WsPoolConfig{},
                 [](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {

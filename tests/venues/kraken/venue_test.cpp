@@ -847,7 +847,8 @@ TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds
     std::size_t tickers = 0;
     while (sent < views.size()) {
         const auto frame =
-            protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(sent));
+            protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+                sent, std::min<std::size_t>(64, views.size() - sent)));
         ASSERT_TRUE(frame.has_value());
         if (views[sent].feed == "ticker") {
             tickers += frame->consumed;
@@ -856,7 +857,7 @@ TEST(KrakenWs, TheWholeLiveCatalogueSubscribesInFewerFramesThanTheSendQueueHolds
         ++frames;
     }
     EXPECT_EQ(tickers, perps);
-    EXPECT_EQ(frames, 3 * ((perps + k_max_products_per_frame - 1) / k_max_products_per_frame));
+    EXPECT_EQ(frames, 3 * ((perps + 63) / 64));
     EXPECT_LT(frames, net::WsConfig{}.send_queue_capacity);
 }
 

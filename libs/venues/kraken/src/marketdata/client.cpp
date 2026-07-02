@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/venues/kraken/book.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
@@ -123,8 +124,8 @@ std::size_t send_subscriptions(VenueState& state,
     }
     std::size_t sent = 0;
     while (sent < views.size()) {
-        const auto frame =
-            state.protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(sent));
+        const auto frame = state.protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+            sent, std::min(net::frame_subscriptions(), views.size() - sent)));
         if (!frame.has_value() || frame->consumed == 0 || !client.send(frame->text)) {
             break;
         }
@@ -206,7 +207,8 @@ public:
         if (feed.empty()) {
             return DataClient::subscribe(kind, instrument);
         }
-        if (state_->desired.size() >= k_max_subscriptions_per_connection) {
+        if (const auto cap = net::process_ws_limits().streams_per_socket;
+            cap != 0 && state_->desired.size() >= cap) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "subscription limit reached")};
         }

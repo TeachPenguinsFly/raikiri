@@ -20,9 +20,6 @@ inline constexpr std::string_view k_perpetual_markets = "/v4/perpetualMarkets";
 inline constexpr std::uint32_t k_rest_requests_per_window = 100;
 inline constexpr std::uint64_t k_rest_window_ns = 10ULL * 1'000'000'000ULL;
 
-// Per channel per socket: a socket may carry 32 books AND 32 trade tapes.
-inline constexpr std::size_t k_max_subscriptions_per_channel = 32;
-
 // Per channel and ticker; one more within the second closes the socket.
 inline constexpr std::uint32_t k_subscribes_per_key_per_s = 2;
 

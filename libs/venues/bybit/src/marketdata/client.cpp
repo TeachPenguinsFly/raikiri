@@ -22,11 +22,6 @@
 namespace raikiri::venues::bybit::detail {
 namespace {
 
-// Enough sockets for bybit's whole catalogue at 512 topics each: 855 linear
-// listings times three topics — orderbook, publicTrade and tickers — is 2565,
-// so six would do and eight leaves room for the listings bybit adds.
-constexpr std::size_t k_max_connections = 8;
-
 // Routes one public frame. Kept separate from the client so the dispatch is
 // testable without a socket.
 void handle_public_frame(VenueState& state, std::string_view frame, UnixNanos received) {
@@ -154,9 +149,7 @@ public:
                 handler_,
                 // Bybit caps one CONNECTION's args array, not the process; the
                 // pool turns that into a per-socket number.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
 

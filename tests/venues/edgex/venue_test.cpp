@@ -444,10 +444,5 @@ TEST(EdgexWs, FramesAreTheVenuesOwnShape) {
     EXPECT_EQ(*off, R"({"type":"unsubscribe","channel":"ticker.all.1s"})");
 }
 
-TEST(EdgexWs, ThePoolStaysUnderWhatOneSocketWasSeenToCarry) {
-    EXPECT_LE(k_max_keys_per_connection, ep::k_subscriptions_without_refusal);
-    EXPECT_GE(k_max_keys_per_connection * k_max_connections, 2U * 180U + 1U);
-}
-
 } // namespace
 } // namespace raikiri::venues::edgex

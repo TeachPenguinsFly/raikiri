@@ -31,17 +31,6 @@ namespace {
 // control frames toward that timer, so the app ping runs inside the window.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
-// Bitget takes 10 messages a second on one connection. A frame every 150 ms is
-// under that with room for the app ping, which spends the same allowance.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
-// Enough sockets for bitget's whole catalogue at 500 channels each: 779
-// perpetuals times three channels — ticker, trade and books15, since Bbo,
-// Funding and MarkPrice all name ticker — is 2337, so five would do and eight
-// leaves room for the contracts bitget lists. Far under the hundred
-// connections one IP is allowed, which is the ceiling that would hurt to trip.
-constexpr std::size_t k_max_connections = 8;
-
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -178,9 +167,7 @@ public:
                 // The ceiling is a CONNECTION's, not the process's — reading
                 // it as the process's left 334 of 779 perpetuals watched, and
                 // ws.hpp has what one socket is actually served.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {

@@ -1,5 +1,6 @@
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/grvt/book.hpp>
 #include <raikiri/venues/grvt/endpoints.hpp>
@@ -76,9 +77,7 @@ public:
                               .port = "443",
                               .target = std::string{ep::k_ws_path}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = ep::k_max_keys_per_connection,
-                                  .send_spacing_ns = ep::k_subscribe_spacing_ns,
-                                  .max_connections = ep::k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
     std::expected<void, exec::VenueError> start() override {
@@ -360,8 +359,9 @@ private:
                     selectors.push_back(key.substr(cut + 1));
                 }
             }
-            for (std::size_t at = 0; at < selectors.size(); at += ep::k_max_selectors_per_frame) {
-                const auto take = std::min(ep::k_max_selectors_per_frame, selectors.size() - at);
+            const auto per_frame = net::frame_subscriptions();
+            for (std::size_t at = 0; at < selectors.size(); at += per_frame) {
+                const auto take = std::min(per_frame, selectors.size() - at);
                 frames.push_back(frame(stream, std::span{selectors}.subspan(at, take)));
             }
         }

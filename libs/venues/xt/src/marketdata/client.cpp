@@ -42,21 +42,6 @@ constexpr std::uint64_t k_funding_min_spacing_ns = 250'000'000ULL;
 // Inside XT's 30 s idle window with room for a missed one and a reconnect.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
-// One send carries up to k_max_subscriptions_per_frame topics, so a
-// connection's whole ask is its key count divided by 32 — a 150 ms floor
-// covers the futures tree's fullest socket in under three seconds. XT states
-// no message rate for either public socket; this is the pacing every other
-// pooled venue here runs at, spent per connection rather than once.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
-// Enough sockets for either tree at 192 keys each: the futures catalogue's 657
-// contracts across four channels — depth, ticker, trade and mark_price — is
-// 2628 keys and takes 14, and spot's 486 pairs across three takes 8. Room for
-// 1152 contracts, and under what one IP is served: 24 connections opened on
-// fstream and 22 were still up 75 s later, so the ceiling that would hurt to
-// trip is not this one.
-constexpr std::size_t k_max_connections = 24;
-
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -213,9 +198,7 @@ public:
                 // The ceiling is a CONNECTION's, not the process's — reading it
                 // as the process's left 342 of 486 spot pairs watched, and
                 // ws.hpp has what one socket was measured to carry.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
 

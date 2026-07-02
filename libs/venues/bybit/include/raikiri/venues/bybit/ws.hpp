@@ -71,18 +71,6 @@ inline constexpr std::array<std::uint32_t, 4> k_book_tiers{1, 50, 200, 1000};
 // consumed.
 inline constexpr std::size_t k_max_topics_per_frame = 10;
 
-// What ONE connection may carry. Bybit states this ceiling in CHARACTERS
-// rather than topics — one public connection may not hold an args array over
-// 21,000 characters — and documents no topic count for linear at all, which is
-// why it accepted the whole catalogue and then quoted 25 of 150 sampled
-// instruments: those 2565 topics are 57,477 characters of args, and only the
-// first 851 of them are inside the cap.
-//
-// The longest topic built here is 32 characters ("orderbook.50." and bybit's
-// longest linear symbol), costing 35 in the array with its quotes and comma,
-// so 512 of them is 17,920 — under the cap whatever mix lands on the socket.
-inline constexpr std::size_t k_max_subscriptions_per_connection = 512;
-
 // Builds "orderbook.50.BTCUSDT" and friends. Returns empty for a kind bybit
 // does not stream. `depth` must be one of k_book_tiers.
 [[nodiscard]] std::string_view topic_name(exec::SubKind kind,

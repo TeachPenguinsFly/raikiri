@@ -30,12 +30,6 @@ namespace {
 // far finer than the fact changes, and it is one call for the whole catalogue.
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// How long between two sends on ONE connection. WEEX publishes no
-// messages-per-second allowance for the socket at all, so this is the
-// conservative spacing its neighbours use: a full 100-channel connection
-// becomes four frames spread over half a second rather than one burst.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
 void handle_depth(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local LevelBuffer storage;
     const auto wire = parse_depth(frame, storage);
@@ -200,10 +194,8 @@ public:
                 // WEEX's own websocket page states "Maximum 100 channels per
                 // connection" and "maximum 20 concurrent connections per IP";
                 // the pool turns the first into a per-socket number instead of
-                // the process's, and k_max_connections stays under the second.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_channels_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                // the process's, and the socket count stays under the second.
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
         handler_.attach(pool_);

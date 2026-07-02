@@ -297,7 +297,6 @@ TEST(DydxStream, BooksAreBatchedAndTradesAreNot) {
     EXPECT_EQ(protocol.unsubscribe(Channel::Book, "BTC-USD"),
               R"({"type":"unsubscribe","channel":"v4_orderbook","id":"BTC-USD"})");
     EXPECT_TRUE(protocol.subscribe(Channel::Other, "BTC-USD").empty());
-    EXPECT_EQ(ep::k_max_subscriptions_per_channel, 32U);
 }
 
 } // namespace

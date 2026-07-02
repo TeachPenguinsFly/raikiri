@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/deribit/book.hpp>
 #include <raikiri/venues/deribit/endpoints.hpp>
@@ -25,8 +26,6 @@
 namespace raikiri::venues::deribit::detail {
 
 namespace {
-
-static_assert(k_max_subscriptions_per_frame * (k_max_channel_len + 3) + 256 < ep::k_max_frame_bytes);
 
 // A pool key is one channel. Deribit names the instrument INSIDE it —
 // book.BTC-PERPETUAL.none.1.100ms — so unlike venues that carry the symbol in
@@ -174,8 +173,8 @@ private:
         frames.emplace_back(state_->protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
         std::size_t built = 0;
         while (built < views.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(built));
+            const auto frame = state_->protocol.subscribe_frame(std::span<const Subscription>{views}.subspan(
+                built, std::min(net::frame_subscriptions(), views.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

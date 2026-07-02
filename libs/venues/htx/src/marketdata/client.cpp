@@ -216,25 +216,6 @@ net::WsConfig socket_config(std::string_view path) {
             .target = std::string{path}};
 }
 
-// MEASURED 2026-09-15: 1384 subscriptions — four topics for each of 346
-// contracts — down ONE socket at 20 ms apart, and 345 of the 346 priced. HTX
-// has no per-connection ceiling worth the name at this scale, unlike gate and
-// deribit, which cut at 256.
-//
-// WHAT IT WILL NOT TOLERATE IS THE RATE. The old client sent that same 1384 in
-// a loop with no spacing at all and 65 of 340 contracts ever priced — 19%, well
-// under the 70% line coverage_smoke.sh draws between a thin tail and a venue
-// silently dropping a chunk.
-//
-// So the number below is not a venue ceiling read off a page; it is a division
-// of the work across sockets so that each one's paced queue drains in seconds
-// rather than minutes. Four topics a contract and 340 contracts is ~1360
-// subscriptions: at 20 ms on one socket that is 27 seconds of silence at every
-// reconnect, and at 250 apiece it is six sockets and five seconds.
-inline constexpr std::size_t k_max_topics_per_connection = 250;
-inline constexpr std::uint64_t k_subscribe_spacing_ns = 20ULL * 1'000'000ULL;
-inline constexpr std::size_t k_max_connections = 12;
-
 // The topic is `market.<code>.<suffix>`, and a key here is the half after
 // `market.`. SPLIT ON THE FIRST DOT: a suffix carries dots of its own
 // ("trade.detail", "depth.step0") and a contract code never does, so the last
@@ -250,17 +231,13 @@ public:
           market_{state_->io,
                   socket_config(market_path()),
                   market_handler_,
-                  net::WsPoolConfig{.max_keys_per_connection = k_max_topics_per_connection,
-                                    .send_spacing_ns = k_subscribe_spacing_ns,
-                                    .max_connections = k_max_connections},
+                  net::WsPoolConfig{},
                   [this](std::span<const std::string> keys) { return market_frames(keys); }},
           notify_handler_{*state_},
           notify_{state_->io,
                   socket_config(notify_path()),
                   notify_handler_,
-                  net::WsPoolConfig{.max_keys_per_connection = k_max_topics_per_connection,
-                                    .send_spacing_ns = k_subscribe_spacing_ns,
-                                    .max_connections = k_max_connections},
+                  net::WsPoolConfig{},
                   [this](std::span<const std::string> keys) { return notify_frames(keys); }} {
         market_handler_.attach(market_);
         notify_handler_.attach(notify_);

@@ -31,15 +31,6 @@ namespace {
 // runs well inside that window.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
-// Venues drop a client that floods the socket with SUBSCRIBE messages. One
-// frame per tick is far under any of their allowances.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
-// Enough sockets for gate's whole catalogue at 1024 channels each: 979
-// contracts times four channels is 3916, so four would do and eight leaves
-// room for the listings gate adds.
-constexpr std::size_t k_max_connections = 8;
-
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
 // refuses is left alone, because the next delta asks again.
@@ -261,9 +252,7 @@ public:
                 handler_,
                 // Gate caps a CONNECTION at 1024 channels; the pool turns that
                 // into a per-socket number instead of the process's ceiling.
-                net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
         meter_market_data(*state_, state_->depth_rest);

@@ -20,10 +20,6 @@ namespace raikiri::venues::backpack::detail {
 
 namespace {
 
-constexpr std::uint64_t k_subscribe_spacing_ns = 100ULL * 1'000'000ULL;
-
-constexpr std::size_t k_max_connections = 4;
-
 // Twenty a second: 1200 a minute against the venue's 2000.
 constexpr std::uint64_t k_seed_spacing_ns = 50ULL * 1'000'000ULL;
 
@@ -230,9 +226,7 @@ public:
                               .port = "443",
                               .target = std::string{ep::k_ws_path}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = k_max_streams_per_connection,
-                                  .send_spacing_ns = k_subscribe_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
         meter_market_data(*state_, state_->rest);

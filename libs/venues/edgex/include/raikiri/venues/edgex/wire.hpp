@@ -134,10 +134,6 @@ inline constexpr std::string_view k_depth_prefix = "depth.";
 // 15 or 200; anything else is refused with GATEWAY_INVALID_BOOK_DEPTH.
 inline constexpr std::uint32_t k_book_levels = 15;
 
-inline constexpr std::size_t k_max_keys_per_connection = 200;
-inline constexpr std::uint64_t k_send_spacing_ns = 5ULL * 1'000'000ULL;
-inline constexpr std::size_t k_max_connections = 4;
-
 // "depth.30000001.15" or "trades.30000001"; empty for a kind not read per
 // contract.
 [[nodiscard]] std::string_view

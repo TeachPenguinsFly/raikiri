@@ -39,20 +39,6 @@ constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 // every contract a minute; the classic feed never reaches this path.
 constexpr std::uint64_t k_uta_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// KuCoin allows about ten messages a second on a connection; five leaves room
-// for the application ping sharing the same budget.
-constexpr std::uint64_t k_subscribe_spacing_ns = 120ULL * 1'000'000ULL;
-
-// Enough sockets for KuCoin's whole catalogue at 1024 keys each: 673 perpetual
-// contracts times four topics is 2692, so three would do and six leaves room
-// for the contracts KuCoin lists. Far under the fifty connections a user id is
-// allowed, which is the ceiling that would actually hurt to trip.
-// 673 contracts times four topics is 2692 topic-symbol pairs, and a socket
-// carries a hundred — so twenty-seven, and thirty-two leaves room for the
-// contracts kucoin lists. Well under the fifty connections one user id is
-// allowed, which is the ceiling that would actually hurt.
-constexpr std::size_t k_max_connections = 32;
-
 // What one REST pool holds before it refuses on its own: two warm connections
 // times eight waiters. It matters here because RestClient asks the admit gate
 // BEFORE the pool answers, so a request the pool was always going to drop
@@ -802,15 +788,13 @@ private:
             handler_,
             // ONE HUNDRED, WHICH IS KUCOIN'S OWN CEILING PER CONNECTION, and
             // it is counted in topic-symbol pairs however they are batched
-            // into frames. Set to k_max_subscriptions_per_connection (1024)
+            // into frames. Set to 1024
             // this looked fine and was not: the venue took the first hundred
             // on each socket and dropped the rest in silence, so with the
             // quote ranked first every symbol quoted while the ladder — ranked
             // last — never arrived at all. Measured: 10 instruments gave
             // depth=13866, 673 gave depth=0.
-            net::WsPoolConfig{.max_keys_per_connection = k_max_topics_per_connection,
-                              .send_spacing_ns = k_subscribe_spacing_ns,
-                              .max_connections = k_max_connections},
+            net::WsPoolConfig{},
             [this](std::span<const std::string> keys) { return build_frames(keys); },
             [this](std::span<const std::string> keys) { invalidate_books(keys); });
         pool_->start();

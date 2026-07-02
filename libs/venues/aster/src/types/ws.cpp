@@ -75,7 +75,7 @@ Protocol::method_frame(std::string_view method, std::span<const std::string_view
     if (streams.empty()) {
         return std::unexpected{WsBuildError::TooManyStreams};
     }
-    const auto batch = std::min(streams.size(), k_max_streams_per_frame);
+    const auto batch = streams.size();
     for (std::size_t i = 0; i < batch; ++i) {
         if (streams[i].empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};

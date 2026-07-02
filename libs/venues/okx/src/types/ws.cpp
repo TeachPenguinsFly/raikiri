@@ -68,7 +68,7 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
-    const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
+    const auto batch = subscriptions.size();
     for (std::size_t i = 0; i < batch; ++i) {
         // One of the two identifies the target; neither is a subscription to
         // everything, which OKX would answer with 60018.

@@ -411,7 +411,6 @@ TEST(PhemexWs, KeysAndFramesFollowTheInstrumentsEncoding) {
               R"({"id":1,"method":"orderbook_p.subscribe","params":["BTCUSDT"]})");
     EXPECT_EQ(protocol.subscribe_frame("perp_market24h_pack_p"),
               R"({"id":2,"method":"perp_market24h_pack_p.subscribe","params":[]})");
-    EXPECT_LE(k_max_keys_per_connection, 100U);
 }
 
 } // namespace

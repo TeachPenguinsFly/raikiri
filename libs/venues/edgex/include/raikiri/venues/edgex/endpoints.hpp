@@ -36,6 +36,5 @@ inline constexpr std::string_view k_spot_meta = "/api/v1/public/meta/getMetaData
 // Measured floors, not the venue's limits: no 429 at either, and the venue
 // states none. The adapter makes one REST call per start.
 inline constexpr std::uint32_t k_rest_rps_without_refusal = 135;
-inline constexpr std::size_t k_subscriptions_without_refusal = 3601;
 
 } // namespace raikiri::venues::edgex::ep

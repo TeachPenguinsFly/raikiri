@@ -946,23 +946,6 @@ TEST(WeexWs, AnEmptyChannelIsRefusedRatherThanTakingTheFrameDownWithIt) {
     EXPECT_FALSE(protocol.subscribe_frame({}).has_value());
 }
 
-TEST(WeexWs, ThePoolHoldsTheWholeCatalogueWithoutPassingTheIpCap) {
-    // The two ceilings WEEX states — 100 channels a connection, 20 connections
-    // an IP — multiply to 2000, and its own catalogue needs 3060: three
-    // channels for each of 1020 contracts. Held to both, this gateway
-    // subscribed 534 and 486 contracts stayed blank. So the test is not that
-    // the constants match the page, which pinned the failure in place; it is
-    // that the pool covers the catalogue and stops short of the cap that would
-    // actually cost us the connection.
-    constexpr std::size_t k_catalogue_channels = 1020U * 3U;
-    EXPECT_GE(k_max_channels_per_connection * k_max_connections, k_catalogue_channels);
-    EXPECT_LT(k_max_connections, 20U);
-    EXPECT_LE(k_max_channels_per_frame, k_max_channels_per_connection);
-    // Server-driven keepalive: WEEX does not echo the ping's timestamp, so the
-    // answer is a constant rather than a frame built per ping.
-    EXPECT_EQ(k_pong_frame, R"({"method":"PONG","id":1})");
-}
-
 TEST(WeexWs, EveryAddressIsSpelledOnceAndTheBuilderUsesIt) {
     EXPECT_EQ(stream_host(), ep::k_stream_host);
     EXPECT_EQ(stream_path(), ep::k_ws_public);

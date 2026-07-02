@@ -35,10 +35,6 @@ namespace raikiri::venues::bybit::detail {
 // is comfortably inside that rather than at it.
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 
-// Venues drop a client that floods the socket with SUBSCRIBE messages. One
-// frame per tick is far under any of their allowances.
-constexpr std::uint64_t k_subscribe_spacing_ns = 150ULL * 1'000'000ULL;
-
 // State every bybit connection shares within one gateway process. Single
 // threaded by contract: the gateway loop is the only caller, which is why
 // nothing here synchronises.

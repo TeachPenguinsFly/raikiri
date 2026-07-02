@@ -11,6 +11,7 @@
 
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/net/signer.hpp>
+#include <raikiri/venues/deribit/endpoints.hpp>
 
 #include <array>
 #include <cstdint>
@@ -66,9 +67,6 @@ struct Subscription {
     std::string_view channel;
 };
 
-// Every subscribe spends one request of the per-IP bucket whatever it carries,
-// so a frame holds as many channels as fit well inside ep::k_max_frame_bytes.
-inline constexpr std::size_t k_max_subscriptions_per_frame = 256;
 
 class Protocol {
 public:
@@ -108,7 +106,7 @@ private:
                   std::string_view method,
                   std::span<const Subscription> subscriptions);
 
-    std::array<char, (k_max_subscriptions_per_frame * (k_max_channel_len + 3)) + 256> frame_{};
+    std::array<char, ep::k_max_frame_bytes> frame_{};
     std::array<char, 24> nonce_{};
     std::array<char, 192> sign_msg_{};
     std::array<char, net::k_hex_bytes> signature_{};

@@ -41,9 +41,7 @@ public:
                               .port = "443",
                               .target = std::string{ep::k_ws_path}},
                 handler_,
-                net::WsPoolConfig{.max_keys_per_connection = k_max_keys_per_connection,
-                                  .send_spacing_ns = k_send_spacing_ns,
-                                  .max_connections = k_max_connections},
+                net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { on_socket_open(keys); }} {}
 
