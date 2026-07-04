@@ -177,7 +177,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             if (!count.has_value()) {
                 return std::unexpected(count.error());
             }
-            (index == 0 ? out.bids : out.asks) = {into.data(), *count};
+            (index == 0 ? out.bids : out.asks) = std::span<const WireLevel>{into.data(), *count};
             ++index;
         }
         if (index != 2) {

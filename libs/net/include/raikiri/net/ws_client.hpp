@@ -41,7 +41,7 @@ struct WsConfig {
     bool verify_tls{true}; // false only for local test servers
     // Asked before every connect and reconnect: zero connects now, otherwise
     // the nanoseconds to wait before asking again.
-    std::function<std::uint64_t()> connect_gate;
+    std::function<std::uint64_t()> connect_gate{};
 };
 
 enum class WsCloseReason : std::uint8_t {
