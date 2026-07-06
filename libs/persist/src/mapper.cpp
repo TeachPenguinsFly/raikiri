@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order_events.hpp>
 #include <raikiri/persist/mapper.hpp>
@@ -275,6 +276,13 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         // The table refuses a non-positive step, and one refused row would
         // stall every batch behind it.
         if (m.tickSize().value() > 0 && m.lotSize().value() > 0) {
+            std::string asset_class{"unknown"};
+            std::string underlying;
+            if (frame.schema_version >= 5) {
+                asset_class = std::string{
+                    to_string(static_cast<AssetClass>(sbepp::to_underlying(m.assetClass())))};
+                underlying = trim_fixed(m.underlying());
+            }
             batch.instruments.push_back({
                 .instrument_id = id.packed,
                 .generation = m.generation().value(),
@@ -285,6 +293,8 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
                 .contract_kind = m.kind() == K::Linear    ? "linear"
                                  : m.kind() == K::Inverse ? "inverse"
                                                           : "unknown",
+                .asset_class = std::move(asset_class),
+                .underlying = std::move(underlying),
                 .tick_size_e9 = m.tickSize().value(),
                 .lot_size_e9 = m.lotSize().value(),
                 .min_notional_e9 = std::max<std::int64_t>(m.minNotional().value(), 0),

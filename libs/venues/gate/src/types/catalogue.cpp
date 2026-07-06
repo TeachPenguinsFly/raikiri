@@ -76,6 +76,8 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.funding_interval_s = static_cast<std::uint32_t>(*interval);
             out.funding_rate_limit =
                 detail::opt_str(obj, "funding_rate_limit").value_or(std::string_view{});
+            out.contract_type =
+                detail::opt_str(obj, "contract_type").value_or(std::string_view{});
             out.funding_next_apply_s = *next_apply;
             out.in_delisting = *delisting;
             storage.contracts[count] = out;

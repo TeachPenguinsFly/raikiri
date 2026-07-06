@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/xt/account.hpp>
 #include <raikiri/venues/xt/book.hpp>
@@ -1933,6 +1934,39 @@ TEST(XtMap, AFuturesTickerStatesItsBaseVolumeInContracts) {
     const auto unstated = map_ticker_stats(silent, table, UnixNanos{1});
     ASSERT_TRUE(unstated.has_value());
     EXPECT_TRUE(unstated->volume_24h_base.is_undef());
+}
+
+InstrumentBase classified_xt(std::string_view symbol, std::string_view tags) {
+    WireInstrument wire{};
+    wire.symbol = symbol;
+    wire.product_type = "perpetual";
+    wire.tick_size = "0.01";
+    wire.contract_size = "0.01";
+    wire.tags = tags;
+    wire.state = 0;
+    wire.qty_precision = 0;
+    wire.trade_switch = true;
+    wire.open_api = true;
+    const auto mapped = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(mapped.has_value());
+    auto base = mapped.has_value() ? base_of(*mapped) : InstrumentBase{};
+    classify(VenueId::Xt, base);
+    return base;
+}
+
+TEST(XtMap, TagsClassifyTheUnderlying) {
+    const auto tsla = classified_xt("tslax_usdt", R"(["STOCK"])");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    const auto xau = classified_xt("xau_usdt", R"(["METAL"])");
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+    const auto sp500 = classified_xt("sp500_usdt", R"(["INDEX"])");
+    EXPECT_EQ(sp500.asset_class, AssetClass::Index);
+    EXPECT_EQ(sp500.underlying.view(), "SPX");
+    const auto spx = classified_xt("spx_usdt", "null");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+    EXPECT_EQ(classified_xt("bond_usdt", R"(["BOND"])").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

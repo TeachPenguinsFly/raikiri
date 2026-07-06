@@ -22,6 +22,7 @@ struct WireInstrument {
     std::string_view contract_value;
     std::string_view tick_size;
     std::string_view lot_size; // in contracts
+    std::string_view asset_class; // Crypto | Stocks | Commodities | Indices
 };
 
 inline constexpr std::size_t k_max_instruments = 2048;

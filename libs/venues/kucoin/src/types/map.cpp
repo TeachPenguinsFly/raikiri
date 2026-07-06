@@ -391,6 +391,23 @@ std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
     return merged(*instrument, memo, ms_to_unix(wire.ts_ms, ts_init), ts_init);
 }
 
+namespace {
+
+[[nodiscard]] AssetClass asset_class_of(std::string_view asset_class) noexcept {
+    if (asset_class == "CRYPTO") {
+        return AssetClass::Crypto;
+    }
+    if (asset_class == "STOCK") {
+        return AssetClass::Equity;
+    }
+    if (asset_class == "COMMODITY" || asset_class == "METAL") {
+        return AssetClass::Commodity;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
     switch (market) {
     case MarketType::Perp:
@@ -437,6 +454,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = asset_class_of(wire.asset_class);
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *multiplier;
@@ -680,6 +698,7 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = AssetClass::Crypto;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_funds = to_e9(wire.min_funds); min_funds.has_value()) {

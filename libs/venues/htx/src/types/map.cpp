@@ -6,6 +6,7 @@
 #include <charconv>
 #include <limits>
 #include <optional>
+#include <string>
 #include <variant>
 
 namespace raikiri::venues::htx {
@@ -396,6 +397,27 @@ map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
+namespace {
+
+// HTX files SPY and QQQ under Indices; the shared aliases lift the true indices.
+[[nodiscard]] AssetClass asset_class_of(std::string_view labels) noexcept {
+    const auto has = [&](std::string_view label) {
+        return labels.find(std::string{"\""} + std::string{label} + "\"") != std::string_view::npos;
+    };
+    if (labels.empty() || labels == "null" || labels == "[]") {
+        return AssetClass::Crypto;
+    }
+    if (has("Metals") || has("Commodities")) {
+        return AssetClass::Commodity;
+    }
+    if (has("Stocks") || has("Indices")) {
+        return AssetClass::Equity;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
     if (wire.contract_status != k_contract_listed) {
         return std::nullopt;
@@ -422,6 +444,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.id = InstrumentId::make(VenueId::Htx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
+    base.asset_class = asset_class_of(wire.tradfi_labels);
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);
     base.contract_value = *size;
@@ -455,6 +478,7 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     base.id = InstrumentId::make(VenueId::Htx, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
+    base.asset_class = AssetClass::Crypto;
     base.tick_size = FixedE9::from_raw(power_of_ten(wire.price_precision));
     base.lot_size = FixedE9::from_raw(power_of_ten(wire.amount_precision));
     if (const auto min_value = exact_e9(wire.min_order_value); min_value.has_value()) {

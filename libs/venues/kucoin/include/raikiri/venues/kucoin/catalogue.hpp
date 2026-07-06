@@ -25,6 +25,7 @@ struct WireContract {
     std::string_view quote_currency;
     std::string_view status; // "Open"
     std::string_view type;   // FFWCSX perpetual, FFICSX dated
+    std::string_view asset_class; // CRYPTO, STOCK, COMMODITY, METAL
     std::string_view tick_size;
     std::string_view lot_size;
     std::string_view multiplier;

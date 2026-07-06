@@ -208,6 +208,25 @@ std::optional<SymbolText> canonical_of(std::string_view symbol) {
     return canonical_symbol(pair->first.view(), pair->second.view());
 }
 
+[[nodiscard]] AssetClass asset_class_of(std::string_view contract_type) noexcept {
+    if (contract_type.empty()) {
+        return AssetClass::Crypto;
+    }
+    if (contract_type == "stocks") {
+        return AssetClass::Equity;
+    }
+    if (contract_type == "indices") {
+        return AssetClass::Index;
+    }
+    if (contract_type == "commodities" || contract_type == "metals") {
+        return AssetClass::Commodity;
+    }
+    if (contract_type == "forex") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
 } // namespace
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
@@ -236,6 +255,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = asset_class_of(wire.contract_type);
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);
     const auto quanto = parse_decimal_e9(wire.quanto_multiplier);
@@ -292,6 +312,7 @@ std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = AssetClass::Crypto;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto notional = to_e9(wire.min_quote_amount); notional.has_value()) {

@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/hyperliquid/account.hpp>
 #include <raikiri/venues/hyperliquid/book.hpp>
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
@@ -2069,6 +2070,42 @@ TEST(HyperliquidHip3, EveryChannelNamesTheCoinWithItsDex) {
     const auto stats = map_ticker_stats(*ctx, table, ts);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 266'855'056'880'799LL);
+}
+
+TEST(HyperliquidHip3, ADexPrefixClassesByTheCuratedTableAndNeverDefaults) {
+    const auto dex = [](std::string_view name) {
+        auto instrument =
+            map_dex_instrument({.name = name, .sz_decimals = 3, .max_leverage = 10}, "USDC");
+        EXPECT_TRUE(instrument.has_value()) << name;
+        if (!instrument.has_value()) {
+            return InstrumentBase{};
+        }
+        classify(VenueId::Hyperliquid, *instrument);
+        return base_of(*instrument);
+    };
+    const auto tsla = dex("xyz:TSLA");
+    EXPECT_EQ(tsla.local_symbol.view(), "xyz:TSLA/USDC");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+
+    const auto gold = dex("xyz:GOLD");
+    EXPECT_EQ(gold.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(gold.underlying.view(), "XAU");
+
+    const auto sp500 = dex("xyz:SP500");
+    EXPECT_EQ(sp500.asset_class, AssetClass::Index);
+    EXPECT_EQ(sp500.underlying.view(), "SPX");
+
+    const auto unlisted = dex("xyz:NOTCURATED");
+    EXPECT_EQ(unlisted.asset_class, AssetClass::Unknown);
+    EXPECT_TRUE(unlisted.underlying.empty());
+
+    auto coin =
+        map_instrument({.name = "SPX", .sz_decimals = 1, .max_leverage = 5}, MarketType::Perp);
+    ASSERT_TRUE(coin.has_value());
+    classify(VenueId::Hyperliquid, *coin);
+    EXPECT_EQ(base_of(*coin).asset_class, AssetClass::Crypto);
+    EXPECT_EQ(base_of(*coin).underlying.view(), "SPX");
 }
 
 } // namespace

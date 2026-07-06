@@ -29,6 +29,7 @@ struct WireContract {
     // publish the two sides separately. One field, applied as +limit and
     // -limit, because that is what the venue means by it.
     std::string_view funding_rate_limit;
+    std::string_view contract_type; // "" crypto, stocks, indices, commodities, metals, forex
     bool in_delisting{false};
 };
 

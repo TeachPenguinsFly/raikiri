@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/gate/account.hpp>
 #include <raikiri/venues/gate/book.hpp>
@@ -2189,6 +2190,39 @@ TEST(GateSpotWs, TheTwoDepthChannelsTakeTheirArgumentsInOppositeOrders) {
                                  std::string{k_depth_level} + R"("])"),
               std::string_view::npos)
         << futures->text;
+}
+
+
+InstrumentBase classified_contract(std::string_view name, std::string_view contract_type) {
+    WireContract wire{};
+    wire.name = name;
+    wire.status = "trading";
+    wire.order_price_round = "0.01";
+    wire.order_size_min = "1";
+    wire.quanto_multiplier = "0.01";
+    wire.funding_interval_s = 28'800;
+    wire.contract_type = contract_type;
+    const auto mapped = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(mapped.has_value());
+    auto base = mapped.has_value() ? base_of(*mapped) : InstrumentBase{};
+    classify(VenueId::Gate, base);
+    return base;
+}
+
+TEST(GateMap, ContractTypeClassifiesTheUnderlying) {
+    const auto tsla = classified_contract("TSLA_USDT", "stocks");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+    const auto xau = classified_contract("XAU_USDT", "metals");
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+    const auto spx = classified_contract("SPX_USDT", "");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+    const auto ndx = classified_contract("NAS100_USDT", "indices");
+    EXPECT_EQ(ndx.asset_class, AssetClass::Index);
+    EXPECT_EQ(ndx.underlying.view(), "NDX");
+    EXPECT_EQ(classified_contract("BOND_USDT", "bonds").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

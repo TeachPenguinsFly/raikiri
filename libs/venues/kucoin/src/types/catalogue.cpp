@@ -57,6 +57,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             }
             out.base_currency = *base_currency;
             out.quote_currency = *quote_currency;
+            out.asset_class = detail::opt_str(obj, "assetClass").value_or(std::string_view{});
             for (const auto& [key, field] : {std::pair{"tickSize", &out.tick_size},
                                              std::pair{"lotSize", &out.lot_size},
                                              std::pair{"multiplier", &out.multiplier},

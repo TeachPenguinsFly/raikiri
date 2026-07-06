@@ -28,6 +28,7 @@ struct WireContract {
     std::string_view business_type; // "swap" on every row this endpoint serves
     std::string_view contract_type;
     std::string_view delivery_time; // empty on a swap, an epoch on a delisting
+    std::string_view tradfi_labels; // raw JSON: [], ["Stocks"], ["Metals"], ...
     std::int64_t contract_status{0};
     std::int64_t settlement_period_h{0};
     std::uint64_t settlement_ms{0};

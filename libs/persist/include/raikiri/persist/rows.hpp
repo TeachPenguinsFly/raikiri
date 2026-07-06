@@ -141,6 +141,8 @@ struct InstrumentRow {
     std::string exchange_symbol;
     std::string local_symbol;
     std::string contract_kind;
+    std::string asset_class{"unknown"};
+    std::string underlying;
     std::int64_t tick_size_e9{0};
     std::int64_t lot_size_e9{0};
     std::int64_t min_notional_e9{0};

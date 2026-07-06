@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/bybit/map.hpp>
 
 #include <gtest/gtest.h>
@@ -511,6 +512,48 @@ TEST(BybitMapIds, OversizedIdentifiersAreRefusedNotTruncated) {
     wire.exec_qty = "0.012";
     wire.exec_id = std::string(64, 'x'); // ExecId holds 40
     EXPECT_FALSE(map_execution(wire, table, k_ingest).has_value());
+}
+
+TEST(BybitMapInstrument, SymbolTypeSetsTheAssetClass) {
+    const auto classified = [](std::string_view symbol,
+                               std::string_view base_coin,
+                               std::string_view symbol_type) {
+        WireInstrument wire{};
+        wire.symbol = symbol;
+        wire.base_coin = base_coin;
+        wire.quote_coin = "USDT";
+        wire.contract_type = "LinearPerpetual";
+        wire.symbol_type = symbol_type;
+        wire.status = "Trading";
+        wire.tick_size = "0.01";
+        wire.qty_step = "0.001";
+        wire.min_notional = "5";
+        wire.funding_interval_min = 480;
+        auto instrument = map_instrument(wire, MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value());
+        if (!instrument.has_value()) {
+            return InstrumentBase{};
+        }
+        classify(VenueId::Bybit, *instrument);
+        return base_of(*instrument);
+    };
+
+    const auto tsla = classified("TSLAUSDT", "TSLA", "stock");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+
+    const auto amd = classified("AMDSTOCKUSDT", "AMDSTOCK", "stock");
+    EXPECT_EQ(amd.underlying.view(), "AMD");
+
+    const auto xau = classified("XAUUSDT", "XAU", "commodity");
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+
+    const auto spx = classified("SPXUSDT", "SPX", "");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+
+    EXPECT_EQ(classified("BONDUSDT", "BOND", "bond").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

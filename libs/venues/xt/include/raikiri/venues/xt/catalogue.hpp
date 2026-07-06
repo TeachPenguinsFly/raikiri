@@ -29,6 +29,7 @@ struct WireInstrument {
     std::string_view tick_size;    // minStepPrice
     std::string_view contract_size;
     std::string_view min_notional;
+    std::string_view tags; // raw JSON: null, ["STOCK"], ["METAL"], ["INDEX"], ...
     std::int64_t state{-1};
     std::int64_t qty_precision{-1};
     bool trade_switch{false};

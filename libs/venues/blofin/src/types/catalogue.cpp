@@ -25,7 +25,8 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                                              std::pair{"contractType", &out.contract_type},
                                              std::pair{"contractValue", &out.contract_value},
                                              std::pair{"tickSize", &out.tick_size},
-                                             std::pair{"lotSize", &out.lot_size}}) {
+                                             std::pair{"lotSize", &out.lot_size},
+                                             std::pair{"assetClass", &out.asset_class}}) {
                 const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());

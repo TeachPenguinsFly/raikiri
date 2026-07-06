@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/backpack/book.hpp>
 #include <raikiri/venues/backpack/catalogue.hpp>
 #include <raikiri/venues/backpack/envelope.hpp>
@@ -70,6 +71,54 @@ TEST(BackpackCatalogue, OneListCarriesBothMarketsAndOnlyOpenRowsMap) {
     }
     EXPECT_EQ(spot, (std::vector<std::string>{"SOL_USDC"}));
     EXPECT_EQ(perp, (std::vector<std::string>{"SOL_USDC_PERP", "NVDA.US_USDC_PERP"}));
+}
+
+TEST(BackpackCatalogue, TheRwaMarketTypeIsTheAssetClass) {
+    MarketBuffer storage;
+    const auto body = fixture("rest_markets.json");
+    const auto rows = parse_markets(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto classified = [](const WireMarket& row) {
+        const auto instrument = map_instrument(row, MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value()) << row.symbol;
+        auto base = base_of(instrument.value_or(PerpInstrument{}));
+        const auto stated = base.asset_class;
+        classify(VenueId::Backpack, base);
+        return std::pair{stated, base};
+    };
+    for (const auto& row : *rows) {
+        if (row.symbol == "NVDA.US_USDC_PERP") {
+            EXPECT_EQ(row.rwa_market_type, "STOCK");
+            const auto [stated, nvda] = classified(row);
+            EXPECT_EQ(stated, AssetClass::Equity);
+            EXPECT_EQ(nvda.underlying.view(), "NVDA");
+        }
+        if (row.symbol == "SOL_USDC_PERP") {
+            EXPECT_TRUE(row.rwa_market_type.empty());
+        }
+    }
+
+    WireMarket wire{};
+    wire.symbol = "SPX_USDC_PERP";
+    wire.base_asset = "SPX";
+    wire.quote_asset = "USDC";
+    wire.market_type = "PERP";
+    wire.order_book_state = "Open";
+    wire.tick_size = "0.0001";
+    wire.step_size = "1";
+    const auto [spx_stated, spx] = classified(wire);
+    EXPECT_EQ(spx_stated, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+
+    wire.symbol = "SPY.US_USDC_PERP";
+    wire.base_asset = "SPY.US";
+    wire.rwa_market_type = "INDEX";
+    EXPECT_EQ(classified(wire).first, AssetClass::Index);
+
+    wire.rwa_market_type = "BOND";
+    const auto [odd_stated, odd] = classified(wire);
+    EXPECT_EQ(odd_stated, AssetClass::Unknown);
+    EXPECT_EQ(odd.asset_class, AssetClass::Unknown);
 }
 
 TEST(BackpackCatalogue, TheFundingIntervalIsTheVenuesOwnFigureAndSpotHasNone) {

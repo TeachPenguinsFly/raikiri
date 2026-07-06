@@ -573,6 +573,26 @@ map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallbac
     return out;
 }
 
+namespace {
+
+[[nodiscard]] AssetClass asset_class_of(std::string_view inst_category) noexcept {
+    if (inst_category == "1") {
+        return AssetClass::Crypto;
+    }
+    if (inst_category == "3") {
+        return AssetClass::Equity;
+    }
+    if (inst_category == "4") {
+        return AssetClass::Commodity;
+    }
+    if (inst_category == "5") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (wire.state != "live") {
         return std::nullopt;
@@ -611,6 +631,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = asset_class_of(wire.inst_category);
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (market == MarketType::Spot) {

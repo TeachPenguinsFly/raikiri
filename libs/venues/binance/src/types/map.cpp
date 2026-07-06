@@ -9,6 +9,23 @@ namespace raikiri::venues::binance {
 
 namespace {
 
+[[nodiscard]] AssetClass asset_class_of(std::string_view underlying_type) noexcept {
+    if (underlying_type == "COIN" || underlying_type == "INDEX") { // BTCDOM, DEFI, ALL
+        return AssetClass::Crypto;
+    }
+    if (underlying_type == "EQUITY" || underlying_type.ends_with("_EQUITY") ||
+        underlying_type == "PREMARKET") {
+        return AssetClass::Equity;
+    }
+    if (underlying_type == "COMMODITY") {
+        return AssetClass::Commodity;
+    }
+    if (underlying_type == "FX") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means binance changed a filter, so the message is dropped
 // rather than rounded — rounding is how an order ends up one tick away from
@@ -151,7 +168,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.status != "TRADING") {
         return std::nullopt; // SETTLING, PENDING_TRADING, CLOSE: not tradable now
     }
-    if (wire.contract_type != "PERPETUAL") {
+    if (wire.contract_type != "PERPETUAL" && wire.contract_type != "TRADIFI_PERPETUAL") {
         return std::nullopt;
     }
 
@@ -182,6 +199,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.underlying_type);
     // STAMPED FROM fundingInfo BY THE CATALOGUE LOADER, not read off the row
     // this function was handed — exchangeInfo does not carry a schedule. It
     // was 28'800 unconditionally here, and binance settles 465 of its 571

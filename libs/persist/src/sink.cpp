@@ -241,8 +241,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 pqxx::params{r.instrument_id, r.generation, r.valid_from});
         tx.exec("INSERT INTO raikiri.instruments (instrument_id, generation, venue, market_type,"
                 " local_symbol, exchange_symbol, tick_size_e9, lot_size_e9, min_notional_e9,"
-                " contract_value_e9, contract_kind, valid_from, valid_to)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,"
+                " contract_value_e9, contract_kind, valid_from, asset_class, underlying, valid_to)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,"
                 "  (SELECT MIN(valid_from) FROM raikiri.instruments"
                 "    WHERE instrument_id = $1 AND generation <> $2 AND valid_from > $12))"
                 " ON CONFLICT (instrument_id, generation) DO NOTHING",
@@ -257,7 +257,9 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.min_notional_e9,
                              r.contract_value_e9,
                              r.contract_kind,
-                             r.valid_from});
+                             r.valid_from,
+                             r.asset_class,
+                             r.underlying});
     }
 
     for (const auto& r : batch.connectivity) {

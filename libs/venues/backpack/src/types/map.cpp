@@ -182,6 +182,23 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
+namespace {
+
+AssetClass asset_class_of(std::string_view rwa_market_type) noexcept {
+    if (rwa_market_type.empty()) {
+        return AssetClass::Crypto;
+    }
+    if (rwa_market_type == "STOCK") {
+        return AssetClass::Equity;
+    }
+    if (rwa_market_type == "INDEX") {
+        return AssetClass::Index;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType market) {
     const bool perp = wire.market_type == "PERP";
     const bool spot = wire.market_type == "SPOT";
@@ -222,6 +239,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     base.lot_size = *lot;
     base.contract_value = *parse_decimal_e9("1");
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.rwa_market_type);
     if (spot) {
         return SpotInstrument{base};
     }

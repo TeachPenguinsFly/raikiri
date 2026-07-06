@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/venues/pacifica/endpoints.hpp>
 #include <raikiri/venues/pacifica/map.hpp>
@@ -245,6 +246,33 @@ TEST(PacificaCaps, PerpMarketDataOnly) {
     EXPECT_EQ(to_string(VenueId::Pacifica), "pacifica");
     EXPECT_EQ(venue_from_string("pacifica"), VenueId::Pacifica);
     EXPECT_EQ(static_cast<int>(VenueId::Pacifica), 30);
+}
+
+TEST(PacificaMap, TheCuratedTableClassesEquitiesAndMetals) {
+    const auto classified = [](WireMarket wire) {
+        auto instrument = map_instrument(wire, MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value()) << wire.symbol;
+        if (!instrument.has_value()) {
+            return InstrumentBase{};
+        }
+        classify(VenueId::Pacifica, *instrument);
+        return base_of(*instrument);
+    };
+    const auto xau = classified(row("XAU"));
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+    const auto cl = classified(row("CL"));
+    EXPECT_EQ(cl.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(cl.underlying.view(), "CL");
+    const auto btc = classified(row("BTC"));
+    EXPECT_EQ(btc.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(btc.underlying.view(), "BTC");
+
+    auto tsla = row("BTC");
+    tsla.symbol = "TSLA";
+    const auto equity = classified(tsla);
+    EXPECT_EQ(equity.asset_class, AssetClass::Equity);
+    EXPECT_EQ(equity.underlying.view(), "TSLA");
 }
 
 } // namespace

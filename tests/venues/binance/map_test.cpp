@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/errors.hpp>
@@ -226,10 +227,12 @@ TEST(BinanceMap, CatalogueRowsCarryTheCanonicalPair) {
             EXPECT_EQ(base.local_symbol.view(), "BTC/USDT");
         } else if (row.symbol == "ETHUSDT") {
             EXPECT_EQ(base.local_symbol.view(), "ETH/USDT");
+        } else if (row.symbol == "XAUUSDT") {
+            EXPECT_EQ(base.local_symbol.view(), "XAU/USDT");
         }
         ++mapped;
     }
-    EXPECT_EQ(mapped, 2U) << "XAUUSDT is tradfi-hours and OMGUSDT is settling";
+    EXPECT_EQ(mapped, 3U) << "OMGUSDT is settling";
 }
 
 TEST(BinanceMap, RowWithoutAPairIsDropped) {
@@ -795,6 +798,45 @@ TEST(BinanceMap, BalanceReadsMorePrecisionThanItStores) {
     const auto report = map_balance(wire, false);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->total.raw, 1'200'123'456'789);
+}
+
+[[nodiscard]] InstrumentBase classified(std::string_view symbol,
+                                        std::string_view base_asset,
+                                        std::string_view contract_type,
+                                        std::string_view underlying_type) {
+    WireInstrument wire{};
+    wire.symbol = symbol;
+    wire.base_asset = base_asset;
+    wire.quote_asset = "USDT";
+    wire.contract_type = contract_type;
+    wire.underlying_type = underlying_type;
+    wire.status = "TRADING";
+    wire.tick_size = "0.01";
+    wire.step_size = "0.001";
+    wire.min_notional = "5";
+    auto instrument = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(instrument.has_value());
+    if (!instrument.has_value()) {
+        return {};
+    }
+    classify(VenueId::Binance, *instrument);
+    return base_of(*instrument);
+}
+
+TEST(BinanceMap, UnderlyingTypeSetsTheAssetClass) {
+    const auto tsla = classified("TSLAUSDT", "TSLA", "TRADIFI_PERPETUAL", "EQUITY");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+
+    const auto xau = classified("XAUUSDT", "XAU", "TRADIFI_PERPETUAL", "COMMODITY");
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+
+    const auto spx = classified("SPXUSDT", "SPX", "PERPETUAL", "COIN");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+
+    EXPECT_EQ(classified("XYZUSDT", "XYZ", "PERPETUAL", "NEWTYPE").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

@@ -138,6 +138,29 @@ map_mark(const WireValue& wire, const InstrumentBase& base, FundingMemo& memo, U
     return publish_if_rated(base, memo, wire.ts_ms, ts_init);
 }
 
+namespace {
+
+AssetClass asset_class_of(std::string_view product_type) noexcept {
+    if (product_type == "DIGITAL_CURRENCIES") {
+        return AssetClass::Crypto;
+    }
+    if (product_type == "EQUITY" || product_type == "PRE_IPO") {
+        return AssetClass::Equity;
+    }
+    if (product_type == "EQUITY_IND") {
+        return AssetClass::Index;
+    }
+    if (product_type == "COMMODITIES") {
+        return AssetClass::Commodity;
+    }
+    if (product_type == "CURRENCIES") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     const bool spot = wire.inst_type == "CCY_PAIR";
     const bool perp = wire.inst_type == "PERPETUAL_SWAP";
@@ -170,6 +193,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.product_type);
     if (spot) {
         base.contract_value = FixedE9::from_raw(k_e9);
         return SpotInstrument{base};

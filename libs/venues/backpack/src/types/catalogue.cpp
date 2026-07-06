@@ -69,10 +69,12 @@ std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_
             const auto quote = detail::opt_str(obj, "quoteSymbol");
             const auto kind = detail::opt_str(obj, "marketType");
             const auto state = detail::opt_str(obj, "orderBookState");
+            const auto rwa = detail::opt_str(obj, "rwaMarketType");
             if (!base.has_value() || !quote.has_value() || !kind.has_value() ||
-                !state.has_value()) {
+                !state.has_value() || !rwa.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
+            out.rwa_market_type = *rwa;
             out.base_asset = *base;
             out.quote_asset = *quote;
             out.market_type = *kind;

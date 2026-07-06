@@ -15,6 +15,7 @@ struct WireMarket {
     std::string_view base_asset;
     std::string_view quote_asset;
     std::string_view market_type;
+    std::string_view rwa_market_type; // null on crypto, STOCK, INDEX
     std::string_view order_book_state;
     std::string_view tick_size; // filters.price.tickSize
     std::string_view step_size; // filters.quantity.stepSize

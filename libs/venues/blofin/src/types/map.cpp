@@ -23,6 +23,22 @@ std::optional<FixedE9> positive(std::string_view text) {
     return *value;
 }
 
+AssetClass asset_class_of(std::string_view text) noexcept {
+    if (text == "Crypto") {
+        return AssetClass::Crypto;
+    }
+    if (text == "Stocks") {
+        return AssetClass::Equity;
+    }
+    if (text == "Commodities") {
+        return AssetClass::Commodity;
+    }
+    if (text == "Indices") {
+        return AssetClass::Index;
+    }
+    return AssetClass::Unknown;
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -72,6 +88,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     } else {
         return std::nullopt;
     }
+    base.asset_class = asset_class_of(wire.asset_class);
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

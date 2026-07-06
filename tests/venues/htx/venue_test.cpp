@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/htx/account.hpp>
 #include <raikiri/venues/htx/envelope.hpp>
@@ -998,6 +999,30 @@ TEST(HtxWire, ReadsFieldsInAnyOrderAndSkipsWhatItDoesNotKnow) {
                               trades)
                      .has_value())
         << "direction is required";
+}
+
+AssetClass htx_class(std::string_view code, std::string_view labels) {
+    WireContract wire{};
+    wire.contract_code = code;
+    wire.symbol = code.substr(0, code.find('-'));
+    wire.contract_size = "0.01";
+    wire.price_tick = "0.01";
+    wire.business_type = "swap";
+    wire.contract_type = "swap";
+    wire.contract_status = 1;
+    wire.settlement_period_h = 8;
+    wire.tradfi_labels = labels;
+    const auto mapped = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(mapped.has_value());
+    return mapped.has_value() ? base_of(*mapped).asset_class : AssetClass::Unknown;
+}
+
+TEST(HtxMap, TradfiLabelsClassifyTheUnderlying) {
+    EXPECT_EQ(htx_class("NVDA-USDT", R"(["Stocks"])"), AssetClass::Equity);
+    EXPECT_EQ(htx_class("SPY-USDT", R"(["Indices"])"), AssetClass::Equity);
+    EXPECT_EQ(htx_class("XAU-USDT", R"(["Metals"])"), AssetClass::Commodity);
+    EXPECT_EQ(htx_class("BTC-USDT", "[]"), AssetClass::Crypto);
+    EXPECT_EQ(htx_class("TBT-USDT", R"(["Bonds"])"), AssetClass::Unknown);
 }
 
 } // namespace

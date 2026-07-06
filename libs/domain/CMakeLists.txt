@@ -1,4 +1,5 @@
 add_library(raikiri_domain STATIC
+  src/asset_class.cpp
   src/identifiers.cpp
   src/instrument.cpp
   src/order_events.cpp

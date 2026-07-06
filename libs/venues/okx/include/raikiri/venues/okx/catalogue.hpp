@@ -28,6 +28,7 @@ struct WireInstrument {
     std::string_view ct_val;
     std::string_view ct_mult;
     std::string_view ct_type; // linear | inverse; empty on SPOT and OPTION rows
+    std::string_view inst_category; // 1 crypto, 3 stocks, 4 commodities, 5 forex
 };
 
 // Sized for the SPOT catalogue, which is roughly triple the swap one: 1383

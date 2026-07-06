@@ -415,6 +415,27 @@ std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixN
     return out;
 }
 
+
+namespace {
+
+[[nodiscard]] AssetClass asset_class_of(std::string_view symbol_type) noexcept {
+    if (symbol_type.empty() || symbol_type == "innovation" || symbol_type == "adventure") {
+        return AssetClass::Crypto;
+    }
+    if (symbol_type == "stock" || symbol_type == "ETF") {
+        return AssetClass::Equity;
+    }
+    if (symbol_type == "commodity") {
+        return AssetClass::Commodity;
+    }
+    if (symbol_type == "forex") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (wire.status != "Trading") {
         return std::nullopt; // delisted or pre-launch: not tradable today
@@ -457,6 +478,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // linear perps quote in base units
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.symbol_type);
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }

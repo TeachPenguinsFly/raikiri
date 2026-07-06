@@ -1,6 +1,7 @@
 #include <raikiri/exec/instrument_source.hpp>
 
 #include <raikiri/common/abandon.hpp>
+#include <raikiri/domain/asset_class.hpp>
 
 #include <algorithm>
 #include <random>
@@ -23,6 +24,9 @@ std::expected<std::vector<Instrument>, VenueError> load_catalogue(
     for (std::uint32_t attempt = 1;; ++attempt) {
         auto loaded = source.fetch_all(market);
         if (loaded.has_value()) {
+            for (auto& instrument : *loaded) {
+                classify(base_of(instrument).id.venue(), instrument);
+            }
             return loaded;
         }
         const auto cls = loaded.error().cls;

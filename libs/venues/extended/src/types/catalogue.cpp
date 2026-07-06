@@ -66,6 +66,14 @@ std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
     }
     out.rfq = *rfq;
     out.status = *status;
+    for (const auto& [key, into] :
+         {std::pair{"category", &out.category}, std::pair{"subCategory", &out.sub_category}}) {
+        const auto value = json::opt_str(row, key);
+        if (!value.has_value()) {
+            return std::unexpected(value.error());
+        }
+        *into = *value;
+    }
     if (const auto stats = read_stats(row, out); !stats.has_value()) {
         return std::unexpected(stats.error());
     }

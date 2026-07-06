@@ -25,6 +25,7 @@
 #include <raikiri/config/rest_limits.hpp>
 #include <raikiri/config/secret.hpp>
 #include <raikiri/config/settings.hpp>
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/venue.hpp>
@@ -1320,6 +1321,9 @@ int main(int argc, char** argv) {
     std::vector<Instrument> catalogue;
     if (venue == VenueId::Sim) {
         catalogue = demo::sim_instruments();
+        for (auto& instrument : catalogue) {
+            classify(venue, instrument);
+        }
     } else {
         const auto load_deadline =
             duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
@@ -1383,6 +1387,8 @@ int main(int argc, char** argv) {
             m.minNotional(jt::fixedE9{base.min_notional.raw});
             m.contractValue(jt::fixedE9{base.contract_value.raw});
             m.tsLoaded(jt::timestampNs{loaded_at});
+            m.assetClass(static_cast<jt::assetClassEnum>(base.asset_class));
+            m.underlying().assign_range(base.underlying.view());
         });
     }
 

@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/venues/cryptocom/book.hpp>
 #include <raikiri/venues/cryptocom/catalogue.hpp>
@@ -149,6 +150,42 @@ TEST(CryptoComCatalogue, APairKeepsItsQuoteAndLoadsAsLinear) {
     EXPECT_EQ(usd.contract_value.raw, k_e9);
     EXPECT_TRUE(validate(usd));
     EXPECT_TRUE(std::holds_alternative<SpotInstrument>(*spot.find("BTC_USD")));
+}
+
+TEST(CryptoComCatalogue, TheProductTypeIsTheAssetClass) {
+    Catalogue catalogue;
+    const auto classified = [](const WireInstrument& row) {
+        const auto instrument = map_instrument(row, MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value()) << row.symbol;
+        auto base = base_of(instrument.value_or(PerpInstrument{}));
+        const auto stated = base.asset_class;
+        classify(VenueId::CryptoCom, base);
+        return std::pair{stated, base};
+    };
+    const auto [aapl_stated, aapl] = classified(*row_named(catalogue.rows, "AAPLUSD-PERP"));
+    EXPECT_EQ(aapl_stated, AssetClass::Equity);
+    EXPECT_EQ(aapl.underlying.view(), "AAPL");
+
+    auto xau_row = *row_named(catalogue.rows, "BTCUSD-PERP");
+    xau_row.symbol = "XAUUSD-PERP";
+    xau_row.base_ccy = "XAU";
+    xau_row.product_type = "COMMODITIES";
+    const auto [xau_stated, xau] = classified(xau_row);
+    EXPECT_EQ(xau_stated, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+
+    auto spx_row = *row_named(catalogue.rows, "BTCUSD-PERP");
+    spx_row.symbol = "SPXUSD-PERP";
+    spx_row.base_ccy = "SPX";
+    const auto [spx_stated, spx] = classified(spx_row);
+    EXPECT_EQ(spx_stated, AssetClass::Crypto);
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+
+    spx_row.product_type = "BONDS";
+    const auto [odd_stated, odd] = classified(spx_row);
+    EXPECT_EQ(odd_stated, AssetClass::Unknown);
+    EXPECT_EQ(odd.asset_class, AssetClass::Unknown);
 }
 
 TEST(CryptoComCatalogue, ANonTradableRowIsDropped) {

@@ -29,6 +29,8 @@ struct WireMarket {
     std::uint64_t next_funding_ms{0};
     std::string_view volume_quote; // dailyVolume
     std::string_view volume_base;  // dailyVolumeBase
+    std::string_view category;     // "Crypto", "RWA"
+    std::string_view sub_category; // "Equity", "Commodity", "ETF/Index", "FX", "L1", ...
 };
 
 inline constexpr std::size_t k_max_markets = 1024;

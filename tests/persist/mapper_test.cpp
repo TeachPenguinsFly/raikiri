@@ -148,6 +148,8 @@ void append_instrument(journal::JournalWriter& writer,
         m.minNotional(jt::fixedE9{5'000'000'000});
         m.contractValue(jt::fixedE9{0});
         m.tsLoaded(jt::timestampNs{loaded_at});
+        m.assetClass(jt::assetClassEnum::Equity);
+        m.underlying().assign_range(std::string_view{"TSLA"});
     });
 }
 
@@ -178,6 +180,8 @@ TEST(Mapper, ACatalogueEntryRoundTripsWithItsGeneration) {
     EXPECT_EQ(row.exchange_symbol, "BTCUSD");
     EXPECT_EQ(row.local_symbol, "BTC/USDT");
     EXPECT_EQ(row.contract_kind, "inverse");
+    EXPECT_EQ(row.asset_class, "equity");
+    EXPECT_EQ(row.underlying, "TSLA");
     EXPECT_EQ(row.tick_size_e9, 500'000'000);
     EXPECT_EQ(row.lot_size_e9, 1'000'000);
     EXPECT_EQ(row.min_notional_e9, 5'000'000'000);
@@ -319,7 +323,8 @@ void migrate(PgSink& sink) {
                                   "/migrations/0002_positions.sql",
                                   "/migrations/0003_reject_reason.sql",
                                   "/migrations/0004_funding_accrual.sql",
-                                  "/migrations/0005_instrument_generations.sql"}) {
+                                  "/migrations/0005_instrument_generations.sql",
+                                  "/migrations/0006_instrument_asset_class.sql"}) {
         sink.exec_file(std::string{RAIKIRI_SQL_DIR} + migration);
     }
 }

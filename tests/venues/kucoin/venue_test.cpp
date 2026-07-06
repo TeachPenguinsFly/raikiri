@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/kucoin/account.hpp>
 #include <raikiri/venues/kucoin/book.hpp>
 #include <raikiri/venues/kucoin/catalogue.hpp>
@@ -2124,6 +2125,39 @@ TEST(KucoinUtaBook, ReadsTheDataObjectInAnyOrder) {
     ASSERT_TRUE(change.has_value());
     EXPECT_EQ(change->sequence, 9);
     EXPECT_EQ(change->ts_ms, 0U) << "no timestamp reads as zero, as before";
+}
+
+
+InstrumentBase classified_contract(std::string_view base_currency, std::string_view asset_class) {
+    const std::string symbol = std::string{base_currency} + "USDTM";
+    WireContract wire{};
+    wire.symbol = symbol;
+    wire.base_currency = base_currency;
+    wire.quote_currency = "USDT";
+    wire.status = "Open";
+    wire.type = "FFWCSX";
+    wire.tick_size = "0.01";
+    wire.lot_size = "1";
+    wire.multiplier = "0.01";
+    wire.asset_class = asset_class;
+    const auto mapped = map_instrument(wire, MarketType::Perp);
+    EXPECT_TRUE(mapped.has_value());
+    auto base = mapped.has_value() ? base_of(*mapped) : InstrumentBase{};
+    classify(VenueId::Kucoin, base);
+    return base;
+}
+
+TEST(KucoinMap, AssetClassClassifiesTheUnderlying) {
+    const auto tsla = classified_contract("TSLA", "STOCK");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+    const auto xag = classified_contract("XAG", "METAL");
+    EXPECT_EQ(xag.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xag.underlying.view(), "XAG");
+    const auto spx = classified_contract("SPX", "CRYPTO");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+    EXPECT_EQ(classified_contract("BOND", "BOND").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

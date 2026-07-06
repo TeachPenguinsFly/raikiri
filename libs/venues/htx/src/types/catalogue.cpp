@@ -60,6 +60,11 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.settlement_period_h = static_cast<std::int64_t>(detail::digits_to_u64(*period));
             out.business_type = *business;
             out.contract_type = *type;
+            const auto labels = detail::opt_raw(obj, "tradfi_labels");
+            if (!labels.has_value()) {
+                return std::unexpected(labels.error());
+            }
+            out.tradfi_labels = *labels;
             storage.contracts[count] = out;
             ++count;
         }

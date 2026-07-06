@@ -46,11 +46,26 @@ enum class ContractKind : std::uint8_t {
     Inverse, // contract_value is QUOTE units per contract; PnL settles in BASE
 };
 
+// What the contract tracks. Unknown pairs with nothing, including another
+// Unknown: an unclassified listing is not evidence of the same underlying.
+enum class AssetClass : std::uint8_t {
+    Unknown = 0,
+    Crypto,
+    Equity,
+    Index,
+    Commodity,
+    FX,
+};
+
+using UnderlyingText = FixedString<15>;
+
 struct InstrumentBase {
     InstrumentId id{};
     SymbolText local_symbol{};                // canonical, venue-neutral: "BTC/USDT"
     SymbolText exchange_symbol{};             // venue wire form: "BTCUSDT"
     ContractKind kind{ContractKind::Unknown}; // rides padding; see the asserts below
+    AssetClass asset_class{AssetClass::Unknown};
+    UnderlyingText underlying{}; // venue-neutral key within asset_class: "TSLA", "XAU"
     FixedE9 tick_size{};                      // price step, decimal e9
     FixedE9 lot_size{};                       // qty step, decimal e9
     FixedE9 min_notional{};
@@ -65,12 +80,13 @@ struct InstrumentBase {
     [[nodiscard]] FixedE9 lots_to_qty(QtyLots lots) const noexcept;
 };
 
-// `kind` fits in padding that already existed, so sizeof does NOT change — and
-// the shm per-channel size check therefore cannot catch a mixed-build pair.
-// k_abi_version (shm/segment.hpp) is the only thing that does. Any future field
-// that trips these asserts is an ABI decision, to be made deliberately.
-static_assert(sizeof(InstrumentBase) == 120);
+// `kind` and `asset_class` ride padding, so only `underlying` moved sizeof —
+// k_abi_version (shm/segment.hpp) is what catches a mixed-build pair. Any
+// future field that trips these asserts is an ABI decision, made deliberately.
+static_assert(sizeof(InstrumentBase) == 136);
 static_assert(offsetof(InstrumentBase, kind) == 58);
+static_assert(offsetof(InstrumentBase, asset_class) == 59);
+static_assert(offsetof(InstrumentBase, tick_size) == 80);
 
 struct SpotInstrument {
     InstrumentBase base{};

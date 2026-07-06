@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/book.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
@@ -912,6 +913,39 @@ TEST(OkxMap, BalanceWithoutACurrencyIsDropped) {
     EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());
     wire.ccy = "TWENTYONECHARACTERSXX";
     EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());
+}
+
+
+InstrumentBase classified_swap(std::string_view inst_id, std::string_view inst_category) {
+    WireInstrument row{};
+    row.inst_id = inst_id;
+    row.inst_type = "SWAP";
+    row.state = "live";
+    row.tick_size = "0.01";
+    row.lot_size = "1";
+    row.min_size = "1";
+    row.ct_val = "0.01";
+    row.ct_mult = "1";
+    row.ct_type = "linear";
+    row.inst_category = inst_category;
+    const auto mapped = map_instrument(row, MarketType::Perp);
+    EXPECT_TRUE(mapped.has_value());
+    auto base = mapped.has_value() ? base_of(*mapped) : InstrumentBase{};
+    classify(VenueId::Okx, base);
+    return base;
+}
+
+TEST(OkxMap, InstCategoryClassifiesTheUnderlying) {
+    const auto tsla = classified_swap("TSLA-USDT-SWAP", "3");
+    EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+    const auto xau = classified_swap("XAU-USDT-SWAP", "4");
+    EXPECT_EQ(xau.asset_class, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+    const auto spx = classified_swap("SPX-USDT-SWAP", "1");
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+    EXPECT_EQ(classified_swap("BND-USDT-SWAP", "6").asset_class, AssetClass::Unknown);
 }
 
 } // namespace

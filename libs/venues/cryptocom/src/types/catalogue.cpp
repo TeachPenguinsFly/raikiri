@@ -30,6 +30,9 @@ FieldResult read_row(ondemand::object& row, WireInstrument& out) {
         if (key == "contract_size") {
             return text_into(value, out.contract_size);
         }
+        if (key == "product_type") {
+            return text_into(value, out.product_type);
+        }
         if (key == "tradable") {
             return bool_into(value, out.tradable);
         }

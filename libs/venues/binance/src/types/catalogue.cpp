@@ -63,6 +63,9 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             out.status = *status;
             out.base_asset = *base_asset;
             out.quote_asset = *quote_asset;
+            if (const auto underlying = detail::opt_str(obj, "underlyingType"); underlying.has_value()) {
+                out.underlying_type = *underlying;
+            }
             const auto delivery = detail::opt_u64(obj, "deliveryDate");
             if (!delivery.has_value()) {
                 return std::unexpected(delivery.error());

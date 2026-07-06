@@ -23,6 +23,33 @@ std::optional<PriceTicks> mark_ticks(std::string_view text, const InstrumentBase
     return PriceTicks::from_raw(value->raw / base.tick_size.raw);
 }
 
+AssetClass asset_class_of(std::string_view category, std::string_view sub_category) noexcept {
+    if (sub_category == "Equity") {
+        return AssetClass::Equity;
+    }
+    if (sub_category == "Commodity") {
+        return AssetClass::Commodity;
+    }
+    if (sub_category == "ETF/Index") {
+        return AssetClass::Index;
+    }
+    if (sub_category == "FX") {
+        return AssetClass::FX;
+    }
+    if (category == "Crypto") {
+        return AssetClass::Crypto;
+    }
+    if (category == "RWA" || sub_category == "TradFi") {
+        return AssetClass::Unknown;
+    }
+    for (const auto crypto : {"L1", "L2", "DeFi", "AI", "Meme", "Infra", "Stable"}) {
+        if (sub_category == crypto) {
+            return AssetClass::Crypto;
+        }
+    }
+    return AssetClass::Unknown;
+}
+
 } // namespace
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -53,6 +80,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     base.lot_size = *lot;
     base.contract_value = FixedE9::from_raw(k_e9);
     base.kind = ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.category, wire.sub_category);
 
     PerpInstrument perp{base, k_funding_interval_s};
     // hourlyFundingRateCap is not read: its unit differs from row to row.

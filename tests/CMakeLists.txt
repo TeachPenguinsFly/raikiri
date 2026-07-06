@@ -23,6 +23,7 @@ raikiri_add_test(time_test SRCS common/time_test.cpp LIBS raikiri::common)
 
 raikiri_add_test(identifiers_test SRCS domain/identifiers_test.cpp LIBS raikiri::domain)
 raikiri_add_test(instrument_test SRCS domain/instrument_test.cpp LIBS raikiri::domain)
+raikiri_add_test(asset_class_test SRCS domain/asset_class_test.cpp LIBS raikiri::domain)
 raikiri_add_test(fill_identity_test SRCS domain/fill_identity_test.cpp LIBS raikiri::domain)
 raikiri_add_test(symbol_test SRCS domain/symbol_test.cpp LIBS raikiri::domain)
 raikiri_add_test(order_fsm_test SRCS domain/order_fsm_test.cpp LIBS raikiri::domain)

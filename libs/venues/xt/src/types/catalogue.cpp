@@ -55,6 +55,11 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                 }
                 *field = *value;
             }
+            const auto tags = detail::opt_raw(obj, "tags");
+            if (!tags.has_value()) {
+                return std::unexpected(tags.error());
+            }
+            out.tags = *tags;
             const auto state = req_i64(obj, "state");
             const auto precision = req_i64(obj, "quantityPrecision");
             const auto trade_switch = req_bool(obj, "tradeSwitch");

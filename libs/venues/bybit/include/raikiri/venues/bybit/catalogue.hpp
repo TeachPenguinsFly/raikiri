@@ -24,6 +24,7 @@ struct WireInstrument {
     // The linear catalogue carries the whole futures curve beside the
     // perpetual, and only this field tells them apart.
     std::string_view contract_type;
+    std::string_view symbol_type; // "", "innovation", "stock", "ETF", "commodity", "forex"
     std::string_view tick_size;
     std::string_view qty_step;
     std::string_view min_order_qty;

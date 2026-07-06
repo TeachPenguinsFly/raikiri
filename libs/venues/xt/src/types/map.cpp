@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <string>
 
 namespace raikiri::venues::xt {
 
@@ -421,6 +422,30 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     return out;
 }
 
+namespace {
+
+// XT files ETFs under INDEX; the shared aliases lift the true indices back out.
+[[nodiscard]] AssetClass asset_class_of(std::string_view tags) noexcept {
+    const auto has = [&](std::string_view tag) {
+        return tags.find(std::string{"\""} + std::string{tag} + "\"") != std::string_view::npos;
+    };
+    if (tags.empty() || tags == "null" || tags == "[]") {
+        return AssetClass::Crypto;
+    }
+    if (has("METAL") || has("COMMODITY")) {
+        return AssetClass::Commodity;
+    }
+    if (has("FOREX")) {
+        return AssetClass::FX;
+    }
+    if (has("STOCK") || has("INDEX")) {
+        return AssetClass::Equity;
+    }
+    return AssetClass::Unknown;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (market != MarketType::Perp) {
         return std::nullopt;
@@ -452,6 +477,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = asset_class_of(wire.tags);
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto min_notional = positive_e9(wire.min_notional); min_notional.has_value()) {
@@ -487,6 +513,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = AssetClass::Crypto;
     base.tick_size = *tick;
     base.lot_size = *lot;
     if (const auto notional = positive_e9(wire.min_quote_qty); notional.has_value()) {

@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/venues/extended/book.hpp>
 #include <raikiri/venues/extended/catalogue.hpp>
@@ -51,6 +52,44 @@ InstrumentBase base_for(std::string_view name) {
     auto base = base_of(*instrument);
     base.id = InstrumentId::make(VenueId::Extended, MarketType::Perp, SymbolId{7});
     return base;
+}
+
+TEST(ExtendedCatalogue, ReadsTheAssetClassOffTheSubCategory) {
+    const std::string body = R"({"status":"OK","data":[)"
+        R"({"name":"TSLA_24_5-USD","category":"RWA","subCategory":"Equity","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
+        R"("marketStats":{},"tradingConfig":{"minOrderSize":"0.1","minOrderSizeChange":"0.1","minPriceChange":"0.01"}},)"
+        R"({"name":"XAU-USD","category":"RWA","subCategory":"Commodity","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
+        R"("marketStats":{},"tradingConfig":{"minOrderSize":"0.01","minOrderSizeChange":"0.01","minPriceChange":"0.1"}},)"
+        R"({"name":"SPX-USD","category":"Crypto","subCategory":"Meme","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
+        R"("marketStats":{},"tradingConfig":{"minOrderSize":"1","minOrderSizeChange":"1","minPriceChange":"0.0001"}},)"
+        R"({"name":"NEW-USD","category":"RWA","subCategory":"Bond","type":"PERPETUAL","status":"ACTIVE","isRfq":false,)"
+        R"("marketStats":{},"tradingConfig":{"minOrderSize":"1","minOrderSizeChange":"1","minPriceChange":"0.01"}}]})";
+    const auto storage = std::make_unique<MarketBuffer>();
+    const auto rows = parse_markets(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 4U);
+    const auto classified = [&](std::size_t i) {
+        const auto instrument = map_instrument((*rows)[i], MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value());
+        auto base = base_of(instrument.value_or(PerpInstrument{}));
+        const auto stated = base.asset_class;
+        classify(VenueId::Extended, base);
+        return std::pair{stated, base};
+    };
+    const auto [tsla_stated, tsla] = classified(0);
+    EXPECT_EQ(tsla_stated, AssetClass::Equity);
+    EXPECT_EQ(tsla.underlying.view(), "TSLA");
+    const auto [xau_stated, xau] = classified(1);
+    EXPECT_EQ(xau_stated, AssetClass::Commodity);
+    EXPECT_EQ(xau.underlying.view(), "XAU");
+    const auto [spx_stated, spx] = classified(2);
+    EXPECT_EQ(spx_stated, AssetClass::Crypto);
+    EXPECT_EQ(spx.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+    const auto [new_stated, unknown] = classified(3);
+    EXPECT_EQ(new_stated, AssetClass::Unknown);
+    EXPECT_EQ(unknown.asset_class, AssetClass::Unknown);
+    EXPECT_TRUE(unknown.underlying.empty());
 }
 
 TEST(ExtendedCatalogue, ParsesEveryRowAndReadsTheSettlementTimeAsATimestamp) {

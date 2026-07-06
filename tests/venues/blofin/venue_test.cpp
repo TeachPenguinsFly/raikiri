@@ -1,5 +1,6 @@
 // Against bytes captured live on 2026-09-25; see fixtures/README.md.
 
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/blofin/book.hpp>
 #include <raikiri/venues/blofin/catalogue.hpp>
 #include <raikiri/venues/blofin/envelope.hpp>
@@ -70,6 +71,36 @@ PerpInstrument perp_of(std::string_view inst_id) {
     auto perp = std::get<PerpInstrument>(instrument.value_or(PerpInstrument{}));
     perp.base.id = InstrumentId::make(VenueId::Blofin, MarketType::Perp, SymbolId{7});
     return perp;
+}
+
+TEST(BlofinCatalogue, TheAssetClassFieldIsRead) {
+    const auto classified = [](const WireInstrument& row) {
+        const auto instrument = map_instrument(row, MarketType::Perp);
+        EXPECT_TRUE(instrument.has_value()) << row.inst_id;
+        auto base = base_of(instrument.value_or(PerpInstrument{}));
+        const auto stated = base.asset_class;
+        classify(VenueId::Blofin, base);
+        return std::pair{stated, base};
+    };
+    const auto [nvda_stated, nvda] = classified(instrument_row("NVDA-USDT"));
+    EXPECT_EQ(nvda_stated, AssetClass::Equity);
+    EXPECT_EQ(nvda.underlying.view(), "NVDA");
+
+    const auto [oil_stated, oil] = classified(instrument_row("WTIOIL-USDT"));
+    EXPECT_EQ(oil_stated, AssetClass::Commodity);
+    EXPECT_EQ(oil.asset_class, AssetClass::Commodity);
+
+    auto spx_row = instrument_row("BTC-USDT");
+    spx_row.inst_id = "SPX-USDT";
+    spx_row.base_ccy = "SPX";
+    const auto [spx_stated, spx] = classified(spx_row);
+    EXPECT_EQ(spx_stated, AssetClass::Crypto);
+    EXPECT_EQ(spx.underlying.view(), "SPX");
+
+    spx_row.asset_class = "Bonds";
+    const auto [odd_stated, odd] = classified(spx_row);
+    EXPECT_EQ(odd_stated, AssetClass::Unknown);
+    EXPECT_EQ(odd.asset_class, AssetClass::Unknown);
 }
 
 TEST(BlofinCatalogue, EveryRowParses) {
