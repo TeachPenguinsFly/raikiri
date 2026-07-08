@@ -36,6 +36,10 @@ constexpr std::size_t k_max_frame = 64 * 1024 * 1024;
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
+// The session whose document is open on this thread, as a plain pointer:
+// session()'s lazily built thread_local costs a guard on every lookup.
+thread_local const Session* t_current = nullptr;
+
 } // namespace
 
 Error map_error(simdjson::error_code ec) noexcept {
@@ -73,6 +77,7 @@ std::expected<void, Error> Session::start(std::string_view frame) {
     std::memcpy(scratch_.data(), frame.data(), frame.size());
     std::memset(scratch_.data() + frame.size(), 0, simdjson::SIMDJSON_PADDING);
 
+    t_current = this;
     origin_ = frame.data();
     origin_size_ = frame.size();
 
@@ -139,6 +144,9 @@ std::string_view trim(std::string_view s) noexcept {
 // simdjson unescape would move every field into a buffer that cannot be
 // rebased.
 std::expected<std::string_view, Error> str_of(ondemand::value value, const Session& s) {
+    if (!s.alive()) {
+        return std::unexpected(Error::NotJson);
+    }
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
@@ -154,6 +162,9 @@ std::expected<std::string_view, Error> str_of(ondemand::value value, const Sessi
 }
 
 std::expected<std::string_view, Error> raw_of(ondemand::value value, const Session& s) {
+    if (!s.alive()) {
+        return std::unexpected(Error::NotJson);
+    }
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
@@ -185,9 +196,38 @@ std::expected<bool, Error> bool_of(ondemand::value value) {
     return out;
 }
 
+simdjson::simdjson_result<ondemand::value> find(ondemand::object& obj, std::string_view key) {
+    const Session* const s = t_current;
+    if (s == nullptr || !s->alive()) {
+        return simdjson::TAPE_ERROR;
+    }
+    const char* const from = s->location();
+    auto found = obj.find_field(key);
+    if (found.error() != simdjson::NO_SUCH_FIELD || !s->alive()) {
+        return found;
+    }
+    bool has_fields = false;
+    if (const auto ec = obj.reset().get(has_fields); ec != simdjson::SUCCESS) {
+        return ec;
+    }
+    for (auto entry : obj) {
+        ondemand::field field;
+        if (const auto ec = std::move(entry).get(field); ec != simdjson::SUCCESS) {
+            return ec;
+        }
+        if (from != nullptr && field.key().raw() > from) {
+            break;
+        }
+        if (field.key().unsafe_is_equal(key)) {
+            return std::move(field).value();
+        }
+    }
+    return simdjson::NO_SUCH_FIELD;
+}
+
 std::expected<std::string_view, Error> opt_str(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -199,7 +239,7 @@ std::expected<std::string_view, Error> opt_str(ondemand::object& obj, std::strin
 
 std::expected<std::string_view, Error> req_str(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
-    if (const auto ec = obj.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
+    if (const auto ec = find(obj, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
     auto text = str_of(value);
@@ -211,7 +251,7 @@ std::expected<std::string_view, Error> req_str(ondemand::object& obj, std::strin
 
 std::expected<std::uint64_t, Error> opt_u64(ondemand::object& obj, std::string_view key) {
     std::uint64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_uint64().get(out);
+    const auto ec = find(obj, key).get_uint64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::uint64_t{0};
     }
@@ -223,7 +263,7 @@ std::expected<std::uint64_t, Error> opt_u64(ondemand::object& obj, std::string_v
 
 std::expected<std::int64_t, Error> opt_i64(ondemand::object& obj, std::string_view key) {
     std::int64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_int64().get(out);
+    const auto ec = find(obj, key).get_int64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::int64_t{0};
     }
@@ -235,7 +275,7 @@ std::expected<std::int64_t, Error> opt_i64(ondemand::object& obj, std::string_vi
 
 std::expected<bool, Error> opt_bool(ondemand::object& obj, std::string_view key) {
     bool out = false;
-    const auto ec = obj.find_field_unordered(key).get_bool().get(out);
+    const auto ec = find(obj, key).get_bool().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return false;
     }
@@ -247,7 +287,7 @@ std::expected<bool, Error> opt_bool(ondemand::object& obj, std::string_view key)
 
 std::expected<std::string_view, Error> opt_raw(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -259,8 +299,7 @@ std::expected<std::string_view, Error> opt_raw(ondemand::object& obj, std::strin
 
 std::expected<ondemand::array, Error> req_array(ondemand::object& obj, std::string_view key) {
     ondemand::array out;
-    if (const auto ec = obj.find_field_unordered(key).get_array().get(out);
-        ec != simdjson::SUCCESS) {
+    if (const auto ec = find(obj, key).get_array().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
     return out;
@@ -268,8 +307,7 @@ std::expected<ondemand::array, Error> req_array(ondemand::object& obj, std::stri
 
 std::expected<ondemand::object, Error> req_object(ondemand::object& obj, std::string_view key) {
     ondemand::object out;
-    if (const auto ec = obj.find_field_unordered(key).get_object().get(out);
-        ec != simdjson::SUCCESS) {
+    if (const auto ec = find(obj, key).get_object().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(map_error(ec));
     }
     return out;
@@ -295,7 +333,7 @@ std::uint64_t digits_to_u64(std::string_view s) noexcept {
 
 bool has_field(ondemand::object& obj, std::string_view key) {
     ondemand::value value;
-    return obj.find_field_unordered(key).get(value) == simdjson::SUCCESS;
+    return find(obj, key).get(value) == simdjson::SUCCESS;
 }
 
 } // namespace raikiri::wire

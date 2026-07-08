@@ -96,8 +96,7 @@ std::expected<std::size_t, WireError> read_swap_fills(detail::ondemand::object& 
         return std::size_t{0}; // a caller that asked for no fills wants none
     }
     detail::ondemand::array trades;
-    if (const auto ec = obj.find_field_unordered("trade").get_array().get(trades);
-        ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, "trade").get_array().get(trades); ec != simdjson::SUCCESS) {
         return std::size_t{0}; // no trades on this frame is the ordinary case
     }
     std::size_t count = 0;
@@ -299,7 +298,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
             return std::unexpected(root.error());
         }
         detail::ondemand::value data;
-        if (const auto ec = root->find_field_unordered("data").get(data); ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "data").get(data); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         simdjson::ondemand::json_type type{};
@@ -330,7 +329,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
         // STRING rather than an array.
         std::string_view first_error;
         if (detail::ondemand::array errors;
-            obj.find_field_unordered("errors").get_array().get(errors) == simdjson::SUCCESS) {
+            wire::find(obj, "errors").get_array().get(errors) == simdjson::SUCCESS) {
             for (auto entry : errors) {
                 detail::ondemand::object row;
                 if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
@@ -466,7 +465,7 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
         // read — probing by trying get_array and falling back leaves the
         // iterator half-consumed.
         detail::ondemand::value data;
-        if (const auto ec = root->find_field_unordered("data").get(data); ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "data").get(data); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         simdjson::ondemand::json_type type{};

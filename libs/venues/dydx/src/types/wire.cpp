@@ -273,8 +273,7 @@ std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuf
             return out;
         }
         detail::ondemand::value contents;
-        if (const auto ec = root->find_field_unordered("contents").get(contents);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "contents").get(contents); ec != simdjson::SUCCESS) {
             return std::unexpected(WireError::MissingField);
         }
         Cursor at{};

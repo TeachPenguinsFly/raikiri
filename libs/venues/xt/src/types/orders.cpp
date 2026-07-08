@@ -304,8 +304,7 @@ std::expected<std::string_view, WireError> parse_order_ack(std::string_view body
             return std::unexpected(root.error());
         }
         detail::ondemand::value result;
-        if (const auto ec = root->find_field_unordered("result").get(result);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "result").get(result); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         detail::ondemand::json_type type{};

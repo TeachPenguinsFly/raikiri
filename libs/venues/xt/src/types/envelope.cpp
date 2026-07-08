@@ -53,8 +53,7 @@ PrivateTopic topic_of(std::string_view topic) noexcept {
 std::expected<std::int64_t, WireError> req_i64(detail::ondemand::object& obj,
                                                std::string_view key) {
     std::int64_t out = 0;
-    if (const auto ec = obj.find_field_unordered(key).get_int64().get(out);
-        ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, key).get_int64().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     return out;
@@ -62,8 +61,7 @@ std::expected<std::int64_t, WireError> req_i64(detail::ondemand::object& obj,
 
 std::expected<bool, WireError> req_bool(detail::ondemand::object& obj, std::string_view key) {
     bool out = false;
-    if (const auto ec = obj.find_field_unordered(key).get_bool().get(out);
-        ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, key).get_bool().get(out); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     return out;
@@ -72,7 +70,7 @@ std::expected<bool, WireError> req_bool(detail::ondemand::object& obj, std::stri
 std::expected<std::uint64_t, WireError> opt_ms(detail::ondemand::object& obj,
                                                std::string_view key) {
     std::uint64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_uint64().get(out);
+    const auto ec = wire::find(obj, key).get_uint64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::uint64_t{0};
     }
@@ -119,7 +117,7 @@ std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value val
 std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& obj,
                                                       std::string_view key) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -131,7 +129,7 @@ std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& 
 
 std::expected<std::int64_t, WireError>
 opt_i64(detail::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
-    auto field = obj.find_field_unordered(key);
+    auto field = wire::find(obj, key);
     if (field.error() == simdjson::NO_SUCH_FIELD) {
         return fallback;
     }
@@ -141,7 +139,7 @@ opt_i64(detail::ondemand::object& obj, std::string_view key, std::int64_t fallba
     // An explicit null is the venue saying "no value", which is what a fallback
     // is for. A wrong TYPE is not: XT spells some numbers as strings, and
     // folding that into the fallback would drop a value the venue did send.
-    if (field.is_null().value_unsafe()) {
+    if (bool null = false; field.is_null().get(null) == simdjson::SUCCESS && null) {
         return fallback;
     }
     std::int64_t out = 0;
@@ -153,11 +151,11 @@ opt_i64(detail::ondemand::object& obj, std::string_view key, std::int64_t fallba
 
 std::expected<bool, WireError>
 opt_bool_or(detail::ondemand::object& obj, std::string_view key, bool fallback) {
-    auto field = obj.find_field_unordered(key);
+    auto field = wire::find(obj, key);
     if (field.error() == simdjson::NO_SUCH_FIELD) {
         return fallback;
     }
-    if (field.error() == simdjson::SUCCESS && field.is_null().value_unsafe()) {
+    if (bool null = false; field.is_null().get(null) == simdjson::SUCCESS && null) {
         return fallback;
     }
     bool out = false;
@@ -175,7 +173,7 @@ opt_bool_or(detail::ondemand::object& obj, std::string_view key, bool fallback) 
 std::expected<detail::ondemand::array, WireError> rows_of(detail::ondemand::object& root,
                                                           std::string_view key) {
     detail::ondemand::value result;
-    if (const auto ec = root.find_field_unordered("result").get(result); ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(root, "result").get(result); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     detail::ondemand::json_type type{};
@@ -354,8 +352,7 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
             return std::unexpected(root.error());
         }
         detail::ondemand::value result;
-        if (const auto ec = root->find_field_unordered("result").get(result);
-            ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "result").get(result); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         detail::ondemand::json_type type{};

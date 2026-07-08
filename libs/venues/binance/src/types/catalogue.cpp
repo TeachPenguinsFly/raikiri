@@ -135,13 +135,14 @@ parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
             // that omits it leaves 0, and the caller stamps nothing — a
             // schedule guessed here would be indistinguishable downstream from
             // one binance published.
-            out.interval_hours =
-                static_cast<std::uint32_t>(detail::opt_u64(obj, "fundingIntervalHours").value_or(0));
+            out.interval_hours = static_cast<std::uint32_t>(
+                detail::opt_u64(obj, "fundingIntervalHours").value_or(0));
             // Absent on a row binance has not adjusted, which is why these are
             // optional and land UNDEF rather than zero: a floor of zero is a
             // claim that the venue never pays.
             out.cap = detail::opt_str(obj, "adjustedFundingRateCap").value_or(std::string_view{});
-            out.floor = detail::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});
+            out.floor =
+                detail::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});
             storage.rows[count] = out;
             ++count;
         }

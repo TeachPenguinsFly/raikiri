@@ -88,7 +88,7 @@ std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value s
 std::expected<std::size_t, WireError>
 read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
     detail::ondemand::value side;
-    if (const auto ec = obj.find_field_unordered(key).get(side); ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, key).get(side); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     return read_pair_levels(side, into);

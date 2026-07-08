@@ -36,7 +36,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
         // one account-wide number into a free balance of every asset.
         WireAccount account{};
         detail::ondemand::value flag;
-        const auto found = obj.find_field_unordered("multiAssetsMargin").get(flag);
+        const auto found = wire::find(obj, "multiAssetsMargin").get(flag);
         if (found == simdjson::SUCCESS) {
             bool multi = true;
             if (const auto ec = flag.get_bool().get(multi); ec != simdjson::SUCCESS) {

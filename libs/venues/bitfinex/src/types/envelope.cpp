@@ -83,7 +83,7 @@ bool token_to_i64(std::string_view s, std::int64_t& out) noexcept {
 std::expected<std::string_view, WireError> opt_token(detail::ondemand::object& obj,
                                                      std::string_view key) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }

@@ -87,7 +87,7 @@ template <typename Reader>
 [[nodiscard]] std::expected<std::string_view, WireError>
 find_scalar(detail::ondemand::object& obj, std::string_view key, Reader reader) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -218,7 +218,7 @@ std::expected<WireResponse, WireError> parse_response(std::string_view frame) {
         out.id = *id;
 
         detail::ondemand::object error;
-        const auto error_ec = root->find_field_unordered("error").get_object().get(error);
+        const auto error_ec = wire::find(*root, "error").get_object().get(error);
         if (error_ec == simdjson::SUCCESS) {
             const auto code = detail::opt_i64(error, "code");
             const auto message = detail::opt_str(error, "message");
@@ -234,7 +234,7 @@ std::expected<WireResponse, WireError> parse_response(std::string_view frame) {
         }
 
         detail::ondemand::array accepted;
-        if (root->find_field_unordered("result").get_array().get(accepted) == simdjson::SUCCESS) {
+        if (wire::find(*root, "result").get_array().get(accepted) == simdjson::SUCCESS) {
             for (auto entry : accepted) {
                 if (const auto ec = entry.error(); ec != simdjson::SUCCESS) {
                     return std::unexpected(detail::map_error(ec));

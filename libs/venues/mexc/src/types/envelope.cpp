@@ -104,7 +104,7 @@ std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value val
 std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& obj,
                                                       std::string_view key) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -117,7 +117,7 @@ std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& 
 std::expected<std::string_view, WireError> req_scalar(detail::ondemand::object& obj,
                                                       std::string_view key) {
     detail::ondemand::value value;
-    if (const auto ec = obj.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     auto text = scalar_of(value);
@@ -130,7 +130,7 @@ std::expected<std::string_view, WireError> req_scalar(detail::ondemand::object& 
 std::expected<std::int64_t, WireError>
 opt_int(detail::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
     std::int64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_int64().get(out);
+    const auto ec = wire::find(obj, key).get_int64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return fallback;
     }
@@ -188,7 +188,7 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             return std::unexpected(root.error());
         }
         bool success = false;
-        if (const auto ec = root->find_field_unordered("success").get_bool().get(success);
+        if (const auto ec = wire::find(*root, "success").get_bool().get(success);
             ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }

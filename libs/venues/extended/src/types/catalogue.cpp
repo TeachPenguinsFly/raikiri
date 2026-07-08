@@ -51,8 +51,7 @@ std::expected<void, WireError> read_config(json::ondemand::object& row, WireMark
 
 std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
     WireMarket out{};
-    for (const auto& [key, into] :
-         {std::pair{"name", &out.name}, std::pair{"type", &out.type}}) {
+    for (const auto& [key, into] : {std::pair{"name", &out.name}, std::pair{"type", &out.type}}) {
         const auto value = json::req_str(row, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());

@@ -37,12 +37,22 @@ public:
 
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;
 
+    // False once simdjson has abandoned the document on a malformed frame.
+    // Touching it after that is undefined: a lookup rewinds and rescans bytes
+    // it never validated, with the parser pointer already cleared.
+    [[nodiscard]] bool alive() const noexcept { return doc_.is_alive(); }
+
+    [[nodiscard]] const char* location() const noexcept {
+        const char* at = nullptr;
+        return doc_.current_location().get(at) == simdjson::SUCCESS ? at : nullptr;
+    }
+
 private:
     [[nodiscard]] std::expected<void, Error> start(std::string_view frame);
 
     simdjson::padded_string scratch_;
     ondemand::parser parser_;
-    ondemand::document doc_;
+    mutable ondemand::document doc_;
     const char* origin_{nullptr};
     std::size_t origin_size_{0};
 };
@@ -90,6 +100,13 @@ template <typename Fn>
     }
     return {};
 }
+
+// find_field_unordered with its second pass, from the top of the object back
+// to where the search began, redone with every step checked. simdjson's own
+// trusts those bytes were validated on the way past, and a malformed frame
+// read partway breaks that: an assert in debug, UB in release.
+[[nodiscard]] simdjson::simdjson_result<ondemand::value> find(ondemand::object& obj,
+                                                              std::string_view key);
 
 [[nodiscard]] std::expected<std::string_view, Error> opt_str(ondemand::object& obj,
                                                              std::string_view key);

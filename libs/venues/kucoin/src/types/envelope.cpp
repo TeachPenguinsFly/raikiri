@@ -55,7 +55,7 @@ template <typename Read>
 [[nodiscard]] std::expected<std::string_view, WireError>
 lookup(detail::ondemand::object& obj, std::string_view key, Read read) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }

@@ -288,7 +288,7 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
         out.ok = *status == "ok";
 
         detail::ondemand::value response;
-        if (const auto ec = (*root)["response"].get(response); ec != simdjson::SUCCESS) {
+        if (const auto ec = wire::find(*root, "response").get(response); ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
         detail::ondemand::json_type kind{};

@@ -149,7 +149,7 @@ std::expected<WireOrder, WireError> parse_order_ack(std::string_view body) {
         }
         // The perpetual tree nests the order one level deeper than spot does.
         detail::ondemand::object nested;
-        if (data->find_field_unordered("order").get_object().get(nested) == simdjson::SUCCESS) {
+        if (wire::find(*data, "order").get_object().get(nested) == simdjson::SUCCESS) {
             return read_order(nested);
         }
         return read_order(*data);
@@ -165,7 +165,7 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view fr
         // The perpetual push puts the order under `o` and the spot push wraps
         // the whole record in `data`.
         detail::ondemand::object obj;
-        if (root->find_field_unordered("o").get_object().get(obj) != simdjson::SUCCESS) {
+        if (wire::find(*root, "o").get_object().get(obj) != simdjson::SUCCESS) {
             auto data = detail::req_object(*root, "data");
             if (!data.has_value()) {
                 return std::unexpected(data.error());

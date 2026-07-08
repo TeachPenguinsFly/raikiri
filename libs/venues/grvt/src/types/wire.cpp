@@ -16,7 +16,7 @@ using json::session;
 std::expected<std::optional<std::string_view>, WireError> present_str(ondemand::object& obj,
                                                                       std::string_view key) {
     ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::optional<std::string_view>{};
     }

@@ -114,7 +114,7 @@ std::expected<std::string_view, WireError> num_of(detail::ondemand::value value)
 std::expected<std::string_view, WireError> opt_num(detail::ondemand::object& obj,
                                                    std::string_view key) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
@@ -127,7 +127,7 @@ std::expected<std::string_view, WireError> opt_num(detail::ondemand::object& obj
 std::expected<std::string_view, WireError> req_num(detail::ondemand::object& obj,
                                                    std::string_view key) {
     detail::ondemand::value value;
-    if (const auto ec = obj.find_field_unordered(key).get(value); ec != simdjson::SUCCESS) {
+    if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
         return std::unexpected(detail::map_error(ec));
     }
     auto text = num_of(value);
@@ -141,7 +141,7 @@ std::expected<std::int64_t, WireError>
 opt_i64(detail::ondemand::object& obj, std::string_view key, bool& present) {
     present = false;
     std::int64_t out = 0;
-    const auto ec = obj.find_field_unordered(key).get_int64().get(out);
+    const auto ec = wire::find(obj, key).get_int64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::int64_t{0};
     }

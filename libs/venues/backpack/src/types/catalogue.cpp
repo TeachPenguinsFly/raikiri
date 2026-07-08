@@ -14,7 +14,7 @@ using detail::session;
 std::expected<std::uint64_t, WireError> nullable_u64(detail::ondemand::object& obj,
                                                      std::string_view key) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::uint64_t{0};
     }

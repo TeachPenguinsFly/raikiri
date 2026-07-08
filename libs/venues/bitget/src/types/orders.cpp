@@ -21,7 +21,7 @@ namespace ondemand = detail::ondemand;
 std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj) {
     obj.reset();
     ondemand::value value;
-    const auto ec = obj.find_field_unordered("feeDetail").get(value);
+    const auto ec = wire::find(obj, "feeDetail").get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }

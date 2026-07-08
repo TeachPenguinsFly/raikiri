@@ -46,7 +46,7 @@ std::expected<WireMarket, WireError> read_market(json::ondemand::object& row) {
     out.lot = *lot;
     out.min_notional = *min;
     json::ondemand::array modes;
-    if (row.find_field_unordered("execution_modes").get_array().get(modes) == simdjson::SUCCESS) {
+    if (wire::find(row, "execution_modes").get_array().get(modes) == simdjson::SUCCESS) {
         for (auto entry : modes) {
             json::ondemand::value value;
             if (entry.get(value) != simdjson::SUCCESS) {
@@ -236,27 +236,26 @@ std::expected<std::span<const WirePrint>, WireError> parse_trades(std::string_vi
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
-        return read_rows(
-            *rows,
-            std::span<WirePrint>{storage.prints},
-            [](json::ondemand::object& row) -> std::expected<WirePrint, WireError> {
-                const auto history = req_id(row, "h");
-                const auto symbol = json::req_str(row, "s");
-                const auto qty = json::req_str(row, "a");
-                const auto price = json::req_str(row, "p");
-                const auto direction = json::req_str(row, "d");
-                const auto ts = json::opt_u64(row, "t");
-                if (!history.has_value() || !symbol.has_value() || !qty.has_value() ||
-                    !price.has_value() || !direction.has_value()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                return WirePrint{.symbol = *symbol,
-                                 .history_id = *history,
-                                 .ts_ms = ts.value_or(0),
-                                 .price = *price,
-                                 .qty = *qty,
-                                 .direction = *direction};
-            });
+        return read_rows(*rows,
+                         std::span<WirePrint>{storage.prints},
+                         [](json::ondemand::object& row) -> std::expected<WirePrint, WireError> {
+                             const auto history = req_id(row, "h");
+                             const auto symbol = json::req_str(row, "s");
+                             const auto qty = json::req_str(row, "a");
+                             const auto price = json::req_str(row, "p");
+                             const auto direction = json::req_str(row, "d");
+                             const auto ts = json::opt_u64(row, "t");
+                             if (!history.has_value() || !symbol.has_value() || !qty.has_value() ||
+                                 !price.has_value() || !direction.has_value()) {
+                                 return std::unexpected(WireError::MissingField);
+                             }
+                             return WirePrint{.symbol = *symbol,
+                                              .history_id = *history,
+                                              .ts_ms = ts.value_or(0),
+                                              .price = *price,
+                                              .qty = *qty,
+                                              .direction = *direction};
+                         });
     });
 }
 
@@ -271,27 +270,26 @@ std::expected<std::span<const WirePrice>, WireError> parse_prices(std::string_vi
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
-        return read_rows(
-            *rows,
-            std::span<WirePrice>{storage.rows},
-            [](json::ondemand::object& row) -> std::expected<WirePrice, WireError> {
-                const auto symbol = json::req_str(row, "symbol");
-                const auto funding = json::opt_str(row, "funding");
-                const auto next = json::opt_str(row, "next_funding");
-                const auto mark = json::opt_str(row, "mark");
-                const auto volume = json::opt_str(row, "volume_24h");
-                const auto ts = json::opt_u64(row, "timestamp");
-                if (!symbol.has_value() || !funding.has_value() || !next.has_value() ||
-                    !mark.has_value() || !volume.has_value()) {
-                    return std::unexpected(WireError::MissingField);
-                }
-                return WirePrice{.symbol = *symbol,
-                                 .funding = *funding,
-                                 .next_funding = *next,
-                                 .mark = *mark,
-                                 .volume_24h = *volume,
-                                 .ts_ms = ts.value_or(0)};
-            });
+        return read_rows(*rows,
+                         std::span<WirePrice>{storage.rows},
+                         [](json::ondemand::object& row) -> std::expected<WirePrice, WireError> {
+                             const auto symbol = json::req_str(row, "symbol");
+                             const auto funding = json::opt_str(row, "funding");
+                             const auto next = json::opt_str(row, "next_funding");
+                             const auto mark = json::opt_str(row, "mark");
+                             const auto volume = json::opt_str(row, "volume_24h");
+                             const auto ts = json::opt_u64(row, "timestamp");
+                             if (!symbol.has_value() || !funding.has_value() || !next.has_value() ||
+                                 !mark.has_value() || !volume.has_value()) {
+                                 return std::unexpected(WireError::MissingField);
+                             }
+                             return WirePrice{.symbol = *symbol,
+                                              .funding = *funding,
+                                              .next_funding = *next,
+                                              .mark = *mark,
+                                              .volume_24h = *volume,
+                                              .ts_ms = ts.value_or(0)};
+                         });
     });
 }
 

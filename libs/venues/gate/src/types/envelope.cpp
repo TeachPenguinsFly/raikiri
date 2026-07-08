@@ -31,7 +31,7 @@ template <typename Fn>
 std::expected<std::string_view, WireError>
 find_scalar(detail::ondemand::object& obj, std::string_view key, bool required, Fn&& read) {
     detail::ondemand::value value;
-    const auto ec = obj.find_field_unordered(key).get(value);
+    const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         if (required) {
             return std::unexpected(WireError::MissingField);
@@ -180,7 +180,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         info.contract = *contract;
         detail::ondemand::object error;
-        const auto ec = root->find_field_unordered("error").get_object().get(error);
+        const auto ec = wire::find(*root, "error").get_object().get(error);
         info.kind = ec == simdjson::SUCCESS ? EventKind::Error : EventKind::SubscribeAck;
         return info;
     });
@@ -197,7 +197,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
             return std::unexpected(error.error());
         }
         std::int64_t code = 0;
-        if (const auto ec = error->find_field_unordered("code").get_int64().get(code);
+        if (const auto ec = wire::find(*error, "code").get_int64().get(code);
             ec != simdjson::SUCCESS) {
             return std::unexpected(detail::map_error(ec));
         }
