@@ -139,7 +139,7 @@ TEST(PacificaBook, AnOffGridLevelDropsTheFrameRatherThanRoundingIt) {
 TEST(PacificaBook, LastIdSkipsGapsButRefusesARepeatOrAStepBack) {
     LastId gate;
     EXPECT_TRUE(gate.admit(13294527548ULL));
-    EXPECT_TRUE(gate.admit(13294527599ULL)); // a gap: other symbols' events
+    EXPECT_TRUE(gate.admit(13294527599ULL));  // a gap: other symbols' events
     EXPECT_FALSE(gate.admit(13294527599ULL)); // the venue resends an unchanged book
     EXPECT_FALSE(gate.admit(13294527554ULL));
     EXPECT_TRUE(gate.admit(13294527600ULL));

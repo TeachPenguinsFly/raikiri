@@ -236,8 +236,9 @@ TEST(ExtendedFunding, RateAndMarkArriveApartAndPublishTogether) {
     EXPECT_EQ(update.next_funding_time.ns, 1'790'316'000'000'000'000ULL);
     EXPECT_FALSE(update.mark_price.is_undef());
     // A settlement already past is not published.
-    EXPECT_TRUE(merged(btc, memo, UnixNanos{1'790'316'000'000'000'001ULL}, k_ingest)
-                    .next_funding_time.ns == 0);
+    EXPECT_TRUE(
+        merged(btc, memo, UnixNanos{1'790'316'000'000'000'001ULL}, k_ingest).next_funding_time.ns ==
+        0);
 }
 
 TEST(ExtendedFunding, MarkIsTruncatedOntoTheTickAndTakesTheFrameTime) {

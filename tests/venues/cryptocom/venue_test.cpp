@@ -410,7 +410,7 @@ TEST(CryptoComTicker, BothTurnoverColumnsAreRead) {
     ASSERT_TRUE(wire.has_value());
     const auto stats = map_ticker_stats(*wire, listed(perp, "BTCUSD-PERP"), k_ingest);
     ASSERT_TRUE(stats.has_value());
-    EXPECT_EQ(stats->volume_24h_base.raw, 4'187'826'600'000);        // 4187.8266 BTC
+    EXPECT_EQ(stats->volume_24h_base.raw, 4'187'826'600'000);    // 4187.8266 BTC
     EXPECT_EQ(stats->volume_24h_quote.raw, 352'032'445'730'000); // 352032445.73 USD
 }
 

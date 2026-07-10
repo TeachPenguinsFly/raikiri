@@ -40,7 +40,9 @@ public:
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
-    operator const std::string&() const noexcept { return path_; } // NOLINT(google-explicit-constructor)
+    operator const std::string&() const noexcept {
+        return path_;
+    } // NOLINT(google-explicit-constructor)
 
 private:
     void wipe() const { (void)std::system(("rm -rf " + path_).c_str()); }

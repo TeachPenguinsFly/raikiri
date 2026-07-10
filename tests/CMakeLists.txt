@@ -39,6 +39,20 @@ raikiri_add_test(secret_test SRCS config/secret_test.cpp LIBS raikiri::config)
 raikiri_add_test(json_writer_test SRCS net/json_writer_test.cpp LIBS raikiri::net)
 raikiri_add_test(protobuf_test SRCS wire/protobuf_test.cpp LIBS raikiri::wire)
 
+set(malformed_srcs wire/malformed/harness.cpp wire/malformed/wire.cpp)
+set(malformed_libs raikiri::wire)
+foreach(venue IN ITEMS apex aster backpack binance bingx bitfinex bitget blofin bybit coinbase
+    cryptocom deribit dydx edgex extended gate grvt htx hyperliquid kraken kucoin lighter mexc
+    okx pacifica phemex weex xt)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wire/malformed/${venue}.cpp)
+    list(APPEND malformed_srcs wire/malformed/${venue}.cpp)
+    list(APPEND malformed_libs raikiri::venue_${venue})
+  endif()
+endforeach()
+raikiri_add_test(wire_malformed_test SRCS ${malformed_srcs} LIBS ${malformed_libs})
+target_compile_definitions(wire_malformed_test PRIVATE
+  RAIKIRI_VENUE_FIXTURES="${PROJECT_SOURCE_DIR}/tests/venues")
+
 raikiri_add_test(admin_test SRCS admin/admin_test.cpp LIBS raikiri::admin)
 target_link_libraries(admin_test
   PRIVATE glaze::glaze)

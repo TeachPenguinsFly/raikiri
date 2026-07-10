@@ -1900,7 +1900,6 @@ TEST(HyperliquidErrors, RefusalProseIsClassifiedByItsPrefix) {
     EXPECT_FALSE(is_benign_cancel_failure("Insufficient margin to place order."));
 }
 
-
 // ------------------------------------------------------------- hip-3 ----
 
 exec::InstrumentTable dex_table() {
