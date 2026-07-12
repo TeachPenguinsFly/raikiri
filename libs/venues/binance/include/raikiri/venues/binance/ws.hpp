@@ -52,8 +52,6 @@ inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
-inline constexpr std::size_t k_max_streams_per_frame = 32;
-
 // Builds "btcusdt@bookTicker" and friends into `out`. Returns empty for a
 // kind binance does not stream. The symbol is lowercased here: binance
 // rejects "BTCUSDT@bookTicker" with an error rather than silence, but only

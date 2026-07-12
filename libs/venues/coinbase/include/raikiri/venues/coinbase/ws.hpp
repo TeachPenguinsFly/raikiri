@@ -43,11 +43,6 @@ struct Subscription {
     std::string_view product_id;
 };
 
-// Coinbase caps subscribe/unsubscribe traffic at 8 messages per second per
-// IP, so subscriptions batch: one frame per instrument would spend that
-// budget on eight symbols.
-inline constexpr std::size_t k_max_subscriptions_per_frame = 64;
-
 class Protocol {
 public:
     struct Frame {

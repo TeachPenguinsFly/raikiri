@@ -16,8 +16,6 @@ inline constexpr std::string_view k_mark_price_stream = "markPrice.";
 // The 200 ms aggregate, not realtime: the same chain at a fraction of the frames.
 inline constexpr std::string_view k_depth_stream = "depth.200ms.";
 
-inline constexpr std::size_t k_max_streams_per_frame = 50;
-
 [[nodiscard]] std::string_view stream_prefix(exec::SubKind kind) noexcept;
 
 // Empty for a kind this venue does not stream by symbol.
@@ -34,7 +32,6 @@ public:
         std::size_t consumed{0};
     };
 
-    // At most k_max_streams_per_frame of `streams`; call again with the rest.
     [[nodiscard]] std::expected<Frame, std::string_view>
     subscribe_frame(std::span<const std::string_view> streams);
 

@@ -2,6 +2,7 @@
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/weex/book.hpp>
 #include <raikiri/venues/weex/envelope.hpp>
@@ -339,7 +340,8 @@ private:
         std::size_t built = 0;
         while (built < channels.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{channels}.subspan(built));
+                std::span<const std::string_view>{channels}.subspan(
+                    built, std::min(net::frame_subscriptions(), channels.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

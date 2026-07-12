@@ -55,10 +55,6 @@ struct Subscription {
     std::string_view params;
 };
 
-// XT documents no per-frame ceiling and refused none up to five; this is a
-// self-imposed bound so one malformed batch cannot cost every subscription.
-inline constexpr std::size_t k_max_subscriptions_per_frame = 32;
-
 class Protocol {
 public:
     struct Frame {

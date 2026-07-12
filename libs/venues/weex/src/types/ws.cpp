@@ -79,7 +79,7 @@ Protocol::subscribe_frame(std::span<const std::string_view> channels) {
     if (channels.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
-    const auto batch = std::min(channels.size(), k_max_channels_per_frame);
+    const auto batch = channels.size();
     for (std::size_t i = 0; i < batch; ++i) {
         // AN EMPTY NAME POISONS THE WHOLE FRAME. WEEX refuses a params array
         // for one bad member and subscribes none of the rest, so a channel

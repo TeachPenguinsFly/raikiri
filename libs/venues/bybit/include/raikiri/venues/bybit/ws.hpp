@@ -66,11 +66,6 @@ inline constexpr std::array<std::uint32_t, 4> k_book_tiers{1, 50, 200, 1000};
     return std::ranges::find(k_book_tiers, depth) != k_book_tiers.end();
 }
 
-// Bybit caps the args array; oversized subscribe frames are rejected whole,
-// so callers batch through subscribe_frame() until it returns the number
-// consumed.
-inline constexpr std::size_t k_max_topics_per_frame = 10;
-
 // Builds "orderbook.50.BTCUSDT" and friends. Returns empty for a kind bybit
 // does not stream. `depth` must be one of k_book_tiers.
 [[nodiscard]] std::string_view topic_name(exec::SubKind kind,

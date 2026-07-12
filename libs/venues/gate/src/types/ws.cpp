@@ -164,8 +164,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
     }
     std::size_t batch = 1;
     if (channel != k_channel_depth && channel != k_channel_spot_depth) {
-        const auto limit = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
-        while (batch < limit && subscriptions[batch].channel == channel &&
+        while (batch < subscriptions.size() && subscriptions[batch].channel == channel &&
                !subscriptions[batch].contract.empty()) {
             ++batch;
         }

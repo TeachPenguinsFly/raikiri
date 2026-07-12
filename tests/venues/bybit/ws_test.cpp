@@ -69,10 +69,7 @@ TEST(BybitWs, SubscribeFrameShape) {
               R"({"op":"unsubscribe","args":["orderbook.50.BTCUSDT","publicTrade.BTCUSDT"]})");
 }
 
-TEST(BybitWs, LargeSubscriptionsBatchRatherThanOverflow) {
-    // Bybit rejects an oversized args array whole, so the caller must loop.
-    // Reporting how many were consumed is what makes that loop obvious
-    // rather than a guess at the venue's cap.
+TEST(BybitWs, TheBuilderTakesWhatItIsHandedAndTheCallerSlicesByTheTable) {
     Protocol protocol;
     std::vector<std::string> owned;
     std::vector<std::string_view> topics;
@@ -86,10 +83,11 @@ TEST(BybitWs, LargeSubscriptionsBatchRatherThanOverflow) {
     std::size_t sent = 0;
     int frames = 0;
     while (sent < topics.size()) {
-        const auto frame =
-            protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(sent));
+        const auto count = std::min<std::size_t>(10, topics.size() - sent);
+        const auto frame = protocol.subscribe_frame(
+            std::span<const std::string_view>{topics}.subspan(sent, count));
         ASSERT_TRUE(frame.has_value());
-        EXPECT_LE(frame->consumed, k_max_topics_per_frame);
+        EXPECT_EQ(frame->consumed, count);
         sent += frame->consumed;
         ++frames;
     }

@@ -44,11 +44,6 @@ inline constexpr std::string_view k_depth_channel = "@depth15";
 inline constexpr std::string_view k_trade_channel = "@trade";
 inline constexpr std::string_view k_ticker_channel = "@ticker";
 
-// One frame carried 600 channels live, so this is a pacing choice rather than a
-// venue limit: a full socket becomes four frames, which is four ticks of the
-// pool's spacing rather than one burst.
-inline constexpr std::size_t k_max_channels_per_frame = 25;
-
 // The answer to a server ping. A constant, because WEEX does not echo the
 // ping's own timestamp back.
 inline constexpr std::string_view k_pong_frame = R"({"method":"PONG","id":1})";

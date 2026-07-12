@@ -1,6 +1,7 @@
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/apex/book.hpp>
 #include <raikiri/venues/apex/endpoints.hpp>
@@ -307,8 +308,8 @@ private:
         frames.reserve(symbols.size());
         for (const auto symbol : symbols) {
             const auto& topics = by_symbol[symbol];
-            for (std::size_t at = 0; at < topics.size(); at += k_max_topics_per_frame) {
-                const auto count = std::min(k_max_topics_per_frame, topics.size() - at);
+            for (std::size_t at = 0; at < topics.size(); at += net::frame_subscriptions()) {
+                const auto count = std::min(net::frame_subscriptions(), topics.size() - at);
                 const auto frame = state_->protocol.subscribe_frame(
                     std::span<const std::string_view>{topics}.subspan(at, count));
                 if (frame.has_value()) {

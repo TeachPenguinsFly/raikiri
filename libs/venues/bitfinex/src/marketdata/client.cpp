@@ -230,7 +230,7 @@ void handle_frame(VenueState& state,
     case FrameKind::Error: {
         // 10305 lands here when a socket was asked for more channels than the
         // server it landed on serves. Counted rather than ignored: it is the
-        // one signal that k_max_subscriptions_per_connection has been set above
+        // one signal that the table's ws_streams has been set above
         // what this venue actually gives.
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
@@ -434,8 +434,7 @@ private:
             // ONE connection, because the registry above it is one
             // connection's. The pool's own placement is what `place` does
             // across these single-socket pools instead.
-            net::WsPoolConfig{.max_keys_per_connection = k_max_subscriptions_per_connection,
-                              .max_connections = 1},
+            net::WsPoolConfig{.max_connections = 1},
             [this](std::span<const std::string> keys) { return build_frames(keys); });
         return socket;
     }

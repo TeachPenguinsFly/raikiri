@@ -8,8 +8,6 @@ std::string_view to_string(WsBuildError err) noexcept {
     switch (err) {
     case WsBuildError::Empty:
         return "no topics";
-    case WsBuildError::TooManyTopics:
-        return "too many topics for one frame";
     case WsBuildError::BufferTooSmall:
         return "buffer too small";
     }
@@ -46,9 +44,6 @@ std::expected<std::string_view, WsBuildError>
 Protocol::op_frame(std::string_view op, std::span<const std::string_view> args) {
     if (args.empty()) {
         return std::unexpected{WsBuildError::Empty};
-    }
-    if (args.size() > k_max_topics_per_frame) {
-        return std::unexpected{WsBuildError::TooManyTopics};
     }
     std::size_t len = 0;
     bool overflow = false;

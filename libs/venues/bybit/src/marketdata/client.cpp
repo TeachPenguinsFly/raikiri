@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/bybit/book.hpp>
 #include <raikiri/venues/bybit/endpoints.hpp>
@@ -263,8 +264,9 @@ private:
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < topics.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{topics}.subspan(built));
+            const auto frame =
+                state_->protocol.subscribe_frame(std::span<const std::string_view>{topics}.subspan(
+                    built, std::min(net::frame_subscriptions(), topics.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

@@ -928,10 +928,10 @@ TEST(WeexWs, ASubscribeFrameBatchesAndReportsWhatItConsumed) {
     EXPECT_EQ(frame->text,
               R"({"method":"SUBSCRIBE","params":["BTCUSDT@depth15","BTCUSDT@trade"],"id":1})");
 
-    std::vector<std::string_view> many(k_max_channels_per_frame + 5, "BTCUSDT@trade");
+    std::vector<std::string_view> many(30, "BTCUSDT@trade");
     const auto batched = protocol.subscribe_frame(many);
     ASSERT_TRUE(batched.has_value());
-    EXPECT_EQ(batched->consumed, k_max_channels_per_frame);
+    EXPECT_EQ(batched->consumed, 30U);
 }
 
 TEST(WeexWs, AnEmptyChannelIsRefusedRatherThanTakingTheFrameDownWithIt) {

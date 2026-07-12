@@ -44,7 +44,7 @@ Protocol::subscribe_frame(std::span<const std::string_view> streams) {
     if (streams.empty()) {
         return std::unexpected{"no streams"};
     }
-    const auto batch = std::min(streams.size(), k_max_streams_per_frame);
+    const auto batch = streams.size();
     std::size_t len = 0;
     bool overflow = false;
     const auto put = [&](std::string_view text) {

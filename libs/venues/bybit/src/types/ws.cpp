@@ -95,7 +95,7 @@ Protocol::op_frame(std::string_view op, std::span<const std::string_view> topics
     if (topics.empty()) {
         return std::unexpected{WsBuildError::TooManyTopics};
     }
-    const auto batch = std::min(topics.size(), k_max_topics_per_frame);
+    const auto batch = topics.size();
     for (std::size_t i = 0; i < batch; ++i) {
         if (topics[i].empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};

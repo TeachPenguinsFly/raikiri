@@ -5,6 +5,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/binance/book.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
@@ -585,8 +586,8 @@ private:
     //
     // Called on every open of ONE socket, which is why the ordering lives here
     // rather than at subscribe time: on a reconnect the order that matters is
-    // the order the venue is asked in. One frame carries at most
-    // k_max_streams_per_frame, so a full socket is 32 frames and eight seconds.
+    // the order the venue is asked in. One frame carries at most the table's
+    // ws_frame, so a full socket is 32 frames and eight seconds.
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams;
         streams.reserve(keys.size());
@@ -603,8 +604,9 @@ private:
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < streams.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{streams}.subspan(built));
+            const auto frame =
+                state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
+                    built, std::min(net::frame_subscriptions(), streams.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

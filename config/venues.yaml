@@ -22,6 +22,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 300 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
+      # 32 streams a frame; a SUBSCRIBE too large is rejected whole.
+      - { name: ws_frame, kind: ws_frame, max: 32 }
     default_cost: 40
     costs:
       - { match: "/fapi/v1/order", cost: 1 }
@@ -86,6 +88,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 10 topics a frame; an oversized subscribe is rejected whole.
+      - { name: ws_frame, kind: ws_frame, max: 10 }
 
   gate:
     order_answer_timeout_ms: 15000
@@ -96,6 +100,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 64 contracts a frame, one channel each; depth goes one a frame.
+      - { name: ws_frame, kind: ws_frame, max: 64 }
 
   kucoin:
     order_answer_timeout_ms: 15000
@@ -116,6 +122,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 192 }
       - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 32 a frame, self-imposed: none documented and none refused up to five, so one bad batch costs 32.
+      - { name: ws_frame, kind: ws_frame, max: 32 }
 
   htx:
     order_answer_timeout_ms: 15000
@@ -143,6 +151,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 500 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 50 args a frame.
+      - { name: ws_frame, kind: ws_frame, max: 50 }
 
   weex:
     order_answer_timeout_ms: 15000
@@ -153,6 +163,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 16 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 25 channels a frame, a pacing choice: 600 in one frame were taken live.
+      - { name: ws_frame, kind: ws_frame, max: 25 }
     costs:
       - { match: "/capi/v3/openOrders", cost: 2 }
       - { match: "/capi/v3/userTrades", cost: 5 }
@@ -170,6 +182,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
+      # 50 streams a frame.
+      - { name: ws_frame, kind: ws_frame, max: 50 }
 
   extended:
     order_answer_timeout_ms: 15000
@@ -232,6 +246,9 @@ venues:
       - { name: requests, window_ms: 60000, max: 27, reserve: 3 }
       # 549 subscribes at eight a second on one socket were never refused for pace, measured 2026-09-08.
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
+      # 25 and 30 stated; nine sockets measured 2026-09-08, six served exactly 36 and three 56, the rest 10305.
+      # The server decides the tier, so the floor. Sockets stay in code: every one is its own pool.
+      - { name: ws_streams, kind: ws_streams, max: 36 }
 
   kraken:
     order_answer_timeout_ms: 15000
@@ -305,6 +322,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 256 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
+      # 4 topics a frame, one instrument's: one refused topic refuses its whole frame.
+      - { name: ws_frame, kind: ws_frame, max: 4 }
 
   edgex:
     order_answer_timeout_ms: 15000
@@ -357,6 +376,8 @@ venues:
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1200, max: 1 }
+      # 64 a frame, so eight subscribes a second cover more than eight symbols.
+      - { name: ws_frame, kind: ws_frame, max: 64 }
 
   pacifica:
     order_answer_timeout_ms: 15000

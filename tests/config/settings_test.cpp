@@ -158,8 +158,10 @@ TEST(Settings, TheMovedSocketNumbersKeepWhatWasMeasured) {
 TEST(Settings, AFrameLimitIsACountOfSubscriptions) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
-    const std::array<std::pair<const char*, std::uint32_t>, 5> frames{
-        {{"aster", 32U}, {"deribit", 256U}, {"okx", 64U}, {"kraken", 64U}, {"grvt", 50U}}};
+    const std::array<std::pair<const char*, std::uint32_t>, 14> frames{
+        {{"aster", 32U}, {"deribit", 256U}, {"okx", 64U}, {"kraken", 64U}, {"grvt", 50U},
+         {"binance", 32U}, {"bybit", 10U}, {"gate", 64U}, {"xt", 32U}, {"bitget", 50U},
+         {"backpack", 50U}, {"weex", 25U}, {"coinbase", 64U}, {"apex", 4U}}};
     for (const auto& [venue, per_frame] : frames) {
         const auto* frame = find_limit(file->venues.at(venue), "ws_frame");
         ASSERT_NE(frame, nullptr) << venue;

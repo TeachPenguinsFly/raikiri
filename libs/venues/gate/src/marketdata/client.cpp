@@ -4,6 +4,7 @@
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/gate/book.hpp>
 #include <raikiri/venues/gate/envelope.hpp>
@@ -377,7 +378,9 @@ private:
         std::size_t built = 0;
         while (built < views.size()) {
             const auto frame = state_->protocol.subscribe_frame(
-                std::span<const Subscription>{views}.subspan(built), now_s);
+                std::span<const Subscription>{views}.subspan(
+                    built, std::min(net::frame_subscriptions(), views.size() - built)),
+                now_s);
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

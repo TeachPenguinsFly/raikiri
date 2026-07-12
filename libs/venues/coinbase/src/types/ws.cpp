@@ -59,7 +59,7 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
     if (subscriptions.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
-    const auto batch = std::min(subscriptions.size(), k_max_subscriptions_per_frame);
+    const auto batch = subscriptions.size();
     for (std::size_t i = 0; i < batch; ++i) {
         if (subscriptions[i].channel.empty() || subscriptions[i].product_id.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};

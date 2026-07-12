@@ -70,26 +70,19 @@ struct ChannelBinding {
 // a book frame with another instrument's name. One per connection, and the
 // handler that owns it is its only reader.
 struct ChannelRegistry {
-    std::array<ChannelBinding, k_max_subscriptions_per_connection> entries{};
-    std::size_t count{0};
+    std::vector<ChannelBinding> entries;
 
-    [[nodiscard]] std::span<const ChannelBinding> bound() const noexcept {
-        return {entries.data(), count};
-    }
+    [[nodiscard]] std::span<const ChannelBinding> bound() const noexcept { return entries; }
 
-    void bind(std::int64_t chan_id, ChannelKind kind, SymbolText symbol) noexcept {
+    void bind(std::int64_t chan_id, ChannelKind kind, SymbolText symbol) {
         const ChannelBinding entry{.chan_id = chan_id, .kind = kind, .symbol = symbol};
-        for (auto& existing : std::span<ChannelBinding>{entries.data(), count}) {
+        for (auto& existing : entries) {
             if (existing.chan_id == chan_id) {
                 existing = entry;
                 return;
             }
         }
-        if (count == entries.size()) {
-            return;
-        }
-        entries[count] = entry;
-        ++count;
+        entries.push_back(entry);
     }
 
     [[nodiscard]] const ChannelBinding* find(std::int64_t chan_id) const noexcept {
@@ -103,7 +96,7 @@ struct ChannelRegistry {
 
     // Ids are reissued on every open of this socket and after the coded `info`
     // notices, and the ids that stood before describe nothing now.
-    void clear() noexcept { count = 0; }
+    void clear() noexcept { entries.clear(); }
 };
 
 // State every bitfinex connection shares within one gateway process. Single

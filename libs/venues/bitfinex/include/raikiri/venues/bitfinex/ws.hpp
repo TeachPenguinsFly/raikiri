@@ -78,22 +78,6 @@ struct Subscription {
     std::string_view symbol; // "tBTCUSD"
 };
 
-// WHAT ONE CONNECTION IS SERVED, MEASURED RATHER THAN READ.
-//
-// Bitfinex documents 25 on one page of its own reference and 30 on another.
-// Neither is what it serves: on 2026-09-08 nine sockets were each asked for
-// more than either, and six stopped at exactly 36 while three took 56, every
-// one of them answering the rest with `10305 subscribe: limit`. Which tier a
-// socket gets is the venue's choice of server — the connections were opened
-// the same way, seconds apart — so the FLOOR is the only number that can be
-// asked for.
-//
-// The refusal is loud, which is what makes 36 safe to take rather than merely
-// plausible: a server stingier than the floor answers 10305, counted in
-// VenueState::subscribe_refusals, instead of accepting the ask and serving
-// nothing the way kucoin's 100-channel wall did.
-inline constexpr std::size_t k_max_subscriptions_per_connection = 36;
-
 class Protocol {
 public:
     struct Frame {

@@ -1,4 +1,5 @@
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/ws_pool.hpp>
 #include <raikiri/venues/backpack/book.hpp>
 #include <raikiri/venues/backpack/endpoints.hpp>
@@ -351,8 +352,9 @@ private:
         std::vector<std::string> frames;
         std::size_t built = 0;
         while (built < streams.size()) {
-            const auto frame = state_->protocol.subscribe_frame(
-                std::span<const std::string_view>{streams}.subspan(built));
+            const auto frame =
+                state_->protocol.subscribe_frame(std::span<const std::string_view>{streams}.subspan(
+                    built, std::min(net::frame_subscriptions(), streams.size() - built)));
             if (!frame.has_value() || frame->consumed == 0) {
                 break;
             }

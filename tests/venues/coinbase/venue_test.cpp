@@ -880,8 +880,8 @@ TEST(CoinbaseWs, OversizeBatchIsRefusedRatherThanTruncated) {
     Protocol protocol;
     std::vector<Subscription> many;
     const std::string long_id(200, 'A');
-    many.reserve(k_max_subscriptions_per_frame);
-    for (std::size_t i = 0; i < k_max_subscriptions_per_frame; ++i) {
+    many.reserve(64);
+    for (std::size_t i = 0; i < 64; ++i) {
         many.push_back({.channel = "ticker", .product_id = long_id});
     }
     const auto frame = protocol.subscribe_frame(many);

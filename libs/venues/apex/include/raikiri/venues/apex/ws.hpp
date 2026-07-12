@@ -13,15 +13,10 @@ namespace raikiri::venues::apex {
 
 enum class WsBuildError : std::uint8_t {
     Empty,
-    TooManyTopics,
     BufferTooSmall,
 };
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
-
-// One refused topic refuses every topic in its frame, so a frame carries one
-// instrument's topics and never more.
-inline constexpr std::size_t k_max_topics_per_frame = 4;
 
 inline constexpr std::string_view k_book_prefix = "orderBook25.H.";
 inline constexpr std::string_view k_trade_prefix = "recentlyTrade.H.";

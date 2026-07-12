@@ -166,8 +166,6 @@ TEST(ApexWs, TopicsAndFrames) {
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(*frame,
               R"({"op":"subscribe","args":["orderBook25.H.BTCUSDT","recentlyTrade.H.BTCUSDT"]})");
-    const std::array<std::string_view, 5> five{"a", "b", "c", "d", "e"};
-    EXPECT_EQ(protocol.subscribe_frame(five).error(), WsBuildError::TooManyTopics);
 }
 
 class ApexBook : public ::testing::Test {

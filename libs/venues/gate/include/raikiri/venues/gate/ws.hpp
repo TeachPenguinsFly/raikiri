@@ -79,8 +79,6 @@ struct Subscription {
     std::string_view contract;
 };
 
-inline constexpr std::size_t k_max_subscriptions_per_frame = 64;
-
 class Protocol {
 public:
     struct Frame {
