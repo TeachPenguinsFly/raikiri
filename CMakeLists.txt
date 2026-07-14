@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(RAIKIRI_BUILD_TESTS "Build unit tests" ON)
+option(RAIKIRI_BUILD_TESTS "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(RAIKIRI_BUILD_BENCH "Build benchmarks" ON)
 option(RAIKIRI_WERROR "Treat warnings as errors" ON)
 option(RAIKIRI_PCH "Share one precompiled header across every first-party target" ON)
