@@ -189,8 +189,8 @@ private:
             if (!found.has_value() || !found->market->funding) {
                 continue;
             }
-            if (const auto funding = map_funding(row, *found->base, received);
-                funding.has_value()) {
+            if (auto funding = map_funding(row, *found->base, received); funding.has_value()) {
+                found->market->roll.apply(*funding);
                 state_->sink->on_funding(*funding);
                 found->market->funded = true;
             }

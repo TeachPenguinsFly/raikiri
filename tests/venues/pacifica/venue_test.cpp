@@ -230,6 +230,54 @@ TEST(PacificaFunding, TheFixedRateTheEstimateAndTheNextHour) {
     EXPECT_TRUE(partial->mark_price.is_undef());
 }
 
+TEST(PacificaFunding, TheHourAfterASettlementPublishesTheRateNowAccruing) {
+    // Captured 2026-09-26 across 11:00 UTC: seconds from the hour, funding, next_funding.
+    struct Row {
+        double at;
+        std::string_view funding;
+        std::string_view next;
+        std::int64_t rate;
+        std::int64_t predicted;
+    };
+
+    constexpr double k_hour = 1'790'420'400.0;
+    constexpr auto k_undef = FixedE9::undef().raw;
+    const auto run = [&](std::initializer_list<Row> rows) {
+        FundingRoll roll;
+        const auto base = base_for("CL");
+        for (const auto& row : rows) {
+            const WirePrice wire{.symbol = "CL",
+                                 .funding = row.funding,
+                                 .next_funding = row.next,
+                                 .mark = "94.06",
+                                 .volume_24h = "1",
+                                 .ts_ms = static_cast<std::uint64_t>((k_hour + row.at) * 1000.0)};
+            auto update = map_funding(wire, base, k_ingest);
+            ASSERT_TRUE(update.has_value());
+            roll.apply(*update);
+            EXPECT_EQ(update->rate.raw, row.rate) << row.at;
+            EXPECT_EQ(update->predicted_rate.raw, row.predicted) << row.at;
+        }
+    };
+    // SOL: next_funding settles at +4 s, funding takes it at +19 s.
+    run({{-1.6, "0.00000283", "0.00001119", 2'830, 11'190},
+         {4.4, "0.00000283", "0.00001121", 11'210, k_undef},
+         {19.4, "0.00001121", "0.0000058", 11'210, 5'800},
+         {25.4, "0.00001121", "0.00000696", 11'210, 6'960}});
+    // CL: only funding moves.
+    run({{-4.6, "-0.00000499", "0.0000125", -4'990, 12'500},
+         {4.4, "-0.00000499", "0.0000125", 12'500, k_undef},
+         {25.4, "0.0000125", "0.0000125", 12'500, 12'500}});
+    // ENA: the rate paid and the rate accruing are equal, so the roll is next_funding moving.
+    run({{-4.6, "0.0000125", "0.0000125", 12'500, 12'500},
+         {4.4, "0.0000125", "0.0000125", 12'500, k_undef},
+         {25.4, "0.0000125", "-0.00009899", 12'500, -98'990}});
+    // BTC: nothing moves across the hour, so the hold lapses.
+    run({{-4.6, "0.0000125", "0.0000125", 12'500, 12'500},
+         {60.0, "0.0000125", "0.0000125", 12'500, k_undef},
+         {90.0, "0.0000125", "0.0000125", 12'500, 12'500}});
+}
+
 TEST(PacificaFunding, SettlementIsTheNextTopOfTheHour) {
     EXPECT_EQ(next_settlement(UnixNanos{3'600'000'000'000ULL}), UnixNanos{7'200'000'000'000ULL});
     EXPECT_EQ(next_settlement(UnixNanos{3'599'999'999'999ULL}), UnixNanos{3'600'000'000'000ULL});

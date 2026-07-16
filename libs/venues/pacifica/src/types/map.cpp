@@ -166,6 +166,26 @@ map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init
     return out;
 }
 
+void FundingRoll::apply(FundingUpdate& update) noexcept {
+    const auto at = update.ts_event.ns;
+    const auto now_hour = at / k_interval_ns;
+    if (hour != 0 && now_hour > hour) {
+        hold_until_ns = now_hour * k_interval_ns + k_roll_hold_ns;
+        held = funding;
+    }
+    if (hold_until_ns != 0 && (at >= hold_until_ns || update.rate != held ||
+                               (update.rate == next && update.predicted_rate != next))) {
+        hold_until_ns = 0;
+    }
+    hour = now_hour;
+    funding = update.rate;
+    next = update.predicted_rate;
+    if (hold_until_ns != 0) {
+        update.rate = update.predicted_rate;
+        update.predicted_rate = FixedE9::undef();
+    }
+}
+
 std::optional<TickerStats>
 map_ticker_stats(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init) {
     const auto quote = parse_turnover_e6(wire.volume_24h);

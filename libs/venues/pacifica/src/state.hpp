@@ -20,6 +20,7 @@ struct Market {
     bool funded{false};
     LastId quote{};
     LastId book{};
+    FundingRoll roll{};
     std::uint64_t last_history_id{0};
 };
 

@@ -38,6 +38,22 @@ map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init);
 
+// For 20-45 s after the hour, measured, `funding` still names the rate just
+// paid while `next_funding` already holds the one accruing; the roll is the
+// frame whose `funding` moves, or whose `next_funding` leaves a `funding` equal
+// to it. Until then the rate is `next_funding`, for at most k_roll_hold_ns.
+inline constexpr std::uint64_t k_roll_hold_ns = 90'000'000'000ULL;
+
+struct FundingRoll {
+    std::uint64_t hour{0};
+    std::uint64_t hold_until_ns{0};
+    FixedE9 held{};
+    FixedE9 funding{};
+    FixedE9 next{};
+
+    void apply(FundingUpdate& update) noexcept;
+};
+
 // `li` rises across every symbol, so a gap is normal; a repeat or a step back
 // is a frame older than one already published.
 struct LastId {
