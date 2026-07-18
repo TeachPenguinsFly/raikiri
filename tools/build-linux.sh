@@ -30,6 +30,9 @@ VOLUME="${VOLUME:-raikiri-linux-build}"
 CONAN_VOLUME="${CONAN_VOLUME:-raikiri-linux-conan}"
 OUT="${OUT:-build/linux}"
 DEBUG_OUT="${DEBUG_OUT:-build/linux-debug}"
+# simdjson picks its on-demand kernel at compile time; haswell needs AVX2, BMI,
+# LZCNT and PCLMUL, and x86-64-v3 lacks PCLMUL, so it stays the scalar fallback.
+MARCH="${RAIKIRI_MARCH:-haswell}"
 
 echo "==> builder image"
 docker build --platform linux/amd64 -t "$IMAGE" -f tools/linux-builder.Dockerfile tools/
@@ -61,7 +64,8 @@ docker run --rm --platform linux/amd64 \
         deps || deps --no-remote
         cmake -S /src -B /build/rel -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=/build/deps/relwithdebinfo/conan_toolchain.cmake \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DRAIKIRI_MARCH=$MARCH
         cmake --build /build/rel --target $TARGETS -j\$(nproc) -- -k 0
     "
 
