@@ -6,15 +6,17 @@
 
 #include <openssl/ssl.h>
 
+#include <boost/asio/bind_immediate_executor.hpp>
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/host_name_verification.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/beast/core/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
-#include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
@@ -38,8 +40,23 @@ namespace ssl = boost::asio::ssl;
 namespace websock = boost::beast::websocket;
 using tcp = boost::asio::ip::tcp;
 
-using TlsStream = beast::ssl_stream<beast::tcp_stream>;
+// The io_context's own executor type, not any_io_executor: every composed
+// operation holds a work guard on its stream's executor, and the type-erased
+// one is constructed, moved and destroyed at each step of a read.
+using Executor = asio::io_context::executor_type;
+using Socket = asio::basic_stream_socket<tcp, Executor>;
+using TlsStream = beast::ssl_stream<Socket>;
 using WsStream = websock::stream<TlsStream>;
+using Resolver = asio::ip::basic_resolver<tcp, Executor>;
+using Timer = asio::basic_waitable_timer<std::chrono::steady_clock,
+                                         asio::wait_traits<std::chrono::steady_clock>,
+                                         Executor>;
+
+// Reads whose synchronous completion runs inline instead of through the
+// reactor queue: a frame already in beast's buffer, bytes OpenSSL has already
+// decrypted, a speculative recv that found data. Every k-th read posts, which
+// keeps the recursion shallow and gives the other sockets their turn.
+constexpr std::uint32_t k_inline_reads = 8;
 
 // A link that stayed up this long was not a fluke, so the next outage starts
 // its backoff from the floor instead of inheriting the previous storm's
@@ -171,7 +188,7 @@ public:
         ping_timer_.cancel();
         reconnect_timer_.cancel();
         if (conn_) {
-            beast::get_lowest_layer(conn_->stream).close();
+            close_socket(*conn_);
             conn_.reset();
         }
         send_queue_.clear();
@@ -215,6 +232,23 @@ private:
         std::string write_buf;
     };
 
+    // Handed back to async_read by on_read, so a read copies no shared_ptr.
+    struct ReadHandler {
+        std::shared_ptr<WsSession> self;
+        std::shared_ptr<Conn> conn;
+        std::uint64_t gen;
+
+        void operator()(const beast::error_code& ec, std::size_t bytes) {
+            auto* session = self.get();
+            session->on_read(std::move(*this), ec, bytes);
+        }
+    };
+
+    static void close_socket(Conn& conn) noexcept {
+        beast::error_code ignored;
+        static_cast<void>(beast::get_lowest_layer(conn.stream).close(ignored));
+    }
+
     [[nodiscard]] bool current(std::uint64_t gen,
                                const std::shared_ptr<Conn>& conn) const noexcept {
         return !dead_ && gen == generation_ && conn == conn_;
@@ -246,14 +280,29 @@ private:
             return;
         }
         state_ = State::Connecting;
-        // WsConfig carries no connect deadline.
-        auto& lowest = beast::get_lowest_layer(conn->stream);
-        lowest.expires_after(std::chrono::milliseconds{cfg_.pong_timeout_ms});
-        lowest.async_connect(results,
-                             [self = shared_from_this(), gen, conn](
-                                 const beast::error_code& connect_ec, const tcp::endpoint&) {
-                                 self->on_connect(gen, conn, connect_ec);
-                             });
+        // WsConfig carries no connect deadline. The ping timer is idle until
+        // the socket opens, so it bounds connect and TLS together.
+        ping_timer_.expires_after(std::chrono::milliseconds{cfg_.pong_timeout_ms});
+        ping_timer_.async_wait([self = shared_from_this(), gen](const beast::error_code& timer_ec) {
+            self->on_handshake_deadline(gen, timer_ec);
+        });
+        asio::async_connect(beast::get_lowest_layer(conn->stream),
+                            results,
+                            [self = shared_from_this(), gen, conn](
+                                const beast::error_code& connect_ec, const tcp::endpoint&) {
+                                self->on_connect(gen, conn, connect_ec);
+                            });
+    }
+
+    void on_handshake_deadline(std::uint64_t gen, const beast::error_code& ec) {
+        if (dead_ || ec || gen != generation_) {
+            return;
+        }
+        if (state_ == State::Connecting) {
+            close_with(WsCloseReason::Transport, describe("connect", beast::error::timeout));
+        } else if (state_ == State::TlsHandshake) {
+            close_with(WsCloseReason::Transport, describe("tls handshake", beast::error::timeout));
+        }
     }
 
     void
@@ -288,7 +337,7 @@ private:
             return;
         }
         state_ = State::WsHandshake;
-        beast::get_lowest_layer(conn->stream).expires_never();
+        ping_timer_.cancel();
 
         websock::stream_base::timeout timeout{};
         timeout.handshake_timeout = std::chrono::milliseconds{cfg_.pong_timeout_ms};
@@ -342,22 +391,23 @@ private:
         }
         drain_writes();
         arm_ping_timer(false);
-        do_read(gen, conn);
+        do_read(ReadHandler{shared_from_this(), conn, gen});
     }
 
-    void do_read(std::uint64_t gen, const std::shared_ptr<Conn>& conn) {
-        conn->stream.async_read(
-            conn->buffer,
-            [self = shared_from_this(), gen, conn](const beast::error_code& ec, std::size_t bytes) {
-                self->on_read(gen, conn, ec, bytes);
-            });
+    void do_read(ReadHandler handler) {
+        auto& conn = *handler.conn;
+        if (++reads_since_post_ < k_inline_reads) {
+            conn.stream.async_read(
+                conn.buffer, asio::bind_immediate_executor(ioc_.get_executor(), std::move(handler)));
+            return;
+        }
+        reads_since_post_ = 0;
+        conn.stream.async_read(conn.buffer, std::move(handler));
     }
 
-    void on_read(std::uint64_t gen,
-                 const std::shared_ptr<Conn>& conn,
-                 const beast::error_code& ec,
-                 std::size_t bytes) {
-        if (!current(gen, conn)) {
+    void on_read(ReadHandler handler, const beast::error_code& ec, std::size_t bytes) {
+        const auto& conn = handler.conn;
+        if (!current(handler.gen, conn)) {
             return;
         }
         if (ec == websock::error::closed) {
@@ -383,7 +433,7 @@ private:
         handler_.on_message(std::string_view{static_cast<const char*>(data.data()), data.size()},
                             clock_.wall());
         conn->buffer.consume(conn->buffer.size());
-        do_read(gen, conn);
+        do_read(std::move(handler));
     }
 
     // Beast forbids overlapping writes, and async_ping is a write.
@@ -476,7 +526,7 @@ private:
         ping_pending_ = false;
         ping_timer_.cancel();
         if (conn_) {
-            beast::get_lowest_layer(conn_->stream).close();
+            close_socket(*conn_);
             conn_.reset();
         }
         if (reason == WsCloseReason::Requested) {
@@ -536,9 +586,9 @@ private:
     WsConfig cfg_;
     WsHandler& handler_;
     ssl::context tls_;
-    tcp::resolver resolver_;
-    asio::steady_timer ping_timer_;
-    asio::steady_timer reconnect_timer_;
+    Resolver resolver_;
+    Timer ping_timer_;
+    Timer reconnect_timer_;
     LiveClock clock_;
 
     std::shared_ptr<Conn> conn_;
@@ -549,6 +599,7 @@ private:
     MonoNanos opened_at_{};
     std::uint64_t generation_{0};
     std::uint32_t backoff_ms_;
+    std::uint32_t reads_since_post_{0};
     std::minstd_rand rng_;
     State state_{State::Idle};
     bool running_{false};
