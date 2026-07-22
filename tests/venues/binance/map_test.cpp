@@ -189,6 +189,9 @@ TEST(BinanceMap, NonPerpetualAndNonTradingRowsAreRefused) {
     wire.contract_type = "PERPETUAL";
     wire.status = "SETTLING";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
+
+    wire.status = "PENDING_TRADING";
+    EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 }
 
 TEST(BinanceMap, InstrumentWithoutUsableStepsIsRefused) {
@@ -660,6 +663,70 @@ TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
 }
 
 // ------------------------------------------------------------ balances ----
+
+TEST(BinanceBook, SeedAnswersAreClassified) {
+    constexpr std::string_view invalid = R"({"code":-1121,"msg":"Invalid symbol."})";
+    EXPECT_EQ(classify_seed_answer(400, invalid), SeedAnswer::NoBook);
+    EXPECT_EQ(classify_seed_answer(400, "<html>Bad Request</html>"), SeedAnswer::NoBook);
+    EXPECT_EQ(classify_seed_answer(429, R"({"code":-1003,"msg":"Too many requests."})"),
+              SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(418, R"({"code":-1003,"msg":"banned until 1"})"),
+              SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1003,"msg":"Too many requests."})"),
+              SeedAnswer::RateLimited);
+    EXPECT_EQ(classify_seed_answer(400, R"({"code":-1001,"msg":"Disconnected."})"),
+              SeedAnswer::Retry);
+    EXPECT_EQ(classify_seed_answer(503, ""), SeedAnswer::Retry);
+    EXPECT_EQ(classify_seed_answer(408, ""), SeedAnswer::Retry);
+    EXPECT_EQ(classify_seed_answer(200, R"({"lastUpdateId":1,"bids":[],"asks":[]})"),
+              SeedAnswer::Book);
+}
+
+struct FakeRest {
+    int status{0};
+    std::string body;
+    int asked{0};
+};
+
+// Every delta asks for a seed while the book wants one, as the data client does.
+void deliver_deltas(DepthBook& book, FakeRest& rest, int deltas) {
+    for (int i = 0; i < deltas; ++i) {
+        if (!book.wants_seed()) {
+            continue;
+        }
+        book.seed_requested();
+        ++rest.asked;
+        if (classify_seed_answer(rest.status, rest.body) == SeedAnswer::NoBook) {
+            book.seed_refused();
+        } else {
+            book.seed_failed();
+        }
+    }
+}
+
+TEST(BinanceBook, ASymbolTheVenueHasNoBookForIsAskedOncePerCatalogue) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    FakeRest rest{.status = 400, .body = R"({"code":-1121,"msg":"Invalid symbol."})", .asked = 0};
+    deliver_deltas(book, rest, 100);
+    EXPECT_EQ(rest.asked, 1);
+    EXPECT_TRUE(book.refused());
+    EXPECT_FALSE(book.live());
+
+    book.readmit();
+    deliver_deltas(book, rest, 100);
+    EXPECT_EQ(rest.asked, 2);
+}
+
+TEST(BinanceBook, ARateLimitedSeedIsAskedAgain) {
+    const auto table = table_with_btc();
+    auto book = book_for(table);
+    FakeRest rest{.status = 429, .body = R"({"code":-1003,"msg":"Too many requests."})", .asked = 0};
+    deliver_deltas(book, rest, 5);
+    EXPECT_EQ(rest.asked, 5);
+    EXPECT_FALSE(book.refused());
+    EXPECT_TRUE(book.wants_seed());
+}
 
 TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     auto storage = std::make_unique<BalanceBuffer>();

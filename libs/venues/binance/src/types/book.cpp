@@ -1,5 +1,7 @@
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/venues/binance/book.hpp>
+#include <raikiri/venues/binance/envelope.hpp>
+#include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/wire/json.hpp>
 
 #include <utility>
@@ -185,7 +187,24 @@ DepthBook::DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_siz
 }
 
 bool DepthBook::wants_seed() const noexcept {
-    return state_ == State::Cold && !seed_in_flight_;
+    return state_ == State::Cold && !seed_in_flight_ && !refused_;
+}
+
+SeedAnswer classify_seed_answer(int status, std::string_view body) noexcept {
+    const auto err = parse_rest_error(body);
+    const bool coded = err.has_value() && err->code != k_ok;
+    if (status == 429 || status == 418 ||
+        (coded && classify(err->code) == exec::ErrorClass::RateLimited)) {
+        return SeedAnswer::RateLimited;
+    }
+    if (status >= 200 && status < 300 && !coded) {
+        return SeedAnswer::Book;
+    }
+    if (status >= 400 && status < 500 && status != 408 &&
+        (!coded || classify(err->code) == exec::ErrorClass::Terminal)) {
+        return SeedAnswer::NoBook;
+    }
+    return SeedAnswer::Retry;
 }
 
 void DepthBook::invalidate() noexcept {

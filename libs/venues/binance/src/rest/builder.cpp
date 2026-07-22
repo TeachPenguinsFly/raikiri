@@ -1,6 +1,7 @@
 #include <raikiri/venues/binance/endpoints.hpp>
 #include <raikiri/venues/binance/rest.hpp>
 
+#include <array>
 #include <charconv>
 #include <cstring>
 
@@ -36,6 +37,25 @@ public:
             return *this;
         }
         return *this << std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())};
+    }
+
+    // RFC 3986: a raw UTF-8 byte in the request line is a 400 at a strict edge,
+    // and binance lists symbols like 龙虾USDT.
+    Appender& encoded(std::string_view text) noexcept {
+        constexpr std::string_view hex = "0123456789ABCDEF";
+        for (const char c : text) {
+            const auto byte = static_cast<unsigned char>(c);
+            const bool plain = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
+                               (byte >= '0' && byte <= '9') || byte == '-' || byte == '.' ||
+                               byte == '_' || byte == '~';
+            if (plain) {
+                *this << std::string_view{&c, 1};
+                continue;
+            }
+            const std::array<char, 3> escape{'%', hex[byte >> 4U], hex[byte & 0x0FU]};
+            *this << std::string_view{escape.data(), escape.size()};
+        }
+        return *this;
     }
 
     [[nodiscard]] bool ok() const noexcept { return !overflow_; }
@@ -137,7 +157,8 @@ net::RestRequest RequestBuilder::server_time() noexcept {
 net::RestRequest RequestBuilder::depth_snapshot(std::string_view symbol,
                                                 std::uint32_t limit) noexcept {
     Appender target{target_};
-    target << ep::k_depth << "?symbol=" << symbol << "&limit=" << std::uint64_t{limit};
+    target << ep::k_depth << "?symbol=";
+    target.encoded(symbol) << "&limit=" << std::uint64_t{limit};
     return {.method = net::HttpMethod::Get,
             .target = target.ok() ? target.view() : std::string_view{},
             .body = {}};
@@ -194,7 +215,8 @@ RequestBuilder::create_order(const OrderCmd& cmd, const InstrumentBase& instrume
     }
 
     Appender q{query_};
-    q << "symbol=" << instrument.exchange_symbol.view();
+    q << "symbol=";
+    q.encoded(instrument.exchange_symbol.view());
     q << "&side=" << side_text(cmd.side);
     q << "&type=" << (cmd.order_type == OrderType::Market ? "MARKET" : "LIMIT");
     if (cmd.order_type == OrderType::Limit) {
@@ -228,7 +250,8 @@ RequestBuilder::cancel_order(const OrderCmd& cmd, const InstrumentBase& instrume
         return std::unexpected{BuildError::NoCredentials};
     }
     Appender q{query_};
-    q << "symbol=" << instrument.exchange_symbol.view();
+    q << "symbol=";
+    q.encoded(instrument.exchange_symbol.view());
     if (!cmd.target_exchange_order_id.empty()) {
         q << "&orderId=" << cmd.target_exchange_order_id.view();
     } else {
@@ -248,7 +271,8 @@ RequestBuilder::amend_order(const OrderCmd& cmd, const InstrumentBase& instrumen
         return std::unexpected{BuildError::NoCredentials};
     }
     Appender q{query_};
-    q << "symbol=" << instrument.exchange_symbol.view();
+    q << "symbol=";
+    q.encoded(instrument.exchange_symbol.view());
     q << "&side=" << side_text(cmd.side);
     if (!cmd.target_exchange_order_id.empty()) {
         q << "&orderId=" << cmd.target_exchange_order_id.view();
@@ -289,7 +313,8 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
         return std::unexpected{BuildError::NoCredentials};
     }
     Appender q{query_};
-    q << "symbol=" << symbol << "&origClientOrderId=" << id.view();
+    q << "symbol=";
+    q.encoded(symbol) << "&origClientOrderId=" << id.view();
     q << "&recvWindow=" << std::uint64_t{k_recv_window_ms} << "&timestamp=" << to_ms(now);
     if (!q.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -335,7 +360,8 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     // refuse the pull outright and say why.
     Appender q{query_};
     if (!symbol.empty()) {
-        q << "symbol=" << symbol << "&";
+        q << "symbol=";
+        q.encoded(symbol) << "&";
     }
     if (since.ns != 0) {
         q << "startTime=" << to_ms(since) << "&";

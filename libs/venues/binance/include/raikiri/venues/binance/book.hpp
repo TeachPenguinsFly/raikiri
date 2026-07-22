@@ -122,6 +122,12 @@ inline constexpr std::size_t k_max_buffered_deltas = 64;
 // have. The terminal draws 12.
 inline constexpr std::uint32_t k_seed_depth = 100;
 
+// What a depth snapshot answer means for the book that asked. NoBook is the
+// venue saying this symbol has no ladder to sell, which no retry will change.
+enum class SeedAnswer : std::uint8_t { Book, Retry, RateLimited, NoBook };
+
+[[nodiscard]] SeedAnswer classify_seed_answer(int status, std::string_view body) noexcept;
+
 // One symbol's book. Prices and sizes become instrument-scaled integers at
 // ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
@@ -136,6 +142,16 @@ public:
     void seed_requested() noexcept { seed_in_flight_ = true; }
 
     void seed_failed() noexcept { seed_in_flight_ = false; }
+
+    // Asked for no seed again until readmit(), which the catalogue refresh calls.
+    void seed_refused() noexcept {
+        seed_in_flight_ = false;
+        refused_ = true;
+    }
+
+    void readmit() noexcept { refused_ = false; }
+
+    [[nodiscard]] bool refused() const noexcept { return refused_; }
 
     BookResult seed(const WireDepthSnapshot& snapshot);
     BookResult apply(const WireDepthUpdate& delta);
@@ -205,6 +221,7 @@ private:
     std::uint64_t dropped_levels_{0};
     State state_{State::Cold};
     bool seed_in_flight_{false};
+    bool refused_{false};
 };
 
 } // namespace raikiri::venues::binance

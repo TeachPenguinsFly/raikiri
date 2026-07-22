@@ -103,11 +103,29 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
             target.seed_failed();
             return;
         }
-        if (const auto err = parse_rest_error(response.body);
-            err.has_value() && err->code != k_ok) {
+        switch (classify_seed_answer(response.status, response.body)) {
+        case SeedAnswer::Book:
+            break;
+        case SeedAnswer::RateLimited:
             heed_rate_refusal(*owner, response);
             target.seed_failed();
             return;
+        case SeedAnswer::Retry:
+            target.seed_failed();
+            return;
+        case SeedAnswer::NoBook: {
+            target.seed_refused();
+            if (::raikiri::log::logger() != nullptr) {
+                const auto* listed = owner->instruments.find(id);
+                RLOG_WARN("binance: {} depth snapshot refused with {} ({}) — no book for it "
+                          "until the catalogue is reloaded",
+                          listed != nullptr ? base_of(*listed).exchange_symbol.view()
+                                            : std::string_view{"?"},
+                          response.status,
+                          response.body.substr(0, 120));
+            }
+            return;
+        }
         }
         static thread_local LevelBuffer storage;
         const auto wire = parse_depth_snapshot(response.body, storage);
@@ -392,21 +410,25 @@ private:
         // cold at the previous look too and has therefore been cold for a
         // quarter of a minute.
         const auto cold = cold_books();
+        const auto refused = refused_books();
         const bool behind = cold != 0 && (!state_->pending_seeds.empty() || cold_before_ != 0);
         cold_before_ = cold;
         if (!behind) {
             if (warned_) {
                 warned_ = false;
-                RLOG_INFO("binance: every one of {} depth books is seeded", state_->books.size());
+                RLOG_INFO("binance: every one of {} depth books is seeded, {} refused by the venue",
+                          state_->books.size() - refused,
+                          refused);
             }
             return;
         }
         warned_ = true;
-        RLOG_WARN("binance: {} of {} depth books have no seed yet, {} still queued — those "
-                  "instruments publish no ladder until they do",
+        RLOG_WARN("binance: {} of {} depth books have no seed yet, {} still queued, {} refused "
+                  "by the venue — those instruments publish no ladder until they do",
                   cold,
-                  state_->books.size(),
-                  state_->pending_seeds.size());
+                  state_->books.size() - refused,
+                  state_->pending_seeds.size(),
+                  refused);
     }
 
     // The last word on the books, and the only reader gaps() and reseeds() have.
@@ -421,23 +443,34 @@ private:
             reseeds += book.reseeds();
         }
         const auto cold = cold_books();
+        const auto refused = refused_books();
         if (cold == 0) {
-            RLOG_INFO("binance: {} depth books, all seeded — {} chain gap(s), {} reseed(s)",
-                      state_->books.size(),
+            RLOG_INFO("binance: {} depth books, all seeded, {} refused by the venue — {} chain "
+                      "gap(s), {} reseed(s)",
+                      state_->books.size() - refused,
+                      refused,
                       gaps,
                       reseeds);
             return;
         }
-        RLOG_WARN("binance: {} of {} depth books NEVER SEEDED — {} chain gap(s), {} reseed(s)",
+        RLOG_WARN("binance: {} of {} depth books NEVER SEEDED, {} refused by the venue — {} chain "
+                  "gap(s), {} reseed(s)",
                   cold,
-                  state_->books.size(),
+                  state_->books.size() - refused,
+                  refused,
                   gaps,
                   reseeds);
     }
 
     [[nodiscard]] std::size_t cold_books() const noexcept {
         return static_cast<std::size_t>(std::ranges::count_if(
-            state_->books, [](const auto& entry) { return !entry.second.live(); }));
+            state_->books,
+            [](const auto& entry) { return !entry.second.live() && !entry.second.refused(); }));
+    }
+
+    [[nodiscard]] std::size_t refused_books() const noexcept {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            state_->books, [](const auto& entry) { return entry.second.refused(); }));
     }
 
     // A LIBRARY MAY NOT ASSUME THE PROCESS INSTALLED A LOGGER, and RLOG_*
@@ -456,7 +489,7 @@ private:
         }
         const auto id = state_->pending_seeds.front();
         const auto entry = state_->books.find(id.packed);
-        if (entry == state_->books.end()) {
+        if (entry == state_->books.end() || entry->second.refused()) {
             state_->pending_seeds.erase(state_->pending_seeds.begin());
             return;
         }

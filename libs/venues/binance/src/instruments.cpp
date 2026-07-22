@@ -157,6 +157,9 @@ public:
             }
             loaded.push_back(*state_->instruments.find(*id));
         }
+        for (auto& [packed, book] : state_->books) {
+            book.readmit();
+        }
         return loaded;
     }
 

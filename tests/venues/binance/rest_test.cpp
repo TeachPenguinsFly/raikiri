@@ -304,4 +304,13 @@ TEST(BinanceRest, TheIncomeTargetIsWhatTheVenueExpects) {
     EXPECT_TRUE(request->target.starts_with("/fapi/v1/income?"));
 }
 
+TEST(BinanceRest, DepthSnapshotPercentEncodesANonAsciiSymbol) {
+    net::Signer signer;
+    RequestBuilder builder{signer};
+    EXPECT_EQ(builder.depth_snapshot("龙虾USDT", 100).target,
+              "/fapi/v1/depth?symbol=%E9%BE%99%E8%99%BEUSDT&limit=100");
+    EXPECT_EQ(builder.depth_snapshot("BTCUSDT", 100).target,
+              "/fapi/v1/depth?symbol=BTCUSDT&limit=100");
+}
+
 } // namespace raikiri::venues::binance
