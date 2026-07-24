@@ -37,7 +37,8 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             for (const auto& [key, field] : {std::pair{"symbol", &row.symbol},
                                              std::pair{"baseAsset", &row.base_asset},
                                              std::pair{"quoteAsset", &row.quote_asset},
-                                             std::pair{"contractType", &row.contract_type}}) {
+                                             std::pair{"contractType", &row.contract_type},
+                                             std::pair{"underlyingType", &row.underlying_type}}) {
                 item.reset();
                 const auto value = detail::opt_str(item, key);
                 if (!value.has_value()) {

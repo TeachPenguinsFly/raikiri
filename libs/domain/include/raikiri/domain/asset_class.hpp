@@ -3,11 +3,21 @@
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/instrument.hpp>
 
+#include <span>
 #include <string_view>
 
 namespace raikiri {
 
 [[nodiscard]] std::string_view to_string(AssetClass cls) noexcept;
+
+struct CuratedRow {
+    VenueId venue;
+    std::string_view symbol;
+    AssetClass cls;
+    std::string_view underlying;
+};
+
+[[nodiscard]] std::span<const CuratedRow> curated_rows() noexcept;
 
 // True for a venue whose adapter reads the class off the venue's own catalogue
 // field. There an Unknown the adapter left stays Unknown; elsewhere it defaults

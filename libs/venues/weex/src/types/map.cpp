@@ -12,6 +12,25 @@ namespace raikiri::venues::weex {
 
 namespace {
 
+[[nodiscard]] AssetClass asset_class_of(std::string_view underlying_type) noexcept {
+    if (underlying_type == "COIN") {
+        return AssetClass::Crypto;
+    }
+    if (underlying_type == "Stocks" || underlying_type == "Pre-IPO") {
+        return AssetClass::Equity;
+    }
+    if (underlying_type == "Indices") {
+        return AssetClass::Index;
+    }
+    if (underlying_type == "Metals" || underlying_type == "Commodities") {
+        return AssetClass::Commodity;
+    }
+    if (underlying_type == "Forex") {
+        return AssetClass::FX;
+    }
+    return AssetClass::Unknown;
+}
+
 // Exact conversion against the instrument's own step. A value that does not
 // divide evenly means WEEX changed a precision, so the message is dropped
 // rather than rounded — rounding is how a price ends up one tick from where the
@@ -447,6 +466,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.id = InstrumentId::make(VenueId::Weex, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *canonical;
+    base.asset_class = asset_class_of(wire.underlying_type);
     base.tick_size = *tick;
     base.lot_size = *lot;
     // ONE BASE UNIT PER UNIT OF SIZE. Quantities on this tree are base amounts,

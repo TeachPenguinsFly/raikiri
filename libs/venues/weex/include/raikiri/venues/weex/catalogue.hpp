@@ -45,6 +45,8 @@ struct WireInstrument {
     // underlying — 446 of them live, quoting FX, metals and equity indices —
     // and it settles, funds and margins in USDT exactly like the first.
     std::string_view contract_type;
+    // COIN, Stocks, Pre-IPO, Indices, Metals, Commodities or Forex.
+    std::string_view underlying_type;
     // A decimal, and the size step. JSON writes it as an integer on 573 rows
     // and as a float on 449, in one body.
     std::string_view contract_val;

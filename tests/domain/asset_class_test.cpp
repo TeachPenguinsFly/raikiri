@@ -2,6 +2,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <set>
+#include <string>
+
 namespace {
 
 using namespace raikiri;
@@ -58,6 +66,79 @@ TEST(AssetClass, AnUnderlyingTooLongToKeyIsNotPaired) {
     const auto long_name =
         classified(VenueId::Okx, "X-USDT-SWAP", "ABCDEFGHIJKLMNOPQ/USDT", AssetClass::Equity);
     EXPECT_EQ(long_name.asset_class, AssetClass::Unknown);
+}
+
+std::string undashed(std::string symbol) {
+    std::erase(symbol, '-');
+    return symbol;
+}
+
+std::string base_of_symbol(std::string_view symbol) {
+    for (const std::string_view prefix : {"PF_", "PI_", "FF_"}) {
+        if (symbol.starts_with(prefix)) {
+            symbol.remove_prefix(prefix.size());
+        }
+    }
+    std::string base{symbol.substr(0, symbol.find_first_of("-_/: "))};
+    for (auto& c : base) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    for (const std::string_view quote : {"USDT", "USDC", "USD", "PERP"}) {
+        if (base.size() > quote.size() && base.ends_with(quote)) {
+            base.resize(base.size() - quote.size());
+            break;
+        }
+    }
+    return base;
+}
+
+// A symbol spelled like an underlying some venue states as an equity, metal,
+// index or currency must carry its own row on a venue that states nothing,
+// even when the row says Crypto — SPX the coin is a decision, not a default.
+TEST(AssetClass, NoFixtureSymbolNamedLikeAStatedUnderlyingDefaultsToCrypto) {
+    std::set<std::string, std::less<>> known;
+    for (const auto& row : curated_rows()) {
+        if (row.cls != AssetClass::Crypto && row.cls != AssetClass::Unknown) {
+            known.emplace(row.underlying);
+        }
+    }
+    const std::regex field{
+        R"re("(symbol|contractName|ticker|instrument_name|instrument|name)"\s*:\s*"([^"]+)")re"};
+    const auto venues_dir = std::filesystem::path{__FILE__}.parent_path().parent_path() / "venues";
+    std::size_t checked = 0;
+    for (std::size_t v = 1; v < k_venue_count; ++v) {
+        const auto venue = static_cast<VenueId>(v);
+        if (venue == VenueId::Sim || is_retired(venue) || states_asset_class(venue)) {
+            continue;
+        }
+        const auto dir = venues_dir / std::string{to_string(venue)} / "fixtures";
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator{dir, ec}) {
+            const auto name = entry.path().filename().string();
+            if (entry.path().extension() != ".json" || name.find("error") != std::string::npos) {
+                continue;
+            }
+            std::ifstream in{entry.path()};
+            const std::string text{std::istreambuf_iterator<char>{in}, {}};
+            for (auto it = std::sregex_iterator{text.begin(), text.end(), field};
+                 it != std::sregex_iterator{};
+                 ++it) {
+                const auto symbol = (*it)[2].str();
+                if (symbol.find(':') != std::string::npos ||
+                    !known.contains(base_of_symbol(symbol))) {
+                    continue;
+                }
+                ++checked;
+                const bool explicit_row = std::ranges::any_of(curated_rows(), [&](const CuratedRow& row) {
+                    return row.venue == venue &&
+                           (row.symbol == symbol || row.symbol == undashed(symbol));
+                });
+                EXPECT_TRUE(explicit_row) << to_string(venue) << " " << symbol << " in " << name
+                                          << " would default to crypto";
+            }
+        }
+    }
+    EXPECT_GT(checked, 0U);
 }
 
 } // namespace
