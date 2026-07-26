@@ -147,7 +147,13 @@ void handle_uta_frame(VenueState& state, std::string_view frame, UnixNanos recei
     static thread_local const auto storage = std::make_unique<LevelBuffer>();
     const auto wire = parse_uta_book(frame, *storage);
     if (!wire.has_value()) {
-        return; // acknowledgements, pongs and anything else are not books
+        if (const auto print = parse_uta_trade(frame); print.has_value()) {
+            if (const auto trade = map_trade(*print, state.instruments, received);
+                trade.has_value()) {
+                state.sink->on_trade(*trade);
+            }
+        }
+        return; // acknowledgements, pongs and anything else are neither
     }
     const auto* instrument = state.instruments.find(wire->symbol);
     if (instrument == nullptr) {

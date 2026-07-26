@@ -2052,6 +2052,33 @@ TEST(KucoinUtaWs, ASubscribeAsksForOneSymbolAtATime) {
     EXPECT_NE(second->text.find(R"("id":"2")"), std::string_view::npos) << "ids advance";
 }
 
+TEST(KucoinUtaWs, TradesSubscribeOnTheTradeChannelWithoutADepth) {
+    EXPECT_EQ(uta_topic_for(exec::SubKind::Trades), k_uta_trade_channel);
+    Protocol protocol;
+    const std::array<Subscription, 1> subs{
+        Subscription{.topic = k_uta_trade_channel, .symbol = "XBTUSDTM"}};
+    const auto frame = protocol.uta_subscribe_frame(subs);
+    ASSERT_TRUE(frame.has_value());
+    EXPECT_EQ(frame->text,
+              R"({"id":"1","action":"SUBSCRIBE","channel":"trade","tradeType":"FUTURES",)"
+              R"("symbol":"XBTUSDTM"})");
+}
+
+TEST(KucoinUtaTrade, APrintParsesAndABookFrameDoesNot) {
+    const auto frame = fixture("ws_uta_trade.json");
+    const auto wire = parse_uta_trade(frame);
+    ASSERT_TRUE(wire.has_value());
+    EXPECT_EQ(wire->symbol, "XBTUSDTM");
+    EXPECT_EQ(wire->price, "83929.4");
+    EXPECT_EQ(wire->qty, "1");
+    EXPECT_FALSE(wire->aggressor_bought);
+    EXPECT_EQ(wire->trade_id, "1945076528422");
+    EXPECT_EQ(wire->sequence, 1945076528422);
+    EXPECT_EQ(wire->ts_ns, 1790432266600000000ULL);
+    EXPECT_FALSE(parse_uta_trade(fixture("ws_uta_book_snapshot.json")).has_value());
+    EXPECT_FALSE(parse_uta_trade(fixture("ws_uta_subscribe_ack.json")).has_value());
+}
+
 TEST(KucoinUtaWs, ARequestForAnotherChannelIsRefused) {
     Protocol protocol;
     const std::array<Subscription, 1> classic{

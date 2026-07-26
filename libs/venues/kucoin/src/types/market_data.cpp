@@ -67,6 +67,61 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
     });
 }
 
+std::expected<WireTrade, WireError> parse_uta_trade(std::string_view frame) {
+    return guarded([&]() -> std::expected<WireTrade, WireError> {
+        auto root = session().open_object(frame);
+        if (!root.has_value()) {
+            return std::unexpected(root.error());
+        }
+        const auto topic = detail::req_str(*root, "T");
+        if (!topic.has_value()) {
+            return std::unexpected(topic.error());
+        }
+        if (!topic->starts_with("trade.")) {
+            return std::unexpected(WireError::WrongType);
+        }
+        auto data = detail::req_object(*root, "d");
+        if (!data.has_value()) {
+            return std::unexpected(data.error());
+        }
+        WireTrade out{};
+        std::string_view side;
+        bool has_sequence = false;
+        const auto walked = detail::for_each_field(
+            *data,
+            [&](std::string_view key,
+                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                if (key == "s") {
+                    out.symbol = detail::str_of(value).value_or(std::string_view{});
+                } else if (key == "p") {
+                    out.price = detail::str_of(value).value_or(std::string_view{});
+                } else if (key == "q") {
+                    out.qty = detail::str_of(value).value_or(std::string_view{});
+                } else if (key == "S") {
+                    side = detail::str_of(value).value_or(std::string_view{});
+                } else if (key == "ti") {
+                    out.trade_id = detail::str_of(value).value_or(std::string_view{});
+                } else if (key == "E") {
+                    const auto sequence = detail::i64_of(value);
+                    has_sequence = sequence.has_value();
+                    out.sequence = sequence.value_or(0);
+                } else if (key == "M") {
+                    out.ts_ns = detail::u64_of(value).value_or(0);
+                }
+                return {};
+            });
+        if (!walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
+        if (out.symbol.empty() || out.price.empty() || out.qty.empty() || side.empty() ||
+            !has_sequence) {
+            return std::unexpected(WireError::MissingField);
+        }
+        out.aggressor_bought = side == "buy";
+        return out;
+    });
+}
+
 std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame) {
     return guarded([&]() -> std::expected<WireMarkPrice, WireError> {
         auto root = session().open_object(frame);

@@ -34,6 +34,8 @@ struct WireTrade {
 [[nodiscard]] std::expected<WireTrade, WireError> parse_trade(std::string_view frame,
                                                               MarketType market);
 
+[[nodiscard]] std::expected<WireTrade, WireError> parse_uta_trade(std::string_view frame);
+
 struct WireMarkPrice {
     std::string_view symbol;
     std::string_view mark_price;

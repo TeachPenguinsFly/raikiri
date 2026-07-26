@@ -179,7 +179,8 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
     const auto& one = subscriptions.front();
-    if (one.symbol.empty() || one.topic != k_uta_book_channel) {
+    const bool book = one.topic == k_uta_book_channel;
+    if (one.symbol.empty() || (!book && one.topic != k_uta_trade_channel)) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
     std::size_t len = 0;
@@ -202,11 +203,13 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
     put(R"({"id":")");
     put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     put(R"(","action":"SUBSCRIBE","channel":")");
-    put(k_uta_book_channel);
+    put(one.topic);
     put(R"(","tradeType":"FUTURES","symbol":")");
     put(one.symbol);
-    put(R"(","depth":")");
-    put(k_uta_book_depth);
+    if (book) {
+        put(R"(","depth":")");
+        put(k_uta_book_depth);
+    }
     put(R"("})");
     if (overflow) {
         return std::unexpected{WsBuildError::BufferTooSmall};

@@ -73,6 +73,7 @@ make_endpoint(std::string_view endpoint_url, std::string_view token, std::string
 // meter. 500 levels a side, against the 100 this gateway publishes.
 inline constexpr std::string_view k_uta_book_channel = "obu";
 inline constexpr std::string_view k_uta_book_depth = "increment@10ms";
+inline constexpr std::string_view k_uta_trade_channel = "trade";
 
 // NO TOKEN, and that is what makes this a parser change rather than an account
 // migration. The classic feed mints a bullet over REST and the URL carries it;
@@ -91,14 +92,14 @@ inline constexpr std::uint64_t k_uta_subscribe_spacing_ns = 100ULL * 1'000'000UL
 // What the unified feed offers, per kind. THE BOOK CARRIES THE QUOTE: `obu`
 // opens with a whole ladder and the touch of an applied one is KuCoin's own
 // best bid and ask, so there is no second subscription for it. Trades and
-// funding are not ported — this feed is taken for the book, and the classic
-// tree still serves those where a deployment asks for them.
+// funding has no channel here at all; it comes off the catalogue poll.
 [[nodiscard]] constexpr std::string_view uta_topic_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
     case exec::SubKind::Depth:
         return k_uta_book_channel;
     case exec::SubKind::Trades:
+        return k_uta_trade_channel;
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
     case exec::SubKind::Kline:
