@@ -273,6 +273,32 @@ TEST(OkxMap, SwapQuoteTurnoverIsTheBaseAtTheLastPrint) {
     EXPECT_TRUE(unpriced->volume_24h_quote.is_undef());
 }
 
+TEST(OkxMap, SwapWhoseCoinCountOverflowsIsPricedByTheContract) {
+    exec::InstrumentTable table;
+    WireInstrument row{};
+    row.inst_id = "PEPE-USDT-SWAP";
+    row.inst_type = "SWAP";
+    row.state = "live";
+    row.tick_size = "0.000000001";
+    row.lot_size = "0.1";
+    row.min_size = "0.1";
+    row.ct_val = "10000000";
+    row.ct_mult = "1";
+    row.ct_type = "linear";
+    const auto pepe = map_instrument(row, MarketType::Perp);
+    ASSERT_TRUE(pepe.has_value());
+    ASSERT_TRUE(table.add(*pepe).has_value());
+
+    const auto frame = fixture("ws_tickers_pepe.json");
+    const auto wire = parse_ticker(frame);
+    ASSERT_TRUE(wire.has_value());
+    const auto stats = map_ticker_stats(*wire, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_TRUE(stats->volume_24h_base.is_undef());
+    // 2 287 413.2 contracts x 10 000 000 PEPE x 0.000004406.
+    EXPECT_EQ(stats->volume_24h_quote.raw, 100'783'425'592'000LL);
+}
+
 TEST(OkxMap, InverseSwapQuoteTurnoverIsContractsTimesTheirDollarValue) {
     exec::InstrumentTable table;
     WireInstrument row{};

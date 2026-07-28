@@ -321,9 +321,15 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
         if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
             out.volume_24h_quote = turnover_e6(*contracts, base.contract_value);
         }
-    } else if (const auto last = to_amount(wire.last); coins.has_value() && last.has_value()) {
+    } else if (const auto last = to_amount(wire.last); last.has_value()) {
         // No derivative turnover column: the day's coins at the last print.
-        out.volume_24h_quote = turnover_e6(*coins, *last);
+        // PEPE trades 2.3e13 coins a day, past what an e9 column holds, so
+        // there the count is priced a contract at a time instead.
+        if (coins.has_value()) {
+            out.volume_24h_quote = turnover_e6(*coins, *last);
+        } else if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
+            out.volume_24h_quote = turnover_e6(*contracts, turnover_e9(base.contract_value, *last));
+        }
     }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
