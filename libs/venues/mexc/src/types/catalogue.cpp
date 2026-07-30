@@ -51,6 +51,11 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             }
             out.base_coin = *base_coin;
             out.quote_coin = *quote_coin;
+            const auto settle_coin = opt_scalar(obj, "settleCoin");
+            if (!settle_coin.has_value()) {
+                return std::unexpected(WireError::WrongType);
+            }
+            out.settle_coin = *settle_coin;
             const auto contract_size = req_scalar(obj, "contractSize");
             const auto min_vol = req_scalar(obj, "minVol");
             if (!contract_size.has_value() || !min_vol.has_value()) {

@@ -26,6 +26,7 @@ one symbol per message.
 |---|---|
 | `ws_subscribe_ack.json` | the `sub.ticker` acknowledgement |
 | `ws_ticker.json` | first `push.ticker` after it |
+| `ws_ticker_inverse.json` | first `push.ticker` for `BTC_USD`, 2026-09-26 |
 | `ws_deal.json` | a `push.deal` carrying four prints, two directions |
 | `ws_depth_full.json` | first `push.depth.full` of a `limit:50` subscribe, recaptured 2026-08-17 |
 | `ws_depth_update.json`, `ws_depth_update_next.json` | the first two `push.depth` deltas |
@@ -70,6 +71,7 @@ a subscription was accepted.
 | file | source |
 |---|---|
 | `rest_contract_detail.json` | `GET /api/v1/contract/detail` (1086 rows), trimmed to four |
+| `rest_contract_detail_inverse.json` | the same call on 2026-09-26, sliced verbatim to the coin-margined `BTC_USD` row |
 | `rest_server_time.json` | `GET /api/v1/contract/ping` |
 | `rest_depth.json` | `GET /api/v1/contract/depth/BTC_USDT?limit=5` |
 | `rest_ticker.json` | `GET /api/v1/contract/ticker?symbol=BTC_USDT` |

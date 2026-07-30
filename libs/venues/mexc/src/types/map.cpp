@@ -359,6 +359,18 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     TickerStats out{};
     out.instrument = base->id;
     out.volume_24h_base = FixedE9::from_raw(0);
+    if (base->kind == ContractKind::Inverse) {
+        // amount24 is in the base coin here, and a contract is a fixed number of dollars.
+        out.volume_24h_base = to_amount(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
+        const auto contracts = to_amount(wire.volume_24h_contracts);
+        if (!contracts.has_value() || base->contract_value.raw <= 0) {
+            return std::nullopt;
+        }
+        out.volume_24h_quote = turnover_e6(*contracts, base->contract_value);
+        out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
+        out.ts_init = ts_init;
+        return out;
+    }
     if (const auto contracts = to_amount(wire.volume_24h_contracts);
         contracts.has_value() && base->contract_value.raw > 0 && !base->contract_value.is_undef()) {
         const auto units = mul_wide(contracts->raw, base->contract_value.raw).raw / k_e9;
@@ -430,7 +442,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *contract_size;
-    base.kind = ContractKind::Linear;
+    base.kind = !wire.settle_coin.empty() && wire.settle_coin != wire.quote_coin
+                    ? ContractKind::Inverse
+                    : ContractKind::Linear;
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 

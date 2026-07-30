@@ -683,6 +683,33 @@ TEST(MexcMap, FundingFromRestCarriesTheSchedule) {
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400'000ULL * 1'000'000ULL);
 }
 
+TEST(MexcMap, CoinMarginedContractIsInverseAndTurnsOverInDollars) {
+    const auto body = fixture("rest_contract_detail_inverse.json");
+    static thread_local InstrumentBuffer storage;
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 1U);
+    EXPECT_EQ(wire->front().settle_coin, "BTC");
+    exec::InstrumentTable table;
+    table.reserve(1);
+    const auto instrument = map_instrument(wire->front(), MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    EXPECT_EQ(base_of(*instrument).kind, ContractKind::Inverse);
+    EXPECT_EQ(base_of(*instrument).contract_value.raw, 100 * k_e9); // dollars a contract
+    ASSERT_TRUE(table.add(*instrument).has_value());
+
+    const auto frame = fixture("ws_ticker_inverse.json");
+    const auto ticker = parse_ticker(frame);
+    ASSERT_TRUE(ticker.has_value());
+    const auto stats = map_ticker_stats(*ticker, table, k_ingest);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->volume_24h_quote.raw, 7'599'700'000'000LL); // 75997 contracts of $100
+    EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL);     // amount24 is BTC here
+
+    const auto linear = catalogue();
+    EXPECT_EQ(base_of(*linear.find("BTC_USDT")).kind, ContractKind::Linear);
+}
+
 TEST(MexcMap, ContractWithoutAFundingRateIsNotFundingAtZero) {
     const auto table = catalogue();
     WireTicker wire{};

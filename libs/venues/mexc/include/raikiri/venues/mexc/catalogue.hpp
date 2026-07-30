@@ -20,7 +20,8 @@ struct WireInstrument {
     std::string_view symbol;
     std::string_view base_coin; // the futures catalogue names both halves
     std::string_view quote_coin;
-    std::int64_t state{-1}; // 0 = enabled
+    std::string_view settle_coin; // the base coin on an inverse contract
+    std::int64_t state{-1};       // 0 = enabled
     std::int64_t price_scale{-1};
     std::int64_t vol_scale{-1};
     std::string_view contract_size; // base units per contract
