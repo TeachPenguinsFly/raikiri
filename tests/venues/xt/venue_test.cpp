@@ -652,6 +652,24 @@ TEST(XtMap, PerpCarriesVenueStatedStepsAndContractSize) {
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_interval_s, 0U);
 }
 
+TEST(XtMap, TickIsThePricePrecisionWhenItIsFinerThanTheStatedStep) {
+    static thread_local InstrumentBuffer storage;
+    const auto body = fixture("rest_symbol_list_twlo.json");
+    const auto wire = parse_instruments(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 1U);
+    EXPECT_EQ(wire->front().tick_size, "0.1");
+    EXPECT_EQ(wire->front().price_precision, 2);
+    const auto instrument = map_instrument(wire->front(), MarketType::Perp);
+    ASSERT_TRUE(instrument.has_value());
+    EXPECT_EQ(base_of(*instrument).tick_size.raw, k_e9 / 100);
+
+    const auto btc_body = fixture("rest_symbol_list.json");
+    const auto btc = parse_instruments(btc_body, storage);
+    ASSERT_TRUE(btc.has_value());
+    EXPECT_EQ(base_of(*map_instrument(btc->front(), MarketType::Perp)).tick_size.raw, k_e9 / 10);
+}
+
 // XT's futures catalogue has no spot rows; answering an empty list would read
 // as "XT lists no spot pairs", which is false.
 TEST(XtMap, SpotIsRefusedRatherThanAnsweredEmpty) {

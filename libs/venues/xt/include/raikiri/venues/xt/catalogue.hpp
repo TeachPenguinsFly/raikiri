@@ -32,6 +32,7 @@ struct WireInstrument {
     std::string_view tags; // raw JSON: null, ["STOCK"], ["METAL"], ["INDEX"], ...
     std::int64_t state{-1};
     std::int64_t qty_precision{-1};
+    std::int64_t price_precision{-1};
     bool trade_switch{false};
     bool open_api{false};
 };

@@ -457,11 +457,16 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         return std::nullopt;
     }
 
-    const auto tick = positive_e9(wire.tick_size);
+    auto tick = positive_e9(wire.tick_size);
     const auto lot = step_from_precision(wire.qty_precision);
     const auto contract_size = positive_e9(wire.contract_size);
     if (!tick.has_value() || !lot.has_value() || !contract_size.has_value()) {
         return std::nullopt;
+    }
+    // twlo_usdt states minStepPrice 0.1 beside pricePrecision 2 and rests at 269.21.
+    if (const auto finer = step_from_precision(wire.price_precision);
+        finer.has_value() && finer->raw < tick->raw && tick->raw % finer->raw == 0) {
+        tick = finer;
     }
     const auto symbol = SymbolText::from(wire.symbol);
     if (!symbol.has_value()) {

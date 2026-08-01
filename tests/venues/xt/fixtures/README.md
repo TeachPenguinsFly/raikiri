@@ -34,6 +34,7 @@ anywhere in this adapter.
 | `rest_error_invalid_symbol.json` | Same endpoint with `symbol=nope_usdt`. |
 | `rest_error_invalid_param.json` | `.../q/depth?symbol=btc_usdt&level=abc`. |
 | `rest_symbol_list.json` | **EDITED**: `GET /future/market/v1/public/symbol/list` returned 1067 rows (2.2 MiB); five untouched rows were kept and the envelope rebuilt around them. Field contents are verbatim. |
+| `rest_symbol_list_twlo.json` | the same call on 2026-09-26, sliced verbatim to `twlo_usdt`, whose minStepPrice 0.1 is coarser than its pricePrecision 2 |
 
 The five catalogue rows were chosen so each isolates exactly one mapper
 decision — otherwise a row refused for two reasons proves nothing about either:

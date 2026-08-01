@@ -62,14 +62,16 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.tags = *tags;
             const auto state = req_i64(obj, "state");
             const auto precision = req_i64(obj, "quantityPrecision");
+            const auto price_precision = req_i64(obj, "pricePrecision");
             const auto trade_switch = req_bool(obj, "tradeSwitch");
             const auto open_api = req_bool(obj, "isOpenApi");
-            if (!state.has_value() || !precision.has_value() || !trade_switch.has_value() ||
-                !open_api.has_value()) {
+            if (!state.has_value() || !precision.has_value() || !price_precision.has_value() ||
+                !trade_switch.has_value() || !open_api.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.state = *state;
             out.qty_precision = *precision;
+            out.price_precision = *price_precision;
             out.trade_switch = *trade_switch;
             out.open_api = *open_api;
             storage.instruments[count] = out;
