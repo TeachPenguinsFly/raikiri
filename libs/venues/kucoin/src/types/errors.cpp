@@ -1,5 +1,8 @@
 #include <raikiri/venues/kucoin/errors.hpp>
 
+#include <algorithm>
+#include <charconv>
+
 namespace raikiri::venues::kucoin {
 
 exec::ErrorClass classify(std::int64_t code) noexcept {
@@ -46,6 +49,21 @@ bool is_benign_cancel_failure(std::int64_t code, std::string_view msg) noexcept 
     // harmless. Both spellings below have been seen for this one condition.
     return code == k_parameter_error && (msg.find("order_not_exist") != std::string_view::npos ||
                                          msg.find("does not exist") != std::string_view::npos);
+}
+
+std::uint64_t refusal_hold_ms(std::span<const net::RateHeader> headers) noexcept {
+    constexpr std::string_view k_reset = "gw-ratelimit-reset";
+    for (const auto& header : headers) {
+        const bool named = std::ranges::equal(header.name, k_reset, [](char a, char b) {
+            return (a >= 'A' && a <= 'Z' ? static_cast<char>(a + 32) : a) == b;
+        });
+        std::uint64_t ms = 0;
+        const auto* end = header.value.data() + header.value.size();
+        if (named && std::from_chars(header.value.data(), end, ms).ec == std::errc{}) {
+            return std::clamp<std::uint64_t>(ms, 100, 30'000);
+        }
+    }
+    return 1000;
 }
 
 } // namespace raikiri::venues::kucoin

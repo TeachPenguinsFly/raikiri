@@ -16,15 +16,15 @@
 
 namespace raikiri::venues::kucoin {
 
-// `multiplier` is how many base units one CONTRACT is worth, and it is negative
-// on inverse contracts, whose size is quoted in the quote currency instead; the
-// mapper refuses those rather than storing a negative size.
+// `multiplier` is how many base units one CONTRACT is worth; inverse rows
+// (isInverse, coin-settled, sized in USD) state -1 and are refused by the mapper.
 struct WireContract {
     std::string_view symbol;
     std::string_view base_currency; // "XBT" where the symbol says XBTUSDTM
     std::string_view quote_currency;
     std::string_view status; // "Open"
     std::string_view type;   // FFWCSX perpetual, FFICSX dated
+    bool is_inverse{false};
     std::string_view asset_class; // CRYPTO, STOCK, COMMODITY, METAL
     std::string_view tick_size;
     std::string_view lot_size;

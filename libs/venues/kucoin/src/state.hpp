@@ -150,15 +150,23 @@ struct VenueState {
     }
 
     // ASKED BEFORE EVERY MARKET-DATA REST SEND, and a false refuses it. KuCoin
-    // counts REQUESTS, not weight — gw-ratelimit-limit measured at 2000 over a
-    // 30 s window on api-futures.kucoin.com — so one call is one unit. Poll,
-    // never Order: a book seed may not spend the reserve a cancel needs.
+    // counts weight, priced per path in config/venues.yaml, so the target must
+    // reach the budget. Poll, never Order: a seed may not spend a cancel's reserve.
     [[nodiscard]] bool admit_poll(std::string_view target = {}) noexcept {
         if (budget == nullptr) {
             return true; // unmeasured venue: unlimited, not closed
         }
         return budget->take(target, clock->mono(), exec::RateClass::Poll)
             .has_value();
+    }
+
+    // A 429 spends nothing more until the pool refills, which KuCoin states in
+    // gw-ratelimit-reset (ms).
+    void hold_after_refusal(const net::RestResponse& response) noexcept {
+        if (budget == nullptr || response.status != 429) {
+            return;
+        }
+        budget->penalize_all(clock->mono(), refusal_hold_ms(response.rate_headers) * 1'000'000ULL);
     }
 
     std::uint64_t subscribe_refusals{0};

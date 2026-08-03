@@ -415,9 +415,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     case MarketType::Spot:
         return std::nullopt; // the futures host serves no spot; map_spot_symbol does
     case MarketType::Future:
-        // KuCoin lists dated contracts on this endpoint, but every one seen so
-        // far is inverse, and the guard below drops those anyway. Admitting
-        // them needs the linear/inverse decision made per row first.
+        // KuCoin lists dated contracts on this endpoint, every one seen inverse.
         return std::nullopt;
     case MarketType::Option:
         return std::nullopt; // KuCoin lists no options on the APIs in scope
@@ -425,7 +423,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     if (wire.status != "Open") {
         return std::nullopt;
     }
-    if (wire.type != "FFWCSX") {
+    if (wire.type != "FFWCSX" || wire.is_inverse) {
         return std::nullopt;
     }
 
@@ -458,9 +456,6 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = *lot;
     base.contract_value = *multiplier;
-    // Unconditional because the FFWCSX guard above already dropped every
-    // inverse row; KuCoin spells those FFICSX. Widening that guard means
-    // deciding this per row.
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, static_cast<std::uint32_t>(wire.funding_granularity_ms / 1000)};
 }

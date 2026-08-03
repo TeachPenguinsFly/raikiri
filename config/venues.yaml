@@ -106,12 +106,19 @@ venues:
   kucoin:
     order_answer_timeout_ms: 15000
     limits:
-      # 2000 per 30 s, measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset.
+      # 2000 weight per 30 s, measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset.
       - { name: requests, window_ms: 30000, max: 1800, reserve: 180 }
       # 100 topics a socket, the rest dropped in silence, measured; about ten messages a second a socket, stated.
       - { name: ws_streams, kind: ws_streams, max: 100 }
       - { name: ws_sockets, kind: ws_sockets, max: 32 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 120, max: 1 }
+    # Weight, measured 2026-09-26 as the fall in gw-ratelimit-remaining per call.
+    costs:
+      - { match: "/api/v1/level2/snapshot", cost: 3 }
+      - { match: "/api/v1/contracts/active", cost: 3 }
+      - { match: "/api/v1/funding-rate", cost: 2 }
+      - { match: "/api/v1/bullet-public", cost: 10 }
+      - { match: "/api/v1/bullet-private", cost: 10 }
 
   xt:
     order_answer_timeout_ms: 15000

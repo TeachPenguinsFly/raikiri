@@ -11,9 +11,11 @@
 // terminal order is recoverable by reconciliation.
 
 #include <raikiri/exec/error.hpp>
+#include <raikiri/net/rest_client.hpp>
 #include <raikiri/wire/error.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace raikiri::venues::kucoin {
@@ -75,5 +77,9 @@ inline constexpr std::int64_t k_ws_topic_not_found = 404; // VERIFIED live
 // generic 400100 whose TEXT is the only discriminator, so the text is read
 // here rather than the code alone.
 [[nodiscard]] bool is_benign_cancel_failure(std::int64_t code, std::string_view msg) noexcept;
+
+// How long a 429 holds the whole allowance: gw-ratelimit-reset, the ms left in
+// KuCoin's 30 s window, else a second.
+[[nodiscard]] std::uint64_t refusal_hold_ms(std::span<const net::RateHeader> headers) noexcept;
 
 } // namespace raikiri::venues::kucoin

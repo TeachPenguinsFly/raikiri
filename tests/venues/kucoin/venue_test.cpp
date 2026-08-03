@@ -505,6 +505,24 @@ TEST(KucoinMap, CatalogueAdmitsOnlyOpenNonInversePerpetuals) {
     EXPECT_FALSE(map_instrument((*wire)[0], MarketType::Spot).has_value());
 }
 
+TEST(KucoinMap, InversePerpetualIsRefusedByItsFlagNotItsMultiplier) {
+    static ContractBuffer storage;
+    const auto body = fixture("rest_contracts_inverse_perp.json");
+    const auto wire = parse_contracts(body, storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(wire->size(), 1U);
+    EXPECT_EQ((*wire)[0].symbol, "XBTUSDM");
+    EXPECT_EQ((*wire)[0].type, "FFWCSX");
+    EXPECT_TRUE((*wire)[0].is_inverse);
+    EXPECT_FALSE(map_instrument((*wire)[0], MarketType::Perp).has_value());
+
+    auto positive = (*wire)[0];
+    positive.multiplier = "1";
+    EXPECT_FALSE(map_instrument(positive, MarketType::Perp).has_value());
+    positive.is_inverse = false;
+    EXPECT_TRUE(map_instrument(positive, MarketType::Perp).has_value());
+}
+
 TEST(KucoinMap, XbtusdtmIsTheSameMarketAsEveryOtherVenuesBtcUsdt) {
     // The row the XBT alias exists for: KuCoin spells bitcoin the ISO way in
     // both the symbol and the field, and an XBT/USDT here would group with
@@ -1753,6 +1771,19 @@ TEST(KucoinMapRest, TheSpotCatalogueAdmitsOnlyTradablePairsItCanScale) {
     // beats rounding a tick size to zero.
     EXPECT_EQ((*wire)[3].price_increment, "0.000000000001");
     EXPECT_FALSE(map_spot_symbol((*wire)[3]).has_value());
+}
+
+TEST(KucoinErrors, A429HoldsForTheWindowKucoinStates) {
+    // Headers as api-futures.kucoin.com sent them with a 429 on 2026-09-26.
+    const std::array<net::RateHeader, 3> refused{{{"gw-ratelimit-remaining", "0"},
+                                                  {"gw-ratelimit-limit", "2000"},
+                                                  {"gw-ratelimit-reset", "17019"}}};
+    EXPECT_EQ(refusal_hold_ms(refused), 17019U);
+    const std::array<net::RateHeader, 1> upper{{{"Gw-RateLimit-Reset", "250"}}};
+    EXPECT_EQ(refusal_hold_ms(upper), 250U);
+    const std::array<net::RateHeader, 1> runaway{{{"gw-ratelimit-reset", "999999"}}};
+    EXPECT_EQ(refusal_hold_ms(runaway), 30000U);
+    EXPECT_EQ(refusal_hold_ms({}), 1000U);
 }
 
 TEST(KucoinErrors, ACancelThatLostItsRaceIsNotACancelReject) {

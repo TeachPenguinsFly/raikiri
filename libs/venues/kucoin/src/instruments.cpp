@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -59,9 +60,7 @@ public:
         case MarketType::Perp:
             return fetch_futures();
         case MarketType::Future:
-            // The futures host lists dated contracts, but every one seen is
-            // inverse and the mapper refuses those; admitting them is a
-            // separate decision from wiring order entry.
+            // The futures host lists dated contracts, every one seen inverse.
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kucoin dated futures are not modelled")};
         case MarketType::Option:
@@ -98,7 +97,12 @@ private:
         for (const auto& entry : *wire) {
             auto instrument = map_instrument(entry, MarketType::Perp);
             if (!instrument.has_value()) {
-                continue; // not open, not a perpetual, inverse, or missing a step
+                if (entry.status == "Open" && entry.type == "FFWCSX" && !entry.is_inverse) {
+                    RLOG_WARN("kucoin: {} dropped — tick {} or lot {} x {} is finer than 1e-9 "
+                              "or unreadable",
+                              entry.symbol, entry.tick_size, entry.lot_size, entry.multiplier);
+                }
+                continue;
             }
             admit(*instrument, loaded);
         }

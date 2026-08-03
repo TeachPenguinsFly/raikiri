@@ -64,6 +64,7 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         }
         auto& target = entry->second;
         if (response.transport_failed() || response.status < 200 || response.status >= 300) {
+            owner->hold_after_refusal(response);
             target.seed_failed(response.received.ns);
             return;
         }
@@ -322,12 +323,14 @@ public:
         //
         // The pool's own room is asked FIRST and costs nothing; the budget is
         // only spent on a request that has somewhere to go.
-        const auto gate = [owner = state_.get()](const net::RestClient& client) {
-            return client.in_flight() < k_rest_queue_headroom && owner->admit_poll();
+        const auto gate = [owner = state_.get()](const net::RestClient& client,
+                                                 std::string_view target) {
+            return client.in_flight() < k_rest_queue_headroom && owner->admit_poll(target);
         };
-        state_->depth_rest.set_admit(
-            [gate, client = &state_->depth_rest](std::string_view) { return gate(*client); });
-        rest_.set_admit([gate, client = &rest_](std::string_view) { return gate(*client); });
+        state_->depth_rest.set_admit([gate, client = &state_->depth_rest](
+                                         std::string_view target) { return gate(*client, target); });
+        rest_.set_admit(
+            [gate, client = &rest_](std::string_view target) { return gate(*client, target); });
     }
 
     std::expected<void, exec::VenueError> start() override {
@@ -449,7 +452,26 @@ public:
             pumped->pump(now);
         }
         drain_funding_seeds();
+        reseed_quiet_books(now);
         poll_ticker(now);
+    }
+
+    // A refused seed is otherwise asked again only by the book's next change
+    // frame, and a quiet contract may not send one for minutes.
+    void reseed_quiet_books(UnixNanos now) noexcept {
+        if (now.ns < next_reseed_sweep_ns_) {
+            return;
+        }
+        next_reseed_sweep_ns_ = now.ns + DepthBook::k_seed_retry_ns;
+        for (auto& [packed, book] : state_->books) {
+            if (!book.wants_seed(now.ns)) {
+                continue;
+            }
+            if (const auto* instrument = state_->instruments.find(InstrumentId{packed});
+                instrument != nullptr) {
+                request_seed(*state_, book, base_of(*instrument));
+            }
+        }
     }
 
     // The 24-hour window comes off the CATALOGUE endpoint on futures and
@@ -829,6 +851,11 @@ private:
         return rest_.send(
             state_->builder.funding_rate_current(symbol),
             [this, owned = std::move(owned)](net::RestResponse&& response) {
+                if (response.status == 429) {
+                    state_->hold_after_refusal(response);
+                    pending_funding_seeds_.push_back(owned);
+                    return;
+                }
                 const auto body =
                     usable_body(std::optional<net::RestResponse>{std::move(response)});
                 if (!body.has_value()) {
@@ -859,6 +886,7 @@ private:
     std::vector<InstrumentId> wanted_;
     std::vector<std::string> pending_funding_seeds_;
     std::uint64_t next_ticker_poll_ns_{0};
+    std::uint64_t next_reseed_sweep_ns_{0};
     bool ticker_in_flight_{false};
     std::unique_ptr<net::WsPool> pool_;
     bool started_{false};
