@@ -46,6 +46,7 @@ inline constexpr std::string_view k_settle_usdt = "usdt";
 class RequestBuilder {
 public:
     [[nodiscard]] net::RestRequest contracts(std::string_view settle) noexcept;
+    [[nodiscard]] net::RestRequest tickers(std::string_view settle) noexcept;
 
     // GET /spot/currency_pairs — the spot half of the catalogue.
     [[nodiscard]] net::RestRequest currency_pairs() noexcept;

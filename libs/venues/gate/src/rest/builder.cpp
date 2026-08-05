@@ -212,6 +212,14 @@ net::RestRequest RequestBuilder::contracts(std::string_view settle) noexcept {
     return writer.get();
 }
 
+net::RestRequest RequestBuilder::tickers(std::string_view settle) noexcept {
+    TargetWriter writer{target_};
+    writer.put(ep::k_futures_prefix);
+    writer.put(settle);
+    writer.put(ep::k_futures_tickers);
+    return writer.get();
+}
+
 net::RestRequest RequestBuilder::currency_pairs() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_currency_pairs, .body = {}};
 }

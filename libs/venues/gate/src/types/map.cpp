@@ -175,6 +175,17 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     return out;
 }
 
+std::optional<FundingUpdate>
+map_funding(const WireContract& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
+    WireTicker ticker{};
+    ticker.contract = wire.name;
+    ticker.funding_rate = wire.funding_rate;
+    ticker.mark_price = wire.mark_price;
+    ticker.funding_next_apply_s = wire.funding_next_apply_s;
+    ticker.funding_interval_s = wire.funding_interval_s;
+    return map_funding(ticker, table, ts_init);
+}
+
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {

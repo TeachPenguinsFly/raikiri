@@ -54,6 +54,15 @@ struct WireBookTicker {
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view frame);
 
+// The touch of every contract off GET /futures/{settle}/tickers, which states
+// no time or update id; an empty side leaves its fields empty.
+struct TickerQuoteBuffer {
+    std::array<WireBookTicker, 2048> rows{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireBookTicker>, WireError>
+parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage);
+
 // A level is {"p":"64156.4","s":35680} on both the websocket and the REST
 // snapshot — same object either way, unlike okx's positional arrays.
 struct WireLevel {

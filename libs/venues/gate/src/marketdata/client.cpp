@@ -31,6 +31,7 @@ namespace {
 // Gate closes a connection idle for 60 s of application traffic; the app ping
 // runs well inside that window.
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
+constexpr std::uint64_t k_rest_seed_interval_ns = 1'000'000'000ULL;
 
 // Fires the REST read that seeds one book. The response lands on the gateway
 // thread through IoContext::poll, so nothing here synchronises; a send the pool
@@ -136,6 +137,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
             return;
         }
         if (const auto bbo = map_bbo(*wire, state.instruments, received); bbo.has_value()) {
+            state.quote_seed_due.erase(bbo->instrument.packed);
             state.sink->on_bbo(*bbo);
         }
         break;
@@ -161,6 +163,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         }
         if (const auto funding = map_funding(*wire, state.instruments, received);
             funding.has_value()) {
+            state.funding_seed_due.erase(funding->instrument.packed);
             state.sink->on_funding(*funding);
         }
         if (const auto stats = map_ticker_stats(*wire, state.instruments, received);
@@ -255,7 +258,10 @@ public:
                 // into a per-socket number instead of the process's ceiling.
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
-                [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
+                [this](std::span<const std::string> keys) {
+                    invalidate_books(keys);
+                    due_rest_seeds(keys);
+                }} {
         meter_market_data(*state_, state_->depth_rest);
     }
 
@@ -327,6 +333,7 @@ public:
             pool_.broadcast(state_->protocol.ping_frame(now.ns / 1'000'000'000ULL));
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
+        seed_from_rest(now);
     }
 
 private:
@@ -356,6 +363,85 @@ private:
                 entry->second.invalidate();
             }
         }
+    }
+
+    void due_rest_seeds(std::span<const std::string> keys) {
+        const auto quote = channel_for(exec::SubKind::Bbo, state_->market);
+        const auto funding = channel_for(exec::SubKind::Funding, state_->market);
+        for (const auto& key : keys) {
+            const auto one = split_key(key);
+            if (!one.has_value() || (one->channel != quote && one->channel != funding)) {
+                continue;
+            }
+            if (const auto* instrument = state_->instruments.find(one->contract);
+                instrument != nullptr) {
+                const auto packed = base_of(*instrument).id.packed;
+                (one->channel == quote ? state_->quote_seed_due : state_->funding_seed_due)
+                    .insert(packed);
+            }
+        }
+    }
+
+    // One bulk call per kind for every contract still due, at most once a
+    // second, so a refusal is asked again rather than dropped.
+    void seed_from_rest(UnixNanos now) noexcept {
+        if (state_->market != MarketType::Perp || now.ns < next_seed_ns_) {
+            return;
+        }
+        next_seed_ns_ = now.ns + k_rest_seed_interval_ns;
+        try {
+            if (!state_->quote_seed_due.empty() && !quote_seed_in_flight_) {
+                quote_seed_in_flight_ = state_->depth_rest.send(
+                    state_->builder.tickers(k_settle_usdt),
+                    [this](net::RestResponse&& response) { on_quote_seed(response); });
+            }
+            if (!state_->funding_seed_due.empty() && !funding_seed_in_flight_) {
+                funding_seed_in_flight_ = state_->depth_rest.send(
+                    state_->builder.contracts(k_settle_usdt),
+                    [this](net::RestResponse&& response) { on_funding_seed(response); });
+            }
+        } catch (...) {
+            return;
+        }
+    }
+
+    void on_quote_seed(const net::RestResponse& response) {
+        quote_seed_in_flight_ = false;
+        if (response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<TickerQuoteBuffer>();
+        const auto rows = parse_futures_tickers(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto bbo = map_bbo(row, state_->instruments, response.received);
+            if (bbo.has_value() && state_->quote_seed_due.erase(bbo->instrument.packed) > 0) {
+                state_->sink->on_bbo(*bbo);
+            }
+        }
+        state_->quote_seed_due.clear();
+    }
+
+    void on_funding_seed(const net::RestResponse& response) {
+        funding_seed_in_flight_ = false;
+        if (response.status != 200) {
+            return;
+        }
+        static thread_local const auto storage = std::make_unique<ContractBuffer>();
+        const auto rows = parse_contracts(response.body, *storage);
+        if (!rows.has_value()) {
+            return;
+        }
+        for (const auto& row : *rows) {
+            const auto funding = map_funding(row, state_->instruments, response.received);
+            if (funding.has_value() &&
+                state_->funding_seed_due.erase(funding->instrument.packed) > 0) {
+                state_->sink->on_funding(*funding);
+            }
+        }
+        state_->funding_seed_due.clear();
     }
 
     // Turns one connection's keys back into the frames that ask for them.
@@ -391,6 +477,9 @@ private:
     }
 
     net::WsPool pool_;
+    std::uint64_t next_seed_ns_{0};
+    bool quote_seed_in_flight_{false};
+    bool funding_seed_in_flight_{false};
     bool started_{false};
 };
 

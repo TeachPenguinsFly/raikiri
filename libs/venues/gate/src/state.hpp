@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace raikiri::venues::gate::detail {
@@ -87,6 +88,10 @@ struct VenueState {
     // The seed rides its own pool so a book resynchronising never queues
     // behind the catalogue, which is over a megabyte.
     net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}}};
+    // Contracts whose socket opened and which the stream has not yet quoted:
+    // gate sends only changes, so a quiet one is seeded once over REST.
+    std::unordered_set<std::uint64_t> quote_seed_due;
+    std::unordered_set<std::uint64_t> funding_seed_due;
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<OwnedSubscription> desired;

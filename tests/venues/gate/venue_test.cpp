@@ -1248,6 +1248,49 @@ ExchangeClientOrderId sample_coid() {
 
 // BTC_USDT as Gate lists it on spot: price to one decimal, quantity to six.
 // Taken from the live `rest_currency_pairs.json` row, not invented.
+TEST(GateMap, RestTickersSeedTheTouchOfAQuietContract) {
+    // The stream sends only changes, so a contract nobody trades is quoted
+    // once from the bulk tickers call, which states no time.
+    const auto table = table_with_btc();
+    auto storage = std::make_unique<TickerQuoteBuffer>();
+    const auto body = fixture("rest_futures_tickers.json");
+    const auto rows = parse_futures_tickers(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    ASSERT_EQ(rows->size(), 2U);
+    const WireBookTicker* btc = nullptr;
+    for (const auto& row : *rows) {
+        if (row.contract == "BTC_USDT") {
+            btc = &row;
+        }
+    }
+    ASSERT_NE(btc, nullptr);
+    const auto bbo = map_bbo(*btc, table, UnixNanos{42});
+    ASSERT_TRUE(bbo.has_value());
+    EXPECT_EQ(bbo->bid.raw, 839'953);
+    EXPECT_EQ(bbo->ask.raw, 839'954);
+    EXPECT_EQ(bbo->bid_qty.raw, 444'192);
+    EXPECT_EQ(bbo->ts_event.ns, 42U);
+
+    WireBookTicker empty = *btc;
+    empty.ask_price = {};
+    EXPECT_FALSE(map_bbo(empty, table, UnixNanos{42}).has_value());
+}
+
+TEST(GateMap, ACatalogueRowSeedsFundingForEveryContractAtOnce) {
+    const auto table = table_with_btc();
+    auto storage = std::make_unique<ContractBuffer>();
+    const auto body = fixture("rest_contracts.json");
+    const auto rows = parse_contracts(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto funding = map_funding(rows->front(), table, UnixNanos{42});
+    ASSERT_TRUE(funding.has_value());
+    EXPECT_EQ(funding->rate.raw, 64'000);
+    EXPECT_EQ(funding->interval_s, 28'800U);
+    EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400ULL * 1'000'000'000ULL);
+    EXPECT_EQ(funding->mark_price.raw, 641'188);
+    EXPECT_FALSE(map_funding((*rows)[1], table, UnixNanos{42}).has_value()); // not in the table
+}
+
 exec::InstrumentTable spot_table_with_btc() {
     exec::InstrumentTable table;
     CurrencyPairBuffer storage;
