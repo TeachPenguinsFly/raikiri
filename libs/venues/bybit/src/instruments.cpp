@@ -58,8 +58,30 @@ public:
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
         rest_.start();
+        std::vector<Instrument> loaded;
+        std::string cursor;
+        for (std::size_t page = 0; page < k_max_pages; ++page) {
+            auto next = fetch_page(market, cursor, loaded);
+            if (!next.has_value()) {
+                return std::unexpected{next.error()};
+            }
+            if (next->empty()) {
+                return loaded;
+            }
+            cursor = std::move(*next);
+        }
+        return loaded;
+    }
+
+private:
+    static constexpr std::size_t k_max_pages = 16;
+
+    // Maps one page into `loaded` and answers the next page's cursor, empty
+    // on the last.
+    std::expected<std::string, exec::VenueError>
+    fetch_page(MarketType market, std::string_view cursor, std::vector<Instrument>& loaded) {
         refused_ = false;
-        const auto request = builder_.instruments(market);
+        const auto request = builder_.instruments(market, cursor);
         const auto response = await_response(*state_, rest_, request, 15'000);
         if (refused_) {
             // The budget refused before the socket, which is not a timeout and
@@ -93,9 +115,13 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
-        std::vector<Instrument> loaded;
-        loaded.reserve(wire->size());
-        state_->instruments.reserve(wire->size());
+        const auto next = parse_page_cursor(envelope->result);
+        if (!next.has_value()) {
+            return std::unexpected{
+                exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(next.error()))};
+        }
+        loaded.reserve(loaded.size() + wire->size());
+        state_->instruments.reserve(loaded.size() + wire->size());
         for (const auto& entry : *wire) {
             auto instrument = map_instrument(entry, market);
             if (!instrument.has_value()) {
@@ -107,10 +133,9 @@ public:
             }
             loaded.push_back(*state_->instruments.find(*id));
         }
-        return loaded;
+        return std::string{*next};
     }
 
-private:
     std::shared_ptr<VenueState> state_;
     net::RestClient rest_;
     RequestBuilder builder_{state_->signer};

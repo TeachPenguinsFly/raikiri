@@ -7,6 +7,7 @@
 #include <raikiri/venues/bybit/market_data.hpp>
 #include <raikiri/venues/bybit/orders.hpp>
 #include <raikiri/venues/bybit/positions.hpp>
+#include <raikiri/venues/bybit/rest.hpp>
 #include <raikiri/venues/bybit/ws.hpp>
 
 #include <gtest/gtest.h>
@@ -356,6 +357,44 @@ TEST(BybitRest, OpenOrdersList) {
     EXPECT_EQ((*orders)[0].order_link_id, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
     EXPECT_EQ((*orders)[0].status, WireOrderStatus::New);
     EXPECT_EQ((*orders)[0].leaves_qty, "0.001");
+}
+
+TEST(BybitRest, TheCataloguePagesOnTheCursorItStates) {
+    // Two live pages at limit=2: each names the next by nextPageCursor, which
+    // arrives percent-encoded and goes back verbatim.
+    const auto first_body = fixture("rest_instruments_page1.json");
+    const auto first = parse_envelope(first_body);
+    ASSERT_TRUE(first.has_value());
+    InstrumentBuffer storage;
+    const auto first_rows = parse_instruments(first->result, storage);
+    ASSERT_TRUE(first_rows.has_value());
+    ASSERT_EQ(first_rows->size(), 2U);
+    EXPECT_EQ((*first_rows)[0].symbol, "0GUSDT");
+    const auto cursor = parse_page_cursor(first->result);
+    ASSERT_TRUE(cursor.has_value());
+    EXPECT_EQ(*cursor, "first%3D0GUSDT%26last%3D1000000BABYDOGEUSDT");
+
+    net::Signer signer;
+    RequestBuilder builder{signer, 5'000};
+    EXPECT_EQ(builder.instruments(MarketType::Perp).target,
+              "/v5/market/instruments-info?category=linear&limit=1000");
+    EXPECT_EQ(builder.instruments(MarketType::Perp, *cursor).target,
+              "/v5/market/instruments-info?category=linear&limit=1000"
+              "&cursor=first%3D0GUSDT%26last%3D1000000BABYDOGEUSDT");
+
+    const auto second_body = fixture("rest_instruments_page2.json");
+    const auto second = parse_envelope(second_body);
+    ASSERT_TRUE(second.has_value());
+    const auto second_rows = parse_instruments(second->result, storage);
+    ASSERT_TRUE(second_rows.has_value());
+    ASSERT_EQ(second_rows->size(), 2U);
+    EXPECT_EQ((*second_rows)[0].symbol, "1000000MOGUSDT");
+    EXPECT_EQ(*parse_page_cursor(second->result),
+              "first%3D1000000MOGUSDT%26last%3D10000NEXUSDT");
+
+    // A last page states no cursor, or an empty one.
+    EXPECT_EQ(*parse_page_cursor(R"({"category":"linear","list":[],"nextPageCursor":""})"), "");
+    EXPECT_EQ(*parse_page_cursor(fixture("rest_instruments.json")), "");
 }
 
 TEST(BybitRest, InstrumentsReachIntoNestedFilters) {

@@ -102,4 +102,19 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
     });
 }
 
+std::expected<std::string_view, WireError> parse_page_cursor(std::string_view result) {
+    return guarded([&]() -> std::expected<std::string_view, WireError> {
+        auto root = detail::session().open_object(result);
+        if (!root.has_value()) {
+            return std::unexpected{root.error()};
+        }
+        auto obj = *root;
+        const auto cursor = detail::opt_str(obj, "nextPageCursor");
+        if (!cursor.has_value()) {
+            return std::unexpected{cursor.error()};
+        }
+        return *cursor;
+    });
+}
+
 } // namespace raikiri::venues::bybit

@@ -75,7 +75,7 @@ public:
     // wallet backs both markets.
     [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);
 
-    [[nodiscard]] net::RestRequest instruments(MarketType market);
+    [[nodiscard]] net::RestRequest instruments(MarketType market, std::string_view cursor = {});
 
     // Exposed for tests: the exact bytes that go into the HMAC.
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
