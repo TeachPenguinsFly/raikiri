@@ -323,5 +323,32 @@ TEST(PacificaMap, TheCuratedTableClassesEquitiesAndMetals) {
     EXPECT_EQ(equity.underlying.view(), "TSLA");
 }
 
+TEST(PacificaMap, TheLiveListingsEquitiesAreNotReadAsCoins) {
+    const auto body = fixture("rest_info_live.json");
+    const auto storage = std::make_unique<MarketBuffer>();
+    const auto rows = parse_markets(body, *storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto cls = [&](std::string_view symbol) {
+        for (const auto& one : *rows) {
+            if (one.symbol != symbol) {
+                continue;
+            }
+            auto instrument = map_instrument(one, MarketType::Perp);
+            if (!instrument.has_value()) {
+                return AssetClass::Unknown;
+            }
+            classify(VenueId::Pacifica, *instrument);
+            return base_of(*instrument).asset_class;
+        }
+        ADD_FAILURE() << symbol << " not listed";
+        return AssetClass::Unknown;
+    };
+    for (const auto* equity : {"SAMSUNG", "SKHYNIX", "SPCX", "URNM", "DRAM"}) {
+        EXPECT_EQ(cls(equity), AssetClass::Equity) << equity;
+    }
+    // BP is Backpack's token at $1.24, not the oil major.
+    EXPECT_EQ(cls("BP"), AssetClass::Crypto);
+}
+
 } // namespace
 } // namespace raikiri::venues::pacifica

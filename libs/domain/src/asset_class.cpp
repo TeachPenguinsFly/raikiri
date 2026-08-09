@@ -46,6 +46,8 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Blofin, "XAU-USDT", AssetClass::Commodity, "XAU"},
     {VenueId::Hyperliquid, "PURR", AssetClass::Crypto, "PURR"},
     {VenueId::Hyperliquid, "PURR/USDC", AssetClass::Crypto, "PURR"},
+    {VenueId::Hyperliquid, "para:2Y", AssetClass::Index, "US2Y"},
+    {VenueId::Hyperliquid, "para:30Y", AssetClass::Index, "US30Y"},
     {VenueId::Kraken, "PF_BBUSD", AssetClass::Crypto, "BB"},
     {VenueId::Kraken, "PF_CVXUSD", AssetClass::Crypto, "CVX"},
     {VenueId::Kraken, "PF_QNTUSD", AssetClass::Crypto, "QNT"},
@@ -118,54 +120,6 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Grvt, "XAU_USDT_Perp", AssetClass::Commodity, "XAU"},
     {VenueId::Grvt, "XPD_USDT_Perp", AssetClass::Commodity, "XPD"},
     {VenueId::Grvt, "XPT_USDT_Perp", AssetClass::Commodity, "XPT"},
-    {VenueId::Hyperliquid, "io:SNDK", AssetClass::Equity, "SNDK"},
-    {VenueId::Hyperliquid, "mkts:AAPL", AssetClass::Equity, "AAPL"},
-    {VenueId::Hyperliquid, "mkts:BABA", AssetClass::Equity, "BABA"},
-    {VenueId::Hyperliquid, "mkts:EUR", AssetClass::FX, "EURUSD"},
-    {VenueId::Hyperliquid, "mkts:GOLD", AssetClass::Commodity, "XAU"},
-    {VenueId::Hyperliquid, "mkts:GOOGL", AssetClass::Equity, "GOOGL"},
-    {VenueId::Hyperliquid, "mkts:MU", AssetClass::Equity, "MU"},
-    {VenueId::Hyperliquid, "mkts:NVDA", AssetClass::Equity, "NVDA"},
-    {VenueId::Hyperliquid, "mkts:PLTR", AssetClass::Equity, "PLTR"},
-    {VenueId::Hyperliquid, "mkts:SILVER", AssetClass::Commodity, "XAG"},
-    {VenueId::Hyperliquid, "mkts:TSLA", AssetClass::Equity, "TSLA"},
-    {VenueId::Hyperliquid, "mkts:US500", AssetClass::Index, "SPX"},
-    {VenueId::Hyperliquid, "mkts:USOIL", AssetClass::Commodity, "CL"},
-    {VenueId::Hyperliquid, "mkts:USTECH", AssetClass::Index, "NDX"},
-    {VenueId::Hyperliquid, "para:AVGO", AssetClass::Equity, "AVGO"},
-    {VenueId::Hyperliquid, "xyz:AAPL", AssetClass::Equity, "AAPL"},
-    {VenueId::Hyperliquid, "xyz:AMD", AssetClass::Equity, "AMD"},
-    {VenueId::Hyperliquid, "xyz:AMZN", AssetClass::Equity, "AMZN"},
-    {VenueId::Hyperliquid, "xyz:AVGO", AssetClass::Equity, "AVGO"},
-    {VenueId::Hyperliquid, "xyz:BABA", AssetClass::Equity, "BABA"},
-    {VenueId::Hyperliquid, "xyz:BRENTOIL", AssetClass::Commodity, "BRENT"},
-    {VenueId::Hyperliquid, "xyz:CL", AssetClass::Commodity, "CL"},
-    {VenueId::Hyperliquid, "xyz:COIN", AssetClass::Equity, "COIN"},
-    {VenueId::Hyperliquid, "xyz:COPPER", AssetClass::Commodity, "COPPER"},
-    {VenueId::Hyperliquid, "xyz:CRCL", AssetClass::Equity, "CRCL"},
-    {VenueId::Hyperliquid, "xyz:EUR", AssetClass::FX, "EURUSD"},
-    {VenueId::Hyperliquid, "xyz:GBP", AssetClass::FX, "GBPUSD"},
-    {VenueId::Hyperliquid, "xyz:GOLD", AssetClass::Commodity, "XAU"},
-    {VenueId::Hyperliquid, "xyz:GOOGL", AssetClass::Equity, "GOOGL"},
-    {VenueId::Hyperliquid, "xyz:HOOD", AssetClass::Equity, "HOOD"},
-    {VenueId::Hyperliquid, "xyz:INTC", AssetClass::Equity, "INTC"},
-    {VenueId::Hyperliquid, "xyz:META", AssetClass::Equity, "META"},
-    {VenueId::Hyperliquid, "xyz:MSFT", AssetClass::Equity, "MSFT"},
-    {VenueId::Hyperliquid, "xyz:MSTR", AssetClass::Equity, "MSTR"},
-    {VenueId::Hyperliquid, "xyz:MU", AssetClass::Equity, "MU"},
-    {VenueId::Hyperliquid, "xyz:NATGAS", AssetClass::Commodity, "NATGAS"},
-    {VenueId::Hyperliquid, "xyz:NFLX", AssetClass::Equity, "NFLX"},
-    {VenueId::Hyperliquid, "xyz:NVDA", AssetClass::Equity, "NVDA"},
-    {VenueId::Hyperliquid, "xyz:ORCL", AssetClass::Equity, "ORCL"},
-    {VenueId::Hyperliquid, "xyz:PALLADIUM", AssetClass::Commodity, "XPD"},
-    {VenueId::Hyperliquid, "xyz:PLATINUM", AssetClass::Commodity, "XPT"},
-    {VenueId::Hyperliquid, "xyz:PLTR", AssetClass::Equity, "PLTR"},
-    {VenueId::Hyperliquid, "xyz:SILVER", AssetClass::Commodity, "XAG"},
-    {VenueId::Hyperliquid, "xyz:SNDK", AssetClass::Equity, "SNDK"},
-    {VenueId::Hyperliquid, "xyz:SP500", AssetClass::Index, "SPX"},
-    {VenueId::Hyperliquid, "xyz:TSLA", AssetClass::Equity, "TSLA"},
-    {VenueId::Hyperliquid, "xyz:TSM", AssetClass::Equity, "TSM"},
-    {VenueId::Hyperliquid, "xyz:XYZ100", AssetClass::Index, "NDX"},
     {VenueId::Lighter, "AAPL", AssetClass::Equity, "AAPL"},
     {VenueId::Lighter, "AMD", AssetClass::Equity, "AMD"},
     {VenueId::Lighter, "AMZN", AssetClass::Equity, "AMZN"},
@@ -248,6 +202,12 @@ constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Pacifica, "NVDA", AssetClass::Equity, "NVDA"},
     {VenueId::Pacifica, "PLATINUM", AssetClass::Commodity, "XPT"},
     {VenueId::Pacifica, "PLTR", AssetClass::Equity, "PLTR"},
+    {VenueId::Pacifica, "BP", AssetClass::Crypto, "BP"},
+    {VenueId::Pacifica, "DRAM", AssetClass::Equity, "DRAM"},
+    {VenueId::Pacifica, "SAMSUNG", AssetClass::Equity, "SAMSUNG"},
+    {VenueId::Pacifica, "SKHYNIX", AssetClass::Equity, "SKHYNIX"},
+    {VenueId::Pacifica, "SPCX", AssetClass::Equity, "SPCX"},
+    {VenueId::Pacifica, "URNM", AssetClass::Equity, "URNM"},
     {VenueId::Pacifica, "SNDK", AssetClass::Equity, "SNDK"},
     {VenueId::Pacifica, "SP500", AssetClass::Index, "SPX"},
     {VenueId::Pacifica, "TSLA", AssetClass::Equity, "TSLA"},
@@ -897,11 +857,15 @@ constexpr auto k_aliases = std::to_array<Alias>({
     {"JP225", AssetClass::Index, "N225"},
     {"JPN225", AssetClass::Index, "N225"},
     {"EUR", AssetClass::FX, "EURUSD"},
+    {"JPY", AssetClass::FX, "USDJPY"},
     {"GBP", AssetClass::FX, "GBPUSD"},
     {"SPY", AssetClass::Equity, "SPY"},
     {"QQQ", AssetClass::Equity, "QQQ"},
     {"TESLA", AssetClass::Equity, "TSLA"},
     {"NVIDIA", AssetClass::Equity, "NVDA"},
+    {"SMSN", AssetClass::Equity, "SAMSUNG"},
+    {"SKHX", AssetClass::Equity, "SKHYNIX"},
+    {"10Y", AssetClass::Index, "US10Y"},
 });
 
 constexpr auto k_stating_venues = std::to_array<VenueId>({
@@ -958,6 +922,7 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
     const auto local = base.local_symbol.view();
     const auto slash = local.find('/');
     std::string_view ticker = local.substr(0, slash != std::string_view::npos ? slash : local.find('-'));
+    const auto dex = ticker.find(':');
     auto cls = base.asset_class;
 
     const auto curated = std::ranges::find_if(k_curated, [&](const CuratedRow& row) {
@@ -966,9 +931,14 @@ void classify(VenueId venue, InstrumentBase& base) noexcept {
     if (curated != k_curated.end()) {
         cls = curated->cls;
         ticker = curated->underlying;
-    } else if (cls == AssetClass::Unknown && !states_asset_class(venue) &&
-               ticker.find(':') == std::string_view::npos) {
-        cls = AssetClass::Crypto;
+    } else {
+        if (cls == AssetClass::Unknown && !states_asset_class(venue) &&
+            dex == std::string_view::npos) {
+            cls = AssetClass::Crypto;
+        }
+        if (dex != std::string_view::npos) {
+            ticker.remove_prefix(dex + 1);
+        }
     }
 
     if (cls != AssetClass::Crypto && cls != AssetClass::Unknown) {
