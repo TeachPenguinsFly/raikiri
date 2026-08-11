@@ -1,6 +1,7 @@
 #include <raikiri/venues/hyperliquid/catalogue.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <algorithm>
 #include <array>
 
 namespace raikiri::venues::hyperliquid {
@@ -69,6 +70,52 @@ std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view
         }
         storage.collateral_token = *collateral;
         return std::span<const WireAsset>{storage.assets.data(), *count};
+    });
+}
+
+std::expected<std::span<const WireCategory>, WireError>
+parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage) {
+    return guarded([&]() -> std::expected<std::span<const WireCategory>, WireError> {
+        auto rows = session().open_array(body);
+        if (!rows.has_value()) {
+            return std::unexpected(rows.error());
+        }
+        std::size_t count = 0;
+        std::size_t used = 0;
+        for (auto row : *rows) {
+            if (count == k_max_perp_categories) {
+                return std::unexpected(WireError::TooManyEntries);
+            }
+            detail::ondemand::array pair;
+            if (const auto ec = row.get_array().get(pair); ec != simdjson::SUCCESS) {
+                return std::unexpected(detail::map_error(ec));
+            }
+            std::array<std::string_view, 2> fields{};
+            std::size_t read = 0;
+            for (auto field : pair) {
+                if (read == fields.size()) {
+                    return std::unexpected(WireError::TooManyEntries);
+                }
+                if (const auto ec = field.get_string().get(fields[read]); ec != simdjson::SUCCESS) {
+                    return std::unexpected(detail::map_error(ec));
+                }
+                ++read;
+            }
+            if (read != fields.size()) {
+                return std::unexpected(WireError::MissingField);
+            }
+            std::array<std::string_view, 2> kept{};
+            for (std::size_t i = 0; i < fields.size(); ++i) {
+                if (used + fields[i].size() > storage.text.size()) {
+                    return std::unexpected(WireError::TooManyEntries);
+                }
+                std::ranges::copy(fields[i], storage.text.begin() + static_cast<std::ptrdiff_t>(used));
+                kept[i] = {storage.text.data() + used, fields[i].size()};
+                used += fields[i].size();
+            }
+            storage.rows[count++] = {.name = kept[0], .category = kept[1]};
+        }
+        return std::span<const WireCategory>{storage.rows.data(), count};
     });
 }
 

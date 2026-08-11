@@ -71,6 +71,12 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
 [[nodiscard]] std::optional<Instrument> map_dex_instrument(const WireAsset& wire,
                                                            std::string_view collateral);
 
+// The class perpCategories states for a HIP-3 name. A name it omits takes the
+// class the same ticker has on another dex ("io:EWY" from "xyz:EWY"); Unknown
+// when neither says.
+[[nodiscard]] AssetClass dex_asset_class(std::string_view name,
+                                         std::span<const WireCategory> categories) noexcept;
+
 // Spot rows come from a different response and a different index space, so
 // they get their own mapper rather than a MarketType branch inside the one
 // above: nothing about a perp row would be reusable here except the arithmetic.

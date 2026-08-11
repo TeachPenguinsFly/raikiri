@@ -109,6 +109,21 @@ private:
             names.insert(names.end(), wire->begin(), wire->end());
         }
 
+        std::string categories_body;
+        auto categories_storage = std::make_unique<PerpCategoryBuffer>();
+        std::span<const WireCategory> categories;
+        if (!names.empty()) {
+            if (const auto body = read_info(
+                    *state_, rest_, RequestBuilder::perp_categories(), k_catalogue_timeout_ms);
+                body.has_value()) {
+                categories_body.assign(*body);
+                if (const auto rows = parse_perp_categories(categories_body, *categories_storage);
+                    rows.has_value()) {
+                    categories = *rows;
+                }
+            }
+        }
+
         std::optional<std::string> spot_meta;
         auto storage = std::make_unique<AssetBuffer>();
         std::string request_body;
@@ -141,6 +156,11 @@ private:
             for (const auto& entry : *wire) {
                 if (auto instrument = map_dex_instrument(entry, collateral);
                     instrument.has_value()) {
+                    std::visit(
+                        [&](auto& row) {
+                            row.base.asset_class = dex_asset_class(entry.name, categories);
+                        },
+                        *instrument);
                     keep(std::move(*instrument), std::nullopt, loaded);
                 }
             }

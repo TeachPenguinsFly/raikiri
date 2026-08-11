@@ -84,6 +84,10 @@ net::RestRequest RequestBuilder::perp_dexs() noexcept {
     return info(R"({"type":"perpDexs"})");
 }
 
+net::RestRequest RequestBuilder::perp_categories() noexcept {
+    return info(R"({"type":"perpCategories"})");
+}
+
 net::RestRequest RequestBuilder::meta_and_asset_ctxs() noexcept {
     return info(R"({"type":"metaAndAssetCtxs"})");
 }

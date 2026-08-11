@@ -58,6 +58,24 @@ struct PerpDexBuffer {
 [[nodiscard]] std::expected<std::span<const std::string_view>, WireError>
 parse_perp_dexs(std::string_view body, PerpDexBuffer& storage);
 
+// {"type":"perpCategories"}: [["xyz:TSLA","stocks"],...], the venue's own class
+// for every HIP-3 row. The main dex has none.
+struct WireCategory {
+    std::string_view name;
+    std::string_view category;
+};
+
+inline constexpr std::size_t k_max_perp_categories = 2048;
+
+// The rows view `text`, not the parser: the next parse reuses its buffer.
+struct PerpCategoryBuffer {
+    std::array<WireCategory, k_max_perp_categories> rows{};
+    std::array<char, 64 * 1024> text{};
+};
+
+[[nodiscard]] std::expected<std::span<const WireCategory>, WireError>
+parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage);
+
 // The name of spot token `index` in a {"type":"spotMeta"} body, or
 // MissingField when the body does not carry it.
 [[nodiscard]] std::expected<std::string_view, WireError> parse_token_name(std::string_view body,

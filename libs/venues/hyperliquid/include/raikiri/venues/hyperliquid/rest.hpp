@@ -48,6 +48,8 @@ public:
 
     [[nodiscard]] static net::RestRequest perp_dexs() noexcept;
 
+    [[nodiscard]] static net::RestRequest perp_categories() noexcept;
+
     [[nodiscard]] static net::RestRequest meta_and_asset_ctxs() noexcept;
 
     // The spot catalogue: {"universe":[pairs],"tokens":[...]}. A DIFFERENT

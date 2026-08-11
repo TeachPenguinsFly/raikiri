@@ -153,6 +153,8 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
     }
     out.interval_s = k_funding_interval_s;
     out.accrual = FundingAccrual::Discrete;
+    constexpr std::uint64_t interval_ns = std::uint64_t{k_funding_interval_s} * 1'000'000'000ULL;
+    out.next_funding_time = UnixNanos{(ts_init.ns / interval_ns + 1) * interval_ns};
     // No timestamp on this payload at all, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
@@ -187,7 +189,9 @@ std::optional<Instrument> perp_instrument(const WireAsset& wire, std::string_vie
         return std::nullopt;
     }
 
-    // DERIVED, NOT VENUE-STATED.
+    // DERIVED, NOT VENUE-STATED. The decimals cap, not the five-figure rule:
+    // that tick moves with the price, and a book that falls a decade below the
+    // load-time tick would drop every level. price_digits_ok guards orders.
     const auto lot = step_from_decimals(wire.sz_decimals);
     const auto tick = step_from_decimals(k_perp_price_digits - wire.sz_decimals);
     if (!lot.has_value() || !tick.has_value()) {
@@ -254,6 +258,52 @@ std::optional<Instrument> map_dex_instrument(const WireAsset& wire, std::string_
         return std::nullopt;
     }
     return perp_instrument(wire, collateral);
+}
+
+namespace {
+
+AssetClass category_class(std::string_view category) noexcept {
+    if (category == "stocks" || category == "stock" || category == "preipo") {
+        return AssetClass::Equity;
+    }
+    if (category == "indices" || category == "rates") {
+        return AssetClass::Index;
+    }
+    if (category == "commodities") {
+        return AssetClass::Commodity;
+    }
+    if (category == "fx" || category == "FX") {
+        return AssetClass::FX;
+    }
+    if (category == "crypto") {
+        return AssetClass::Crypto;
+    }
+    return AssetClass::Unknown;
+}
+
+std::string_view dex_ticker(std::string_view name) noexcept {
+    const auto cut = name.find(':');
+    return cut == std::string_view::npos ? std::string_view{} : name.substr(cut + 1);
+}
+
+} // namespace
+
+AssetClass dex_asset_class(std::string_view name,
+                           std::span<const WireCategory> categories) noexcept {
+    const auto ticker = dex_ticker(name);
+    if (ticker.empty()) {
+        return AssetClass::Unknown;
+    }
+    auto fallback = AssetClass::Unknown;
+    for (const auto& row : categories) {
+        if (row.name == name) {
+            return category_class(row.category);
+        }
+        if (fallback == AssetClass::Unknown && dex_ticker(row.name) == ticker) {
+            fallback = category_class(row.category);
+        }
+    }
+    return fallback;
 }
 
 std::optional<BookSnapshot>

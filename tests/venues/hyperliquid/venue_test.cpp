@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -563,7 +564,7 @@ TEST(HyperliquidMap, EmptyBookSideDropsTheTickRatherThanQuotingZero) {
     EXPECT_FALSE(map_bbo(wire, table, UnixNanos{1}).has_value());
 }
 
-TEST(HyperliquidMap, FundingIsHourlyAndCarriesMarkButNoSettlementTime) {
+TEST(HyperliquidMap, FundingIsHourlyAndSettlesOnTheNextWholeHour) {
     const auto table = loaded_table();
     const auto frame = fixture("ws_active_asset_ctx.json");
     const auto wire = parse_asset_ctx(frame);
@@ -578,9 +579,11 @@ TEST(HyperliquidMap, FundingIsHourlyAndCarriesMarkButNoSettlementTime) {
     // Mark rides the same payload, so unlike okx there is no reason to leave
     // it undefined.
     EXPECT_EQ(funding->mark_price.raw, 641'430);
-    // The venue publishes no settlement time and no forecast rate on either
-    // transport; filling either in would present a derivation as a venue fact.
-    EXPECT_TRUE(funding->next_funding_time.ns == 0U);
+    // No settlement time on the wire, but it settles on every whole hour.
+    EXPECT_EQ(funding->next_funding_time.ns, 3'600'000'000'000ULL);
+    const auto later = map_funding(*wire, table, UnixNanos{1'790'000'000'000'000'000ULL});
+    ASSERT_TRUE(later.has_value());
+    EXPECT_EQ(later->next_funding_time.ns, 1'790'002'800'000'000'000ULL);
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     // No timestamp on this payload at all, so ingest time is the only honest
     // ts_event.
@@ -2064,38 +2067,65 @@ TEST(HyperliquidHip3, EveryChannelNamesTheCoinWithItsDex) {
     EXPECT_EQ(funding->rate.raw, 5'564) << "0.0000055648, below 1e-9 dropped";
     EXPECT_EQ(funding->interval_s, 3600U);
     EXPECT_EQ(funding->accrual, FundingAccrual::Discrete);
-    EXPECT_EQ(funding->next_funding_time.ns, 0U) << "the venue states none";
+    EXPECT_EQ(funding->next_funding_time.ns % 3'600'000'000'000ULL, 0U) << "a hip-3 dex settles hourly too";
+    EXPECT_GT(funding->next_funding_time.ns, ts.ns);
     EXPECT_EQ(funding->mark_price.raw, 3'056'900);
     const auto stats = map_ticker_stats(*ctx, table, ts);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 266'855'056'880'799LL);
 }
 
-TEST(HyperliquidHip3, ADexPrefixClassesByTheCuratedTableAndNeverDefaults) {
-    const auto dex = [](std::string_view name) {
-        auto instrument =
-            map_dex_instrument({.name = name, .sz_decimals = 3, .max_leverage = 10}, "USDC");
-        EXPECT_TRUE(instrument.has_value()) << name;
-        if (!instrument.has_value()) {
-            return InstrumentBase{};
-        }
-        classify(VenueId::Hyperliquid, *instrument);
-        return base_of(*instrument);
-    };
-    const auto tsla = dex("xyz:TSLA");
+InstrumentBase classified_dex(std::string_view name, std::span<const WireCategory> categories) {
+    auto instrument =
+        map_dex_instrument({.name = name, .sz_decimals = 3, .max_leverage = 10}, "USDC");
+    EXPECT_TRUE(instrument.has_value()) << name;
+    if (!instrument.has_value()) {
+        return InstrumentBase{};
+    }
+    std::visit([&](auto& row) { row.base.asset_class = dex_asset_class(name, categories); },
+               *instrument);
+    classify(VenueId::Hyperliquid, *instrument);
+    return base_of(*instrument);
+}
+
+TEST(HyperliquidHip3, ADexRowTakesTheVenuesCategoryAndNeverDefaults) {
+    const auto body = fixture("rest_perp_categories.json");
+    auto storage = std::make_unique<PerpCategoryBuffer>();
+    const auto categories = parse_perp_categories(body, *storage);
+    ASSERT_TRUE(categories.has_value());
+    EXPECT_EQ(categories->size(), 206U);
+    EXPECT_EQ(RequestBuilder::perp_categories().body, R"({"type":"perpCategories"})");
+
+    const auto tsla = classified_dex("xyz:TSLA", *categories);
     EXPECT_EQ(tsla.local_symbol.view(), "xyz:TSLA/USDC");
     EXPECT_EQ(tsla.asset_class, AssetClass::Equity);
     EXPECT_EQ(tsla.underlying.view(), "TSLA");
 
-    const auto gold = dex("xyz:GOLD");
+    const auto gold = classified_dex("xyz:GOLD", *categories);
     EXPECT_EQ(gold.asset_class, AssetClass::Commodity);
     EXPECT_EQ(gold.underlying.view(), "XAU");
 
-    const auto sp500 = dex("xyz:SP500");
+    const auto sp500 = classified_dex("xyz:SP500", *categories);
     EXPECT_EQ(sp500.asset_class, AssetClass::Index);
     EXPECT_EQ(sp500.underlying.view(), "SPX");
 
-    const auto unlisted = dex("xyz:NOTCURATED");
+    const auto yen = classified_dex("xyz:JPY", *categories);
+    EXPECT_EQ(yen.asset_class, AssetClass::FX);
+    EXPECT_EQ(yen.underlying.view(), "USDJPY");
+
+    const auto samsung = classified_dex("xyz:SMSN", *categories);
+    EXPECT_EQ(samsung.asset_class, AssetClass::Equity);
+    EXPECT_EQ(samsung.underlying.view(), "SAMSUNG");
+
+    const auto btc = classified_dex("flx:BTC", *categories);
+    EXPECT_EQ(btc.asset_class, AssetClass::Crypto);
+    EXPECT_EQ(btc.underlying.view(), "BTC");
+
+    const auto ewy = classified_dex("io:EWY", *categories);
+    EXPECT_EQ(ewy.asset_class, AssetClass::Equity);
+    EXPECT_EQ(ewy.underlying.view(), "EWY");
+
+    const auto unlisted = classified_dex("xyz:NOTLISTED", *categories);
     EXPECT_EQ(unlisted.asset_class, AssetClass::Unknown);
     EXPECT_TRUE(unlisted.underlying.empty());
 
@@ -2105,6 +2135,30 @@ TEST(HyperliquidHip3, ADexPrefixClassesByTheCuratedTableAndNeverDefaults) {
     classify(VenueId::Hyperliquid, *coin);
     EXPECT_EQ(base_of(*coin).asset_class, AssetClass::Crypto);
     EXPECT_EQ(base_of(*coin).underlying.view(), "SPX");
+}
+
+TEST(HyperliquidHip3, EveryLiveDexRowHasAClass) {
+    const auto body = fixture("rest_perp_categories.json");
+    auto storage = std::make_unique<PerpCategoryBuffer>();
+    const auto categories = parse_perp_categories(body, *storage);
+    ASSERT_TRUE(categories.has_value());
+    std::size_t live = 0;
+    for (const auto* dex : {"xyz", "para", "mkts", "io"}) {
+        const auto meta = fixture(std::string{"rest_meta_dex_"} + dex + "_live.json");
+        auto assets_storage = std::make_unique<AssetBuffer>();
+        const auto assets = parse_meta(meta, *assets_storage);
+        ASSERT_TRUE(assets.has_value()) << dex;
+        for (const auto& asset : *assets) {
+            if (asset.delisted) {
+                continue;
+            }
+            ++live;
+            const auto base = classified_dex(asset.name, *categories);
+            EXPECT_NE(base.asset_class, AssetClass::Unknown) << asset.name << " pairs with nothing";
+            EXPECT_FALSE(base.underlying.empty()) << asset.name;
+        }
+    }
+    EXPECT_EQ(live, 150U);
 }
 
 } // namespace
