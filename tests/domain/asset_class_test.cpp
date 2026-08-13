@@ -29,7 +29,7 @@ InstrumentBase classified(VenueId venue,
 TEST(AssetClass, CuratedVenuesResolveTheSameUnderlyingUnderTheirOwnNames) {
     const auto lighter = classified(VenueId::Lighter, "TSLA", "TSLA/USDC");
     const auto aster = classified(VenueId::Aster, "TSLAUSDT", "TSLA/USDT");
-    const auto mexc = classified(VenueId::Mexc, "TESLA_USDT", "TESLA/USDT");
+    const auto mexc = classified(VenueId::Mexc, "TESLA_USDT", "TESLA/USDT", AssetClass::Equity);
     for (const auto& b : {lighter, aster, mexc}) {
         EXPECT_EQ(b.asset_class, AssetClass::Equity);
         EXPECT_EQ(b.underlying.view(), "TSLA");
@@ -49,7 +49,7 @@ TEST(AssetClass, SpxTheCoinStaysCryptoWhereTheIndexIsCalledSomethingElse) {
     const auto index = classified(VenueId::Lighter, "US500", "US500/USDC");
     EXPECT_EQ(index.asset_class, AssetClass::Index);
     EXPECT_EQ(index.underlying.view(), "SPX");
-    const auto mexc_coin = classified(VenueId::Mexc, "SPX_USDT", "SPX/USDT");
+    const auto mexc_coin = classified(VenueId::Mexc, "SPX_USDT", "SPX/USDT", AssetClass::Crypto);
     EXPECT_EQ(mexc_coin.asset_class, AssetClass::Crypto);
 }
 

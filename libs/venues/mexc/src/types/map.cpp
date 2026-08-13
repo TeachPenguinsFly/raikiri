@@ -30,7 +30,7 @@ std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_decimal_e9(text);
+    const auto value = parse_number_e9(text); // the depth socket writes NEX as 8.390E-7
     if (!value.has_value() || value->raw % step.raw != 0) {
         return std::nullopt;
     }
@@ -307,11 +307,17 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     if (const auto mark = to_ticks(wire.fair_price, *base); mark.has_value()) {
         out.mark_price = *mark;
     }
-    if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
-        out.interval_s = perp->funding_interval_s;
-    }
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
+    if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
+        out.interval_s = perp->funding_interval_s;
+        // The ticker states no settle time; nextSettleTime sits on the UTC
+        // interval grid for 1187 of 1188 contracts.
+        if (out.interval_s > 0) {
+            const std::uint64_t interval_ns = std::uint64_t{out.interval_s} * 1'000'000'000ULL;
+            out.next_funding_time = UnixNanos{(out.ts_event.ns / interval_ns + 1) * interval_ns};
+        }
+    }
     return out;
 }
 
@@ -405,6 +411,36 @@ std::optional<TickerStats> map_spot_ticker_stats(const WireSpotTicker& wire,
     return out;
 }
 
+namespace {
+
+[[nodiscard]] AssetClass asset_class_of(std::string_view plates) noexcept {
+    const auto has = [&](std::string_view zone) {
+        return plates.find(std::string{"\"mc-trade-zone-"} + std::string{zone} + "\"") !=
+               std::string_view::npos;
+    };
+    if (has("ETF")) {
+        return AssetClass::Equity;
+    }
+    if (has("stockindex")) {
+        return AssetClass::Index;
+    }
+    if (has("Stock") || has("japanstock") || has("preipo")) {
+        return AssetClass::Equity;
+    }
+    if (has("Commodities") || has("metals") || has("metalsfutures") || has("OIL")) {
+        return AssetClass::Commodity;
+    }
+    if (has("Forex")) {
+        return AssetClass::FX;
+    }
+    if (has("tradfi")) {
+        return AssetClass::Unknown;
+    }
+    return AssetClass::Crypto;
+}
+
+} // namespace
+
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
     if (market != MarketType::Perp) {
         return std::nullopt;
@@ -422,7 +458,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    const auto contract_size = parse_decimal_e9(wire.contract_size);
+    const auto contract_size = parse_number_e9(wire.contract_size); // NAS100: "1e-05"
     if (!contract_size.has_value() || contract_size->raw <= 0) {
         return std::nullopt;
     }
@@ -445,6 +481,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.kind = !wire.settle_coin.empty() && wire.settle_coin != wire.quote_coin
                     ? ContractKind::Inverse
                     : ContractKind::Linear;
+    base.asset_class = asset_class_of(wire.concept_plate);
     return PerpInstrument{base, /*funding_interval_s=*/0};
 }
 
@@ -481,6 +518,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
         return std::nullopt;
     }
     base.local_symbol = *canonical;
+    base.asset_class = AssetClass::Crypto;
     base.tick_size = *tick;
     base.lot_size = *lot;
     // A spot lot IS one base unit; there is no contract multiplier to carry.

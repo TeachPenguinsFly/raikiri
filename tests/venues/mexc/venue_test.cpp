@@ -1,3 +1,4 @@
+#include <raikiri/domain/asset_class.hpp>
 #include <raikiri/net/signer.hpp>
 #include <raikiri/venues/mexc/account.hpp>
 #include <raikiri/venues/mexc/book.hpp>
@@ -388,6 +389,74 @@ TEST(MexcWire, ServerTimeIsTheDataFieldItself) {
     EXPECT_EQ(*ms, 1'786'394'654'676ULL);
 }
 
+TEST(MexcMap, TheConceptPlateStatesTheClass) {
+    const auto body = fixture("rest_contract_detail_live.json");
+    static thread_local InstrumentBuffer storage;
+    const auto rows = parse_instruments(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    const auto classified = [&](std::string_view symbol) {
+        for (const auto& row : *rows) {
+            if (row.symbol != symbol) {
+                continue;
+            }
+            auto instrument = map_instrument(row, MarketType::Perp);
+            if (!instrument.has_value()) {
+                break;
+            }
+            classify(VenueId::Mexc, *instrument);
+            return base_of(*instrument);
+        }
+        ADD_FAILURE() << symbol;
+        return InstrumentBase{};
+    };
+    const auto expect = [&](std::string_view symbol, AssetClass cls, std::string_view underlying) {
+        const auto base = classified(symbol);
+        EXPECT_EQ(base.asset_class, cls) << symbol;
+        EXPECT_EQ(base.underlying.view(), underlying) << symbol;
+    };
+    expect("BTC_USDT", AssetClass::Crypto, "BTC");
+    expect("SPX_USDT", AssetClass::Crypto, "SPX");
+    expect("PONS_USDT", AssetClass::Crypto, "PONS");
+    expect("PAXG_USDT", AssetClass::Crypto, "PAXG");
+    expect("AAPLSTOCK_USDT", AssetClass::Equity, "AAPL");
+    expect("SKHYNIXSTOCK_USDT", AssetClass::Equity, "SKHYNIX");
+    expect("SONYSTOCK_USDT", AssetClass::Equity, "SONY");
+    expect("OPENAI_USDT", AssetClass::Equity, "OPENAI");
+    expect("TESLA_USDT", AssetClass::Equity, "TSLA");
+    expect("COINBASE_USDT", AssetClass::Equity, "COIN");
+    expect("SPY_USDT", AssetClass::Equity, "SPY");
+    expect("DRAM_USDT", AssetClass::Equity, "DRAM");
+    expect("NAS100_USDT", AssetClass::Index, "NDX");
+    expect("US30_USDT", AssetClass::Index, "DJI");
+    expect("XAU_USDT", AssetClass::Commodity, "XAU");
+    expect("USOIL_USDT", AssetClass::Commodity, "CL");
+    expect("EUR_USDT", AssetClass::FX, "EURUSD");
+    expect("JPY_USDT", AssetClass::FX, "USDJPY");
+}
+
+TEST(MexcMap, LiveBooksOfTheSilentContractsQuote) {
+    const auto body = fixture("rest_contract_detail_live.json");
+    static thread_local InstrumentBuffer storage;
+    const auto rows = parse_instruments(body, storage);
+    ASSERT_TRUE(rows.has_value());
+    exec::InstrumentTable table;
+    for (const auto& row : *rows) {
+        if (auto instrument = map_instrument(row, MarketType::Perp); instrument.has_value()) {
+            ASSERT_TRUE(table.add(*instrument).has_value()) << row.symbol;
+        }
+    }
+    EXPECT_NE(table.find(std::string_view{"NAS100_USDT"}), nullptr) << "contractSize 1e-05";
+    for (const auto* file : {"ws_depth_full_nex.json", "ws_depth_full_floki.json", "ws_depth_full_zbt.json"}) {
+        const auto frame = fixture(file);
+        LevelBuffer levels;
+        const auto parsed = parse_event_and_depth(frame, levels);
+        ASSERT_TRUE(parsed.has_value()) << file;
+        ASSERT_TRUE(parsed->depth.has_value()) << file;
+        EXPECT_TRUE(map_bbo(*parsed->depth, table, k_ingest).has_value()) << file;
+        EXPECT_TRUE(map_book(*parsed->depth, table, k_ingest).has_value()) << file;
+    }
+}
+
 TEST(MexcWire, InstrumentRowsKeepScalesRatherThanSteps) {
     const auto body = fixture("rest_contract_detail.json");
     InstrumentBuffer storage;
@@ -647,6 +716,8 @@ TEST(MexcMap, FundingFromTheTickerCarriesTheCatalogueInterval) {
     const auto funding = map_funding(*ticker, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->interval_s, 4U * 3600U);
+    // The boundary rest_funding_rate.json states as nextSettleTime.
+    EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400'000ULL * 1'000'000ULL);
 }
 
 TEST(MexcMap, TickerStatsScaleContractsIntoBaseUnits) {

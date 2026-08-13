@@ -26,6 +26,7 @@ struct WireInstrument {
     std::int64_t vol_scale{-1};
     std::string_view contract_size; // base units per contract
     std::string_view min_vol;       // contracts
+    std::string_view concept_plate; // raw array: "mc-trade-zone-Stock", ...
     bool api_allowed{false};
 };
 

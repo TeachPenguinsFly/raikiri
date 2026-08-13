@@ -75,6 +75,11 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.vol_scale = *vol_scale;
             out.state = *state;
             out.api_allowed = *api_allowed;
+            const auto plates = detail::opt_raw(obj, "conceptPlate");
+            if (!plates.has_value()) {
+                return std::unexpected(plates.error());
+            }
+            out.concept_plate = *plates;
             storage.instruments[count] = out;
             ++count;
         }
