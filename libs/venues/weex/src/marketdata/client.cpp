@@ -1,4 +1,5 @@
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -45,9 +46,16 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
     const auto entry =
         state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
-    if (book.apply(*wire) != BookResult::Applied) {
+    const auto result = book.apply(*wire);
+    auto& watch = state.book_watch[base.id.packed];
+    watch.instrument = base.id;
+    if (result == BookResult::Gap) {
+        watch.gapped = true;
+    }
+    if (result != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
+    watch.seen_ns = received.ns;
     const auto ts_event = ms_to_unix(wire->event_ms, received);
     // THE QUOTE FIRST. WEEX publishes no top-of-book channel at all, so this
     // ladder is the only source of a Bbo on this venue, and it is the datum
@@ -258,6 +266,7 @@ public:
         state_->io.poll();
         pool_.poll(now);
         poll_funding(now);
+        reseed_books(now);
     }
 
 private:
@@ -301,6 +310,40 @@ private:
     // Nothing is refetched. The reopened socket re-asks for its channels and
     // WEEX answers each depth subscription with a fresh `depthSnapshot`, which
     // is the seed — so the recovery costs one frame and no REST call.
+    void reseed_books(UnixNanos now) {
+        if (now.ns < state_->next_reseed_scan_ns) {
+            return;
+        }
+        state_->next_reseed_scan_ns = now.ns + 5ULL * 1'000'000'000ULL;
+        for (auto& [packed, watch] : state_->book_watch) {
+            const bool gapped = watch.gapped;
+            if (!due_for_reseed(watch, now.ns)) {
+                continue;
+            }
+            const auto symbol = state_->instruments.exchange_symbol(watch.instrument);
+            if (symbol.empty()) {
+                continue;
+            }
+            std::string key{symbol};
+            key.append(k_depth_channel);
+            const std::array<std::string_view, 1> one{key};
+            std::vector<std::string> frames;
+            if (const auto off = state_->protocol.unsubscribe_frame(one); off.has_value()) {
+                frames.emplace_back(off->text);
+            }
+            if (const auto on = state_->protocol.subscribe_frame(one); on.has_value()) {
+                frames.emplace_back(on->text);
+            }
+            if (frames.size() != 2 || !pool_.requeue(key, std::move(frames))) {
+                continue;
+            }
+            if (const auto book = state_->books.find(packed); book != state_->books.end()) {
+                book->second.invalidate();
+            }
+            RLOG_WARN("weex: {} book {}, resubscribing", key, gapped ? "gapped" : "went silent");
+        }
+    }
+
     void invalidate_books(std::span<const std::string> keys) {
         for (const auto& key : keys) {
             if (!std::string_view{key}.ends_with(k_depth_channel)) {

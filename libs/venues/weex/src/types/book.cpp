@@ -2,6 +2,7 @@
 #include <raikiri/venues/weex/book.hpp>
 #include <raikiri/wire/json.hpp>
 
+#include <algorithm>
 #include <optional>
 
 namespace raikiri::venues::weex {
@@ -272,6 +273,19 @@ std::optional<Bbo> DepthBook::touch(UnixNanos ts_event, UnixNanos ts_init) const
     out.ts_event = ts_event;
     out.ts_init = ts_init;
     return out;
+}
+
+bool due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept {
+    if (watch.asked_ns != 0 && now_ns - watch.asked_ns < k_book_silence_ns) {
+        return false;
+    }
+    const auto last = std::max(watch.seen_ns, watch.asked_ns);
+    if (!watch.gapped && (last == 0 || now_ns - last < k_book_silence_ns)) {
+        return false;
+    }
+    watch.gapped = false;
+    watch.asked_ns = now_ns;
+    return true;
 }
 
 } // namespace raikiri::venues::weex

@@ -483,6 +483,38 @@ TEST(WeexBook, ADeltaBeforeTheChannelsOwnSnapshotIsDroppedNotGuessed) {
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
 }
 
+TEST(WeexBook, AGappedOrSilentBookIsReseededOncePerSilence) {
+    const auto table = load_table();
+    const auto& btc = listed(table, "BTCUSDT");
+    DepthBook book{btc.id, btc.tick_size, btc.lot_size};
+    static thread_local LevelBuffer storage;
+    constexpr std::uint64_t s = 1'000'000'000ULL;
+    BookWatch watch{.instrument = btc.id, .seen_ns = 0, .asked_ns = 0, .gapped = false};
+
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
+              BookResult::Applied);
+    watch.seen_ns = 1'000 * s;
+    EXPECT_FALSE(due_for_reseed(watch, 1'010 * s));
+    watch.gapped = book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)) ==
+                   BookResult::Gap;
+    ASSERT_TRUE(watch.gapped);
+    EXPECT_TRUE(due_for_reseed(watch, 1'011 * s));
+    EXPECT_FALSE(due_for_reseed(watch, 1'012 * s)) << "one resubscribe, not one per frame";
+    watch.gapped = true;
+    EXPECT_FALSE(due_for_reseed(watch, 1'100 * s)) << "the snapshot gets its silence to arrive";
+    EXPECT_TRUE(due_for_reseed(watch, 1'011 * s + k_book_silence_ns));
+
+    BookWatch quiet{.instrument = btc.id, .seen_ns = 2'000 * s, .asked_ns = 0, .gapped = false};
+    EXPECT_FALSE(due_for_reseed(quiet, 2'000 * s + k_book_silence_ns - 1));
+    EXPECT_TRUE(due_for_reseed(quiet, 2'000 * s + k_book_silence_ns));
+
+    Protocol protocol;
+    const std::array<std::string_view, 1> one{"BTCUSDT@depth15"};
+    const auto off = protocol.unsubscribe_frame(one);
+    ASSERT_TRUE(off.has_value());
+    EXPECT_EQ(off->text, R"({"method":"UNSUBSCRIBE","params":["BTCUSDT@depth15"],"id":1})");
+}
+
 TEST(WeexBook, ABrokenChainInvalidatesRatherThanServingAStaleBook) {
     const auto table = load_table();
     const auto& btc = listed(table, "BTCUSDT");

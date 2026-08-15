@@ -76,6 +76,8 @@ struct VenueState {
     net::RestClient rest{io, net::RestConfig{.host = std::string{rest_host()}}};
 
     std::unordered_map<std::uint64_t, DepthBook> books;
+    std::unordered_map<std::uint64_t, BookWatch> book_watch;
+    std::uint64_t next_reseed_scan_ns{0};
 
     // Channels the gateway asked for, owned as strings because the instrument
     // table's views outlive nothing in particular. A SET: Bbo and Depth name

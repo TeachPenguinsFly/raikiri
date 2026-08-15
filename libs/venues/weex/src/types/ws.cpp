@@ -76,6 +76,16 @@ channel_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<cha
 
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::subscribe_frame(std::span<const std::string_view> channels) {
+    return method_frame(R"({"method":"SUBSCRIBE","params":[)", channels);
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::unsubscribe_frame(std::span<const std::string_view> channels) {
+    return method_frame(R"({"method":"UNSUBSCRIBE","params":[)", channels);
+}
+
+std::expected<Protocol::Frame, WsBuildError>
+Protocol::method_frame(std::string_view head, std::span<const std::string_view> channels) {
     if (channels.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }
@@ -100,7 +110,7 @@ Protocol::subscribe_frame(std::span<const std::string_view> channels) {
         std::memcpy(frame_.data() + len, text.data(), text.size());
         len += text.size();
     };
-    put(R"({"method":"SUBSCRIBE","params":[)");
+    put(head);
     for (std::size_t i = 0; i < batch; ++i) {
         if (i != 0) {
             put(",");

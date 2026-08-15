@@ -65,15 +65,17 @@ public:
         std::size_t consumed{0};
     };
 
-    // SUBSCRIBE ONLY. WEEX answers UNSUBSCRIBE with the same verdict frame, but
-    // nothing in this process can ask for one: the connection pool has no
-    // per-key removal, so a channel placed on a socket stays there until the
-    // socket closes. A builder with no caller is untested code that reads as a
-    // capability.
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const std::string_view> channels);
 
+    // Only ever followed by a subscribe of the same channel, to reseed its book.
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    unsubscribe_frame(std::span<const std::string_view> channels);
+
 private:
+    [[nodiscard]] std::expected<Frame, WsBuildError>
+    method_frame(std::string_view head, std::span<const std::string_view> channels);
+
     std::array<char, 2048> frame_{};
     std::uint64_t next_id_{1};
 };

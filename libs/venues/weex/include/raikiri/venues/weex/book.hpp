@@ -139,4 +139,18 @@ private:
     bool live_{false};
 };
 
+// A book that gapped, or went quiet for k_book_silence_ns, is reseeded by
+// resubscribing its channel: WEEX sends a depth snapshot only on subscribe.
+inline constexpr std::uint64_t k_book_silence_ns = 300ULL * 1'000'000'000ULL;
+
+struct BookWatch {
+    InstrumentId instrument{};
+    std::uint64_t seen_ns{0};
+    std::uint64_t asked_ns{0};
+    bool gapped{false};
+};
+
+// True, and stamped as asked, when the book is due a reseed at `now_ns`.
+[[nodiscard]] bool due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept;
+
 } // namespace raikiri::venues::weex
