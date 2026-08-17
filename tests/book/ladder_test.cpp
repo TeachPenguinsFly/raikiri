@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 namespace raikiri::book {
 namespace {
 
@@ -89,6 +91,35 @@ TEST(Ladder, DropBeyondPrunesWhatNoSnapshotVouchedFor) {
     asks.drop_beyond(PriceTicks::from_raw(202));
     ASSERT_EQ(asks.size(), 3U);
     EXPECT_EQ(asks.levels()[2].price.raw, 202);
+}
+
+TEST(Ladder, DropBeyondAgreesWithAScanFromTheTouchAtEveryBandEdge) {
+    for (const auto side : {Side::Bid, Side::Ask}) {
+        for (std::int64_t edge = 80; edge <= 220; ++edge) {
+            Ladder ladder{side};
+            for (std::int64_t price = 100; price <= 200; price += 3) {
+                ladder.upsert(lvl(price, price));
+            }
+            std::vector<Level> expected;
+            for (const auto& level : ladder.levels()) {
+                const bool beyond =
+                    side == Side::Bid ? level.price.raw < edge : level.price.raw > edge;
+                if (beyond) {
+                    break;
+                }
+                expected.push_back(level);
+            }
+            ladder.drop_beyond(PriceTicks::from_raw(edge));
+            ASSERT_EQ(ladder.size(), expected.size()) << "edge " << edge;
+            for (std::size_t i = 0; i < expected.size(); ++i) {
+                EXPECT_EQ(ladder.levels()[i].price.raw, expected[i].price.raw);
+                EXPECT_EQ(ladder.levels()[i].qty.raw, expected[i].qty.raw);
+            }
+        }
+        Ladder empty{side};
+        empty.drop_beyond(PriceTicks::from_raw(100));
+        EXPECT_TRUE(empty.empty());
+    }
 }
 
 TEST(Ladders, AOneSidedBookPublishesNothing) {

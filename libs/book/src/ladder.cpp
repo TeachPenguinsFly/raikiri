@@ -38,8 +38,8 @@ void Ladder::truncate(std::size_t depth) {
 }
 
 void Ladder::drop_beyond(PriceTicks worst) {
-    const auto keep = std::find_if(levels_.begin(), levels_.end(), [&](const Level& level) {
-        return precedes(worst, level.price);
+    const auto keep = std::partition_point(levels_.begin(), levels_.end(), [&](const Level& level) {
+        return !precedes(worst, level.price);
     });
     levels_.erase(keep, levels_.end());
 }

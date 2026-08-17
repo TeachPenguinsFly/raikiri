@@ -5,3 +5,7 @@ target_link_libraries(shm_pingpong
 add_executable(ring_throughput ring_throughput.cpp)
 target_link_libraries(ring_throughput
   PRIVATE benchmark::benchmark raikiri::domain raikiri::shm raikiri::warnings)
+
+add_executable(ladder_prune ladder_prune.cpp)
+target_link_libraries(ladder_prune
+  PRIVATE benchmark::benchmark raikiri::book raikiri::warnings)
