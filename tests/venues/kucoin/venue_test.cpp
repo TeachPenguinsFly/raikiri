@@ -2081,6 +2081,11 @@ TEST(KucoinUtaWs, ASubscribeAsksForOneSymbolAtATime) {
     ASSERT_TRUE(second.has_value());
     EXPECT_NE(second->text.find("ETHUSDTM"), std::string_view::npos);
     EXPECT_NE(second->text.find(R"("id":"2")"), std::string_view::npos) << "ids advance";
+
+    protocol.set_uta_book_depth("50");
+    const auto third = protocol.uta_subscribe_frame(subs);
+    ASSERT_TRUE(third.has_value());
+    EXPECT_NE(third->text.find(R"("depth":"50"})"), std::string_view::npos);
 }
 
 TEST(KucoinUtaWs, TradesSubscribeOnTheTradeChannelWithoutADepth) {

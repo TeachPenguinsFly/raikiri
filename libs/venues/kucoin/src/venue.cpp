@@ -20,6 +20,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -65,9 +66,14 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     // tree for the same 683 contracts, measured 2026-09-19 — and needs no REST
     // seed at all. Anything else keeps classic, which is what every deployment
     // ran before this existed and what one falls back to if this feed misses.
-    if (config.market_data_feed == "uta") {
+    if (const std::string_view feed = config.market_data_feed;
+        feed == "uta" || feed.starts_with("uta:")) {
         state->uta = true;
-        RLOG_INFO("kucoin: market data on the unified feed ({})", k_uta_futures_host);
+        const auto depth = feed.size() > 4 ? feed.substr(4) : k_uta_book_depth;
+        state->protocol.set_uta_book_depth(depth);
+        RLOG_INFO("kucoin: market data on the unified feed ({}, obu depth {})",
+                  k_uta_futures_host,
+                  depth);
     } else if (!config.market_data_feed.empty()) {
         RLOG_WARN("kucoin: unknown feed '{}' — staying on the classic tree",
                   config.market_data_feed);

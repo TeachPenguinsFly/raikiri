@@ -71,6 +71,8 @@ make_endpoint(std::string_view endpoint_url, std::string_view token, std::string
 // `increment@10ms` opens with a whole book and then sends deltas of it, so
 // there is no REST seed to fetch and no /api/v1/level2/snapshot storm to
 // meter. 500 levels a side, against the 100 this gateway publishes.
+// Still the cheapest with 50 levels, 2026-09-26: 2.5 cpu-s/min against "50"'s
+// 7.1 (10 MB/s, resent every 100 ms unchanged); increment@100ms is refused.
 inline constexpr std::string_view k_uta_book_channel = "obu";
 inline constexpr std::string_view k_uta_book_depth = "increment@10ms";
 inline constexpr std::string_view k_uta_trade_channel = "trade";
@@ -142,11 +144,14 @@ public:
 
     [[nodiscard]] std::string_view ping_frame() noexcept;
 
+    void set_uta_book_depth(std::string_view depth) { uta_book_depth_ = depth; }
+
 private:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     op_frame(std::string_view type, std::span<const Subscription> subscriptions);
 
     std::uint64_t next_id_{1};
+    std::string uta_book_depth_{k_uta_book_depth};
     std::array<char, 8192> frame_{};
     std::array<char, 64> ping_{};
 };

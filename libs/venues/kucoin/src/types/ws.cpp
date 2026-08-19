@@ -208,7 +208,7 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
     put(one.symbol);
     if (book) {
         put(R"(","depth":")");
-        put(k_uta_book_depth);
+        put(uta_book_depth_);
     }
     put(R"("})");
     if (overflow) {
