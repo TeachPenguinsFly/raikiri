@@ -78,8 +78,9 @@ SPOT_CHANNELS="bbo,funding"
 # off and spot cannot run beside it.
 declare -A CHANNELS=( [hyperliquid-spot]=bbo,depth,funding [hyperliquid-hip3]=bbo,depth,funding )
 
-# The adapter's feed, which for hyperliquid names the HIP-3 dexes to load.
-declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts )
+# The adapter's feed, which for hyperliquid names the HIP-3 dexes to load and
+# for kucoin picks the unified feed: 4.8x fewer messages than classic, no seeds.
+declare -A FEED=( [hyperliquid-hip3]=xyz,para,io,mkts [kucoin]=uta )
 
 # Splits an account name into the arguments that start it. The suffix names the
 # market and wins over the table: one adapter serves several, and the account
