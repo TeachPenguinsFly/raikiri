@@ -33,7 +33,7 @@ namespace raikiri::venues::weex {
 // Resolved from the frame's event type once, so downstream dispatch is an
 // integer compare rather than a string compare per message.
 enum class EventKind : std::uint8_t {
-    Depth,         // <sym>@depth15: a delta, d == "CHANGED"
+    Depth,         // <sym>@depth200: a delta, d == "CHANGED"
     DepthSnapshot, // the same channel's opening frame, d == "SNAPSHOT"
     Trade,         // <sym>@trade: prints as they happen
     TradeSnapshot, // the same channel's opening backfill; see market_data.hpp

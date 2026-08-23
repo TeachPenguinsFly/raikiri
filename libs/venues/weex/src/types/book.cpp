@@ -183,7 +183,7 @@ std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const 
 void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
         // Quantity "0" is WEEX's delete, and it is how the venue keeps the
-        // window at its subscribed width: a level pushed out of the top 15
+        // window at its subscribed width: a level pushed out of the window
         // arrives once more at zero and never again.
         side.remove(level.price);
         return;

@@ -36,11 +36,11 @@ enum class WsBuildError : std::uint8_t {
 [[nodiscard]] std::string_view stream_path() noexcept;
 
 // 15 and 200 are the whole tier list: @depth5 and @depth20 are refused with
-// `invalid depth level`, and a bare @depth answers at 15. Subscribed at 15
-// because that window is the venue's own — it holds the book at exactly 15
-// levels a side and deletes what falls out — and because it feeds the quote as
-// well as the ladder, so a second channel would buy nothing.
-inline constexpr std::string_view k_depth_channel = "@depth15";
+// `invalid depth level`, and a bare @depth answers at 15. Subscribed at 200:
+// same frames and the same ~500 ms cadence as 15, but 15 levels reached 25 bp
+// from mid on only 10% of the top-30 contracts. The book holds the venue's 200
+// and publishes the top k_book_levels.
+inline constexpr std::string_view k_depth_channel = "@depth200";
 inline constexpr std::string_view k_trade_channel = "@trade";
 inline constexpr std::string_view k_ticker_channel = "@ticker";
 

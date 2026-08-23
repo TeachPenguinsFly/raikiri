@@ -272,7 +272,7 @@ public:
 private:
     // Turns a kind and a symbol into one pool key and places it.
     //
-    // A CHANNEL IS PLACED ONCE. Bbo and Depth resolve to the same @depth15, so
+    // A CHANNEL IS PLACED ONCE. Bbo and Depth resolve to the same @depth200, so
     // a gateway asking for both must spend one of the connection's hundred
     // rather than two — which is the difference between 533 instruments on a
     // full pool and 400.
@@ -305,7 +305,7 @@ private:
     // nobody else's; invalidating every book on any reopen would darken a whole
     // catalogue because one socket blinked. The channel is checked as well as
     // the symbol: a contract's @trade may sit on a different socket from its
-    // @depth15, and only the depth channel names a chain that can break.
+    // @depth200, and only the depth channel names a chain that can break.
     //
     // Nothing is refetched. The reopened socket re-asks for its channels and
     // WEEX answers each depth subscription with a fresh `depthSnapshot`, which
@@ -374,7 +374,7 @@ private:
         }
         // THE QUOTE FIRST. Once the sends are paced, whatever goes last on a
         // full socket effectively does not go at all — and on this venue
-        // @depth15 is the quote as well as the ladder, so a socket that got
+        // @depth200 is the quote as well as the ladder, so a socket that got
         // through only its first frames still has a Bid/Ask column.
         std::ranges::stable_partition(
             channels, [](std::string_view channel) { return channel.ends_with(k_depth_channel); });

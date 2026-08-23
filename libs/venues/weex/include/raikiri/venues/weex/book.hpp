@@ -7,7 +7,7 @@
 // rule that decides whether a delta may be applied at all, and the rule means
 // nothing without the ids it reads.
 //
-// <sym>@depth15 SEEDS ITSELF. The channel opens with an `e:"depthSnapshot"`
+// <sym>@depth200 SEEDS ITSELF. The channel opens with an `e:"depthSnapshot"`
 // carrying the whole window and continues as `e:"depth"` deltas, so there is no
 // REST read in this path at all. Four things measured off the live socket on
 // 2026-09-07, none of them taken from a page:
@@ -52,8 +52,7 @@ struct WireLevel {
 
 // The deepest tier WEEX offers is 200 — `@depth5` and `@depth20` are refused
 // with `invalid depth level`, so 15 and 200 are the whole list. This adapter
-// subscribes at 15 and the buffer still holds 200, because a frame arriving
-// from a tier nobody asked for must be readable before it can be judged.
+// subscribes at 200 and publishes the top k_book_levels of it.
 inline constexpr std::size_t k_max_levels = 200;
 
 struct LevelBuffer {

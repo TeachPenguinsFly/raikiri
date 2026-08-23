@@ -449,6 +449,33 @@ TEST(WeexBook, QuantityZeroDeletesALevelAndTheWindowStaysFifteen) {
     EXPECT_EQ(book.asks().size(), 15U);
 }
 
+TEST(WeexBook, TheTwoHundredLevelChannelPublishesTheTopHundred) {
+    const auto table = load_table();
+    const auto& btc = listed(table, "BTCUSDT");
+    DepthBook book{btc.id, btc.tick_size, btc.lot_size};
+
+    static thread_local LevelBuffer storage;
+    const auto seed = parse_depth(fixture("ws_depth200_snapshot.json"), storage);
+    ASSERT_TRUE(seed.has_value());
+    EXPECT_EQ(seed->tier, 200U);
+    EXPECT_EQ(seed->bids.size(), 200U);
+    EXPECT_EQ(seed->asks.size(), 200U);
+    ASSERT_EQ(book.apply(*seed), BookResult::Applied);
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth200_update.json"), storage)),
+              BookResult::Applied);
+    EXPECT_EQ(book.dropped_levels(), 0U);
+    EXPECT_GE(book.bids().size(), k_book_levels);
+    EXPECT_GE(book.asks().size(), k_book_levels);
+
+    const auto snap = book.snapshot(UnixNanos{}, UnixNanos{});
+    ASSERT_TRUE(snap.has_value());
+    EXPECT_EQ(snap->bid_count, k_book_levels);
+    EXPECT_EQ(snap->ask_count, k_book_levels);
+    EXPECT_EQ(snap->bids[0].price.raw, book.bids().front().price.raw);
+    EXPECT_EQ(snap->bids[k_book_levels - 1].price.raw, book.bids()[k_book_levels - 1].price.raw);
+    EXPECT_GT(snap->asks[k_book_levels - 1].price.raw, snap->asks[0].price.raw);
+}
+
 TEST(WeexBook, TheTopOfBookIsTheOnlyQuoteThisVenueHas) {
     const auto table = load_table();
     const auto& btc = listed(table, "BTCUSDT");
@@ -509,10 +536,10 @@ TEST(WeexBook, AGappedOrSilentBookIsReseededOncePerSilence) {
     EXPECT_TRUE(due_for_reseed(quiet, 2'000 * s + k_book_silence_ns));
 
     Protocol protocol;
-    const std::array<std::string_view, 1> one{"BTCUSDT@depth15"};
+    const std::array<std::string_view, 1> one{"BTCUSDT@depth200"};
     const auto off = protocol.unsubscribe_frame(one);
     ASSERT_TRUE(off.has_value());
-    EXPECT_EQ(off->text, R"({"method":"UNSUBSCRIBE","params":["BTCUSDT@depth15"],"id":1})");
+    EXPECT_EQ(off->text, R"({"method":"UNSUBSCRIBE","params":["BTCUSDT@depth200"],"id":1})");
 }
 
 TEST(WeexBook, ABrokenChainInvalidatesRatherThanServingAStaleBook) {
@@ -935,7 +962,7 @@ TEST(WeexWs, BboAndDepthNameOneChannel) {
     std::array<char, 64> ladder{};
     const auto bbo = channel_name(exec::SubKind::Bbo, "BTCUSDT", quote);
     const auto depth = channel_name(exec::SubKind::Depth, "BTCUSDT", ladder);
-    EXPECT_EQ(bbo, "BTCUSDT@depth15");
+    EXPECT_EQ(bbo, "BTCUSDT@depth200");
     EXPECT_EQ(bbo, depth);
 }
 

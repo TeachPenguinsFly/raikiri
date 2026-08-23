@@ -101,6 +101,7 @@ The depth and trade files came out of one 75 s session subscribed to
 | `ws_subscribe_refused.json` | `params:["BTCUSDT@bookTicker"]` on a fresh socket. **One boolean** separates this from the ack, and there is no numeric code — the reason is prose behind an `INVALID_ARGUMENT: ` prefix. |
 | `ws_depth_snapshot.json` | The first frame of `BTCUSDT@depth15`: `e:"depthSnapshot"`, `d:"SNAPSHOT"`, 15 levels a side. This IS the seed — no REST read is involved. |
 | `ws_depth_update.json`, `ws_depth_update_next.json` | The next two frames of the same channel, **consecutive**, chosen so each one's `U` equals the previous frame's `u`. The second deletes `79346.5` by sending it at quantity `"0"` — which is how WEEX keeps the window at fifteen. |
+| `ws_depth200_snapshot.json`, `ws_depth200_update.json` | `BTCUSDT@depth200` on 2026-09-26: the opening snapshot at `l:200` with 200 levels a side, and the delta that chains onto it. The adapter subscribes this tier and publishes the top 100. |
 | `ws_trade_buy.json` | `BTCUSDT@trade`, both prints `m: false`. |
 | `ws_trade_sell.json` | `DOGEUSDT@trade`, all three prints `m: true`. DOGE also carries the negative-precision size step: `"1500"` against a lot of 100. |
 | `ws_trade_snapshot.json` | The opening `e:"tradeSnapshot"` backfill, twenty historical prints. Kept as **evidence, not as a published channel** — see below. |
