@@ -32,6 +32,10 @@ inline constexpr std::string_view k_stream_test = "fstream.binancefuture.com";
 
 // --- sockets -------------------------------------------------------------
 inline constexpr std::string_view k_ws_combined = "/stream";
+// markPrice, aggTrade and !markPrice@arr are acknowledged on "/stream" and then
+// never sent; they deliver only here, and bookTicker, depth and trade only
+// there. Measured 2026-09-26, one symbol, both paths, 30 s.
+inline constexpr std::string_view k_ws_market = "/market/stream";
 // The user data socket addresses itself with the listen key: this prefix is
 // only half a target and the key is appended at the call site.
 //

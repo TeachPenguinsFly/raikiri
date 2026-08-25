@@ -291,17 +291,8 @@ class BinanceData final : public exec::DataClient {
 public:
     explicit BinanceData(std::shared_ptr<VenueState> state)
         : state_{std::move(state)}, handler_{*state_},
-          pool_{state_->io,
-                net::WsConfig{.host = std::string{stream_host(state_->testnet)},
-                              .port = "443",
-                              .target = std::string{stream_path()}},
-                handler_,
-                // Binance caps one CONNECTION at 1024 streams; the pool turns
-                // that into a per-socket number instead of the process's,
-                // which is what left 342 of 571 listings subscribed and 229
-                // refused outright.
-                net::WsPoolConfig{},
-                [this](std::span<const std::string> keys) { return build_frames(keys); }} {
+          pool_{make_pool(stream_path(exec::SubKind::Bbo))},
+          market_pool_{make_pool(stream_path(exec::SubKind::MarkPrice))} {
         // The seeds, the funding pull and the 24-hour table all ride this one
         // pool, and binance counts every one of them against the same weight
         // the order path spends.
@@ -311,6 +302,7 @@ public:
     std::expected<void, exec::VenueError> start() override {
         state_->depth_rest.start();
         pool_.start();
+        market_pool_.start();
         started_ = true;
         return {};
     }
@@ -318,11 +310,14 @@ public:
     void stop() override {
         report_final();
         pool_.stop();
+        market_pool_.stop();
         state_->depth_rest.stop();
         started_ = false;
     }
 
-    [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
+    [[nodiscard]] bool connected() const noexcept override {
+        return pool_.connected() || market_pool_.connected();
+    }
 
     // What this venue's sockets were told no about. Counted by the
     // adapter since it was written; this is what finally reads it.
@@ -360,7 +355,8 @@ public:
         // opens another, and only the pool's own ceiling refuses — which is
         // said out loud rather than leaving the instrument silently unwatched.
         const std::array<std::string, 1> one{std::string{stream}};
-        if (!pool_.subscribe(one)) {
+        auto& pool = stream_path(kind) == stream_path(exec::SubKind::Bbo) ? pool_ : market_pool_;
+        if (!pool.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "binance: connection pool is full")};
         }
@@ -377,6 +373,7 @@ public:
         }
         state_->io.poll();
         pool_.poll(now);
+        market_pool_.poll(now);
         drain_seeds(now);
         report_books(now);
         poll_funding(now);
@@ -613,6 +610,20 @@ private:
         }
     }
 
+    // Binance caps one CONNECTION at 1024 streams; the pool turns that into a
+    // per-socket number instead of the process's, which is what left 342 of
+    // 571 listings subscribed and 229 refused outright.
+    net::WsPool make_pool(std::string_view target) {
+        return net::WsPool{
+            state_->io,
+            net::WsConfig{.host = std::string{stream_host(state_->testnet)},
+                          .port = "443",
+                          .target = std::string{target}},
+            handler_,
+            net::WsPoolConfig{},
+            [this](std::span<const std::string> keys) { return build_frames(keys); }};
+    }
+
     // A pool key is one stream string. Binance's desired set is already a flat
     // list of stream names, so nothing is encoded into the key and taken apart
     // here.
@@ -652,6 +663,7 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
     net::WsPool pool_;
+    net::WsPool market_pool_;
     bool started_{false};
     bool in_flight_{false};
     bool ticker_in_flight_{false};

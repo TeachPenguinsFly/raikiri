@@ -24,8 +24,9 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
 
-// The multiplexed endpoint. Frames arrive wrapped; wire::unwrap peels them.
-[[nodiscard]] std::string_view stream_path() noexcept;
+// The multiplexed endpoint that delivers `kind`. Frames arrive wrapped on
+// both; wire::unwrap peels them.
+[[nodiscard]] std::string_view stream_path(exec::SubKind kind) noexcept;
 
 // Binance publishes depth at fixed cadences: 100, 250 and 500 ms for futures
 // diff streams.

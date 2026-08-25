@@ -48,8 +48,9 @@ std::string_view stream_host(bool testnet) noexcept {
     return ep::stream_host(testnet);
 }
 
-std::string_view stream_path() noexcept {
-    return ep::k_ws_combined;
+std::string_view stream_path(exec::SubKind kind) noexcept {
+    return kind == exec::SubKind::MarkPrice || kind == exec::SubKind::Funding ? ep::k_ws_market
+                                                                               : ep::k_ws_combined;
 }
 
 std::string_view

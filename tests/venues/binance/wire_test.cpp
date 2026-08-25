@@ -3,10 +3,12 @@
 #include <raikiri/venues/binance/catalogue.hpp>
 #include <raikiri/venues/binance/envelope.hpp>
 #include <raikiri/venues/binance/market_data.hpp>
+#include <raikiri/venues/binance/ws.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -376,6 +378,20 @@ TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {
     EXPECT_EQ(err->code, 2);
     EXPECT_EQ(err->id, 7U);
     EXPECT_EQ(err->msg, "Invalid request: invalid stream");
+}
+
+TEST(BinanceWs, EachStreamGoesToThePathThatDeliversIt) {
+    for (const auto kind : {exec::SubKind::Bbo, exec::SubKind::Depth, exec::SubKind::Trades}) {
+        EXPECT_EQ(stream_path(kind), "/stream");
+    }
+    for (const auto kind : {exec::SubKind::MarkPrice, exec::SubKind::Funding}) {
+        EXPECT_EQ(stream_path(kind), "/market/stream");
+    }
+    EXPECT_EQ(stream_host(false), "fstream.binance.com");
+
+    std::array<char, 64> buf{};
+    EXPECT_EQ(stream_name(exec::SubKind::MarkPrice, "BTCUSDT", buf), "btcusdt@markPrice@1s");
+    EXPECT_EQ(stream_name(exec::SubKind::Trades, "BTCUSDT", buf), "btcusdt@trade");
 }
 
 } // namespace
