@@ -38,6 +38,9 @@ void init(std::string_view process_name);
 // whatever it logged last, which is the part worth reading after a crash.
 void shutdown();
 
+// Hands queued records to the backend now instead of at its next wake.
+void wake() noexcept;
+
 // Null until init() has run, and the RLOG_* macros dereference it.
 [[nodiscard]] quill::Logger* logger() noexcept;
 
@@ -59,6 +62,11 @@ public:
 #define RLOG_TRACE(...) QUILL_LOG_TRACE_L1(::raikiri::log::logger(), __VA_ARGS__)
 #define RLOG_DEBUG(...) QUILL_LOG_DEBUG(::raikiri::log::logger(), __VA_ARGS__)
 #define RLOG_INFO(...) QUILL_LOG_INFO(::raikiri::log::logger(), __VA_ARGS__)
-#define RLOG_WARN(...) QUILL_LOG_WARNING(::raikiri::log::logger(), __VA_ARGS__)
-#define RLOG_ERROR(...) QUILL_LOG_ERROR(::raikiri::log::logger(), __VA_ARGS__)
-#define RLOG_CRITICAL(...) QUILL_LOG_CRITICAL(::raikiri::log::logger(), __VA_ARGS__)
+#define RLOG_WAKING_(macro, ...)                                                                   \
+    do {                                                                                           \
+        macro(::raikiri::log::logger(), __VA_ARGS__);                                              \
+        ::raikiri::log::wake();                                                                    \
+    } while (0)
+#define RLOG_WARN(...) RLOG_WAKING_(QUILL_LOG_WARNING, __VA_ARGS__)
+#define RLOG_ERROR(...) RLOG_WAKING_(QUILL_LOG_ERROR, __VA_ARGS__)
+#define RLOG_CRITICAL(...) RLOG_WAKING_(QUILL_LOG_CRITICAL, __VA_ARGS__)
