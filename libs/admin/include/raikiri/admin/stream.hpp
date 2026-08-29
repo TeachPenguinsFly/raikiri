@@ -28,6 +28,7 @@
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
+#include <raikiri/net/io_context.hpp>
 #include <raikiri/shm/records.hpp>
 
 #include <cstdint>
@@ -224,6 +225,11 @@ positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> pos
 class Stream {
 public:
     Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
+    Stream(net::IoContext& io,
+           const Registry& registry,
+           const Clock& clock,
+           std::string address,
+           std::uint16_t port);
     ~Stream();
     Stream(const Stream&) = delete;
     Stream& operator=(const Stream&) = delete;
@@ -233,6 +239,10 @@ public:
     // One pass: sample what is due, then run whatever the reactor has ready.
     // Returns the work done, so a caller that got zero knows it may sleep.
     std::size_t poll() noexcept;
+
+    // When the next poll() has something to sample; a caller may block until
+    // then. Far in the future while no client is subscribed.
+    [[nodiscard]] MonoNanos next_due() const noexcept;
 
     void stop() noexcept;
 

@@ -27,6 +27,9 @@ public:
     // Runs ready handlers, or blocks up to `timeout_ms` waiting for one.
     std::size_t run_for(std::size_t timeout_ms) noexcept;
 
+    // Runs at most one handler, blocking up to `timeout_ms` for it.
+    std::size_t run_one_for(std::size_t timeout_ms) noexcept;
+
     void stop() noexcept;
 
     // True while this thread is inside poll() or run_for(), i.e. while a

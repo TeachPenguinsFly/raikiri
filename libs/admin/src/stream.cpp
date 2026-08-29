@@ -663,6 +663,10 @@ struct EventSource {
     shm::ExecReader reader;
 };
 
+// Order events arrive on a shm ring nothing signals, so a client holding them
+// is polled at this pace between its sampled feeds.
+constexpr std::uint64_t k_event_poll_ns = 10'000'000;
+
 struct FeedState {
     std::string id;
     Feed kind{Feed::Quotes};
@@ -751,6 +755,17 @@ public:
     }
 
     [[nodiscard]] bool closed() const noexcept { return closed_; }
+
+    [[nodiscard]] std::uint64_t next_due_ns(std::uint64_t mono) const noexcept {
+        std::uint64_t due = UINT64_MAX;
+        if (closed_ || !open_) {
+            return due;
+        }
+        for (const auto& feed : feeds_) {
+            due = std::min(due, sequenced(feed.kind) ? mono + k_event_poll_ns : feed.due.ns);
+        }
+        return due;
+    }
 
     void close() noexcept {
         if (closed_) {
@@ -1330,8 +1345,10 @@ private:
 } // namespace
 
 struct Stream::Impl {
-    Impl(const Registry& reg, const Clock& clk, std::string addr, std::uint16_t p)
-        : registry{reg}, clock{clk}, address{std::move(addr)}, port{p}, acceptor{ioc} {}
+    Impl(void* shared, const Registry& reg, const Clock& clk, std::string addr, std::uint16_t p)
+        : owned{shared == nullptr ? std::make_unique<asio::io_context>(1) : nullptr},
+          ioc{shared == nullptr ? *owned : *static_cast<asio::io_context*>(shared)},
+          registry{reg}, clock{clk}, address{std::move(addr)}, port{p}, acceptor{ioc} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {
@@ -1346,11 +1363,12 @@ struct Stream::Impl {
         });
     }
 
+    std::unique_ptr<asio::io_context> owned;
+    asio::io_context& ioc;
     const Registry& registry;
     const Clock& clock;
     std::string address;
     std::uint16_t port;
-    asio::io_context ioc{1};
     tcp::acceptor acceptor;
     std::vector<std::shared_ptr<Session>> sessions;
     bool running{false};
@@ -1360,7 +1378,14 @@ Stream::Stream(const Registry& registry,
                const Clock& clock,
                std::string address,
                std::uint16_t port)
-    : impl_{std::make_unique<Impl>(registry, clock, std::move(address), port)} {}
+    : impl_{std::make_unique<Impl>(nullptr, registry, clock, std::move(address), port)} {}
+
+Stream::Stream(net::IoContext& io,
+               const Registry& registry,
+               const Clock& clock,
+               std::string address,
+               std::uint16_t port)
+    : impl_{std::make_unique<Impl>(io.native(), registry, clock, std::move(address), port)} {}
 
 Stream::~Stream() = default;
 
@@ -1421,6 +1446,15 @@ void Stream::stop() noexcept {
     }
     impl_->sessions.clear();
     impl_->ioc.stop();
+}
+
+MonoNanos Stream::next_due() const noexcept {
+    const auto mono = impl_->clock.mono().ns;
+    std::uint64_t due = UINT64_MAX;
+    for (const auto& session : impl_->sessions) {
+        due = std::min(due, session->next_due_ns(mono));
+    }
+    return MonoNanos{due};
 }
 
 std::uint16_t Stream::port() const noexcept {

@@ -86,6 +86,19 @@ void IoContext::stop() noexcept {
     impl_->ioc.stop();
 }
 
+std::size_t IoContext::run_one_for(std::size_t timeout_ms) noexcept {
+    if (impl_->ioc.stopped()) {
+        impl_->ioc.restart();
+    }
+    const Pumping guard{impl_->pumping};
+    try {
+        return impl_->ioc.run_one_for(
+            std::chrono::milliseconds{static_cast<std::chrono::milliseconds::rep>(timeout_ms)});
+    } catch (...) {
+        return 0;
+    }
+}
+
 void* IoContext::native() noexcept {
     return &impl_->ioc;
 }

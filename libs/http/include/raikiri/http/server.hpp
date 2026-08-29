@@ -17,6 +17,8 @@
 // browsers, and every answer is already one acquire-load away. One thread also
 // means a handler can hold a Registry reference without a lock.
 
+#include <raikiri/net/io_context.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -52,6 +54,8 @@ using Handler = std::function<Response(const Request&)>;
 class Server {
 public:
     Server(std::string address, std::uint16_t port, Handler handler);
+    // Runs on `io` instead of a reactor of its own, so one wait serves both.
+    Server(net::IoContext& io, std::string address, std::uint16_t port, Handler handler);
     ~Server();
     Server(const Server&) = delete;
     Server& operator=(const Server&) = delete;

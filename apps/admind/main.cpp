@@ -32,9 +32,11 @@
 #include <raikiri/common/time.hpp>
 #include <raikiri/http/server.hpp>
 #include <raikiri/log/log.hpp>
+#include <raikiri/net/io_context.hpp>
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -150,7 +152,9 @@ int main(int argc, char** argv) {
     // doing either — two would mint colliding ids.
     admin::ManualDesk desk{registry};
 
-    http::Server server{address,
+    net::IoContext io;
+    http::Server server{io,
+                        address,
                         port,
                         admin::make_router(
                             registry,
@@ -165,7 +169,7 @@ int main(int argc, char** argv) {
     }
     RLOG_INFO("admind: listening on http://{}:{}", address, server.port());
 
-    admin::Stream stream{registry, clock, address, stream_port};
+    admin::Stream stream{io, registry, clock, address, stream_port};
     if (!stream.start()) {
         // Fatal, unlike a missing database: a terminal that silently has no
         // live half looks like a terminal whose markets have stopped moving.
@@ -179,6 +183,7 @@ int main(int argc, char** argv) {
     // the pace anyone starts one at and far above the cost of a directory
     // listing.
     constexpr std::uint64_t k_rescan_ns = 2ULL * 1'000'000'000ULL;
+    constexpr std::uint64_t k_idle_ns = 250ULL * 1'000'000ULL;
     auto rescan_due = clock.mono().ns;
 
     while (!g_stop.load(std::memory_order_relaxed)) {
@@ -193,14 +198,13 @@ int main(int argc, char** argv) {
                 attached = found;
             }
         }
-        const auto worked = server.poll() + stream.poll();
-        if (worked == 0) {
-            // Nothing ready. This is an admin API, not a hot path: sleeping a
-            // millisecond costs a millisecond of latency nobody can perceive
-            // and saves a core from spinning for it. The stream's own cadence
-            // is at most 30 Hz, so a millisecond of granularity is invisible
-            // there too.
-            ::usleep(1000);
+        (void)stream.poll();
+        // Both sockets share `io`, so this wakes for a request or a stream
+        // client at once and otherwise sleeps until a feed is due.
+        const auto mono = clock.mono().ns;
+        const auto until = std::min({stream.next_due().ns, rescan_due, mono + k_idle_ns});
+        if (until > mono) {
+            (void)io.run_one_for((until - mono + 999'999) / 1'000'000);
         }
     }
     stream.stop();

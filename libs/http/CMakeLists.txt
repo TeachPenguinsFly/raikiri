@@ -11,4 +11,5 @@ target_include_directories(raikiri_http PUBLIC
 # Beast is an implementation detail: no Boost type reaches the public header,
 # so a consumer of this library does not inherit the dependency.
 target_link_libraries(raikiri_http
+  PUBLIC raikiri::net
   PRIVATE Boost::headers glaze::glaze raikiri::warnings)

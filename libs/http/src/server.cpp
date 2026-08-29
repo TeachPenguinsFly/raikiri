@@ -126,8 +126,10 @@ private:
 } // namespace
 
 struct Server::Impl {
-    Impl(std::string addr, std::uint16_t p, Handler h)
-        : address{std::move(addr)}, port{p}, handler{std::move(h)}, acceptor{ioc} {}
+    Impl(void* shared, std::string addr, std::uint16_t p, Handler h)
+        : owned{shared == nullptr ? std::make_unique<boost::asio::io_context>(1) : nullptr},
+          ioc{shared == nullptr ? *owned : *static_cast<boost::asio::io_context*>(shared)},
+          address{std::move(addr)}, port{p}, handler{std::move(h)}, acceptor{ioc} {}
 
     void accept() {
         acceptor.async_accept([this](beast::error_code ec, tcp::socket socket) {
@@ -140,16 +142,20 @@ struct Server::Impl {
         });
     }
 
+    std::unique_ptr<boost::asio::io_context> owned;
+    boost::asio::io_context& ioc;
     std::string address;
     std::uint16_t port;
     Handler handler;
-    boost::asio::io_context ioc{1};
     tcp::acceptor acceptor;
     bool running{false};
 };
 
 Server::Server(std::string address, std::uint16_t port, Handler handler)
-    : impl_{std::make_unique<Impl>(std::move(address), port, std::move(handler))} {}
+    : impl_{std::make_unique<Impl>(nullptr, std::move(address), port, std::move(handler))} {}
+
+Server::Server(net::IoContext& io, std::string address, std::uint16_t port, Handler handler)
+    : impl_{std::make_unique<Impl>(io.native(), std::move(address), port, std::move(handler))} {}
 
 Server::~Server() = default;
 
