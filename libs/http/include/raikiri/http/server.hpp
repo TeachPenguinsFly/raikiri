@@ -19,6 +19,7 @@
 
 #include <raikiri/net/io_context.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -67,6 +68,11 @@ public:
     // One pass over ready work. The caller owns the loop, exactly as gatewayd
     // owns its own — nothing here blocks on the network.
     std::size_t poll() noexcept;
+
+    // Blocks on the socket until something arrives or `timeout` passes, then
+    // runs whatever is ready. A loop of these answers a request as soon as it
+    // lands; a loop of poll() and a sleep answers it a sleep later.
+    std::size_t run_for(std::chrono::nanoseconds timeout) noexcept;
 
     void stop() noexcept;
 

@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -204,7 +205,7 @@ int main(int argc, char** argv) {
         const auto mono = clock.mono().ns;
         const auto until = std::min({stream.next_due().ns, rescan_due, mono + k_idle_ns});
         if (until > mono) {
-            (void)io.run_one_for((until - mono + 999'999) / 1'000'000);
+            (void)server.run_for(std::chrono::nanoseconds{until - mono});
         }
     }
     stream.stop();

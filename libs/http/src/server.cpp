@@ -198,6 +198,18 @@ std::size_t Server::poll() noexcept {
     }
 }
 
+std::size_t Server::run_for(std::chrono::nanoseconds timeout) noexcept {
+    if (impl_->ioc.stopped()) {
+        impl_->ioc.restart();
+    }
+    try {
+        const auto ran = impl_->ioc.run_one_for(timeout);
+        return ran + impl_->ioc.poll();
+    } catch (...) {
+        return 0;
+    }
+}
+
 void Server::stop() noexcept {
     impl_->running = false;
     beast::error_code ec;

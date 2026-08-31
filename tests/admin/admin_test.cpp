@@ -10,10 +10,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <glaze/glaze.hpp>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -118,6 +121,28 @@ TEST(AdminRegistry, AnEmptyRuntimeDirectoryIsNoGatewaysRatherThanAnError) {
     EXPECT_TRUE(registry.accounts(MonoNanos{1}, UnixNanos{1}).empty());
     EXPECT_EQ(registry.find("bybit"), nullptr);
     EXPECT_FALSE(registry.instrument(InstrumentId{1}).has_value());
+}
+
+TEST(HttpServer, ARequestIsAnsweredWhileTheServerBlocks) {
+    http::Server server{"127.0.0.1", 0, [](const http::Request&) {
+                            return http::Response{
+                                .status = 200, .content_type = "application/json", .body = "{}"};
+                        }};
+    ASSERT_TRUE(server.start());
+    std::atomic<bool> done{false};
+    std::thread runner{[&] {
+        while (!done.load()) {
+            (void)server.run_for(std::chrono::milliseconds{500});
+        }
+    }};
+    const auto sent = std::chrono::steady_clock::now();
+    const auto got = http::fetch("127.0.0.1", server.port(), "/v1/health", 2000);
+    const auto took = std::chrono::steady_clock::now() - sent;
+    done = true;
+    runner.join();
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->status, 200);
+    EXPECT_LT(took, std::chrono::milliseconds{100});
 }
 
 TEST(AdminServer, QueryParametersAreReadByNameAndNotByPosition) {
