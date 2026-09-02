@@ -55,7 +55,14 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
     if (result != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
-    watch.seen_ns = received.ns;
+    if (!wire->is_snapshot) {
+        on_delta(watch, received.ns);
+    } else {
+        watch.seen_ns = received.ns;
+        if (on_reseed_snapshot(watch, book_digest(book))) {
+            RLOG_WARN("weex: {} book changed while its stream was silent, resubscribed", wire->symbol);
+        }
+    }
     const auto ts_event = ms_to_unix(wire->event_ms, received);
     // THE QUOTE FIRST. WEEX publishes no top-of-book channel at all, so this
     // ladder is the only source of a Bbo on this venue, and it is the datum
@@ -316,8 +323,8 @@ private:
         }
         state_->next_reseed_scan_ns = now.ns + 5ULL * 1'000'000'000ULL;
         for (auto& [packed, watch] : state_->book_watch) {
-            const bool gapped = watch.gapped;
-            if (!due_for_reseed(watch, now.ns)) {
+            const auto due = due_for_reseed(watch, now.ns);
+            if (due == Reseed::None) {
                 continue;
             }
             const auto symbol = state_->instruments.exchange_symbol(watch.instrument);
@@ -338,9 +345,19 @@ private:
                 continue;
             }
             if (const auto book = state_->books.find(packed); book != state_->books.end()) {
+                if (due != Reseed::Gap && book->second.live()) {
+                    watch.digest = book_digest(book->second);
+                }
                 book->second.invalidate();
             }
-            RLOG_WARN("weex: {} book {}, resubscribing", key, gapped ? "gapped" : "went silent");
+            if (due == Reseed::Gap) {
+                RLOG_WARN("weex: {} book gapped, resubscribing", key);
+            } else if (due == Reseed::Silent) {
+                RLOG_INFO("weex: {} book silent for {} s, resubscribing with backoff while its "
+                          "snapshot is unchanged",
+                          key,
+                          watch.silence_ns / 1'000'000'000ULL);
+            }
         }
     }
 

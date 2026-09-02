@@ -510,30 +510,77 @@ TEST(WeexBook, ADeltaBeforeTheChannelsOwnSnapshotIsDroppedNotGuessed) {
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
 }
 
-TEST(WeexBook, AGappedOrSilentBookIsReseededOncePerSilence) {
+TEST(WeexBook, AGappedBookIsReseededOncePerGap) {
     const auto table = load_table();
     const auto& btc = listed(table, "BTCUSDT");
     DepthBook book{btc.id, btc.tick_size, btc.lot_size};
     static thread_local LevelBuffer storage;
     constexpr std::uint64_t s = 1'000'000'000ULL;
-    BookWatch watch{.instrument = btc.id, .seen_ns = 0, .asked_ns = 0, .gapped = false};
+    BookWatch watch{.instrument = btc.id};
 
     ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
               BookResult::Applied);
     watch.seen_ns = 1'000 * s;
-    EXPECT_FALSE(due_for_reseed(watch, 1'010 * s));
+    EXPECT_EQ(due_for_reseed(watch, 1'010 * s), Reseed::None);
     watch.gapped = book.apply(*parse_depth(fixture("ws_depth_update_next.json"), storage)) ==
                    BookResult::Gap;
     ASSERT_TRUE(watch.gapped);
-    EXPECT_TRUE(due_for_reseed(watch, 1'011 * s));
-    EXPECT_FALSE(due_for_reseed(watch, 1'012 * s)) << "one resubscribe, not one per frame";
+    EXPECT_EQ(due_for_reseed(watch, 1'011 * s), Reseed::Gap);
+    EXPECT_EQ(due_for_reseed(watch, 1'012 * s), Reseed::None) << "one resubscribe, not one per frame";
     watch.gapped = true;
-    EXPECT_FALSE(due_for_reseed(watch, 1'100 * s)) << "the snapshot gets its silence to arrive";
-    EXPECT_TRUE(due_for_reseed(watch, 1'011 * s + k_book_silence_ns));
+    EXPECT_EQ(due_for_reseed(watch, 1'100 * s), Reseed::None)
+        << "the snapshot gets its silence to arrive";
+    EXPECT_EQ(due_for_reseed(watch, 1'011 * s + k_book_silence_ns), Reseed::Gap);
 
-    BookWatch quiet{.instrument = btc.id, .seen_ns = 2'000 * s, .asked_ns = 0, .gapped = false};
-    EXPECT_FALSE(due_for_reseed(quiet, 2'000 * s + k_book_silence_ns - 1));
-    EXPECT_TRUE(due_for_reseed(quiet, 2'000 * s + k_book_silence_ns));
+    Protocol protocol;
+    const std::array<std::string_view, 1> one{"BTCUSDT@depth200"};
+    const auto off = protocol.unsubscribe_frame(one);
+    ASSERT_TRUE(off.has_value());
+    EXPECT_EQ(off->text, R"({"method":"UNSUBSCRIBE","params":["BTCUSDT@depth200"],"id":1})");
+}
+
+TEST(WeexBook, AQuietBookBacksOffWhileItsSnapshotIsUnchanged) {
+    const auto table = load_table();
+    const auto& btc = listed(table, "BTCUSDT");
+    DepthBook book{btc.id, btc.tick_size, btc.lot_size};
+    static thread_local LevelBuffer storage;
+    ASSERT_EQ(book.apply(*parse_depth(fixture("ws_depth_snapshot.json"), storage)),
+              BookResult::Applied);
+    constexpr std::uint64_t s = 1'000'000'000ULL;
+    constexpr std::uint64_t min = 60 * s;
+    const auto still = book_digest(book);
+
+    BookWatch watch{.instrument = btc.id, .seen_ns = 2'000 * s};
+    std::uint64_t now = 2'000 * s + k_book_silence_ns - 1;
+    EXPECT_EQ(due_for_reseed(watch, now), Reseed::None);
+    now += 1;
+    EXPECT_EQ(due_for_reseed(watch, now), Reseed::Silent);
+    std::vector<std::uint64_t> waits;
+    for (int i = 0; i < 6; ++i) {
+        watch.digest = still;
+        watch.seen_ns = now + s;
+        EXPECT_FALSE(on_reseed_snapshot(watch, still));
+        const auto asked = now;
+        while (due_for_reseed(watch, now) == Reseed::None) {
+            now += s;
+        }
+        waits.push_back((now - asked) / min);
+        EXPECT_EQ(watch.asked_ns, now);
+    }
+    EXPECT_EQ(waits, (std::vector<std::uint64_t>{10, 20, 40, 60, 60, 60}));
+
+    watch.digest = still;
+    EXPECT_TRUE(on_reseed_snapshot(watch, still ^ 2U)) << "the venue moved while we heard nothing";
+    EXPECT_EQ(watch.silence_ns, k_book_silence_ns);
+    EXPECT_EQ(due_for_reseed(watch, now + k_book_silence_ns), Reseed::Silent)
+        << "a stream that stopped is a new episode, logged again";
+
+    on_delta(watch, now + 2 * k_book_silence_ns);
+    EXPECT_EQ(watch.silence_ns, k_book_silence_ns);
+    EXPECT_EQ(due_for_reseed(watch, now + 3 * k_book_silence_ns), Reseed::Silent);
+    watch.gapped = true;
+    EXPECT_EQ(due_for_reseed(watch, now + 4 * k_book_silence_ns), Reseed::Gap)
+        << "a gap never waits out the backoff";
 
     Protocol protocol;
     const std::array<std::string_view, 1> one{"BTCUSDT@depth200"};

@@ -138,18 +138,30 @@ private:
     bool live_{false};
 };
 
-// A book that gapped, or went quiet for k_book_silence_ns, is reseeded by
-// resubscribing its channel: WEEX sends a depth snapshot only on subscribe.
+// A gapped book is reseeded by resubscribing its channel: WEEX sends a depth
+// snapshot only on subscribe. WEEX also sends nothing while a book is still,
+// so a silent book is reseeded after k_book_silence_ns, and each reseed whose
+// snapshot matches the book it replaced doubles that wait up to
+// k_book_silence_cap_ns. A snapshot that differs means the stream stopped.
 inline constexpr std::uint64_t k_book_silence_ns = 300ULL * 1'000'000'000ULL;
+inline constexpr std::uint64_t k_book_silence_cap_ns = 3'600ULL * 1'000'000'000ULL;
+
+enum class Reseed : std::uint8_t { None, Gap, Silent, StillSilent };
 
 struct BookWatch {
     InstrumentId instrument{};
     std::uint64_t seen_ns{0};
     std::uint64_t asked_ns{0};
+    std::uint64_t silence_ns{k_book_silence_ns};
+    std::uint64_t digest{0}; // the book a silent reseed replaced; 0 when none is pending
     bool gapped{false};
+    bool quiet{false};
 };
 
-// True, and stamped as asked, when the book is due a reseed at `now_ns`.
-[[nodiscard]] bool due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept;
+[[nodiscard]] Reseed due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept;
+void on_delta(BookWatch& watch, std::uint64_t now_ns) noexcept;
+// True when the snapshot a silent reseed drew differs from the book it replaced.
+[[nodiscard]] bool on_reseed_snapshot(BookWatch& watch, std::uint64_t digest) noexcept;
+[[nodiscard]] std::uint64_t book_digest(const DepthBook& book) noexcept;
 
 } // namespace raikiri::venues::weex

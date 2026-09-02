@@ -3,6 +3,7 @@
 #include <raikiri/wire/json.hpp>
 
 #include <algorithm>
+#include <initializer_list>
 #include <optional>
 
 namespace raikiri::venues::weex {
@@ -275,17 +276,62 @@ std::optional<Bbo> DepthBook::touch(UnixNanos ts_event, UnixNanos ts_init) const
     return out;
 }
 
-bool due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept {
+Reseed due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept {
     if (watch.asked_ns != 0 && now_ns - watch.asked_ns < k_book_silence_ns) {
-        return false;
+        return Reseed::None;
+    }
+    if (watch.gapped) {
+        watch.gapped = false;
+        watch.digest = 0;
+        watch.asked_ns = now_ns;
+        return Reseed::Gap;
     }
     const auto last = std::max(watch.seen_ns, watch.asked_ns);
-    if (!watch.gapped && (last == 0 || now_ns - last < k_book_silence_ns)) {
+    if (last == 0 || now_ns - last < watch.silence_ns) {
+        return Reseed::None;
+    }
+    watch.asked_ns = now_ns;
+    const bool logged = watch.quiet;
+    watch.quiet = true;
+    return logged ? Reseed::StillSilent : Reseed::Silent;
+}
+
+void on_delta(BookWatch& watch, std::uint64_t now_ns) noexcept {
+    watch.seen_ns = now_ns;
+    watch.silence_ns = k_book_silence_ns;
+    watch.digest = 0;
+    watch.quiet = false;
+}
+
+bool on_reseed_snapshot(BookWatch& watch, std::uint64_t digest) noexcept {
+    if (watch.digest == 0) {
         return false;
     }
-    watch.gapped = false;
-    watch.asked_ns = now_ns;
-    return true;
+    const bool missed = digest != watch.digest;
+    watch.digest = 0;
+    if (missed) {
+        watch.silence_ns = k_book_silence_ns;
+        watch.quiet = false;
+    } else {
+        watch.silence_ns = std::min(watch.silence_ns * 2, k_book_silence_cap_ns);
+    }
+    return missed;
+}
+
+std::uint64_t book_digest(const DepthBook& book) noexcept {
+    std::uint64_t h = 14'695'981'039'346'656'037ULL;
+    const auto mix = [&h](std::int64_t v) {
+        h ^= static_cast<std::uint64_t>(v);
+        h *= 1'099'511'628'211ULL;
+    };
+    for (const auto side : {book.bids(), book.asks()}) {
+        mix(static_cast<std::int64_t>(side.size()));
+        for (const auto& level : side) {
+            mix(level.price.raw);
+            mix(level.qty.raw);
+        }
+    }
+    return h | 1U;
 }
 
 } // namespace raikiri::venues::weex
