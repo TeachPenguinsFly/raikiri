@@ -57,6 +57,9 @@ raikiri_add_test(admin_test SRCS admin/admin_test.cpp LIBS raikiri::admin)
 target_link_libraries(admin_test
   PRIVATE glaze::glaze)
 
+raikiri_add_test(gatewayd_private_pulls_test SRCS gatewayd/private_pulls_test.cpp LIBS raikiri::domain)
+target_include_directories(gatewayd_private_pulls_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
+
 raikiri_add_test(settings_test SRCS config/settings_test.cpp LIBS raikiri::config raikiri::exec)
 # The committed config files ARE the fixture: this test exists to catch a file
 # the shipped loader cannot read, so it must point at the real ones rather than

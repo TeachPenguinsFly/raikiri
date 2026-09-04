@@ -20,6 +20,8 @@
 // The demo loop is a tight spin (one core) — real deployments pin it; the
 // demo just runs it unpinned for a few seconds.
 
+#include "private_pulls.hpp"
+
 #include <raikiri/common/platform.hpp>
 #include <raikiri/config/one_password.hpp>
 #include <raikiri/config/rest_limits.hpp>
@@ -1511,7 +1513,14 @@ int main(int argc, char** argv) {
     // a fill must not miss it. OUT HERE for the reason stated above: the
     // poller thread captures it by reference and outlives the block below.
     raikiri::UnixNanos fill_cursor{};
-    if (can_trade) {
+    const bool private_pulls =
+        gatewayd::private_pulls_enabled(venue, can_trade, credentials_configured);
+    if (can_trade && !private_pulls) {
+        RLOG_INFO("gatewayd[{}]: position, balance, open-order, funding and fill pulls off — "
+                  "no credentials configured",
+                  account_name);
+    }
+    if (private_pulls) {
         auto made = exec::make_venue({.venue = venue,
                                       .market = market,
                                       .testnet = testnet,
