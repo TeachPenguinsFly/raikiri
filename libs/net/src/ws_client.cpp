@@ -20,6 +20,7 @@
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -230,6 +231,7 @@ private:
         WsStream stream;
         beast::flat_buffer buffer;
         std::string write_buf;
+        websock::response_type response;
     };
 
     // Handed back to async_read by on_read, so a read copies no shared_ptr.
@@ -357,6 +359,7 @@ private:
         });
 
         conn->stream.async_handshake(
+            conn->response,
             host_header_,
             cfg_.target,
             [self = shared_from_this(), gen, conn](const beast::error_code& ws_ec) {
@@ -371,7 +374,13 @@ private:
             return;
         }
         if (ec) {
-            close_with(WsCloseReason::Transport, describe("ws handshake", ec));
+            auto detail = describe("ws handshake", ec);
+            if (ec == websock::error::upgrade_declined) {
+                detail += std::format(" (HTTP {})", conn->response.result_int());
+                backoff_ms_ = std::max(backoff_ms_,
+                                       std::min(cfg_.declined_backoff_ms, cfg_.reconnect_max_ms));
+            }
+            close_with(WsCloseReason::Transport, std::move(detail));
             return;
         }
         state_ = State::Open;

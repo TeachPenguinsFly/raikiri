@@ -36,6 +36,9 @@ struct WsConfig {
     std::uint32_t pong_timeout_ms{10'000};
     std::uint32_t reconnect_min_ms{250};
     std::uint32_t reconnect_max_ms{30'000};
+    // The least wait after a declined upgrade: a venue draining a node keeps
+    // declining for seconds, and 250 ms retries only collect the declines.
+    std::uint32_t declined_backoff_ms{5'000};
     std::size_t send_queue_capacity{256};
     std::size_t max_message_bytes{1 << 20};
     bool verify_tls{true}; // false only for local test servers

@@ -10,6 +10,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
 #include <chrono>
@@ -70,6 +71,7 @@ struct ServerState {
     std::vector<std::string> greeting;
     bool drop_first_after_message{false};
     bool close_first_after_message{false};
+    int decline_first{0};
 
     mutable std::mutex mu;
     std::vector<std::string> received;
@@ -108,6 +110,10 @@ public:
 
 private:
     void do_accept() {
+        if (index_ <= state_.decline_first) {
+            decline();
+            return;
+        }
         ws_.async_accept([self = shared_from_this()](const boost::system::error_code& ec) {
             if (!ec) {
                 self->write_greeting();
@@ -160,8 +166,32 @@ private:
         do_read();
     }
 
+    void decline() {
+        beast::http::async_read(
+            ws_.next_layer(),
+            buffer_,
+            request_,
+            [self = shared_from_this()](const boost::system::error_code& ec, std::size_t) {
+                if (ec) {
+                    return;
+                }
+                self->response_.version(11);
+                self->response_.result(beast::http::status::service_unavailable);
+                self->response_.set(beast::http::field::connection, "close");
+                self->response_.prepare_payload();
+                beast::http::async_write(
+                    self->ws_.next_layer(),
+                    self->response_,
+                    [self](const boost::system::error_code&, std::size_t) {
+                        beast::get_lowest_layer(self->ws_).close();
+                    });
+            });
+    }
+
     WsStream ws_;
     beast::flat_buffer buffer_;
+    beast::http::request<beast::http::string_body> request_;
+    beast::http::response<beast::http::string_body> response_;
     ServerState& state_;
     std::size_t next_{0};
     int index_;
@@ -295,6 +325,36 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     client.stop();
     EXPECT_EQ(handler.closes.back(), WsCloseReason::Requested);
     EXPECT_TRUE(handler.details.back().empty());
+}
+
+TEST(WsClient, ADeclinedHandshakeBacksOffInsteadOfRetryingAtTheFloor) {
+    ServerState state;
+    state.decline_first = 1;
+    TlsListener listener{[&state](tcp::socket&& socket, ssl::context& tls) {
+        std::make_shared<ServerSession>(
+            std::move(socket), tls, state, state.sessions.fetch_add(1) + 1)
+            ->run();
+    }};
+
+    IoContext io;
+    auto config = loopback_config(listener.port());
+    config.reconnect_min_ms = 25;
+    config.reconnect_max_ms = 5'000;
+    config.declined_backoff_ms = 600;
+
+    RecordingHandler handler;
+    WsClient client{io, config, handler};
+    handler.client = &client;
+    client.start();
+
+    ASSERT_TRUE(poll_until(io, [&] { return !handler.closes.empty(); }));
+    const auto declined = std::chrono::steady_clock::now();
+    EXPECT_TRUE(handler.details.front().ends_with("(HTTP 503)")) << handler.details.front();
+    ASSERT_TRUE(poll_until(io, [&] { return handler.opens >= 1; }));
+    EXPECT_GE(std::chrono::steady_clock::now() - declined, std::chrono::milliseconds{550});
+    EXPECT_EQ(listener.accepted(), 2U);
+
+    client.stop();
 }
 
 TEST(WsClient, AServerCloseFrameIsReportedWithItsCodeAndReason) {
