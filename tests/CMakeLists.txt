@@ -173,3 +173,5 @@ add_test(NAME apps_help
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/apps/help_test.sh
     $<TARGET_FILE:gatewayd> $<TARGET_FILE:admind> $<TARGET_FILE:persisterd> $<TARGET_FILE:strategyd>)
 set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
+
+raikiri_add_test(introspect_domain_test SRCS introspect/domain_test.cpp LIBS raikiri::introspect)

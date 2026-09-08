@@ -1,0 +1,11 @@
+# One target per layer, so a dependency pointing outward fails to link.
+
+add_library(raikiri_introspect STATIC
+  src/stats.cpp
+  src/queries.cpp
+)
+add_library(raikiri::introspect ALIAS raikiri_introspect)
+target_include_directories(raikiri_introspect PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_link_libraries(raikiri_introspect PRIVATE raikiri::warnings)
