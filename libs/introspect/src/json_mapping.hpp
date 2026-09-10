@@ -1,0 +1,80 @@
+#pragma once
+
+// Nanosecond stamps leave as digit strings, the contract's rule for every
+// number a double cannot hold. One mapping for the file and the API alike.
+
+#include <raikiri/introspect/stats.hpp>
+
+#include <glaze/glaze.hpp>
+
+template <> struct glz::meta<raikiri::introspect::ProcessStats> {
+    using T = raikiri::introspect::ProcessStats;
+    static constexpr auto value = object("pid",
+                                         &T::pid,
+                                         "generation",
+                                         glz::quoted_num<&T::generation>,
+                                         "started_ns",
+                                         glz::quoted_num<&T::started_ns>,
+                                         "uptime_s",
+                                         &T::uptime_s,
+                                         "build",
+                                         &T::build);
+};
+
+template <> struct glz::meta<raikiri::introspect::SocketStats> {
+    using T = raikiri::introspect::SocketStats;
+    static constexpr auto value = object("host",
+                                         &T::host,
+                                         "sockets",
+                                         &T::sockets,
+                                         "open",
+                                         &T::open,
+                                         "keys",
+                                         &T::keys,
+                                         "min_keys",
+                                         &T::min_keys,
+                                         "avg_keys",
+                                         &T::avg_keys,
+                                         "max_keys",
+                                         &T::max_keys,
+                                         "pending_frames",
+                                         &T::pending_frames,
+                                         "reopens",
+                                         &T::reopens,
+                                         "last_close_reason",
+                                         &T::last_close_reason,
+                                         "last_close_ns",
+                                         glz::quoted_num<&T::last_close_ns>);
+};
+
+template <> struct glz::meta<raikiri::introspect::GatewayStats> {
+    using T = raikiri::introspect::GatewayStats;
+    static constexpr auto value = object("version",
+                                         &T::version,
+                                         "taken_ns",
+                                         glz::quoted_num<&T::taken_ns>,
+                                         "account",
+                                         &T::account,
+                                         "venue",
+                                         &T::venue,
+                                         "market",
+                                         &T::market,
+                                         "feed",
+                                         &T::feed,
+                                         "channels",
+                                         &T::channels,
+                                         "process",
+                                         &T::process,
+                                         "catalogue",
+                                         &T::catalogue,
+                                         "subscriptions",
+                                         &T::subscriptions,
+                                         "sockets",
+                                         &T::sockets,
+                                         "limits",
+                                         &T::limits,
+                                         "coverage",
+                                         &T::coverage,
+                                         "rates",
+                                         &T::rates);
+};

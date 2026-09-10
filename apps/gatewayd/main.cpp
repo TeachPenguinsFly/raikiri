@@ -21,6 +21,7 @@
 // demo just runs it unpinned for a few seconds.
 
 #include "private_pulls.hpp"
+#include "stats_collector.hpp"
 
 #include <raikiri/common/platform.hpp>
 #include <raikiri/config/one_password.hpp>
@@ -31,6 +32,7 @@
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/venue.hpp>
+#include <raikiri/introspect/files.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
@@ -85,6 +87,8 @@
 #include <string>
 #include <string_view>
 #include <thread>
+
+#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 
@@ -179,6 +183,7 @@ public:
         const auto idx = bbo.instrument.symbol().raw;
         if (idx < raikiri::shm::k_bbo_cells) {
             ch_.bbo->write(idx, bbo);
+            priced_ns_[idx] = std::max<std::uint64_t>(bbo.ts_init.ns, 1);
         }
     }
 
@@ -258,6 +263,7 @@ public:
         const auto idx = funding.instrument.symbol().raw;
         if (idx < raikiri::shm::k_funding_cells) {
             ch_.funding->write(idx, funding);
+            funded_[idx] = true;
         }
         // ONLY WHEN IT SAYS SOMETHING NEW. A perp position pays or receives at
         // every settlement, so the history of RATES is what a PnL attribution
@@ -438,6 +444,31 @@ public:
 
     [[nodiscard]] const Counts& counts() const noexcept { return counts_; }
 
+    [[nodiscard]] raikiri::gatewayd::MessageCounts message_counts() const noexcept {
+        return {counts_.bbo,
+                counts_.trades,
+                counts_.depth,
+                counts_.funding,
+                counts_.ticker_stats,
+                counts_.greeks,
+                0,
+                0};
+    }
+
+    [[nodiscard]] raikiri::gatewayd::Coverage coverage(std::uint64_t now_ns,
+                                              std::uint64_t window_ns) const noexcept {
+        raikiri::gatewayd::Coverage out{};
+        for (std::size_t i = 0; i < priced_ns_.size(); ++i) {
+            if (priced_ns_[i] != 0) {
+                ++out.priced_ever;
+                out.priced_60s += now_ns - std::min(now_ns, priced_ns_[i]) <= window_ns ? 1U : 0U;
+            }
+            out.books_seeded += depth_published_ns_[i] != 0 ? 1U : 0U;
+            out.funding_received += funded_[i] ? 1U : 0U;
+        }
+        return out;
+    }
+
     void on_connectivity(const raikiri::exec::ConnEvent& event) noexcept override {
         (void)raikiri::schema::append_msg<msgs::ConnectivityMsg>(
             *journal_, event.ts.ns, [&](auto m) {
@@ -472,6 +503,8 @@ private:
         [[nodiscard]] bool operator==(const Stated&) const noexcept = default;
     };
     std::array<Stated, raikiri::shm::k_funding_cells> stated_{};
+    std::array<std::uint64_t, raikiri::shm::k_bbo_cells> priced_ns_{};
+    std::array<bool, raikiri::shm::k_funding_cells> funded_{};
     std::uint64_t md_seq_{0};
     Counts counts_{};
 };
@@ -955,6 +988,19 @@ public:
         }
     }
 
+    [[nodiscard]] std::vector<raikiri::introspect::RestEndpointStats> endpoints() const {
+        const std::lock_guard lock{mu_};
+        std::vector<raikiri::introspect::RestEndpointStats> out;
+        out.reserve(spent_.size());
+        for (const auto& [endpoint, row] : spent_) {
+            out.push_back({.endpoint = endpoint,
+                           .calls = row.calls,
+                           .refused = row.refused,
+                           .last_status = row.last_status});
+        }
+        return out;
+    }
+
     void report(std::string_view account) const {
         const std::lock_guard lock{mu_};
         for (const auto& [endpoint, row] : spent_) {
@@ -1168,6 +1214,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     const auto generation = clock.mono().ns;
+    const auto started_ns = clock.wall().ns;
     auto owner =
         shm::SegmentOwner::create(seg_path, shm::k_gateway_segment_bytes, generation, generation);
     if (!owner.has_value()) {
@@ -1397,6 +1444,13 @@ int main(int argc, char** argv) {
     std::size_t matched = 0;
     std::size_t subscribed = 0;
     std::string first_refusal;
+    gatewayd::SubTallies sub_tallies{};
+    const auto count_sub = [&](gatewayd::Channel channel, bool ok) {
+        auto& row = sub_tallies[static_cast<std::size_t>(channel)];
+        ++row.requested;
+        ++(ok ? row.accepted : row.refused);
+        return ok;
+    };
     for (const auto& instrument : catalogue) {
         const auto& base = base_of(instrument);
         const auto wanted = symbols.empty() ||
@@ -1413,7 +1467,7 @@ int main(int argc, char** argv) {
         // count used to be of instruments CONSIDERED, so a gateway whose every
         // subscription was refused still announced that it had subscribed.
         const auto bbo = adapter->data->subscribe(exec::SubKind::Bbo, base.id);
-        if (!bbo.has_value()) {
+        if (!count_sub(gatewayd::Channel::Bbo, bbo.has_value())) {
             if (first_refusal.empty()) {
                 first_refusal = std::string{bbo.error().message.view()};
             }
@@ -1421,13 +1475,16 @@ int main(int argc, char** argv) {
         }
         ++subscribed;
         if (wanted_channels.trades) {
-            (void)adapter->data->subscribe(exec::SubKind::Trades, base.id);
+            (void)count_sub(gatewayd::Channel::Trades,
+                            adapter->data->subscribe(exec::SubKind::Trades, base.id).has_value());
         }
         if (wanted_channels.depth) {
-            (void)adapter->data->subscribe(exec::SubKind::Depth, base.id);
+            (void)count_sub(gatewayd::Channel::Depth,
+                            adapter->data->subscribe(exec::SubKind::Depth, base.id).has_value());
         }
         if (wanted_channels.funding && venue != VenueId::Sim) {
-            (void)adapter->data->subscribe(exec::SubKind::Funding, base.id);
+            (void)count_sub(gatewayd::Channel::Funding,
+                            adapter->data->subscribe(exec::SubKind::Funding, base.id).has_value());
         }
     }
     if (matched == 0) {
@@ -1467,6 +1524,30 @@ int main(int argc, char** argv) {
         });
 
     RLOG_INFO("gatewayd[{}]: up, segment {}", account_name, seg_path);
+
+    introspect::FileStatsPublisher stats_files{introspect::stats_dir(platform::runtime_dir())};
+    introspect::GatewayStats identity{};
+    identity.account = account_name;
+    identity.venue = std::string{venue_name};
+    identity.market = std::string{to_string(market)};
+    identity.feed = market_data_feed;
+    identity.channels.emplace_back("bbo");
+    for (const auto& [on, name] : {std::pair{wanted_channels.trades, "trades"},
+                                   std::pair{wanted_channels.depth, "depth"},
+                                   std::pair{wanted_channels.funding, "funding"}}) {
+        if (on) {
+            identity.channels.emplace_back(name);
+        }
+    }
+    identity.process = {.pid = static_cast<std::int64_t>(::getpid()),
+                        .generation = generation,
+                        .started_ns = started_ns,
+                        .uptime_s = 0,
+                        .build = RAIKIRI_BUILD_ID};
+    gatewayd::StatsCollector stats{std::move(identity), stats_files};
+    stats.catalogue(catalogue);
+    stats.subscriptions(sub_tallies);
+    stats.limits(net::process_ws_limits());
 
     shm::SpscConsumer creates{channels->cmd_create};
     shm::SpscConsumer cancels{channels->cmd_cancel};
@@ -1675,6 +1756,10 @@ int main(int argc, char** argv) {
     constexpr std::uint64_t k_park_ns = 1'000'000;
     constexpr std::uint32_t k_wait_ms = 5;
     std::uint32_t idle_passes = 0;
+    constexpr std::uint64_t k_stats_every_ns = 5ULL * 1'000'000'000ULL;
+    std::uint64_t stats_due = 0;
+    std::uint64_t stats_written = 0;
+    std::uint64_t stats_cost_ns = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto mono = clock.mono();
         if (mono >= t_end) {
@@ -1742,6 +1827,29 @@ int main(int argc, char** argv) {
             owner->publish_refusals(adapter->data->subscribe_refusals());
             flush_due = mono.ns + 50'000'000; // 50 ms group commit
         }
+        if (mono.ns >= stats_due) {
+            stats_due = mono.ns + k_stats_every_ns;
+            const auto began = clock.mono().ns;
+            const auto wall = clock.wall().ns;
+            const bool written = stats.publish(
+                {.wall_ns = wall,
+                 .mono_ns = mono.ns,
+                 .messages = sink.message_counts(),
+                 .coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns),
+                 .venue_refusals = adapter->data->subscribe_refusals(),
+                 .rest_endpoints = requests.endpoints()},
+                budget.has_value() ? &*budget : nullptr);
+            const auto cost = clock.mono().ns - began;
+            stats_cost_ns += cost;
+            if (written && stats_written++ == 0) {
+                RLOG_INFO("gatewayd[{}]: stats every 5 s to {}/{}.json — {} bytes in {} us",
+                          account_name,
+                          introspect::stats_dir(platform::runtime_dir()),
+                          account_name,
+                          stats_files.last_bytes(),
+                          cost / 1000);
+            }
+        }
         idle_passes = commands != 0 ? 0 : idle_passes + 1;
         if (idle_passes > k_spin_passes) {
             if (can_trade) {
@@ -1761,6 +1869,12 @@ int main(int argc, char** argv) {
     const auto& counts = sink.counts();
     requests.report(account_name);
     rates.report(account_name);
+    if (stats_written != 0) {
+        RLOG_INFO("gatewayd[{}]: {} stats snapshots, {} us each on average",
+                  account_name,
+                  stats_written,
+                  stats_cost_ns / stats_written / 1000);
+    }
     RLOG_INFO("gatewayd[{}]: down — bbo={} depth={}({} levels) trades={} funding={} greeks={} "
               "ticker={} charges={} order-events={} refusals={} journal-pruned={} "
               "depth-coalesced={}",

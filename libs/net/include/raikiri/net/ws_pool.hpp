@@ -60,6 +60,19 @@ struct WsPoolConfig {
     std::size_t max_connections{16};
 };
 
+struct WsPoolStats {
+    std::string host;
+    std::size_t sockets{0};
+    std::size_t open{0};
+    std::size_t keys{0};
+    std::size_t min_keys{0};
+    std::size_t max_keys{0};
+    std::size_t pending_frames{0};
+    std::uint64_t reopens{0};
+    std::string last_close_reason;
+    std::uint64_t last_close_ns{0};
+};
+
 class WsPool {
 public:
     // Builds the frames that ask for `keys`, for one connection. Called when
@@ -143,9 +156,15 @@ public:
     // been asked for everything it was given.
     [[nodiscard]] std::size_t pending_sends() const noexcept;
 
+    [[nodiscard]] WsPoolStats stats() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// Every live pool in the process that carries at least one key. Read it from
+// the thread that polls the pools.
+[[nodiscard]] std::vector<WsPoolStats> process_ws_pool_stats();
 
 } // namespace raikiri::net

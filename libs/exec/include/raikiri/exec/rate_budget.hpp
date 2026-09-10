@@ -57,10 +57,21 @@ public:
 
     [[nodiscard]] std::uint64_t denials() noexcept;
 
+    struct Usage {
+        std::string name;
+        std::uint32_t max{0};
+        std::uint64_t window_ns{0};
+        std::uint64_t calls{0};
+        std::uint64_t denied{0};
+    };
+    [[nodiscard]] std::vector<Usage> usage();
+
 private:
     struct Slot {
         RateLimit spec;
         SlidingLog log;
+        std::uint64_t calls{0};
+        std::uint64_t denied{0};
     };
 
     [[nodiscard]] static bool meters(const RateLimit& limit, std::string_view target) noexcept;

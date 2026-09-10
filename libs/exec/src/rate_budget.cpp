@@ -53,7 +53,8 @@ RateBudget::RateBudget(std::vector<RateLimit> limits,
     slots_.reserve(limits.size());
     for (auto& limit : limits) {
         SlidingLog log{limit.max, limit.window_ns, limit.reserve};
-        slots_.push_back(Slot{.spec = std::move(limit), .log = std::move(log)});
+        slots_.push_back(
+            Slot{.spec = std::move(limit), .log = std::move(log), .calls = 0, .denied = 0});
     }
 }
 
@@ -85,7 +86,9 @@ RateBudget::take(std::string_view target, MonoNanos now, RateClass cls) noexcept
     std::uint64_t wait = 0;
     for (auto& slot : slots_) {
         if (meters(slot.spec, target)) {
-            wait = std::max(wait, slot.log.wait_ns(units, now.ns, may_use_reserve));
+            const auto slot_wait = slot.log.wait_ns(units, now.ns, may_use_reserve);
+            slot.denied += slot_wait != 0 ? 1U : 0U;
+            wait = std::max(wait, slot_wait);
         }
     }
     if (wait != 0) {
@@ -95,6 +98,7 @@ RateBudget::take(std::string_view target, MonoNanos now, RateClass cls) noexcept
     for (auto& slot : slots_) {
         if (meters(slot.spec, target)) {
             slot.log.spend(units, now.ns);
+            ++slot.calls;
         }
     }
     return {};
@@ -119,6 +123,20 @@ void RateBudget::penalize_all(MonoNanos now, std::uint64_t backoff_ns) noexcept 
 std::uint64_t RateBudget::denials() noexcept {
     const std::lock_guard lock{mu_};
     return denials_;
+}
+
+std::vector<RateBudget::Usage> RateBudget::usage() {
+    const std::lock_guard lock{mu_};
+    std::vector<Usage> out;
+    out.reserve(slots_.size());
+    for (const auto& slot : slots_) {
+        out.push_back(Usage{.name = slot.spec.name,
+                            .max = slot.spec.max,
+                            .window_ns = slot.spec.window_ns,
+                            .calls = slot.calls,
+                            .denied = slot.denied});
+    }
+    return out;
 }
 
 } // namespace raikiri::exec

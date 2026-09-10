@@ -9,3 +9,9 @@ target_include_directories(raikiri_introspect PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_link_libraries(raikiri_introspect PRIVATE raikiri::warnings)
+
+add_library(raikiri_introspect_files STATIC src/files.cpp)
+add_library(raikiri::introspect_files ALIAS raikiri_introspect_files)
+target_link_libraries(raikiri_introspect_files
+  PUBLIC raikiri::introspect
+  PRIVATE glaze::glaze raikiri::warnings)
