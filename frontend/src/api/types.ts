@@ -300,6 +300,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cache/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What every gateway on this machine is subscribed to, right now
+         * @description A debug view, read from the snapshot each gatewayd writes every five
+         *     seconds to `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. Nothing here
+         *     touches Postgres or a venue.
+         *
+         *     A snapshot older than 30 s is still listed, with `stale: true` and its
+         *     age. A gateway whose process is gone is listed as `down` and adds
+         *     nothing to the rollup's traffic.
+         */
+        get: operations["getCacheStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cache/stats/{account}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One gateway's snapshot */
+        get: operations["getCacheGatewayStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/x/{upstream}/{path}": {
         parameters: {
             query?: never;
@@ -464,6 +507,131 @@ export interface components {
         Page: {
             /** @description Absent or null on the last page. */
             next_cursor?: string | null;
+        };
+        CacheStats: {
+            taken_ns: components["schemas"]["Nanos"];
+            gateways: components["schemas"]["CacheGateway"][];
+            rollup: {
+                venues: components["schemas"]["CacheRollup"][];
+                total: components["schemas"]["CacheRollup"];
+            };
+        };
+        /** @description Sums over gateways that are not down. `venue` is `all` in the total. */
+        CacheRollup: {
+            venue: string;
+            gateways: number;
+            down: number;
+            instruments: number;
+            /** @description Accepted subscriptions */
+            subscriptions: number;
+            /** @description Open sockets. */
+            sockets: number;
+            messages_per_second: number;
+        };
+        CacheGateway: {
+            account: string;
+            /** @enum {string} */
+            state: "up" | "stale" | "down";
+            stale: boolean;
+            age_ms: number;
+            snapshot: components["schemas"]["GatewaySnapshot"];
+        };
+        CacheTally: {
+            name: string;
+            count: number;
+        };
+        /** @description Version 1 of the file a gatewayd writes; readable with `cat`. */
+        GatewaySnapshot: {
+            version: number;
+            taken_ns: components["schemas"]["Nanos"];
+            account: string;
+            venue: string;
+            market: string;
+            /** @description The adapter's feed */
+            feed: string;
+            channels: string[];
+            process: {
+                pid: number;
+                generation: components["schemas"]["Nanos"];
+                started_ns: components["schemas"]["Nanos"];
+                uptime_s: number;
+                build: string;
+            };
+            catalogue: {
+                instruments: number;
+                by_market: components["schemas"]["CacheTally"][];
+                by_asset_class: components["schemas"]["CacheTally"][];
+                by_kind: components["schemas"]["CacheTally"][];
+            };
+            subscriptions: {
+                /** @enum {string} */
+                channel: "bbo" | "trades" | "depth" | "funding" | "ticker" | "greeks";
+                requested: number;
+                /** @description Taken by the adapter. */
+                accepted: number;
+                /** @description Refused by the adapter. */
+                refused: number;
+                messages: number;
+                /** @description Over the last 60 s. */
+                per_second: number;
+            }[];
+            /** @description One row per WebSocket pool carrying at least one key. */
+            sockets: {
+                host: string;
+                sockets: number;
+                open: number;
+                /** @description Venue topics placed on the pool's sockets. */
+                keys: number;
+                min_keys: number;
+                avg_keys: number;
+                max_keys: number;
+                /** @description Subscribe frames not yet sent. */
+                pending_frames: number;
+                /** @description Since start */
+                reopens: number;
+                last_close_reason: string;
+                last_close_ns: components["schemas"]["Nanos"];
+            }[];
+            /** @description The venue's ws_* rows from venues.yaml; zero is unconfigured. */
+            limits: {
+                configured: boolean;
+                ws_streams: number;
+                ws_sockets: number;
+                ws_channels: number;
+                ws_subscriptions_per_frame: number;
+                ws_socket_messages: number;
+                ws_socket_window_ms: number;
+                ws_connects: number;
+                ws_connects_window_ms: number;
+            };
+            coverage: {
+                subscribed: number;
+                priced_60s: number;
+                priced_ever: number;
+                books_seeded: number;
+                books_unseeded: number;
+                funding_received: number;
+            };
+            rates: {
+                messages_per_second: number;
+                window_s: number;
+                /** @description Subscriptions the venue refused */
+                venue_refusals: number;
+                budget_denials: number;
+                rest_limits: {
+                    name: string;
+                    max: number;
+                    window_ms: number;
+                    calls: number;
+                    denied: number;
+                }[];
+                rest_endpoints: {
+                    endpoint: string;
+                    calls: number;
+                    refused: number;
+                    last_status: number;
+                }[];
+            };
         };
         Account: {
             /**
@@ -1557,6 +1725,57 @@ export interface operations {
                     "application/json": components["schemas"]["Page"] & {
                         items: components["schemas"]["FundingObservation"][];
                     };
+                };
+            };
+        };
+    };
+    getCacheStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheStats"];
+                };
+            };
+        };
+    };
+    getCacheGatewayStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheGateway"];
+                };
+            };
+            /** @description No snapshot for that account */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

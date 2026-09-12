@@ -177,3 +177,5 @@ set_tests_properties(apps_help PROPERTIES TIMEOUT 30)
 raikiri_add_test(introspect_domain_test SRCS introspect/domain_test.cpp LIBS raikiri::introspect)
 raikiri_add_test(introspect_files_test SRCS introspect/files_test.cpp
   LIBS raikiri::introspect_files glaze::glaze)
+raikiri_add_test(introspect_routes_test SRCS introspect/routes_test.cpp
+  LIBS raikiri::introspect_http glaze::glaze)

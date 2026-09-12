@@ -31,6 +31,8 @@
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/http/server.hpp>
+#include <raikiri/introspect/files.hpp>
+#include <raikiri/introspect/routes.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 
@@ -153,17 +155,30 @@ int main(int argc, char** argv) {
     // doing either — two would mint colliding ids.
     admin::ManualDesk desk{registry};
 
+    const introspect::FileStatsSource stats_source{
+        introspect::stats_dir(platform::runtime_dir())};
+    const auto wall_ns = [&clock] { return clock.wall().ns; };
+    const introspect::GetMachineStats machine_stats{stats_source, wall_ns};
+    const introspect::GetGatewayStats gateway_stats{stats_source, wall_ns};
+    const introspect::CacheRoutes cache{machine_stats, gateway_stats};
+
     net::IoContext io;
     http::Server server{io,
                         address,
                         port,
-                        admin::make_router(
-                            registry,
-                            history.get(),
-                            &desk,
-                            [&clock] { return clock.mono(); },
-                            [&clock] { return clock.wall(); },
-                            upstreams)};
+                        [cache,
+                         routes = admin::make_router(
+                             registry,
+                             history.get(),
+                             &desk,
+                             [&clock] { return clock.mono(); },
+                             [&clock] { return clock.wall(); },
+                             upstreams)](const http::Request& req) {
+                            if (auto answer = cache(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            return routes(req);
+                        }};
     if (!server.start()) {
         RLOG_ERROR("admind: cannot bind {}:{}", address, port);
         return 1;

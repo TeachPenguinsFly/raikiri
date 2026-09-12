@@ -57,6 +57,7 @@ tags:
   - name: trading
   - name: analytics
   - name: live
+  - name: cache
 
 paths:
   /v1/health:
@@ -477,6 +478,48 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/FundingObservation" }
 
+  /cache/stats:
+    get:
+      tags: [cache]
+      summary: What every gateway on this machine is subscribed to, right now
+      description: |
+        A debug view, read from the snapshot each gatewayd writes every five
+        seconds to `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. Nothing here
+        touches Postgres or a venue.
+
+        A snapshot older than 30 s is still listed, with `stale: true` and its
+        age. A gateway whose process is gone is listed as `down` and adds
+        nothing to the rollup's traffic.
+      operationId: getCacheStats
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheStats" }
+
+  /cache/stats/{account}:
+    get:
+      tags: [cache]
+      summary: One gateway's snapshot
+      operationId: getCacheGatewayStats
+      parameters:
+        - name: account
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheGateway" }
+        "404":
+          description: No snapshot for that account
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/x/{upstream}/{path}:
     get:
       tags: [system]
@@ -709,6 +752,173 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Absent or null on the last page.
+
+    # ------------------------------------------------------------- cache ----
+
+    CacheStats:
+      type: object
+      required: [taken_ns, gateways, rollup]
+      properties:
+        taken_ns: { $ref: "#/components/schemas/Nanos" }
+        gateways:
+          type: array
+          items: { $ref: "#/components/schemas/CacheGateway" }
+        rollup:
+          type: object
+          required: [venues, total]
+          properties:
+            venues:
+              type: array
+              items: { $ref: "#/components/schemas/CacheRollup" }
+            total: { $ref: "#/components/schemas/CacheRollup" }
+
+    CacheRollup:
+      description: Sums over gateways that are not down. `venue` is `all` in the total.
+      type: object
+      required: [venue, gateways, down, instruments, subscriptions, sockets, messages_per_second]
+      properties:
+        venue: { type: string }
+        gateways: { type: integer }
+        down: { type: integer }
+        instruments: { type: integer }
+        subscriptions: { type: integer, description: Accepted subscriptions, every channel. }
+        sockets: { type: integer, description: Open sockets. }
+        messages_per_second: { type: number }
+
+    CacheGateway:
+      type: object
+      required: [account, state, stale, age_ms, snapshot]
+      properties:
+        account: { type: string }
+        state: { type: string, enum: [up, stale, down] }
+        stale: { type: boolean }
+        age_ms: { type: integer }
+        snapshot: { $ref: "#/components/schemas/GatewaySnapshot" }
+
+    CacheTally:
+      type: object
+      required: [name, count]
+      properties:
+        name: { type: string }
+        count: { type: integer }
+
+    GatewaySnapshot:
+      description: Version 1 of the file a gatewayd writes; readable with `cat`.
+      type: object
+      required: [version, taken_ns, account, venue, market, feed, channels, process,
+                 catalogue, subscriptions, sockets, limits, coverage, rates]
+      properties:
+        version: { type: integer }
+        taken_ns: { $ref: "#/components/schemas/Nanos" }
+        account: { type: string }
+        venue: { type: string }
+        market: { type: string }
+        feed: { type: string, description: The adapter's feed, e.g. kucoin `uta`. Empty for the default. }
+        channels: { type: array, items: { type: string } }
+        process:
+          type: object
+          required: [pid, generation, started_ns, uptime_s, build]
+          properties:
+            pid: { type: integer }
+            generation: { $ref: "#/components/schemas/Nanos" }
+            started_ns: { $ref: "#/components/schemas/Nanos" }
+            uptime_s: { type: integer }
+            build: { type: string }
+        catalogue:
+          type: object
+          required: [instruments, by_market, by_asset_class, by_kind]
+          properties:
+            instruments: { type: integer }
+            by_market: { type: array, items: { $ref: "#/components/schemas/CacheTally" } }
+            by_asset_class: { type: array, items: { $ref: "#/components/schemas/CacheTally" } }
+            by_kind: { type: array, items: { $ref: "#/components/schemas/CacheTally" } }
+        subscriptions:
+          type: array
+          items:
+            type: object
+            required: [channel, requested, accepted, refused, messages, per_second]
+            properties:
+              channel: { type: string, enum: [bbo, trades, depth, funding, ticker, greeks] }
+              requested: { type: integer }
+              accepted: { type: integer, description: Taken by the adapter. }
+              refused: { type: integer, description: Refused by the adapter. }
+              messages: { type: integer }
+              per_second: { type: number, description: Over the last 60 s. }
+        sockets:
+          description: One row per WebSocket pool carrying at least one key.
+          type: array
+          items:
+            type: object
+            required: [host, sockets, open, keys, min_keys, avg_keys, max_keys, pending_frames,
+                       reopens, last_close_reason, last_close_ns]
+            properties:
+              host: { type: string }
+              sockets: { type: integer }
+              open: { type: integer }
+              keys: { type: integer, description: Venue topics placed on the pool's sockets. }
+              min_keys: { type: integer }
+              avg_keys: { type: number }
+              max_keys: { type: integer }
+              pending_frames: { type: integer, description: Subscribe frames not yet sent. }
+              reopens: { type: integer, description: Since start, first opens excluded. }
+              last_close_reason: { type: string }
+              last_close_ns: { $ref: "#/components/schemas/Nanos" }
+        limits:
+          description: The venue's ws_* rows from venues.yaml; zero is unconfigured.
+          type: object
+          required: [configured, ws_streams, ws_sockets, ws_channels, ws_subscriptions_per_frame,
+                     ws_socket_messages, ws_socket_window_ms, ws_connects, ws_connects_window_ms]
+          properties:
+            configured: { type: boolean }
+            ws_streams: { type: integer }
+            ws_sockets: { type: integer }
+            ws_channels: { type: integer }
+            ws_subscriptions_per_frame: { type: integer }
+            ws_socket_messages: { type: integer }
+            ws_socket_window_ms: { type: integer }
+            ws_connects: { type: integer }
+            ws_connects_window_ms: { type: integer }
+        coverage:
+          type: object
+          required: [subscribed, priced_60s, priced_ever, books_seeded, books_unseeded,
+                     funding_received]
+          properties:
+            subscribed: { type: integer }
+            priced_60s: { type: integer }
+            priced_ever: { type: integer }
+            books_seeded: { type: integer }
+            books_unseeded: { type: integer }
+            funding_received: { type: integer }
+        rates:
+          type: object
+          required: [messages_per_second, window_s, venue_refusals, budget_denials, rest_limits,
+                     rest_endpoints]
+          properties:
+            messages_per_second: { type: number }
+            window_s: { type: integer }
+            venue_refusals: { type: integer, description: Subscriptions the venue refused, where the adapter counts them. }
+            budget_denials: { type: integer }
+            rest_limits:
+              type: array
+              items:
+                type: object
+                required: [name, max, window_ms, calls, denied]
+                properties:
+                  name: { type: string }
+                  max: { type: integer }
+                  window_ms: { type: integer }
+                  calls: { type: integer }
+                  denied: { type: integer }
+            rest_endpoints:
+              type: array
+              items:
+                type: object
+                required: [endpoint, calls, refused, last_status]
+                properties:
+                  endpoint: { type: string }
+                  calls: { type: integer }
+                  refused: { type: integer }
+                  last_status: { type: integer }
 
     # ------------------------------------------------------------ system ----
 

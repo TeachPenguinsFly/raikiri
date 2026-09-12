@@ -15,3 +15,9 @@ add_library(raikiri::introspect_files ALIAS raikiri_introspect_files)
 target_link_libraries(raikiri_introspect_files
   PUBLIC raikiri::introspect
   PRIVATE glaze::glaze raikiri::warnings)
+
+add_library(raikiri_introspect_http STATIC src/routes.cpp)
+add_library(raikiri::introspect_http ALIAS raikiri_introspect_http)
+target_link_libraries(raikiri_introspect_http
+  PUBLIC raikiri::introspect raikiri::http
+  PRIVATE glaze::glaze raikiri::warnings)
