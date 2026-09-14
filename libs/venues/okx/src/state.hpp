@@ -69,6 +69,7 @@ struct VenueState {
 
     std::unordered_map<InstrumentId, Book> books;
     std::uint64_t next_app_ping_ns{0};
+    std::uint64_t next_resync_scan_ns{0};
 
     // Venue clock offset, measured against /api/v5/public/time.
     std::int64_t clock_offset_ns{0};

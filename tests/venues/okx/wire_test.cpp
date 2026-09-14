@@ -263,6 +263,37 @@ TEST(OkxBook, ASeqIdGapPublishesNothing) {
     EXPECT_TRUE(book.snapshot(UnixNanos{5}, UnixNanos{6}).has_value());
 }
 
+TEST(OkxBook, AGapAsksForTheSnapshotOncePerBackoff) {
+    // OKX sends a snapshot only in answer to a subscribe, so a book that
+    // gapped and asked for nothing stayed dark for hours on the box.
+    auto book = btc_book();
+    auto storage = std::make_unique<LevelBuffer>();
+    const auto snapshot_frame = fixture("ws_books_snapshot.json");
+    const auto wire = parse_books(snapshot_frame, *storage);
+    ASSERT_TRUE(wire.has_value());
+    ASSERT_EQ(book.apply(*wire), BookResult::Resynced);
+    EXPECT_FALSE(book.resync_due(1'000)) << "a synced book asks for nothing";
+
+    auto skipped_storage = std::make_unique<LevelBuffer>();
+    const auto skipped_frame = fixture("ws_books_update_next.json");
+    const auto skipped = parse_books(skipped_frame, *skipped_storage);
+    ASSERT_TRUE(skipped.has_value());
+    ASSERT_EQ(book.apply(*skipped), BookResult::GapDetected);
+    EXPECT_TRUE(book.resync_due(2'000));
+    EXPECT_FALSE(book.resync_due(3'000)) << "one resubscribe, not one per poll";
+    EXPECT_TRUE(book.resync_due(2'000 + k_resync_backoff_ns)) << "and again if no snapshot came";
+
+    auto again = std::make_unique<LevelBuffer>();
+    const auto fresh = parse_books(snapshot_frame, *again);
+    ASSERT_TRUE(fresh.has_value());
+    ASSERT_EQ(book.apply(*fresh), BookResult::Resynced);
+    EXPECT_FALSE(book.resync_due(3 * k_resync_backoff_ns));
+
+    book.invalidate();
+    EXPECT_FALSE(book.resync_due(4 * k_resync_backoff_ns))
+        << "a socket reopen re-asks for its own keys; this must not ask twice";
+}
+
 TEST(OkxBook, ARedeliveredDeltaIsNotMistakenForAGap) {
     auto book = btc_book();
     auto storage = std::make_unique<LevelBuffer>();

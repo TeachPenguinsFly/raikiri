@@ -1,5 +1,6 @@
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
+#include <raikiri/log/log.hpp>
 #include <raikiri/net/io_context.hpp>
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -104,7 +105,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         auto& book = state.book_for(*instrument);
         const auto result = book.apply(*wire);
         if (result == BookResult::GapDetected || result == BookResult::BadLevel) {
-            return; // the venue resends a snapshot; until then we publish nothing
+            return; // poll() resubscribes for a snapshot; until then we publish nothing
         }
         // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
         // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and
@@ -301,6 +302,7 @@ public:
             pool_.broadcast(Protocol::ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
+        resync_books(now);
     }
 
 private:
@@ -345,6 +347,37 @@ private:
             if (const auto entry = state_->books.find(base_of(*instrument).id);
                 entry != state_->books.end()) {
                 entry->second.invalidate();
+            }
+        }
+    }
+
+    // A broken chain is mended by unsubscribing and subscribing its `books`
+    // key on the socket that carries it, which OKX answers with a snapshot.
+    void resync_books(UnixNanos now) {
+        if (now.ns < state_->next_resync_scan_ns) {
+            return;
+        }
+        state_->next_resync_scan_ns = now.ns + 1'000'000'000ULL;
+        const auto depth = channel_for(exec::SubKind::Depth);
+        for (auto& [id, book] : state_->books) {
+            if (!book.resync_due(now.ns)) {
+                continue;
+            }
+            const auto symbol = state_->instruments.exchange_symbol(id);
+            if (symbol.empty()) {
+                continue;
+            }
+            const std::array<Subscription, 1> one{Subscription{.channel = depth, .inst_id = symbol}};
+            std::vector<std::string> frames;
+            if (const auto off = state_->protocol.unsubscribe_frame(one); off.has_value()) {
+                frames.emplace_back(off->text);
+            }
+            if (const auto on = state_->protocol.subscribe_frame(one); on.has_value()) {
+                frames.emplace_back(on->text);
+            }
+            if (frames.size() == 2 && pool_.requeue(key_of(depth, symbol), std::move(frames))) {
+                RLOG_WARN("okx: {} book broke its seqId chain ({} gaps), resubscribing", symbol,
+                          book.gaps());
             }
         }
     }

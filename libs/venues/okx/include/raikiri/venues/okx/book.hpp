@@ -97,6 +97,14 @@ public:
 
     void invalidate() noexcept;
 
+    // WHETHER TO ASK FOR THE SNAPSHOT AGAIN, and true at most once a backoff.
+    // OKX sends a `books` snapshot only in answer to a subscribe, so a book
+    // whose chain broke stays dark until something resubscribes it; nothing
+    // did, and BTC-USDT-SWAP's cell on the box sat three hours old while its
+    // quotes moved. Only a break this book detected counts: a socket reopen
+    // re-asks for its own channels already.
+    [[nodiscard]] bool resync_due(std::uint64_t now_ns) noexcept;
+
     [[nodiscard]] std::span<const Level> bids() const noexcept { return ladders_.bids().levels(); }
 
     [[nodiscard]] std::span<const Level> asks() const noexcept { return ladders_.asks().levels(); }
@@ -110,7 +118,11 @@ private:
     book::Ladders ladders_;
     std::int64_t last_seq_id_{-1};
     std::uint64_t gaps_{0};
+    std::uint64_t resync_asked_ns_{0};
     bool synced_{false};
+    bool broken_{false};
 };
+
+inline constexpr std::uint64_t k_resync_backoff_ns = 10'000'000'000ULL;
 
 } // namespace raikiri::venues::okx

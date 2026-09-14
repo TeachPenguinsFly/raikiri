@@ -189,7 +189,16 @@ Book::Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size)
 void Book::invalidate() noexcept {
     ladders_.clear();
     synced_ = false;
+    broken_ = false;
     last_seq_id_ = -1;
+}
+
+bool Book::resync_due(std::uint64_t now_ns) noexcept {
+    if (!broken_ || (resync_asked_ns_ != 0 && now_ns - resync_asked_ns_ < k_resync_backoff_ns)) {
+        return false;
+    }
+    resync_asked_ns_ = now_ns;
+    return true;
 }
 
 bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
@@ -217,10 +226,12 @@ BookResult Book::apply(const WireBooks& update) {
         if (!apply_side(update.bids, ladders_.bids()) ||
             !apply_side(update.asks, ladders_.asks())) {
             invalidate();
+            broken_ = true;
             return BookResult::BadLevel;
         }
         last_seq_id_ = update.seq_id;
         synced_ = true;
+        broken_ = false;
         return BookResult::Resynced;
     }
 
@@ -234,11 +245,13 @@ BookResult Book::apply(const WireBooks& update) {
         }
         ++gaps_;
         invalidate();
+        broken_ = true;
         return BookResult::GapDetected;
     }
 
     if (!apply_side(update.bids, ladders_.bids()) || !apply_side(update.asks, ladders_.asks())) {
         invalidate();
+        broken_ = true;
         return BookResult::BadLevel;
     }
     last_seq_id_ = update.seq_id;
