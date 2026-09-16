@@ -179,3 +179,5 @@ raikiri_add_test(introspect_files_test SRCS introspect/files_test.cpp
   LIBS raikiri::introspect_files glaze::glaze)
 raikiri_add_test(introspect_routes_test SRCS introspect/routes_test.cpp
   LIBS raikiri::introspect_http glaze::glaze)
+raikiri_add_test(introspect_latency_test SRCS introspect/latency_test.cpp
+  LIBS raikiri::introspect_http raikiri::introspect_probe)

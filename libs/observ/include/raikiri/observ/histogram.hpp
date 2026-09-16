@@ -43,6 +43,26 @@ public:
 
     [[nodiscard]] std::uint64_t count() const noexcept { return count_; }
 
+    void merge(const Histogram& other) noexcept {
+        for (std::size_t i = 0; i < k_majors * k_minors; ++i) {
+            counts_[i] += other.counts_[i];
+        }
+        count_ += other.count_;
+        if (other.max_ > max_) {
+            max_ = other.max_;
+        }
+    }
+
+    // Each non-empty bucket's inclusive upper bound and count, smallest first.
+    template <typename Visit> void for_each_bucket(Visit&& visit) const {
+        for (std::size_t i = 0; i < k_majors * k_minors; ++i) {
+            if (counts_[i] != 0) {
+                visit(upper_bound_of(i), counts_[i]);
+            }
+        }
+    }
+
+
     [[nodiscard]] HistogramSnapshot snapshot() const noexcept {
         HistogramSnapshot snap{};
         snap.count = count_;

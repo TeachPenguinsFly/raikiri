@@ -7,6 +7,7 @@
 #include <raikiri/introspect/queries.hpp>
 
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace raikiri::introspect {
@@ -24,6 +25,23 @@ public:
 private:
     const GetMachineStats* machine_;
     const GetGatewayStats* gateway_;
+};
+
+inline constexpr std::string_view k_metrics_path = "/metrics";
+
+// Prometheus text exposition 0.0.4: latency as cumulative histograms with
+// fixed log buckets, so they add up across gateways and machines; clock
+// offsets as gauges. The windowed quantiles stay in /cache/latency.
+[[nodiscard]] std::string prometheus_text(const MachineStats& machine);
+
+class MetricsRoute {
+public:
+    explicit MetricsRoute(const GetMachineStats& machine) : machine_{&machine} {}
+
+    [[nodiscard]] std::optional<http::Response> operator()(const http::Request& req) const;
+
+private:
+    const GetMachineStats* machine_;
 };
 
 } // namespace raikiri::introspect

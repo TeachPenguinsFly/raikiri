@@ -47,6 +47,26 @@ template <> struct glz::meta<raikiri::introspect::SocketStats> {
                                          glz::quoted_num<&T::last_close_ns>);
 };
 
+template <> struct glz::meta<raikiri::introspect::ClockStats> {
+    using T = raikiri::introspect::ClockStats;
+    static constexpr auto value = object("venue",
+                                         &T::venue,
+                                         "method",
+                                         &T::method,
+                                         "endpoint",
+                                         &T::endpoint,
+                                         "offset_ns",
+                                         &T::offset_ns,
+                                         "uncertainty_ns",
+                                         &T::uncertainty_ns,
+                                         "rtt_ns",
+                                         &T::rtt_ns,
+                                         "sampled_ns",
+                                         glz::quoted_num<&T::sampled_ns>,
+                                         "samples",
+                                         &T::samples);
+};
+
 template <> struct glz::meta<raikiri::introspect::GatewayStats> {
     using T = raikiri::introspect::GatewayStats;
     static constexpr auto value = object("version",
@@ -76,5 +96,9 @@ template <> struct glz::meta<raikiri::introspect::GatewayStats> {
                                          "coverage",
                                          &T::coverage,
                                          "rates",
-                                         &T::rates);
+                                         &T::rates,
+                                         "clock",
+                                         &T::clock,
+                                         "latency",
+                                         &T::latency);
 };

@@ -343,6 +343,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cache/latency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every gateway's clock offset and latency series
+         * @description The `clock` and `latency` sections of the same snapshots /cache/stats
+         *     reads. The same numbers in Prometheus text are at GET /metrics.
+         */
+        get: operations["getCacheLatency"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cache/latency/{account}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One gateway's clock offset and latency series */
+        get: operations["getCacheGatewayLatency"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/x/{upstream}/{path}": {
         parameters: {
             query?: never;
@@ -632,6 +670,76 @@ export interface components {
                     last_status: number;
                 }[];
             };
+            clock?: components["schemas"]["VenueClock"];
+            latency?: components["schemas"]["LatencySeries"][];
+        };
+        /**
+         * @description The venue's clock minus ours. A venue stamp converts to our clock as
+         *     `ts_event - offset_ns`. `rest_probe` takes the minimum-round-trip probe
+         *     of the last eight against `endpoint`, and `uncertainty_ns` is half that
+         *     round trip plus half the stamp's resolution. `feed_bound` is for a
+         *     venue with no time endpoint: the smallest `ts_init - ts_event` over the
+         *     last 30-60 s, negated, which is a LOWER bound — the true offset is this
+         *     plus the fastest one-way latency. `none` until either has a sample.
+         */
+        VenueClock: {
+            venue: string;
+            /** @enum {string} */
+            method: "rest_probe" | "feed_bound" | "none";
+            endpoint: string;
+            offset_ns: number;
+            uncertainty_ns: number;
+            rtt_ns: number;
+            sampled_ns: components["schemas"]["Nanos"];
+            samples: number;
+        };
+        /**
+         * @description Quantiles over the trailing 30-60 s; `total` and `sum_ns` since the
+         *     gateway started. Stages: `feed` is ts_init - ts_event + offset per
+         *     market-data channel, `internal` is receipt to shared-memory publish,
+         *     `kernel_queue` (Linux) is the kernel's software receive stamp of a
+         *     message's last segment to our read of it, per socket host — where it
+         *     is measured, ts_init is that kernel stamp, so `feed` is the network
+         *     and `internal` includes the queueing,
+         *     `rest` is one round trip per endpoint (the channel), `ws_ping` a
+         *     keepalive round trip per socket host, `order_ack` and `order_fill` from
+         *     submit to the first acceptance and the first fill. A negative value is
+         *     clamped to zero and counted in `below_zero`.
+         */
+        LatencySeries: {
+            channel: string;
+            /** @enum {string} */
+            stage: "feed" | "internal" | "kernel_queue" | "rest" | "ws_ping" | "order_ack" | "order_fill";
+            count: number;
+            p50_ns: number;
+            p90_ns: number;
+            p99_ns: number;
+            p999_ns: number;
+            max_ns: number;
+            total: number;
+            sum_ns: number;
+            below_zero: number;
+            /**
+             * @description Since start, how many values were at or below each bound: five a
+             *     decade from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10
+             *     each decade, ending at 10 s). GET /metrics exports them as the
+             *     `le` buckets of `raikiri_latency_seconds`.
+             */
+            buckets: number[];
+        };
+        CacheLatency: {
+            account: string;
+            venue: string;
+            market: string;
+            /** @enum {string} */
+            state: "up" | "stale" | "down";
+            age_ms: number;
+            clock: components["schemas"]["VenueClock"];
+            latency: components["schemas"]["LatencySeries"][];
+        };
+        CacheLatencies: {
+            taken_ns: components["schemas"]["Nanos"];
+            gateways: components["schemas"]["CacheLatency"][];
         };
         Account: {
             /**
@@ -1767,6 +1875,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CacheGateway"];
+                };
+            };
+            /** @description No snapshot for that account */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCacheLatency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheLatencies"];
+                };
+            };
+        };
+    };
+    getCacheGatewayLatency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheLatency"];
                 };
             };
             /** @description No snapshot for that account */

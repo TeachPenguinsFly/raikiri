@@ -3,6 +3,8 @@
 // DOMAIN: what one gateway says about itself, and what a machine of them adds
 // up to. Plain values and pure functions; no clock, no file, no JSON.
 
+#include <raikiri/introspect/latency.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -118,6 +120,8 @@ struct GatewayStats {
     SocketLimits limits;
     CoverageStats coverage;
     RateStats rates;
+    ClockStats clock;
+    std::vector<LatencyStats> latency;
 };
 
 enum class Liveness : std::uint8_t { Up, Stale, Down };

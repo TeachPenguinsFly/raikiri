@@ -520,6 +520,43 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
 
+  /cache/latency:
+    get:
+      tags: [cache]
+      summary: Every gateway's clock offset and latency series
+      description: |
+        The `clock` and `latency` sections of the same snapshots /cache/stats
+        reads. The same numbers in Prometheus text are at GET /metrics.
+      operationId: getCacheLatency
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheLatencies" }
+
+  /cache/latency/{account}:
+    get:
+      tags: [cache]
+      summary: One gateway's clock offset and latency series
+      operationId: getCacheGatewayLatency
+      parameters:
+        - name: account
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheLatency" }
+        "404":
+          description: No snapshot for that account
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
   /v1/x/{upstream}/{path}:
     get:
       tags: [system]
@@ -919,6 +956,90 @@ components:
                   calls: { type: integer }
                   refused: { type: integer }
                   last_status: { type: integer }
+        clock: { $ref: "#/components/schemas/VenueClock" }
+        latency:
+          type: array
+          items: { $ref: "#/components/schemas/LatencySeries" }
+
+    VenueClock:
+      description: |
+        The venue's clock minus ours. A venue stamp converts to our clock as
+        `ts_event - offset_ns`. `rest_probe` takes the minimum-round-trip probe
+        of the last eight against `endpoint`, and `uncertainty_ns` is half that
+        round trip plus half the stamp's resolution. `feed_bound` is for a
+        venue with no time endpoint: the smallest `ts_init - ts_event` over the
+        last 30-60 s, negated, which is a LOWER bound — the true offset is this
+        plus the fastest one-way latency. `none` until either has a sample.
+      type: object
+      required: [venue, method, endpoint, offset_ns, uncertainty_ns, rtt_ns, sampled_ns, samples]
+      properties:
+        venue: { type: string }
+        method: { type: string, enum: [rest_probe, feed_bound, none] }
+        endpoint: { type: string }
+        offset_ns: { type: integer }
+        uncertainty_ns: { type: integer }
+        rtt_ns: { type: integer }
+        sampled_ns: { $ref: "#/components/schemas/Nanos" }
+        samples: { type: integer }
+
+    LatencySeries:
+      description: |
+        Quantiles over the trailing 30-60 s; `total` and `sum_ns` since the
+        gateway started. Stages: `feed` is ts_init - ts_event + offset per
+        market-data channel, `internal` is receipt to shared-memory publish,
+        `kernel_queue` (Linux) is the kernel's software receive stamp of a
+        message's last segment to our read of it, per socket host — where it
+        is measured, ts_init is that kernel stamp, so `feed` is the network
+        and `internal` includes the queueing,
+        `rest` is one round trip per endpoint (the channel), `ws_ping` a
+        keepalive round trip per socket host, `order_ack` and `order_fill` from
+        submit to the first acceptance and the first fill. A negative value is
+        clamped to zero and counted in `below_zero`.
+      type: object
+      required: [channel, stage, count, p50_ns, p90_ns, p99_ns, p999_ns, max_ns, total, sum_ns, below_zero, buckets]
+      properties:
+        channel: { type: string }
+        stage: { type: string, enum: [feed, internal, kernel_queue, rest, ws_ping, order_ack, order_fill] }
+        count: { type: integer }
+        p50_ns: { type: integer }
+        p90_ns: { type: integer }
+        p99_ns: { type: integer }
+        p999_ns: { type: integer }
+        max_ns: { type: integer }
+        total: { type: integer }
+        sum_ns: { type: integer }
+        below_zero: { type: integer }
+        buckets:
+          type: array
+          description: |
+            Since start, how many values were at or below each bound: five a
+            decade from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10
+            each decade, ending at 10 s). GET /metrics exports them as the
+            `le` buckets of `raikiri_latency_seconds`.
+          items: { type: integer }
+
+    CacheLatency:
+      type: object
+      required: [account, venue, market, state, age_ms, clock, latency]
+      properties:
+        account: { type: string }
+        venue: { type: string }
+        market: { type: string }
+        state: { type: string, enum: [up, stale, down] }
+        age_ms: { type: integer }
+        clock: { $ref: "#/components/schemas/VenueClock" }
+        latency:
+          type: array
+          items: { $ref: "#/components/schemas/LatencySeries" }
+
+    CacheLatencies:
+      type: object
+      required: [taken_ns, gateways]
+      properties:
+        taken_ns: { $ref: "#/components/schemas/Nanos" }
+        gateways:
+          type: array
+          items: { $ref: "#/components/schemas/CacheLatency" }
 
     # ------------------------------------------------------------ system ----
 
