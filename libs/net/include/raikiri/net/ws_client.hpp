@@ -57,6 +57,17 @@ enum class WsCloseReason : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsCloseReason reason) noexcept;
 
+// Every keepalive pong this process receives, with the round trip of the ping
+// it answered. Process-wide, like set_request_observer.
+using PongObserver = std::function<void(std::string_view host, std::uint64_t rtt_ns)>;
+void set_pong_observer(PongObserver observer);
+
+// Linux only: for each message, how long its last segment sat between the
+// kernel's receive stamp and our read. The message's `received` is then the
+// kernel's stamp rather than the read.
+using ArrivalObserver = std::function<void(std::string_view host, std::uint64_t queued_ns)>;
+void set_arrival_observer(ArrivalObserver observer);
+
 class WsHandler {
 public:
     WsHandler() = default;

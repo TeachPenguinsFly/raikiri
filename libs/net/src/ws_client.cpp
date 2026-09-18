@@ -6,6 +6,18 @@
 
 #include <openssl/ssl.h>
 
+#ifdef __linux__
+#include <boost/asio/associated_immediate_executor.hpp>
+#include <boost/asio/async_result.hpp>
+#include <boost/asio/dispatch.hpp>
+#include <linux/errqueue.h>
+#include <linux/net_tstamp.h>
+#include <sys/socket.h>
+#include <array>
+#include <cerrno>
+#include <cstring>
+#endif
+
 #include <boost/asio/bind_immediate_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
@@ -45,7 +57,117 @@ using tcp = boost::asio::ip::tcp;
 // operation holds a work guard on its stream's executor, and the type-erased
 // one is constructed, moved and destroyed at each step of a read.
 using Executor = asio::io_context::executor_type;
+#ifdef __linux__
+// THE KERNEL'S ARRIVAL TIME, read beside the bytes. With SO_TIMESTAMPING's
+// software RX stamp on, every recvmsg carries the CLOCK_REALTIME at which the
+// last segment it copied entered the stack; asio's own read has nowhere to put
+// the control message, so this read replaces it under the TLS layer. Like
+// asio's, it tries the socket first and waits for readiness only when it is
+// empty, and a result found at once completes on the handler's immediate
+// executor, so the inline-read budget above still governs recursion.
+class StampedSocket : public asio::basic_stream_socket<tcp, Executor> {
+public:
+    using asio::basic_stream_socket<tcp, Executor>::basic_stream_socket;
+
+    void enable_stamps() noexcept {
+        const int flags = SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE;
+        stamps_ = ::setsockopt(native_handle(), SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof flags) == 0;
+    }
+
+    [[nodiscard]] std::uint64_t last_arrival_ns() const noexcept { return last_arrival_ns_; }
+
+    template <typename MutableBuffers, typename Handler>
+    auto async_read_some(const MutableBuffers& buffers, Handler&& handler) {
+        return asio::async_initiate<Handler, void(boost::system::error_code, std::size_t)>(
+            [this](auto done, const MutableBuffers& into) { start(std::move(done), into); },
+            handler,
+            buffers);
+    }
+
+private:
+    template <typename Done, typename MutableBuffers>
+    void start(Done done, const MutableBuffers& into) {
+        boost::system::error_code ec;
+        std::size_t got = 0;
+        if (attempt(into, ec, got)) {
+            const auto ex = asio::get_associated_immediate_executor(done, get_executor());
+            asio::dispatch(ex, [done = std::move(done), ec, got]() mutable { std::move(done)(ec, got); });
+            return;
+        }
+        async_wait(asio::socket_base::wait_read,
+                   [this, done = std::move(done), into](const boost::system::error_code& wait_ec) mutable {
+                       if (wait_ec) {
+                           std::move(done)(wait_ec, 0);
+                           return;
+                       }
+                       start(std::move(done), into);
+                   });
+    }
+
+    // False when the socket is empty and the caller must wait.
+    template <typename MutableBuffers>
+    bool attempt(const MutableBuffers& into, boost::system::error_code& ec, std::size_t& got) {
+        std::array<::iovec, 4> iov{};
+        std::size_t count = 0;
+        for (auto it = asio::buffer_sequence_begin(into);
+             it != asio::buffer_sequence_end(into) && count < iov.size(); ++it) {
+            const asio::mutable_buffer piece{*it};
+            iov[count++] = ::iovec{.iov_base = piece.data(), .iov_len = piece.size()};
+        }
+        alignas(::cmsghdr) std::array<char, CMSG_SPACE(sizeof(::scm_timestamping))> control{};
+        ::msghdr msg{};
+        msg.msg_iov = iov.data();
+        msg.msg_iovlen = count;
+        msg.msg_control = stamps_ ? control.data() : nullptr;
+        msg.msg_controllen = stamps_ ? control.size() : 0;
+        for (;;) {
+            const auto n = ::recvmsg(native_handle(), &msg, MSG_DONTWAIT);
+            if (n > 0) {
+                got = static_cast<std::size_t>(n);
+                for (auto* c = CMSG_FIRSTHDR(&msg); c != nullptr; c = CMSG_NXTHDR(&msg, c)) {
+                    if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SO_TIMESTAMPING) {
+                        ::scm_timestamping stamp{};
+                        std::memcpy(&stamp, CMSG_DATA(c), sizeof stamp);
+                        last_arrival_ns_ = static_cast<std::uint64_t>(stamp.ts[0].tv_sec) * 1'000'000'000ULL +
+                                           static_cast<std::uint64_t>(stamp.ts[0].tv_nsec);
+                    }
+                }
+                return true;
+            }
+            if (n == 0) {
+                ec = asio::error::eof;
+                return true;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return false;
+            }
+            ec = boost::system::error_code{errno, boost::system::system_category()};
+            return true;
+        }
+    }
+
+    std::uint64_t last_arrival_ns_{0};
+    bool stamps_{false};
+};
+// Closing is the plain socket's business; beast finds these by ADL.
+[[maybe_unused]] void teardown(beast::role_type role, StampedSocket& socket, beast::error_code& ec) {
+    websock::teardown(role, static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket), ec);
+}
+
+template <typename Handler>
+void async_teardown(beast::role_type role, StampedSocket& socket, Handler&& handler) {
+    websock::async_teardown(role,
+                            static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket),
+                            std::forward<Handler>(handler));
+}
+
+using Socket = StampedSocket;
+#else
 using Socket = asio::basic_stream_socket<tcp, Executor>;
+#endif
 using TlsStream = beast::ssl_stream<Socket>;
 using WsStream = websock::stream<TlsStream>;
 using Resolver = asio::ip::basic_resolver<tcp, Executor>;
@@ -91,7 +213,18 @@ constexpr std::string_view k_user_agent = "raikiri/0.1";
     return std::format("close {} {}", static_cast<unsigned>(frame.code), frame.reason.c_str());
 }
 
+PongObserver g_pong_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+ArrivalObserver g_arrival_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
 } // namespace
+
+void set_pong_observer(PongObserver observer) {
+    g_pong_observer = std::move(observer);
+}
+
+void set_arrival_observer(ArrivalObserver observer) {
+    g_arrival_observer = std::move(observer);
+}
 
 std::string_view to_string(WsCloseReason reason) noexcept {
     switch (reason) {
@@ -317,6 +450,9 @@ private:
             return;
         }
         state_ = State::TlsHandshake;
+#ifdef __linux__
+        beast::get_lowest_layer(conn->stream).enable_stamps();
+#endif
         if (!is_ip_literal(cfg_.host) &&
             !detail::set_sni_host(conn->stream.next_layer().native_handle(),
                                   cfg_.host.c_str())) {
@@ -355,6 +491,14 @@ private:
         conn->stream.control_callback([this](websock::frame_type kind, beast::string_view) {
             if (kind == websock::frame_type::pong) {
                 awaiting_pong_ = false;
+                if (ping_sent_ != std::chrono::steady_clock::time_point{} && g_pong_observer) {
+                    const auto rtt = std::chrono::steady_clock::now() - ping_sent_;
+                    g_pong_observer(cfg_.host,
+                                    static_cast<std::uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::nanoseconds>(rtt)
+                                            .count()));
+                }
+                ping_sent_ = {};
             }
         });
 
@@ -439,8 +583,18 @@ private:
         ++stats_.messages_received;
 
         const auto data = conn->buffer.data();
+        auto received = clock_.wall();
+#ifdef __linux__
+        if (const auto arrival = beast::get_lowest_layer(conn->stream).last_arrival_ns();
+            arrival != 0 && arrival <= received.ns) {
+            if (g_arrival_observer) {
+                g_arrival_observer(cfg_.host, received.ns - arrival);
+            }
+            received = UnixNanos{arrival};
+        }
+#endif
         handler_.on_message(std::string_view{static_cast<const char*>(data.data()), data.size()},
-                            clock_.wall());
+                            received);
         conn->buffer.consume(conn->buffer.size());
         do_read(std::move(handler));
     }
@@ -455,6 +609,7 @@ private:
         if (ping_pending_) {
             ping_pending_ = false;
             writing_ = true;
+            ping_sent_ = std::chrono::steady_clock::now();
             conn->stream.async_ping(
                 websock::ping_data{},
                 [self = shared_from_this(), gen, conn](const beast::error_code& ec) {
@@ -616,6 +771,7 @@ private:
     bool writing_{false};
     bool ping_pending_{false};
     bool awaiting_pong_{false};
+    std::chrono::steady_clock::time_point ping_sent_{};
 };
 
 } // namespace detail
