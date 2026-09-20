@@ -22,8 +22,6 @@
 
 namespace raikiri::gatewayd {
 
-
-
 enum class Channel : std::uint8_t { Bbo = 0, Trades, Depth, Funding, Ticker, Greeks, Count };
 
 inline constexpr std::array<std::string_view, static_cast<std::size_t>(Channel::Count)>
@@ -52,6 +50,8 @@ struct Snapshot {
     Coverage coverage;
     std::uint64_t venue_refusals{0};
     std::vector<introspect::RestEndpointStats> rest_endpoints;
+    introspect::ClockStats clock;
+    std::vector<introspect::LatencyStats> latency;
 };
 
 [[nodiscard]] inline std::string_view kind_name(raikiri::ContractKind kind) noexcept {
@@ -160,6 +160,8 @@ public:
         stats.rates.window_s = k_window_ns / 1'000'000'000ULL;
         stats.rates.venue_refusals = now.venue_refusals;
         stats.rates.rest_endpoints = std::move(now.rest_endpoints);
+        stats.clock = std::move(now.clock);
+        stats.latency = std::move(now.latency);
         if (budget != nullptr) {
             stats.rates.budget_denials = budget->denials();
             for (auto& limit : budget->usage()) {

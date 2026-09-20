@@ -161,12 +161,14 @@ int main(int argc, char** argv) {
     const introspect::GetMachineStats machine_stats{stats_source, wall_ns};
     const introspect::GetGatewayStats gateway_stats{stats_source, wall_ns};
     const introspect::CacheRoutes cache{machine_stats, gateway_stats};
+    const introspect::MetricsRoute metrics{machine_stats};
 
     net::IoContext io;
     http::Server server{io,
                         address,
                         port,
                         [cache,
+                         metrics,
                          routes = admin::make_router(
                              registry,
                              history.get(),
@@ -175,6 +177,9 @@ int main(int argc, char** argv) {
                              [&clock] { return clock.wall(); },
                              upstreams)](const http::Request& req) {
                             if (auto answer = cache(req); answer.has_value()) {
+                                return std::move(*answer);
+                            }
+                            if (auto answer = metrics(req); answer.has_value()) {
                                 return std::move(*answer);
                             }
                             return routes(req);

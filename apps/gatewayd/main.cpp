@@ -20,6 +20,7 @@
 // The demo loop is a tight spin (one core) — real deployments pin it; the
 // demo just runs it unpinned for a few seconds.
 
+#include "latency_meter.hpp"
 #include "private_pulls.hpp"
 #include "stats_collector.hpp"
 
@@ -32,12 +33,15 @@
 #include <raikiri/domain/demo_instruments.hpp>
 #include <raikiri/exec/caps.hpp>
 #include <raikiri/exec/venue.hpp>
+#include <raikiri/introspect/clock_probe.hpp>
 #include <raikiri/introspect/files.hpp>
+#include <raikiri/introspect/server_time.hpp>
 #include <raikiri/journal/detail.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
-#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/net/rest_client.hpp>
+#include <raikiri/net/ws_client.hpp>
+#include <raikiri/net/ws_limits.hpp>
 #include <raikiri/schema/codec.hpp>
 #include <raikiri/shm/records.hpp>
 #include <raikiri/venues/binance/binance_venue.hpp>
@@ -84,6 +88,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <random>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -175,8 +180,9 @@ class ShmSink final : public raikiri::exec::GatewaySink {
 public:
     ShmSink(raikiri::VenueId venue,
             raikiri::shm::GatewayChannels channels,
-            raikiri::journal::JournalWriter& journal)
-        : venue_{venue}, ch_{channels}, journal_{&journal} {}
+            raikiri::journal::JournalWriter& journal,
+            raikiri::gatewayd::LatencyMeter& latency)
+        : venue_{venue}, ch_{channels}, journal_{&journal}, latency_{&latency} {}
 
     void on_bbo(const raikiri::Bbo& bbo) noexcept override {
         ++counts_.bbo;
@@ -185,6 +191,7 @@ public:
             ch_.bbo->write(idx, bbo);
             priced_ns_[idx] = std::max<std::uint64_t>(bbo.ts_init.ns, 1);
         }
+        latency_->published(raikiri::gatewayd::Channel::Bbo, bbo.ts_event, bbo.ts_init);
     }
 
     void on_trade(const raikiri::TradeTick& trade) noexcept override {
@@ -199,6 +206,7 @@ public:
         event.ts_init = trade.ts_init;
         event.venue_seq = ++md_seq_;
         ch_.md_events->publish(event);
+        latency_->published(raikiri::gatewayd::Channel::Trades, trade.ts_event, trade.ts_init);
     }
 
     // ONE LADDER PER INSTRUMENT PER WINDOW, and the window is what a reader
@@ -245,6 +253,7 @@ public:
         // identical to one that honoured it.
         counts_.depth_levels = std::max({counts_.depth_levels, book.bid_count, book.ask_count});
         ch_.depth->write(idx, book);
+        latency_->published(raikiri::gatewayd::Channel::Depth, book.ts_event, book.ts_init);
     }
 
     void on_ticker_stats(const raikiri::TickerStats& stats) noexcept override {
@@ -265,6 +274,7 @@ public:
             ch_.funding->write(idx, funding);
             funded_[idx] = true;
         }
+        latency_->published(raikiri::gatewayd::Channel::Funding, funding.ts_event, funding.ts_init);
         // ONLY WHEN IT SAYS SOMETHING NEW. A perp position pays or receives at
         // every settlement, so the history of RATES is what a PnL attribution
         // is reconstructed from and it does have to be durable — but a venue
@@ -395,6 +405,7 @@ public:
             pending_ = {};
         }
         ch_.exec_events->publish({event});
+        latency_->order_event(event);
         (void)raikiri::schema::append_msg<msgs::OrderEventMsg>(
             *journal_, event.ts_init.ns, [&](auto m) {
                 namespace jt = raikiri_journal::types;
@@ -486,6 +497,7 @@ private:
     raikiri::VenueId venue_;
     raikiri::shm::GatewayChannels ch_;
     raikiri::journal::JournalWriter* journal_;
+    raikiri::gatewayd::LatencyMeter* latency_;
 
     // When each instrument's ladder was last published. Wall time, because
     // that is what the adapters hand in; a venue that stamps the future would
@@ -972,7 +984,10 @@ public:
         // collapsed so the endpoint is what gets counted.
         const auto path = collapse(target.substr(0, target.find('?')));
         const std::lock_guard lock{mu_};
-        auto& row = spent_[std::string{host}.append(path)];
+        auto key = std::string{host}.append(path);
+        book_.series(key, raikiri::introspect::Stage::Rest)
+            .record(static_cast<std::int64_t>(elapsed_ns));
+        auto& row = spent_[std::move(key)];
         ++row.calls;
         if (status < 200 || status >= 300) {
             ++row.refused;
@@ -986,6 +1001,24 @@ public:
                       status,
                       elapsed_ns / 1'000'000);
         }
+    }
+
+    void arrival(std::string_view host, std::uint64_t queued_ns) {
+        const std::lock_guard lock{mu_};
+        book_.series(host, raikiri::introspect::Stage::KernelQueue)
+            .record(static_cast<std::int64_t>(queued_ns));
+    }
+
+    void pong(std::string_view host, std::uint64_t rtt_ns) {
+        const std::lock_guard lock{mu_};
+        book_.series(host, raikiri::introspect::Stage::WsPing)
+            .record(static_cast<std::int64_t>(rtt_ns));
+    }
+
+    [[nodiscard]] std::vector<raikiri::introspect::LatencyStats> latency(std::uint64_t mono_ns) {
+        const std::lock_guard lock{mu_};
+        book_.rotate_if_due(mono_ns);
+        return book_.stats();
     }
 
     [[nodiscard]] std::vector<raikiri::introspect::RestEndpointStats> endpoints() const {
@@ -1026,6 +1059,7 @@ private:
 
     mutable std::mutex mu_;
     std::map<std::string, Row> spent_;
+    raikiri::introspect::LatencyBook book_;
     bool verbose_;
 };
 
@@ -1256,7 +1290,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ShmSink sink{venue, *channels, *journal_writer};
+    introspect::LatencyBook feed_latency;
+    gatewayd::LatencyMeter latency{feed_latency, clock};
+    ShmSink sink{venue, *channels, *journal_writer, latency};
 
     venues::sim::register_adapter();
     venues::bybit::register_adapter();
@@ -1517,6 +1553,13 @@ int main(int argc, char** argv) {
             std::string_view host, std::string_view target, int status, std::uint64_t elapsed_ns) {
             requests.observe(host, target, status, elapsed_ns, account_name);
         });
+    raikiri::net::set_pong_observer([&requests](std::string_view host, std::uint64_t rtt_ns) {
+        requests.pong(host, rtt_ns);
+    });
+    raikiri::net::set_arrival_observer(
+        [&requests](std::string_view host, std::uint64_t queued_ns) {
+            requests.arrival(host, queued_ns);
+        });
     RateWitness rates;
     raikiri::net::set_rate_observer(
         [&rates, &clock](std::string_view host, const raikiri::net::RateHeader& header) {
@@ -1689,6 +1732,44 @@ int main(int argc, char** argv) {
         }
     }
 
+    // THE VENUE'S CLOCK, asked on a thread of its own: a round trip from here
+    // is milliseconds the command rings must not wait on.
+    std::mutex probed_mu;
+    introspect::ClockEstimate probed{};
+    std::string probe_endpoint;
+    std::thread prober;
+    if (const auto endpoint = introspect::time_endpoint(venue_name, to_string(market));
+        endpoint.has_value()) {
+        probe_endpoint = std::string{endpoint->host} + std::string{endpoint->path};
+        prober = std::thread([&, endpoint = *endpoint] {
+            introspect::RestServerTime source{endpoint, clock};
+            std::mt19937_64 rng{std::random_device{}()};
+            introspect::ProbeClock probe{
+                source,
+                [&clock] { return clock.mono().ns; },
+                [&budget, &clock, path = endpoint.path] {
+                    return !budget.has_value() ||
+                           budget->take(path, clock.mono(), exec::RateClass::Poll).has_value();
+                },
+                [&rng](std::uint64_t lo, std::uint64_t hi) {
+                    return std::uniform_int_distribution<std::uint64_t>{lo, hi}(rng);
+                }};
+            while (!g_stop.load(std::memory_order_relaxed)) {
+                const auto due = probe.tick();
+                {
+                    const std::lock_guard lock{probed_mu};
+                    probed = probe.estimate();
+                }
+                while (!g_stop.load(std::memory_order_relaxed) && clock.mono().ns < due) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+                }
+            }
+        });
+    } else {
+        RLOG_INFO("gatewayd[{}]: no time endpoint — clock offset bounded from the feed",
+                  account_name);
+    }
+
     const auto t_end =
         duration_s != 0 ? clock.mono() + duration_s * 1'000'000'000ULL : MonoNanos{~0ULL};
     std::uint64_t flush_due = 0;
@@ -1796,6 +1877,7 @@ int main(int argc, char** argv) {
             // every command kind and is the only writer these rings have.
             switch (cmd.kind) {
             case CmdKind::Create:
+                latency.order_sent(cmd.client_order_id.raw);
                 adapter->execution->submit(cmd);
                 break;
             case CmdKind::Amend:
@@ -1831,13 +1913,33 @@ int main(int argc, char** argv) {
             stats_due = mono.ns + k_stats_every_ns;
             const auto began = clock.mono().ns;
             const auto wall = clock.wall().ns;
+            auto estimate = [&] {
+                const std::lock_guard lock{probed_mu};
+                return probed;
+            }();
+            if (estimate.method == introspect::ClockMethod::None) {
+                estimate = latency.bound(wall);
+            }
+            latency.use_offset(estimate);
+            latency.rotate_if_due(mono.ns);
+            feed_latency.rotate_if_due(mono.ns);
+            auto measured = feed_latency.stats();
+            for (auto& row : requests.latency(mono.ns)) {
+                measured.push_back(std::move(row));
+            }
             const bool written = stats.publish(
                 {.wall_ns = wall,
                  .mono_ns = mono.ns,
                  .messages = sink.message_counts(),
                  .coverage = sink.coverage(wall, gatewayd::StatsCollector::k_window_ns),
                  .venue_refusals = adapter->data->subscribe_refusals(),
-                 .rest_endpoints = requests.endpoints()},
+                 .rest_endpoints = requests.endpoints(),
+                 .clock = introspect::clock_stats(
+                     std::string{venue_name},
+                     estimate.method == introspect::ClockMethod::RestProbe ? probe_endpoint
+                                                                           : std::string{},
+                     estimate),
+                 .latency = std::move(measured)},
                 budget.has_value() ? &*budget : nullptr);
             const auto cost = clock.mono().ns - began;
             stats_cost_ns += cost;
@@ -1862,6 +1964,9 @@ int main(int argc, char** argv) {
 
     if (poller.joinable()) {
         poller.join();
+    }
+    if (prober.joinable()) {
+        prober.join();
     }
     adapter->data->stop();
     adapter->execution->stop();
