@@ -1,14 +1,14 @@
-# raikiri — documentation
+# raikiri documentation
 
 How the framework is put together and how to work with it. The
 [project README](../README.md) is the short version.
 
-- [Architecture](#architecture) — processes, channels, the invariants
-- [Running a gateway](#running-a-gateway) — flags, credentials, the smoke test
-- [Venue table](#venue-table) — what each column means, and adding a venue
-- [Performance](#performance) — measured numbers
-- [Build and test](#build-and-test) — presets and sanitizers
-- [Status](#status) — what is proven and what is merely written
+- [Architecture](#architecture): processes, channels, invariants
+- [Running a gateway](#running-a-gateway): flags, credentials, the smoke test
+- [Venue table](#venue-table): column meanings, adding a venue
+- [Performance](#performance): measured numbers
+- [Build and test](#build-and-test): presets and sanitizers
+- [Status](#status): what has run against real accounts and what has not
 
 ---
 
@@ -56,36 +56,35 @@ flowchart LR
     A --> W(["terminal"])
 ```
 
-Each gateway is one process serving **one venue and one market** —
-`gatewayd --venue=deribit --market=option` — and owning a shared-memory segment. A
-single-threaded kernel busy-polls every segment it is attached to, holds one book
-across all of them, and fires orders back through the command rings. `persisterd`
-tails the journals into Postgres; the trading path never waits on either.
+Each gateway is one process for one venue and one market
+(`gatewayd --venue=deribit --market=option`) and owns a shared-memory segment. A
+single-threaded kernel polls every segment it is attached to, keeps one book across
+them and sends orders back through the command rings. `persisterd` copies the journals
+into Postgres; the trading path never waits on it.
 
-**The channel class is a decision per channel, not a default.**
+Each channel uses the structure that fits its data:
 
 | Channel                                         | Kind                            | Why                                                                                                 |
 | :---------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------- |
-| quotes, depth, funding, greeks, venue positions | seqlock table, overwrite-newest | a stale tick is worthless — a reader that falls behind should skip, never queue                     |
-| market data, execution events                   | broadcast ring, gap-detecting   | a fill that was dropped is money the book never learned about; an overrun is reported, not absorbed |
-| order commands                                  | SPSC ring, lossless             | the escape hatch must work precisely when something is wrong                                        |
+| quotes, depth, funding, greeks, venue positions | seqlock table, overwrite-newest | only the latest value matters; a slow reader skips ahead                                            |
+| market data, execution events                   | broadcast ring, gap-detecting   | a dropped fill would leave the book wrong, so an overrun is reported                                |
+| order commands                                  | SPSC ring, lossless             | cancels have to arrive even when the system is under stress                                         |
 
 <details>
 <summary><b>Invariants the code is built on</b></summary>
 
 <br>
 
-- Money is fixed-point `int64` throughout. `double` is banned from decision code — a
-  double round-trip is exactly how a price becomes off by a tick.
-- A wire value that does not divide exactly by an instrument's tick or lot size is a
-  **schema event**, never something to round over.
-- Absence of evidence is not evidence of flatness. A venue that cannot report, a pull
-  that failed, and a venue reporting zero are three different facts; collapsing them is
-  how a system concludes it holds nothing while holding something.
-- Hot path: `std::expected`, preallocated, zero allocation in steady state.
-  Cold path: exceptions, coroutines for connection orchestration.
-- Production target is Linux x86-64. macOS is a supported dev and demo platform, with
-  no core pinning or hugepages.
+- Money is fixed-point `int64`. Decision code does not use `double`, because a double
+  round trip can move a price by a tick.
+- A wire value that is not an exact multiple of the instrument's tick or lot size is
+  treated as a schema change and is not rounded.
+- A venue that cannot report, a failed pull and a reported zero are kept apart, so a
+  failed position read is never taken as a flat position.
+- The hot path uses `std::expected` and preallocated memory with no allocation in steady
+  state. The cold path uses exceptions and coroutines for connection handling.
+- Production runs on Linux x86-64. macOS works for development, without core pinning or
+  hugepages.
 
 </details>
 
@@ -93,8 +92,7 @@ tails the journals into Postgres; the trading path never waits on either.
 
 ## Running a gateway
 
-No credentials are needed to watch a market — every adapter's public path runs
-unauthenticated.
+Public market data needs no credentials.
 
 ```sh
 make deps && make build
@@ -106,14 +104,14 @@ build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 
 tools/venue_smoke.sh 20
 ```
 
-A gateway prints what it received when it stops — instruments loaded, then BBO, depth,
-trade and funding counts. **Silence is the failure mode this reports against:** a venue
-can rename a channel or stop publishing a stream without any unit test noticing, so the
-smoke run fails a venue that loads no instruments or publishes no quote.
+On exit a gateway prints the instruments it loaded and its BBO, depth, trade and
+funding counts. A venue can rename a channel or stop publishing a stream without any
+unit test noticing, so the smoke run fails a venue that loads no instruments or
+publishes no quote.
 
-Credentials are passed as **references, never values** — `env:NAME`, `file:/path`,
-`exec:command` or `op://vault/item/field`. A secret on a command line is visible to
-every process on the box through `ps`.
+Credentials are passed as references (`env:NAME`, `file:/path`, `exec:command` or
+`op://vault/item/field`), never as values, because a secret on the command line is
+visible to every process through `ps`.
 
 ```sh
 gatewayd --venue=bybit --market=perp \
@@ -126,28 +124,14 @@ gatewayd --venue=bybit --market=perp \
 
 The table in the [project README](../README.md#venues) is generated from
 [`libs/exec/src/caps.cpp`](../libs/exec/src/caps.cpp) by
-[`tools/venue_table.py`](../tools/venue_table.py). What its columns mean:
+[`tools/venue_table.py`](../tools/venue_table.py).
 
-`order entry` is *market data only* when the adapter sends nothing at all — for
-`aster` and `grvt` that is not an omission but a different signer: both authorise with
-an EVM wallet signature (EIP-712 typed data on `grvt`) rather than a key/secret pair,
-so no credential this codebase carries would work. `lighter` is the same case on a
-zk-rollup: an order is a transaction signed with the venue's own API-key scheme.
-For `cryptocom` it is an omission: the venue signs with an ordinary HMAC key and
-secret, and the order path is simply not written.
-
-`custody` is the one column the caps table cannot answer: no capability bit separates
-a venue holding your coins from a contract that does not. It lives in the generator,
-which refuses to build rather than default a venue it has no entry for.
-
-`private stream` names how the venue authenticates its account socket. `ListenKey`
-mints a URL-bearing token over REST; `AuthSubscribe` signs a frame on an already-open
-socket; `—` means the venue publishes no account socket at all, so a fill reaches the
-process through the reconciliation pull and nowhere else.
-
-`funding ledger` is what the venue **charged**, read from its own ledger — never
-derived from the public rate. An adapter that cannot ask and one that was charged
-nothing are different facts, and this column separates them.
+| column | meaning |
+| :-- | :-- |
+| `order entry` | *market data only* means the adapter sends no orders. `aster` and `grvt` sign with an EVM wallet (EIP-712 on `grvt`) and `lighter` with its own zk-rollup key scheme, none of which this codebase holds. `cryptocom` uses a plain HMAC key; its order path is not written yet. |
+| `custody` | whether the venue holds your coins (CEX) or a contract does (DEX). The caps table has no bit for this, so the generator keeps the list and refuses a venue it does not know. |
+| `private stream` | how the account socket authenticates. `ListenKey` gets a token over REST and puts it in the URL; `AuthSubscribe` signs a frame on an open socket; `–` means there is no account socket and fills arrive through the reconciliation pull. |
+| `funding ledger` | the adapter reads funding the venue actually charged from the account ledger, not from the public rate. |
 
 <details>
 <summary><b>Adding a venue</b></summary>
@@ -158,17 +142,14 @@ A market-data adapter is roughly 3,500 lines: catalogue, symbol map, book, envel
 dispatch, REST builder and the websocket client. Order entry adds a signer, an
 execution client and the reconciliation pulls.
 
-The order of work that has held up: capture fixtures from the live venue first
-(`tests/venues/<name>/fixtures`, with a README recording provenance), write the
-parsers against those bytes, then wire the client. A parser test is only evidence if
-the bytes are the bytes the venue actually sends — which is why every fixture
-directory names the endpoint and the date it was captured.
+Capture fixtures from the live venue first (`tests/venues/<name>/fixtures`, with a
+README naming the endpoint and capture date), write the parsers against those bytes,
+then wire the client.
 
-Register in four places: `VenueId` in `libs/domain`, the caps row, the factory, and
-`register_adapter()` in `apps/gatewayd/main.cpp`. Registration is explicit on purpose —
-static self-registration lets the linker silently drop a venue from a static library,
-and a venue that vanishes at link time without a diagnostic is exactly the class of
-magic this codebase refuses.
+Register the venue in four places: `VenueId` in `libs/domain`, the caps row, the
+factory and `register_adapter()` in `apps/gatewayd/main.cpp`. Registration is explicit
+because static self-registration lets the linker drop a venue from a static library
+without a diagnostic.
 
 </details>
 
@@ -176,10 +157,10 @@ magic this codebase refuses.
 
 ## Performance
 
-Measured on an Apple M-series laptop, release build, `make bench`. Linux x86-64 is the
-production target; these are the numbers the development machine gives.
+Measured on an Apple M-series laptop with a release build (`make bench`). Production
+runs on Linux x86-64.
 
-**Shared-memory primitives** — single operation, no contention:
+Shared-memory primitives, single operation, no contention:
 
 | operation         |    time |
 | :---------------- | ------: |
@@ -188,8 +169,7 @@ production target; these are the numbers the development machine gives.
 | seqlock write     | 1.72 ns |
 | broadcast publish | 2.14 ns |
 
-**Cross-process round trip** — two processes, one SPSC ring each way, 200,000 round
-trips:
+Cross-process round trip, two processes, one SPSC ring each way, 200,000 round trips:
 
 |       |    RTT | one way |
 | :---- | -----: | ------: |
@@ -198,15 +178,15 @@ trips:
 | p99   | 250 ns |  125 ns |
 | p99.9 | 292 ns |  146 ns |
 
-The tail matters more than the median here. `max` was 19.5 µs — a scheduler
-preemption, not a data-structure cost, and the reason the production target pins cores.
+The maximum was 19.5 µs, caused by scheduler preemption rather than the data
+structure. Production pins cores for this reason.
 
 ---
 
 ## Build and test
 
-Requires CMake ≥ 3.28, Ninja, Conan 2, and a C++23 compiler — GCC 14, Clang 18 or
-AppleClang 17.
+Requires CMake ≥ 3.28, Ninja, Conan 2 and a C++23 compiler (GCC 14, Clang 18 or
+AppleClang 17).
 
 ```sh
 make deps                  # dependencies via Conan
@@ -219,19 +199,11 @@ make bench                 # Release benchmarks
 
 ## Status
 
-**Usable today:** market data across all twenty venues, order entry on the seventeen
-the table marks, the shared-memory transport, the SBE journals and their Postgres
-tail, and the HTTP/WebSocket admin plane behind
-[`schema/admin-api.yaml`](../schema/admin-api.yaml).
+Working today: market data on all 28 venues in the table, order entry on the 16 it
+marks, the shared-memory transport, the SBE journals and their Postgres copy, and the
+HTTP/WebSocket admin API in [`schema/admin-api.yaml`](../schema/admin-api.yaml).
 
-**Honest about the rest.** The caps table carries, per venue and per capability,
-whether a bit is set because a path was exercised against a real account or because it
-was implemented and never run. Several venues are the latter, and the distinction is
-recorded per bit. On `weex`, for instance, every private path answered `401` rather
-than `404` — which is how a routed path was told from an invented one — while the bits
-that flipped true name the date a real order, position or settlement went through.
-Those comments are the real status page, and they are deliberately more pessimistic
-than the code.
+The caps table records, per venue and capability, whether a path has run against a real
+account or is implemented but untested. Several venues are still untested.
 
-The API is **not stable**. This is a framework in active development, and a release
-that moves a shared-memory layout will say so.
+The API is not stable yet. A release that changes a shared-memory layout will say so.
