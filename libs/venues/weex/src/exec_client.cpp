@@ -14,7 +14,7 @@
 #include "clients.hpp"
 #include "rest/api.hpp"
 
-namespace raikiri::venues::weex::detail {
+namespace raikiri::venues::weex::internal {
 
 namespace {
 
@@ -509,4 +509,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<WeexExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::weex::detail
+} // namespace raikiri::venues::weex::internal

@@ -6,18 +6,13 @@
 
 namespace raikiri::venues::xt {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 std::expected<void, WireError>
-take_status(detail::ondemand::object& obj, std::string_view key, WireOrderStatus& into) {
+take_status(wire::ondemand::object& obj, std::string_view key, WireOrderStatus& into) {
     const auto text = opt_scalar(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
@@ -34,14 +29,14 @@ bool text_is_maker(std::string_view text) noexcept {
 
 // The single-record reads put the payload under `result`; the socket puts it
 // under `data`. Nothing else distinguishes them, so both are tried.
-std::expected<detail::ondemand::object, WireError> payload_of(detail::ondemand::object& root) {
-    if (detail::has_field(root, "result")) {
-        return detail::req_object(root, "result");
+std::expected<wire::ondemand::object, WireError> payload_of(wire::ondemand::object& root) {
+    if (wire::has_field(root, "result")) {
+        return wire::req_object(root, "result");
     }
-    return detail::req_object(root, "data");
+    return wire::req_object(root, "data");
 }
 
-std::expected<void, WireError> read_futures_order(detail::ondemand::object& obj,
+std::expected<void, WireError> read_futures_order(wire::ondemand::object& obj,
                                                   WireFuturesOrder& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"orderId", &out.order_id},
@@ -74,7 +69,7 @@ std::expected<void, WireError> read_futures_order(detail::ondemand::object& obj,
     return {};
 }
 
-std::expected<void, WireError> read_futures_deal(detail::ondemand::object& obj,
+std::expected<void, WireError> read_futures_deal(wire::ondemand::object& obj,
                                                  WireFuturesDeal& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"execId", &out.exec_id},
@@ -97,7 +92,7 @@ std::expected<void, WireError> read_futures_deal(detail::ondemand::object& obj,
     if (!taker_maker->empty()) {
         out.maker = text_is_maker(*taker_maker);
         out.liquidity_known = true;
-    } else if (detail::has_field(obj, "isMaker")) {
+    } else if (wire::has_field(obj, "isMaker")) {
         const auto is_maker = opt_bool_or(obj, "isMaker", false);
         if (!is_maker.has_value()) {
             return std::unexpected(is_maker.error());
@@ -125,7 +120,7 @@ std::expected<void, WireError> read_futures_deal(detail::ondemand::object& obj,
     return {};
 }
 
-std::expected<void, WireError> read_spot_order(detail::ondemand::object& obj, WireSpotOrder& out) {
+std::expected<void, WireError> read_spot_order(wire::ondemand::object& obj, WireSpotOrder& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"orderId", &out.order_id},
                                      std::pair{"clientOrderId", &out.client_order_id},
@@ -159,7 +154,7 @@ std::expected<void, WireError> read_spot_order(detail::ondemand::object& obj, Wi
     return {};
 }
 
-std::expected<void, WireError> read_spot_trade(detail::ondemand::object& obj, WireSpotTrade& out) {
+std::expected<void, WireError> read_spot_trade(wire::ondemand::object& obj, WireSpotTrade& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"tradeId", &out.trade_id},
                                      std::pair{"orderId", &out.order_id},
@@ -303,23 +298,23 @@ std::expected<std::string_view, WireError> parse_order_ack(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        detail::ondemand::value result;
+        wire::ondemand::value result;
         if (const auto ec = wire::find(*root, "result").get(result); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        detail::ondemand::json_type type{};
+        wire::ondemand::json_type type{};
         if (const auto ec = result.type().get(type); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         // Futures create and cancel answer with the id as a BARE STRING;
         // futures amend and every spot write wrap it in an object, under
         // `orderId` on a create or amend and `cancelId` on a cancel.
-        if (type != detail::ondemand::json_type::object) {
+        if (type != wire::ondemand::json_type::object) {
             return scalar_of(result);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = result.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto order_id = opt_scalar(obj, "orderId");
         if (!order_id.has_value()) {
@@ -403,7 +398,7 @@ std::expected<WireSpotOrder, WireError> parse_spot_order_push(std::string_view f
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -444,7 +439,7 @@ std::expected<WireSpotTrade, WireError> parse_spot_trade_push(std::string_view f
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }

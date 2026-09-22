@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -23,7 +18,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }

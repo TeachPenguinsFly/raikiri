@@ -22,7 +22,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::gate::detail {
+namespace raikiri::venues::gate::internal {
 
 // Every market this adapter can act on, named exhaustively so Option is a
 // case the compiler forces a decision about rather than something a default
@@ -368,4 +368,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::gate::detail
+} // namespace raikiri::venues::gate::internal

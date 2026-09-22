@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -24,7 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace raikiri::venues::bingx::detail {
+namespace raikiri::venues::bingx::internal {
 
 // Live orders tracked for our own id. Far above any sane working set; the cap
 // exists so a venue incident cannot turn the map into the heap.
@@ -149,4 +149,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 // not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
 
-} // namespace raikiri::venues::bingx::detail
+} // namespace raikiri::venues::bingx::internal

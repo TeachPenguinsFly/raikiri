@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::bitfinex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // The /conf endpoints take a list of keys and answer one result per key, so a
 // single-key request still arrives wrapped one level deeper than its payload.
@@ -34,24 +29,24 @@ std::expected<std::span<const WirePairInfo>, WireError> parse_pair_info(std::str
                 break;
             }
             ++results;
-            detail::ondemand::array pairs;
+            wire::ondemand::array pairs;
             if (const auto ec = result.get_array().get(pairs); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             for (auto entry : pairs) {
                 if (count == k_max_pairs) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
-                detail::ondemand::array pair;
+                wire::ondemand::array pair;
                 if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 WirePairInfo out{};
                 std::size_t index = 0;
                 for (auto field : pair) {
-                    detail::ondemand::value value;
+                    wire::ondemand::value value;
                     if (const auto ec = field.get(value); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     if (index == 0) {
                         const auto token = token_of(value);

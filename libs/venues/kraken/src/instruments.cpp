@@ -23,7 +23,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::kraken::detail {
+namespace raikiri::venues::kraken::internal {
 
 namespace {
 
@@ -109,4 +109,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<KrakenInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::kraken::detail
+} // namespace raikiri::venues::kraken::internal

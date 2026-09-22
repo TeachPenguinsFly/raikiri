@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::bingx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -20,7 +18,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -29,19 +27,19 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireContract out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
             const auto price_precision = req_i64(obj, "pricePrecision");
             const auto quantity_precision = req_i64(obj, "quantityPrecision");
-            const auto status = detail::opt_i64(obj, "status");
+            const auto status = wire::opt_i64(obj, "status");
             if (!price_precision.has_value() || !quantity_precision.has_value() ||
                 !status.has_value()) {
                 return std::unexpected(WireError::WrongType);
@@ -57,14 +55,14 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                  {std::pair{"apiStateOpen", &out.api_open},
                   std::pair{"apiStateClose", &out.api_close}}) {
                 obj.reset();
-                const auto text = detail::opt_str(obj, key).value_or(std::string_view{});
+                const auto text = wire::opt_str(obj, key).value_or(std::string_view{});
                 *field = text != "false";
             }
             obj.reset();
             for (const auto& [key, field] : {std::pair{"size", &out.size},
                                              std::pair{"tradeMinQuantity", &out.trade_min_quantity},
                                              std::pair{"tradeMinUSDT", &out.trade_min_usdt}}) {
-                const auto value = detail::opt_raw(obj, key);
+                const auto value = wire::opt_raw(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());
                 }
@@ -84,11 +82,11 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        auto array = detail::req_array(*data, "symbols");
+        auto array = wire::req_array(*data, "symbols");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -97,12 +95,12 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             if (count == k_max_spot_symbols) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireSpotSymbol out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
@@ -121,8 +119,8 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                 return std::unexpected(status.error());
             }
             out.status = *status;
-            const auto buy = detail::opt_bool(obj, "apiStateBuy");
-            const auto sell = detail::opt_bool(obj, "apiStateSell");
+            const auto buy = wire::opt_bool(obj, "apiStateBuy");
+            const auto sell = wire::opt_bool(obj, "apiStateSell");
             if (!buy.has_value() || !sell.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }

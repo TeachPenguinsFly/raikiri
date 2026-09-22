@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::bitget {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+using wire::session;
+namespace ondemand = wire::ondemand;
 
 // feeDetail has three shapes across the endpoints that carry it: an object on
 // spot fills, an ARRAY of the same object on mix fills, and a JSON-encoded
@@ -26,7 +21,7 @@ std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj)
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     ondemand::json_type type{};
     if (value.type().get(type) != simdjson::SUCCESS) {
@@ -42,7 +37,7 @@ std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj)
             if (item.get_object().get(fee) != simdjson::SUCCESS) {
                 return std::unexpected(WireError::WrongType);
             }
-            return detail::opt_str(fee, "totalFee");
+            return wire::opt_str(fee, "totalFee");
         }
         return std::string_view{};
     }
@@ -51,7 +46,7 @@ std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj)
         if (value.get_object().get(fee) != simdjson::SUCCESS) {
             return std::unexpected(WireError::WrongType);
         }
-        return detail::opt_str(fee, "totalFee");
+        return wire::opt_str(fee, "totalFee");
     }
     return std::string_view{};
 }
@@ -97,9 +92,9 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
     }
     out.status = order_status_from(status);
     obj.reset();
-    out.fill_ms = detail::opt_ms(obj, "fillTime").value_or(0);
+    out.fill_ms = wire::opt_ms(obj, "fillTime").value_or(0);
     obj.reset();
-    out.update_ms = detail::opt_ms(obj, "uTime").value_or(0);
+    out.update_ms = wire::opt_ms(obj, "uTime").value_or(0);
     return {};
 }
 
@@ -128,7 +123,7 @@ std::expected<void, WireError> read_fill(ondemand::object& obj, WireFill& out) {
     }
     out.fee = *fee;
     obj.reset();
-    out.ts_ms = detail::opt_ms(obj, "cTime").value_or(0);
+    out.ts_ms = wire::opt_ms(obj, "cTime").value_or(0);
     return {};
 }
 
@@ -195,17 +190,17 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         WireOrderAck out{};
-        const auto order_id = detail::opt_str(*data, "orderId");
+        const auto order_id = wire::opt_str(*data, "orderId");
         if (!order_id.has_value()) {
             return std::unexpected(order_id.error());
         }
         out.order_id = *order_id;
-        const auto client_oid = detail::opt_str(*data, "clientOid");
+        const auto client_oid = wire::opt_str(*data, "clientOid");
         if (!client_oid.has_value()) {
             return std::unexpected(client_oid.error());
         }

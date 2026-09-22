@@ -4,17 +4,12 @@
 
 namespace raikiri::venues::bitfinex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireOrder, WireError> read_order(detail::ondemand::value value) {
+std::expected<WireOrder, WireError> read_order(wire::ondemand::value value) {
     const auto row = read_row<k_order_arity>(value);
     if (!row.has_value()) {
         return std::unexpected(row.error());
@@ -31,15 +26,15 @@ std::expected<WireOrder, WireError> read_order(detail::ondemand::value value) {
     out.status = order_status(out.status_text);
     (void)token_to_i64(row->template at<k_order_cid>(), out.cid);
     (void)token_to_i64(row->template at<k_order_flags>(), out.flags);
-    out.mts_create = detail::digits_to_u64(row->template at<k_order_mts_create>());
-    out.mts_update = detail::digits_to_u64(row->template at<k_order_mts_update>());
+    out.mts_create = wire::digits_to_u64(row->template at<k_order_mts_create>());
+    out.mts_update = wire::digits_to_u64(row->template at<k_order_mts_update>());
     if (out.id.empty() || out.symbol.empty()) {
         return std::unexpected(WireError::MissingField);
     }
     return out;
 }
 
-std::expected<WireExecution, WireError> read_execution(detail::ondemand::value value) {
+std::expected<WireExecution, WireError> read_execution(wire::ondemand::value value) {
     const auto row = read_row<k_exec_arity>(value);
     if (!row.has_value()) {
         return std::unexpected(row.error());
@@ -52,7 +47,7 @@ std::expected<WireExecution, WireError> read_execution(detail::ondemand::value v
     out.price = row->template at<k_exec_price>();
     out.fee = row->template at<k_exec_fee>();
     out.fee_currency = row->template at<k_exec_fee_currency>();
-    out.mts = detail::digits_to_u64(row->template at<k_exec_mts>());
+    out.mts = wire::digits_to_u64(row->template at<k_exec_mts>());
     // MAKER is 1 or -1, not a boolean, and it is absent from neither frame —
     // but a zero would be neither, so an unreadable token leaves the fill's
     // liquidity Unknown rather than defaulting it to taker.
@@ -75,14 +70,14 @@ bool names_one_order(std::string_view type) noexcept {
 }
 
 std::expected<void, WireError>
-assign_notification(std::size_t index, detail::ondemand::value value, WireNotification& out) {
+assign_notification(std::size_t index, wire::ondemand::value value, WireNotification& out) {
     switch (index) {
     case k_notify_mts: {
         const auto token = token_of(value);
         if (!token.has_value()) {
             return std::unexpected(token.error());
         }
-        out.mts = detail::digits_to_u64(*token);
+        out.mts = wire::digits_to_u64(*token);
         return {};
     }
     case k_notify_type: {
@@ -134,13 +129,13 @@ assign_notification(std::size_t index, detail::ondemand::value value, WireNotifi
     }
 }
 
-std::expected<WireNotification, WireError> read_notification(detail::ondemand::array rows) {
+std::expected<WireNotification, WireError> read_notification(wire::ondemand::array rows) {
     WireNotification out{};
     std::size_t index = 0;
     for (auto entry : rows) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (const auto ok = assign_notification(index, value, out); !ok.has_value()) {
             return std::unexpected(ok.error());
@@ -186,7 +181,7 @@ bool notification_ok(const WireNotification& notification) noexcept {
 
 std::expected<WireOrder, WireError> parse_order(std::string_view frame) {
     return guarded([&]() -> std::expected<WireOrder, WireError> {
-        return with_row(frame, [](detail::ondemand::value payload) { return read_order(payload); });
+        return with_row(frame, [](wire::ondemand::value payload) { return read_order(payload); });
     });
 }
 
@@ -194,7 +189,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
                                                                   OrderBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireOrder>, WireError> {
         const auto count = rows_of<WireOrder>(
-            body, storage.orders, [](detail::ondemand::value value) { return read_order(value); });
+            body, storage.orders, [](wire::ondemand::value value) { return read_order(value); });
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
@@ -205,7 +200,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
 std::expected<WireExecution, WireError> parse_execution(std::string_view frame) {
     return guarded([&]() -> std::expected<WireExecution, WireError> {
         return with_row(frame,
-                        [](detail::ondemand::value payload) { return read_execution(payload); });
+                        [](wire::ondemand::value payload) { return read_execution(payload); });
     });
 }
 
@@ -213,7 +208,7 @@ std::expected<std::span<const WireExecution>, WireError>
 parse_executions(std::string_view body, ExecutionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireExecution>, WireError> {
         const auto count =
-            rows_of<WireExecution>(body, storage.executions, [](detail::ondemand::value value) {
+            rows_of<WireExecution>(body, storage.executions, [](wire::ondemand::value value) {
                 return read_execution(value);
             });
         if (!count.has_value()) {
@@ -233,9 +228,9 @@ std::expected<WireNotification, WireError> parse_notification(std::string_view b
         std::size_t index = 0;
         bool wrapped = false;
         for (auto entry : *root) {
-            detail::ondemand::value value;
+            wire::ondemand::value value;
             if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (index == 1) {
                 const auto token = token_of(value);
@@ -255,9 +250,9 @@ std::expected<WireNotification, WireError> parse_notification(std::string_view b
                 continue;
             }
             if (wrapped && index == 2) {
-                detail::ondemand::array rows;
+                wire::ondemand::array rows;
                 if (const auto ec = value.get_array().get(rows); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 return read_notification(rows);
             }

@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::kraken {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -20,7 +18,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "instruments");
+        auto array = wire::req_array(*root, "instruments");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -29,13 +27,13 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto type = detail::req_str(obj, "type");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto type = wire::req_str(obj, "type");
             if (!symbol.has_value() || !type.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -43,9 +41,9 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.type = *type;
             const auto tick = opt_num(obj, "tickSize");
             const auto contract = opt_num(obj, "contractSize");
-            const auto underlying = detail::opt_str(obj, "underlying");
-            const auto last_trading = detail::opt_str(obj, "lastTradingTime");
-            const auto tradeable = detail::opt_bool(obj, "tradeable");
+            const auto underlying = wire::opt_str(obj, "underlying");
+            const auto last_trading = wire::opt_str(obj, "lastTradingTime");
+            const auto tradeable = wire::opt_bool(obj, "tradeable");
             if (!tick.has_value() || !contract.has_value() || !underlying.has_value() ||
                 !last_trading.has_value() || !tradeable.has_value()) {
                 return std::unexpected(WireError::WrongType);

@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+using wire::session;
+namespace ondemand = wire::ondemand;
 
 std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireFuturesOrder& out) {
     const auto symbol = field(obj, "symbol");
@@ -35,9 +30,9 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireFut
     out.order_type = int_field(obj, "orderType");
     out.state = int_field(obj, "state");
     out.error_code = int_field(obj, "errorCode");
-    out.update_ms = detail::digits_to_u64(field(obj, "updateTime"));
+    out.update_ms = wire::digits_to_u64(field(obj, "updateTime"));
     if (out.update_ms == 0) {
-        out.update_ms = detail::digits_to_u64(field(obj, "createTime"));
+        out.update_ms = wire::digits_to_u64(field(obj, "createTime"));
     }
     return {};
 }
@@ -54,16 +49,16 @@ std::expected<void, WireError> read_futures_deal(ondemand::object& obj, WireFutu
     out.vol = field(obj, "vol");
     out.fee = field(obj, "fee");
     out.side = int_field(obj, "side");
-    out.ts_ms = detail::digits_to_u64(field(obj, "timestamp"));
+    out.ts_ms = wire::digits_to_u64(field(obj, "timestamp"));
 
     obj.reset();
-    if (const auto taker = detail::opt_bool(obj, "taker"); taker.has_value()) {
+    if (const auto taker = wire::opt_bool(obj, "taker"); taker.has_value()) {
         out.taker = *taker;
         out.liquidity_known = true;
     }
     if (!out.liquidity_known) {
         obj.reset();
-        if (const auto taker = detail::opt_bool(obj, "isTaker"); taker.has_value()) {
+        if (const auto taker = wire::opt_bool(obj, "isTaker"); taker.has_value()) {
             out.taker = *taker;
             out.liquidity_known = true;
         }
@@ -85,13 +80,13 @@ std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireSpotOr
     out.side = field(obj, "side");
     out.type = field(obj, "type");
     out.status = spot_order_status(field(obj, "status"));
-    out.update_ms = detail::digits_to_u64(field(obj, "updateTime"));
+    out.update_ms = wire::digits_to_u64(field(obj, "updateTime"));
     if (out.update_ms == 0) {
         // A create response has `transactTime` and neither of the other two.
-        out.update_ms = detail::digits_to_u64(field(obj, "transactTime"));
+        out.update_ms = wire::digits_to_u64(field(obj, "transactTime"));
     }
     if (out.update_ms == 0) {
-        out.update_ms = detail::digits_to_u64(field(obj, "time"));
+        out.update_ms = wire::digits_to_u64(field(obj, "time"));
     }
     return {};
 }
@@ -108,11 +103,11 @@ std::expected<void, WireError> read_spot_trade(ondemand::object& obj, WireSpotTr
     out.price = field(obj, "price");
     out.qty = field(obj, "qty");
     out.commission = field(obj, "commission");
-    out.ts_ms = detail::digits_to_u64(field(obj, "time"));
+    out.ts_ms = wire::digits_to_u64(field(obj, "time"));
     obj.reset();
-    out.is_buyer = detail::opt_bool(obj, "isBuyer").value_or(false);
+    out.is_buyer = wire::opt_bool(obj, "isBuyer").value_or(false);
     obj.reset();
-    out.is_maker = detail::opt_bool(obj, "isMaker").value_or(false);
+    out.is_maker = wire::opt_bool(obj, "isMaker").value_or(false);
     return {};
 }
 

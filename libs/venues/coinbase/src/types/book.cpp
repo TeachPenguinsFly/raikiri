@@ -4,21 +4,16 @@
 
 namespace raikiri::venues::coinbase {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // ["price","size"], both decimal strings. Reading stops at the buffer rather
 // than failing: see the header on why truncating this particular array is safe.
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(root, key);
+read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(root, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -27,20 +22,20 @@ read_levels(detail::ondemand::object& root, std::string_view key, std::span<Wire
         if (count == into.size()) {
             break;
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         std::size_t field = 0;
         for (auto element : pair) {
-            detail::ondemand::value value;
+            wire::ondemand::value value;
             if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             // str_of, never get_string: the unescaping reader writes into a
             // buffer that cannot be rebased onto the caller's frame, and what
             // comes back from that is an empty view rather than a price.
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -74,7 +69,7 @@ std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view fram
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto product = detail::req_str(*root, "product_id");
+        const auto product = wire::req_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
         }
@@ -88,7 +83,7 @@ std::expected<WireL2Snapshot, WireError> parse_l2_snapshot(std::string_view fram
         if (!asks.has_value()) {
             return std::unexpected(asks.error());
         }
-        const auto time = detail::opt_str(*root, "time");
+        const auto time = wire::opt_str(*root, "time");
         if (!time.has_value()) {
             return std::unexpected(time.error());
         }
@@ -106,13 +101,13 @@ std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto product = detail::req_str(*root, "product_id");
+        const auto product = wire::req_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
         }
         WireL2Update out{};
         out.product_id = *product;
-        auto array = detail::req_array(*root, "changes");
+        auto array = wire::req_array(*root, "changes");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -121,18 +116,18 @@ std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
             if (count == k_max_changes) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::array triple;
+            wire::ondemand::array triple;
             if (const auto ec = entry.get_array().get(triple); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireChange change{};
             std::size_t field = 0;
             for (auto element : triple) {
-                detail::ondemand::value value;
+                wire::ondemand::value value;
                 if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
-                const auto text = detail::str_of(value);
+                const auto text = wire::str_of(value);
                 if (!text.has_value()) {
                     return std::unexpected(text.error());
                 }
@@ -151,7 +146,7 @@ std::expected<WireL2Update, WireError> parse_l2_update(std::string_view frame,
             storage.changes[count] = change;
             ++count;
         }
-        const auto time = detail::opt_str(*root, "time");
+        const auto time = wire::opt_str(*root, "time");
         if (!time.has_value()) {
             return std::unexpected(time.error());
         }

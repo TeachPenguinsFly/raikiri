@@ -5,31 +5,26 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
 namespace pb = raikiri::wire::pb;
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A level is [64150.5,65907,7]: price, size in CONTRACTS, and the resting
 // order count. Only the first two are read.
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
-    detail::ondemand::array triple;
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
+    wire::ondemand::array triple;
     if (const auto ec = entry.get_array().get(triple); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     WireLevel level{};
     std::size_t seen = 0;
     for (auto element : triple) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (seen < 2) {
             const auto text = scalar_of(value);
@@ -46,20 +41,20 @@ std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
                                                   std::span<WireLevel> into) {
-    detail::ondemand::array array;
+    wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     std::size_t count = 0;
     for (auto entry : array) {
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value);
         if (!level.has_value()) {
@@ -71,41 +66,41 @@ std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
     return count;
 }
 
-std::expected<std::uint64_t, WireError> ms_of(detail::ondemand::value value) {
+std::expected<std::uint64_t, WireError> ms_of(wire::ondemand::value value) {
     const auto text = scalar_of(value);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
 // One forward walk over `data`: begin and end are absent on a snapshot, and
 // looking each key up by name would skip both ladders once per miss.
 std::expected<void, WireError>
-read_depth_data(detail::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
+read_depth_data(wire::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
     std::optional<std::size_t> bids;
     std::optional<std::size_t> asks;
     std::expected<std::int64_t, WireError> begin{0};
     std::expected<std::int64_t, WireError> end{0};
     std::expected<std::int64_t, WireError> version{0};
-    std::expected<std::uint64_t, WireError> cts{detail::digits_to_u64({})};
-    std::expected<std::uint64_t, WireError> timestamp{detail::digits_to_u64({})};
+    std::expected<std::uint64_t, WireError> cts{wire::digits_to_u64({})};
+    std::expected<std::uint64_t, WireError> timestamp{wire::digits_to_u64({})};
     const auto int_of =
-        [](detail::ondemand::value value) -> std::expected<std::int64_t, WireError> {
+        [](wire::ondemand::value value) -> std::expected<std::int64_t, WireError> {
         std::int64_t n = 0;
         if (const auto ec = value.get_int64().get(n); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         return n;
     };
     for (auto field : data) {
         std::string_view key;
         if (const auto ec = field.escaped_key().get(key); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = field.value().get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (key == "bids" || key == "asks") {
             const bool bid = key == "bids";
@@ -127,7 +122,7 @@ read_depth_data(detail::ondemand::object& data, LevelBuffer& storage, WireDepth&
         }
     }
     if (!bids.has_value() || !asks.has_value()) {
-        return std::unexpected(detail::map_error(simdjson::NO_SUCH_FIELD));
+        return std::unexpected(wire::map_error(simdjson::NO_SUCH_FIELD));
     }
     if (!begin.has_value() || !end.has_value() || !version.has_value() || !cts.has_value()) {
         return std::unexpected(WireError::WrongType);
@@ -189,7 +184,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -227,7 +222,7 @@ std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view fram
         if (out.event.kind != EventKind::DepthFull || root->reset().error() != simdjson::SUCCESS) {
             return out;
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return out;
         }

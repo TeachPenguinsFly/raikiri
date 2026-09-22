@@ -22,7 +22,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 // Every market this adapter can act on, named exhaustively so Option is a case
 // the compiler forces a decision about rather than something a default arm
@@ -254,4 +254,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

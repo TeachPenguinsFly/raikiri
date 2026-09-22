@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::kraken {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -20,7 +18,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "openPositions");
+        auto array = wire::req_array(*root, "openPositions");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -29,13 +27,13 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             if (count == k_max_positions) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WirePosition out{};
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto side = detail::req_str(obj, "side");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto side = wire::req_str(obj, "side");
             if (!symbol.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }

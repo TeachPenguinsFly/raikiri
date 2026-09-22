@@ -6,26 +6,24 @@
 
 namespace raikiri::venues::lighter {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WirePrint, WireError> read_print(detail::ondemand::object& obj) {
+std::expected<WirePrint, WireError> read_print(wire::ondemand::object& obj) {
     WirePrint out{};
-    const auto price = detail::req_str(obj, "price");
-    const auto size = detail::req_str(obj, "size");
+    const auto price = wire::req_str(obj, "price");
+    const auto size = wire::req_str(obj, "size");
     if (!price.has_value() || !size.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.price = *price;
     out.size = *size;
-    const auto market = detail::opt_u64(obj, "market_id");
-    const auto id = detail::opt_u64(obj, "trade_id");
-    const auto ts = detail::opt_u64(obj, "timestamp");
-    const auto maker_ask = detail::opt_bool(obj, "is_maker_ask");
+    const auto market = wire::opt_u64(obj, "market_id");
+    const auto id = wire::opt_u64(obj, "trade_id");
+    const auto ts = wire::opt_u64(obj, "timestamp");
+    const auto maker_ask = wire::opt_bool(obj, "is_maker_ask");
     if (!market.has_value() || !id.has_value() || !ts.has_value() || !maker_ask.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -36,11 +34,11 @@ std::expected<WirePrint, WireError> read_print(detail::ondemand::object& obj) {
     return out;
 }
 
-std::expected<std::size_t, WireError> read_prints(detail::ondemand::object& root,
+std::expected<std::size_t, WireError> read_prints(wire::ondemand::object& root,
                                                   std::string_view key,
                                                   PrintBuffer& storage,
                                                   std::size_t count) {
-    auto array = detail::req_array(root, key);
+    auto array = wire::req_array(root, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -48,9 +46,9 @@ std::expected<std::size_t, WireError> read_prints(detail::ondemand::object& root
         if (count == k_max_prints) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto print = read_print(obj);
         if (!print.has_value()) {
@@ -62,9 +60,9 @@ std::expected<std::size_t, WireError> read_prints(detail::ondemand::object& root
     return count;
 }
 
-std::expected<WireMarketStats, WireError> read_stats(detail::ondemand::object& obj) {
+std::expected<WireMarketStats, WireError> read_stats(wire::ondemand::object& obj) {
     WireMarketStats out{};
-    const auto market = detail::opt_u64(obj, "market_id");
+    const auto market = wire::opt_u64(obj, "market_id");
     if (!market.has_value()) {
         return std::unexpected(market.error());
     }
@@ -75,15 +73,15 @@ std::expected<WireMarketStats, WireError> read_stats(detail::ondemand::object& o
         {"funding_rate", &out.last_funding_rate},
     }};
     for (const auto& [key, into] : strings) {
-        const auto value = detail::opt_str(obj, key);
+        const auto value = wire::opt_str(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
         *into = *value;
     }
-    const auto funding_ms = detail::opt_u64(obj, "funding_timestamp");
-    const auto base = detail::opt_raw(obj, "daily_base_token_volume");
-    const auto quote = detail::opt_raw(obj, "daily_quote_token_volume");
+    const auto funding_ms = wire::opt_u64(obj, "funding_timestamp");
+    const auto base = wire::opt_raw(obj, "daily_base_token_volume");
+    const auto quote = wire::opt_raw(obj, "daily_quote_token_volume");
     if (!funding_ms.has_value() || !base.has_value() || !quote.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -122,8 +120,8 @@ std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view fra
             return std::unexpected(root.error());
         }
         WireStatsFrame out{};
-        const auto channel = detail::req_str(*root, "channel");
-        const auto ts = detail::opt_u64(*root, "timestamp");
+        const auto channel = wire::req_str(*root, "channel");
+        const auto ts = wire::opt_u64(*root, "timestamp");
         if (!channel.has_value() || !ts.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -131,7 +129,7 @@ std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view fra
         const bool all = channel->ends_with(":all");
         const std::string_view key =
             channel->starts_with("spot_") ? "spot_market_stats" : "market_stats";
-        auto body = detail::req_object(*root, key);
+        auto body = wire::req_object(*root, key);
         if (!body.has_value()) {
             return std::unexpected(body.error());
         }
@@ -149,13 +147,13 @@ std::expected<WireStatsFrame, WireError> parse_market_stats(std::string_view fra
             if (count == k_max_stats) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::field field;
+            wire::ondemand::field field;
             if (const auto ec = std::move(entry).get(field); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = field.value().get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto row = read_stats(obj);
             if (!row.has_value()) {

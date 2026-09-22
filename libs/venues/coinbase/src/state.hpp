@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -23,7 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::coinbase::detail {
+namespace raikiri::venues::coinbase::internal {
 
 // Far above any sane working set; the cap exists so a venue incident cannot
 // turn the client-id memo into the heap.
@@ -122,4 +122,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 // not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-} // namespace raikiri::venues::coinbase::detail
+} // namespace raikiri::venues::coinbase::internal

@@ -26,7 +26,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::kucoin::detail {
+namespace raikiri::venues::kucoin::internal {
 
 namespace {
 
@@ -898,4 +898,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<KucoinData>(std::move(state));
 }
 
-} // namespace raikiri::venues::kucoin::detail
+} // namespace raikiri::venues::kucoin::internal

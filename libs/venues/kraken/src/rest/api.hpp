@@ -21,7 +21,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::kraken::detail {
+namespace raikiri::venues::kraken::internal {
 
 // /fills answers at most 100 rows and pages BACKWARDS from `lastFillTime`, so
 // a `since` older than this many pages is answered with what we could reach
@@ -252,4 +252,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::kraken::detail
+} // namespace raikiri::venues::kraken::internal

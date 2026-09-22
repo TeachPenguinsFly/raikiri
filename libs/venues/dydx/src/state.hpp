@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace raikiri::venues::dydx::detail {
+namespace raikiri::venues::dydx::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -50,4 +50,4 @@ struct VenueState {
     std::uint64_t overflows{0};
 };
 
-} // namespace raikiri::venues::dydx::detail
+} // namespace raikiri::venues::dydx::internal

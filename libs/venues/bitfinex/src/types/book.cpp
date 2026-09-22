@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::bitfinex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
+using wire::guarded;
 
-using JsonType = detail::ondemand::json_type;
+using JsonType = wire::ondemand::json_type;
 
 WireLevel level_from(const std::array<std::string_view, k_level_arity>& fields) noexcept {
     WireLevel out{};
@@ -53,14 +48,14 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
     return guarded([&]() -> std::expected<WireBook, WireError> {
         return with_payload(
             frame,
-            [&storage](detail::ondemand::value payload,
+            [&storage](wire::ondemand::value payload,
                        std::string_view tag) -> std::expected<WireBook, WireError> {
                 if (!tag.empty()) {
                     return std::unexpected(WireError::WrongType);
                 }
-                detail::ondemand::array rows;
+                wire::ondemand::array rows;
                 if (const auto ec = payload.get_array().get(rows); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 bool snapshot = false;
                 bool decided = false;
@@ -68,13 +63,13 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
                 std::array<std::string_view, k_level_arity> flat{};
                 std::size_t flat_len = 0;
                 for (auto entry : rows) {
-                    detail::ondemand::value value;
+                    wire::ondemand::value value;
                     if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     JsonType type{};
                     if (const auto ec = value.type().get(type); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     if (!decided) {
                         snapshot = type == JsonType::array;

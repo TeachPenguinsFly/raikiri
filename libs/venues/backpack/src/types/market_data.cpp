@@ -3,12 +3,10 @@
 
 namespace raikiri::venues::backpack {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -19,18 +17,18 @@ std::expected<WirePrint, WireError> parse_trade(std::string_view data) {
             return std::unexpected(root.error());
         }
         WirePrint out{};
-        const auto symbol = detail::req_str(*root, "s");
-        const auto price = detail::req_str(*root, "p");
-        const auto qty = detail::req_str(*root, "q");
+        const auto symbol = wire::req_str(*root, "s");
+        const auto price = wire::req_str(*root, "p");
+        const auto qty = wire::req_str(*root, "q");
         if (!symbol.has_value() || !price.has_value() || !qty.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.symbol = *symbol;
         out.price = *price;
         out.qty = *qty;
-        const auto id = detail::opt_u64(*root, "t");
-        const auto engine = detail::opt_u64(*root, "T");
-        const auto maker = detail::opt_bool(*root, "m");
+        const auto id = wire::opt_u64(*root, "t");
+        const auto engine = wire::opt_u64(*root, "T");
+        const auto maker = wire::opt_bool(*root, "m");
         if (!id.has_value() || !engine.has_value() || !maker.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -48,17 +46,17 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data) 
             return std::unexpected(root.error());
         }
         WireMarkPrice out{};
-        const auto symbol = detail::req_str(*root, "s");
-        const auto mark = detail::req_str(*root, "p");
+        const auto symbol = wire::req_str(*root, "s");
+        const auto mark = wire::req_str(*root, "p");
         if (!symbol.has_value() || !mark.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.symbol = *symbol;
         out.mark_price = *mark;
-        const auto index = detail::opt_str(*root, "i");
-        const auto rate = detail::opt_str(*root, "f");
-        const auto next = detail::opt_u64(*root, "n");
-        const auto event = detail::opt_u64(*root, "E");
+        const auto index = wire::opt_str(*root, "i");
+        const auto rate = wire::opt_str(*root, "f");
+        const auto next = wire::opt_u64(*root, "n");
+        const auto event = wire::opt_u64(*root, "E");
         if (!index.has_value() || !rate.has_value() || !next.has_value() || !event.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -82,18 +80,18 @@ std::expected<std::span<const WireTicker>, WireError> parse_tickers(std::string_
             if (count == k_max_tickers) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTicker out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            const auto volume = detail::opt_str(obj, "volume");
-            const auto quote = detail::opt_str(obj, "quoteVolume");
+            const auto volume = wire::opt_str(obj, "volume");
+            const auto quote = wire::opt_str(obj, "quoteVolume");
             if (!volume.has_value() || !quote.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }

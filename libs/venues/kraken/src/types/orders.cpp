@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::kraken {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 std::string_view status_key(StatusKind kind) noexcept {
     switch (kind) {
@@ -37,29 +35,29 @@ std::uint64_t iso_ms(std::string_view text) noexcept {
 // sendorder answers `order_id`; editorder answers `orderId`. One venue, one
 // verdict object, two spellings — reading only the documented one loses the
 // venue id on every amend.
-std::expected<std::string_view, WireError> order_id_of(detail::ondemand::object& obj) {
-    const auto snake = detail::opt_str(obj, "order_id");
+std::expected<std::string_view, WireError> order_id_of(wire::ondemand::object& obj) {
+    const auto snake = wire::opt_str(obj, "order_id");
     if (!snake.has_value()) {
         return std::unexpected(snake.error());
     }
     if (!snake->empty()) {
         return *snake;
     }
-    return detail::opt_str(obj, "orderId");
+    return wire::opt_str(obj, "orderId");
 }
 
-std::expected<WireOrderStatus, WireError> read_status(detail::ondemand::object& obj) {
+std::expected<WireOrderStatus, WireError> read_status(wire::ondemand::object& obj) {
     WireOrderStatus out{};
-    const auto status = detail::req_str(obj, "status");
+    const auto status = wire::req_str(obj, "status");
     const auto order_id = order_id_of(obj);
-    const auto cli_ord_id = detail::opt_str(obj, "cliOrdId");
+    const auto cli_ord_id = wire::opt_str(obj, "cliOrdId");
     if (!status.has_value() || !order_id.has_value() || !cli_ord_id.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
     out.status = *status;
     out.order_id = *order_id;
     out.cli_ord_id = *cli_ord_id;
-    const auto received = detail::opt_str(obj, "receivedTime");
+    const auto received = wire::opt_str(obj, "receivedTime");
     if (!received.has_value()) {
         return std::unexpected(received.error());
     }
@@ -67,12 +65,12 @@ std::expected<WireOrderStatus, WireError> read_status(detail::ondemand::object& 
     return out;
 }
 
-std::expected<WireWsOrder, WireError> read_ws_order(detail::ondemand::object& obj) {
+std::expected<WireWsOrder, WireError> read_ws_order(wire::ondemand::object& obj) {
     WireWsOrder out{};
-    const auto instrument = detail::req_str(obj, "instrument");
-    const auto order_id = detail::req_str(obj, "order_id");
-    const auto cli_ord_id = detail::opt_str(obj, "cli_ord_id");
-    const auto type = detail::opt_str(obj, "type");
+    const auto instrument = wire::req_str(obj, "instrument");
+    const auto order_id = wire::req_str(obj, "order_id");
+    const auto cli_ord_id = wire::opt_str(obj, "cli_ord_id");
+    const auto type = wire::opt_str(obj, "type");
     if (!instrument.has_value() || !order_id.has_value() || !cli_ord_id.has_value() ||
         !type.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -105,7 +103,7 @@ std::expected<WireWsOrder, WireError> read_ws_order(detail::ondemand::object& ob
     // know, and guessing one would put the position on the wrong side.
     bool has_direction = false;
     const auto direction = opt_i64(obj, "direction", has_direction);
-    const auto reduce_only = detail::opt_bool(obj, "reduce_only");
+    const auto reduce_only = wire::opt_bool(obj, "reduce_only");
     if (!direction.has_value() || !has_direction || !reduce_only.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -114,14 +112,14 @@ std::expected<WireWsOrder, WireError> read_ws_order(detail::ondemand::object& ob
     return out;
 }
 
-std::expected<WireWsFill, WireError> read_ws_fill(detail::ondemand::object& obj) {
+std::expected<WireWsFill, WireError> read_ws_fill(wire::ondemand::object& obj) {
     WireWsFill out{};
-    const auto instrument = detail::req_str(obj, "instrument");
-    const auto order_id = detail::req_str(obj, "order_id");
-    const auto fill_id = detail::req_str(obj, "fill_id");
-    const auto cli_ord_id = detail::opt_str(obj, "cli_ord_id");
-    const auto fill_type = detail::opt_str(obj, "fill_type");
-    const auto fee_currency = detail::opt_str(obj, "fee_currency");
+    const auto instrument = wire::req_str(obj, "instrument");
+    const auto order_id = wire::req_str(obj, "order_id");
+    const auto fill_id = wire::req_str(obj, "fill_id");
+    const auto cli_ord_id = wire::opt_str(obj, "cli_ord_id");
+    const auto fill_type = wire::opt_str(obj, "fill_type");
+    const auto fee_currency = wire::opt_str(obj, "fee_currency");
     if (!instrument.has_value() || !order_id.has_value() || !fill_id.has_value() ||
         !cli_ord_id.has_value() || !fill_type.has_value() || !fee_currency.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -144,7 +142,7 @@ std::expected<WireWsFill, WireError> read_ws_fill(detail::ondemand::object& obj)
     out.remaining_order_qty = *remaining;
     out.fee_paid = *fee_paid;
     const auto time_ms = opt_ms(obj, "time");
-    const auto buy = detail::opt_bool(obj, "buy");
+    const auto buy = wire::opt_bool(obj, "buy");
     if (!time_ms.has_value() || !buy.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -162,7 +160,7 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto obj = detail::req_object(*root, status_key(kind));
+        auto obj = wire::req_object(*root, status_key(kind));
         if (!obj.has_value()) {
             return std::unexpected(obj.error());
         }
@@ -177,7 +175,7 @@ parse_batch_status(std::string_view body, BatchStatusBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "batchStatus");
+        auto array = wire::req_array(*root, "batchStatus");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -186,9 +184,9 @@ parse_batch_status(std::string_view body, BatchStatusBuffer& storage) {
             if (count == k_max_batch) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto row = read_status(obj);
             if (!row.has_value()) {
@@ -208,7 +206,7 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "openOrders");
+        auto array = wire::req_array(*root, "openOrders");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -217,17 +215,17 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
             if (count == k_max_open_orders) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireOpenOrder out{};
-            const auto order_id = detail::req_str(obj, "order_id");
-            const auto cli_ord_id = detail::opt_str(obj, "cliOrdId");
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto status = detail::opt_str(obj, "status");
-            const auto order_type = detail::opt_str(obj, "orderType");
-            const auto side = detail::req_str(obj, "side");
+            const auto order_id = wire::req_str(obj, "order_id");
+            const auto cli_ord_id = wire::opt_str(obj, "cliOrdId");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto status = wire::opt_str(obj, "status");
+            const auto order_type = wire::opt_str(obj, "orderType");
+            const auto side = wire::req_str(obj, "side");
             if (!order_id.has_value() || !cli_ord_id.has_value() || !symbol.has_value() ||
                 !status.has_value() || !order_type.has_value() || !side.has_value()) {
                 return std::unexpected(WireError::MissingField);
@@ -247,8 +245,8 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
             out.limit_price = *limit_price;
             out.filled_size = *filled;
             out.unfilled_size = *unfilled;
-            const auto last_update = detail::opt_str(obj, "lastUpdateTime");
-            const auto reduce_only = detail::opt_bool(obj, "reduceOnly");
+            const auto last_update = wire::opt_str(obj, "lastUpdateTime");
+            const auto reduce_only = wire::opt_bool(obj, "reduceOnly");
             if (!last_update.has_value() || !reduce_only.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -268,7 +266,7 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "fills");
+        auto array = wire::req_array(*root, "fills");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -277,18 +275,18 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
             if (count == k_max_fills) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireFill out{};
-            const auto fill_id = detail::req_str(obj, "fill_id");
-            const auto order_id = detail::req_str(obj, "order_id");
-            const auto cli_ord_id = detail::opt_str(obj, "cliOrdId");
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto side = detail::req_str(obj, "side");
-            const auto fill_type = detail::opt_str(obj, "fillType");
-            const auto fill_time = detail::opt_str(obj, "fillTime");
+            const auto fill_id = wire::req_str(obj, "fill_id");
+            const auto order_id = wire::req_str(obj, "order_id");
+            const auto cli_ord_id = wire::opt_str(obj, "cliOrdId");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto side = wire::req_str(obj, "side");
+            const auto fill_type = wire::opt_str(obj, "fillType");
+            const auto fill_time = wire::opt_str(obj, "fillTime");
             if (!fill_id.has_value() || !order_id.has_value() || !cli_ord_id.has_value() ||
                 !symbol.has_value() || !side.has_value() || !fill_type.has_value() ||
                 !fill_time.has_value()) {
@@ -323,15 +321,15 @@ std::expected<WireOrderDelta, WireError> parse_order_delta(std::string_view fram
             return std::unexpected(root.error());
         }
         WireOrderDelta out{};
-        const auto reason = detail::opt_str(*root, "reason");
-        const auto is_cancel = detail::opt_bool(*root, "is_cancel");
+        const auto reason = wire::opt_str(*root, "reason");
+        const auto is_cancel = wire::opt_bool(*root, "is_cancel");
         if (!reason.has_value() || !is_cancel.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.reason = *reason;
         out.is_cancel = *is_cancel;
-        if (detail::has_field(*root, "order")) {
-            auto obj = detail::req_object(*root, "order");
+        if (wire::has_field(*root, "order")) {
+            auto obj = wire::req_object(*root, "order");
             if (!obj.has_value()) {
                 return std::unexpected(obj.error());
             }
@@ -344,7 +342,7 @@ std::expected<WireOrderDelta, WireError> parse_order_delta(std::string_view fram
             out.order_id = out.order.order_id;
             return out;
         }
-        const auto order_id = detail::req_str(*root, "order_id");
+        const auto order_id = wire::req_str(*root, "order_id");
         if (!order_id.has_value()) {
             return std::unexpected(order_id.error());
         }
@@ -360,7 +358,7 @@ parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "orders");
+        auto array = wire::req_array(*root, "orders");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -369,9 +367,9 @@ parse_order_snapshot(std::string_view frame, OrderSnapshotBuffer& storage) {
             if (count == k_max_open_orders) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto order = read_ws_order(obj);
             if (!order.has_value()) {
@@ -391,7 +389,7 @@ std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "fills");
+        auto array = wire::req_array(*root, "fills");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -400,9 +398,9 @@ std::expected<std::span<const WireWsFill>, WireError> parse_ws_fills(std::string
             if (count == k_max_fills) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto fill = read_ws_fill(obj);
             if (!fill.has_value()) {

@@ -3,21 +3,19 @@
 
 namespace raikiri::venues::apex {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+using wire::session;
+namespace ondemand = wire::ondemand;
 
 std::expected<WireContract, WireError> read_contract(ondemand::object& obj) {
     WireContract out{};
-    const auto cross = detail::req_str(obj, "crossSymbolName");
-    const auto base = detail::req_str(obj, "baseTokenId");
-    const auto settle = detail::req_str(obj, "settleAssetId");
-    const auto tick = detail::req_str(obj, "tickSize");
-    const auto step = detail::req_str(obj, "stepSize");
+    const auto cross = wire::req_str(obj, "crossSymbolName");
+    const auto base = wire::req_str(obj, "baseTokenId");
+    const auto settle = wire::req_str(obj, "settleAssetId");
+    const auto tick = wire::req_str(obj, "tickSize");
+    const auto step = wire::req_str(obj, "stepSize");
     if (!cross.has_value() || !base.has_value() || !settle.has_value() || !tick.has_value() ||
         !step.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -27,9 +25,9 @@ std::expected<WireContract, WireError> read_contract(ondemand::object& obj) {
     out.settle = *settle;
     out.tick_size = *tick;
     out.step_size = *step;
-    out.funding_max_rate = detail::opt_str(obj, "fundingMaxRate").value_or(std::string_view{});
-    out.funding_min_rate = detail::opt_str(obj, "fundingMinRate").value_or(std::string_view{});
-    const auto trade = detail::opt_bool(obj, "enableTrade");
+    out.funding_max_rate = wire::opt_str(obj, "fundingMaxRate").value_or(std::string_view{});
+    out.funding_min_rate = wire::opt_str(obj, "fundingMinRate").value_or(std::string_view{});
+    const auto trade = wire::opt_bool(obj, "enableTrade");
     if (!trade.has_value()) {
         return std::unexpected(trade.error());
     }
@@ -41,7 +39,7 @@ std::expected<std::size_t, WireError> read_contracts(ondemand::object& config,
                                                      std::string_view key,
                                                      ContractBuffer& storage,
                                                      std::size_t count) {
-    auto rows = detail::req_array(config, key);
+    auto rows = wire::req_array(config, key);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
     }
@@ -51,7 +49,7 @@ std::expected<std::size_t, WireError> read_contracts(ondemand::object& config,
         }
         ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto contract = read_contract(obj);
         if (!contract.has_value()) {
@@ -80,7 +78,7 @@ read_levels(ondemand::array levels, std::span<WireLevel> out) {
             if (item.get(value) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected{text.error()};
             }
@@ -100,7 +98,7 @@ read_levels(ondemand::array levels, std::span<WireLevel> out) {
 }
 
 bool is_snapshot(ondemand::object& obj) {
-    return detail::opt_str(obj, "type").value_or(std::string_view{}) == "snapshot";
+    return wire::opt_str(obj, "type").value_or(std::string_view{}) == "snapshot";
 }
 
 } // namespace
@@ -112,11 +110,11 @@ parse_symbols(std::string_view body, ContractBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        auto config = detail::req_object(*data, "contractConfig");
+        auto config = wire::req_object(*data, "contractConfig");
         if (!config.has_value()) {
             return std::unexpected(config.error());
         }
@@ -158,14 +156,14 @@ std::expected<TopicInfo, WireError> parse_topic(std::string_view frame) {
             return std::unexpected{root.error()};
         }
         auto obj = *root;
-        if (const auto topic = detail::opt_str(obj, "topic");
+        if (const auto topic = wire::opt_str(obj, "topic");
             topic.has_value() && !topic->empty()) {
             return classify_topic(*topic);
         }
-        if (detail::has_field(obj, "success")) {
+        if (wire::has_field(obj, "success")) {
             return TopicInfo{.kind = TopicKind::Ack, .symbol = {}};
         }
-        if (detail::opt_str(obj, "op").value_or(std::string_view{}) == "ping") {
+        if (wire::opt_str(obj, "op").value_or(std::string_view{}) == "ping") {
             return TopicInfo{.kind = TopicKind::Ping, .symbol = {}};
         }
         return std::unexpected{WireError::UnknownMessage};
@@ -180,24 +178,24 @@ std::expected<WireAck, WireError> parse_ack(std::string_view frame, AckBuffer& s
         }
         auto obj = *root;
         WireAck out{};
-        const auto success = detail::opt_bool(obj, "success");
+        const auto success = wire::opt_bool(obj, "success");
         if (!success.has_value()) {
             return std::unexpected{success.error()};
         }
         out.success = *success;
-        out.ret_msg = detail::opt_str(obj, "ret_msg").value_or(std::string_view{});
-        if (!detail::has_field(obj, "request")) {
+        out.ret_msg = wire::opt_str(obj, "ret_msg").value_or(std::string_view{});
+        if (!wire::has_field(obj, "request")) {
             return out;
         }
-        auto request = detail::req_object(obj, "request");
+        auto request = wire::req_object(obj, "request");
         if (!request.has_value()) {
             return std::unexpected{request.error()};
         }
-        out.op = detail::opt_str(*request, "op").value_or(std::string_view{});
-        if (!detail::has_field(*request, "args")) {
+        out.op = wire::opt_str(*request, "op").value_or(std::string_view{});
+        if (!wire::has_field(*request, "args")) {
             return out;
         }
-        auto args = detail::req_array(*request, "args");
+        auto args = wire::req_array(*request, "args");
         if (!args.has_value()) {
             return std::unexpected{args.error()};
         }
@@ -210,7 +208,7 @@ std::expected<WireAck, WireError> parse_ack(std::string_view frame, AckBuffer& s
             if (item.get(value) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected{text.error()};
             }
@@ -227,7 +225,7 @@ std::expected<std::string_view, WireError> parse_ping(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected{root.error()};
         }
-        auto args = detail::req_array(*root, "args");
+        auto args = wire::req_array(*root, "args");
         if (!args.has_value()) {
             return std::unexpected{args.error()};
         }
@@ -236,7 +234,7 @@ std::expected<std::string_view, WireError> parse_ping(std::string_view frame) {
             if (item.get(value) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
-            return detail::str_of(value);
+            return wire::str_of(value);
         }
         return std::unexpected{WireError::MissingField};
     });
@@ -252,27 +250,27 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
         auto obj = *root;
         WireOrderbook out{};
         out.is_snapshot = is_snapshot(obj);
-        out.ts_us = detail::opt_u64(obj, "ts").value_or(0);
-        auto data = detail::req_object(obj, "data");
+        out.ts_us = wire::opt_u64(obj, "ts").value_or(0);
+        auto data = wire::req_object(obj, "data");
         if (!data.has_value()) {
             return std::unexpected{data.error()};
         }
         auto book = *data;
-        const auto symbol = detail::req_str(book, "s");
+        const auto symbol = wire::req_str(book, "s");
         if (!symbol.has_value()) {
             return std::unexpected{symbol.error()};
         }
         out.symbol = *symbol;
-        if (!detail::has_field(book, "u")) {
+        if (!wire::has_field(book, "u")) {
             return std::unexpected{WireError::MissingField};
         }
-        const auto update_id = detail::opt_u64(book, "u");
+        const auto update_id = wire::opt_u64(book, "u");
         if (!update_id.has_value()) {
             return std::unexpected{update_id.error()};
         }
         out.update_id = *update_id;
         std::size_t bids = 0;
-        if (auto side = detail::req_array(book, "b"); side.has_value()) {
+        if (auto side = wire::req_array(book, "b"); side.has_value()) {
             const auto n = read_levels(*side, storage.bids);
             if (!n.has_value()) {
                 return std::unexpected{n.error()};
@@ -280,7 +278,7 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
             bids = *n;
         }
         std::size_t asks = 0;
-        if (auto side = detail::req_array(book, "a"); side.has_value()) {
+        if (auto side = wire::req_array(book, "a"); side.has_value()) {
             const auto n = read_levels(*side, storage.asks);
             if (!n.has_value()) {
                 return std::unexpected{n.error()};
@@ -302,7 +300,7 @@ std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeB
         auto obj = *root;
         WireTrades out{};
         out.is_snapshot = is_snapshot(obj);
-        auto data = detail::req_array(obj, "data");
+        auto data = wire::req_array(obj, "data");
         if (!data.has_value()) {
             return std::unexpected{data.error()};
         }
@@ -316,10 +314,10 @@ std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeB
                 return std::unexpected{WireError::WrongType};
             }
             WireTrade trade{};
-            const auto symbol = detail::req_str(row, "s");
-            const auto price = detail::req_str(row, "p");
-            const auto size = detail::req_str(row, "v");
-            const auto side = detail::req_str(row, "S");
+            const auto symbol = wire::req_str(row, "s");
+            const auto price = wire::req_str(row, "p");
+            const auto size = wire::req_str(row, "v");
+            const auto side = wire::req_str(row, "S");
             if (!symbol.has_value() || !price.has_value() || !size.has_value() ||
                 !side.has_value()) {
                 return std::unexpected{WireError::MissingField};
@@ -328,7 +326,7 @@ std::expected<WireTrades, WireError> parse_trades(std::string_view frame, TradeB
             trade.price = *price;
             trade.size = *size;
             trade.buyer_aggressor = *side == "Buy";
-            trade.ts_ms = detail::opt_u64(row, "T").value_or(0);
+            trade.ts_ms = wire::opt_u64(row, "T").value_or(0);
             storage.trades[count++] = trade;
         }
         out.trades = {storage.trades.data(), count};
@@ -344,19 +342,19 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         auto obj = *root;
         WireTicker out{};
-        out.ts_us = detail::opt_u64(obj, "ts").value_or(0);
-        auto data = detail::req_object(obj, "data");
+        out.ts_us = wire::opt_u64(obj, "ts").value_or(0);
+        auto data = wire::req_object(obj, "data");
         if (!data.has_value()) {
             return std::unexpected{data.error()};
         }
         auto row = *data;
-        const auto symbol = detail::req_str(row, "symbol");
+        const auto symbol = wire::req_str(row, "symbol");
         if (!symbol.has_value()) {
             return std::unexpected{symbol.error()};
         }
         out.symbol = *symbol;
         const auto field = [&](std::string_view key) {
-            return detail::opt_str(row, key).value_or(std::string_view{});
+            return wire::opt_str(row, key).value_or(std::string_view{});
         };
         out.mark_price = field("markPrice");
         out.funding_rate = field("fundingRate");

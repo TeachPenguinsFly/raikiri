@@ -17,7 +17,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::backpack::detail {
+namespace raikiri::venues::backpack::internal {
 
 namespace {
 
@@ -527,4 +527,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<BackpackData>(std::move(state));
 }
 
-} // namespace raikiri::venues::backpack::detail
+} // namespace raikiri::venues::backpack::internal

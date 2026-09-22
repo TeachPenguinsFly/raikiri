@@ -5,12 +5,10 @@
 
 namespace raikiri::venues::deribit {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 LevelAction action_from(std::string_view text) noexcept {
     if (text == "delete") {
@@ -22,24 +20,24 @@ LevelAction action_from(std::string_view text) noexcept {
 // Grouped books ship [price, amount], the incremental feed [action, price,
 // amount]; `expect_action` says which, so a shape change is a refusal rather
 // than a price read out of the action slot.
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry, bool expect_action) {
-    detail::ondemand::array tuple;
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry, bool expect_action) {
+    wire::ondemand::array tuple;
     if (const auto ec = entry.get_array().get(tuple); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     WireLevel level{};
     const std::size_t want = expect_action ? 3U : 2U;
     std::size_t field = 0;
     for (auto element : tuple) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (field >= want) {
             break;
         }
         if (expect_action && field == 0) {
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -59,11 +57,11 @@ std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry, bo
     return level;
 }
 
-std::expected<std::size_t, WireError> read_levels(detail::ondemand::object& obj,
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::object& obj,
                                                   std::string_view key,
                                                   bool expect_action,
                                                   std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -72,9 +70,9 @@ std::expected<std::size_t, WireError> read_levels(detail::ondemand::object& obj,
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value, expect_action);
         if (!level.has_value()) {
@@ -88,18 +86,18 @@ std::expected<std::size_t, WireError> read_levels(detail::ondemand::object& obj,
 
 // An empty side is a real state on an illiquid option, so it yields empty
 // views rather than an error; the mapper drops those.
-std::expected<void, WireError> read_top(detail::ondemand::object& obj,
+std::expected<void, WireError> read_top(wire::ondemand::object& obj,
                                         std::string_view key,
                                         std::string_view& price,
                                         std::string_view& qty) {
-    auto array = detail::req_array(obj, key);
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
     for (auto entry : *array) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value, /*expect_action=*/false);
         if (!level.has_value()) {
@@ -141,7 +139,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
             return std::unexpected(data.error());
         }
         WireBbo out{};
-        const auto instrument = detail::req_str(*data, "instrument_name");
+        const auto instrument = wire::req_str(*data, "instrument_name");
         if (!instrument.has_value()) {
             return std::unexpected(instrument.error());
         }
@@ -153,7 +151,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame) {
             return std::unexpected(ok.error());
         }
         const auto ts = opt_ms(*data, "timestamp");
-        const auto change = detail::opt_i64(*data, "change_id");
+        const auto change = wire::opt_i64(*data, "change_id");
         if (!ts.has_value() || !change.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -174,8 +172,8 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             return std::unexpected(data.error());
         }
         WireBook out{};
-        const auto instrument = detail::req_str(*data, "instrument_name");
-        const auto type = detail::req_str(*data, "type");
+        const auto instrument = wire::req_str(*data, "instrument_name");
+        const auto type = wire::req_str(*data, "type");
         if (!instrument.has_value() || !type.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -190,9 +188,9 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             return std::unexpected(asks.error());
         }
         const auto ts = opt_ms(*data, "timestamp");
-        const auto change = detail::opt_i64(*data, "change_id");
+        const auto change = wire::opt_i64(*data, "change_id");
         // Absent on a snapshot rather than a sentinel: 0 means "chain starts".
-        const auto prev = detail::opt_i64(*data, "prev_change_id");
+        const auto prev = wire::opt_i64(*data, "prev_change_id");
         if (!ts.has_value() || !change.has_value() || !prev.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

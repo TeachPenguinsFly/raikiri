@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -27,7 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 // Bitfinex heartbeats every subscribed channel about every 15 s, so a socket
 // carrying subscriptions is never silent. This covers the window before the
@@ -207,4 +207,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

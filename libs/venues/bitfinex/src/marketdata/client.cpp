@@ -19,7 +19,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 namespace {
 
@@ -486,4 +486,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<BitfinexData>(std::move(state));
 }
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

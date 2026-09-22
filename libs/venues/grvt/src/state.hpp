@@ -1,13 +1,13 @@
 #pragma once
 
-// detail, not anonymous: an anonymous type in a header differs in every includer.
+// internal, not anonymous: an anonymous type in a header differs in every includer.
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 
-namespace raikiri::venues::grvt::detail {
+namespace raikiri::venues::grvt::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -22,4 +22,4 @@ struct VenueState {
     exec::InstrumentTable instruments;
 };
 
-} // namespace raikiri::venues::grvt::detail
+} // namespace raikiri::venues::grvt::internal

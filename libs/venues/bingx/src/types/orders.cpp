@@ -4,14 +4,12 @@
 
 namespace raikiri::venues::bingx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireOrder, WireError> read_order(detail::ondemand::object& obj) {
+std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
     WireOrder out{};
     const auto symbol = req_scalar(obj, "symbol");
     if (!symbol.has_value()) {
@@ -109,11 +107,11 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        auto array = detail::req_array(*data, "orders");
+        auto array = wire::req_array(*data, "orders");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -122,9 +120,9 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
             if (count == k_max_orders) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto order = read_order(obj);
             if (!order.has_value()) {
@@ -143,12 +141,12 @@ std::expected<WireOrder, WireError> parse_order_ack(std::string_view body) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         // The perpetual tree nests the order one level deeper than spot does.
-        detail::ondemand::object nested;
+        wire::ondemand::object nested;
         if (wire::find(*data, "order").get_object().get(nested) == simdjson::SUCCESS) {
             return read_order(nested);
         }
@@ -164,9 +162,9 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view fr
         }
         // The perpetual push puts the order under `o` and the spot push wraps
         // the whole record in `data`.
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (wire::find(*root, "o").get_object().get(obj) != simdjson::SUCCESS) {
-            auto data = detail::req_object(*root, "data");
+            auto data = wire::req_object(*root, "data");
             if (!data.has_value()) {
                 return std::unexpected(data.error());
             }

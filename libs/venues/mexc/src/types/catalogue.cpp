@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -23,7 +18,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -32,9 +27,9 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
             const auto symbol = req_scalar(obj, "symbol");
@@ -66,7 +61,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             const auto price_scale = opt_int(obj, "priceScale", -1);
             const auto vol_scale = opt_int(obj, "volScale", -1);
             const auto state = opt_int(obj, "state", -1);
-            const auto api_allowed = detail::opt_bool(obj, "apiAllowed");
+            const auto api_allowed = wire::opt_bool(obj, "apiAllowed");
             if (!price_scale.has_value() || !vol_scale.has_value() || !state.has_value() ||
                 !api_allowed.has_value()) {
                 return std::unexpected(WireError::WrongType);
@@ -75,7 +70,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             out.vol_scale = *vol_scale;
             out.state = *state;
             out.api_allowed = *api_allowed;
-            const auto plates = detail::opt_raw(obj, "conceptPlate");
+            const auto plates = wire::opt_raw(obj, "conceptPlate");
             if (!plates.has_value()) {
                 return std::unexpected(plates.error());
             }
@@ -94,7 +89,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "symbols");
+        auto array = wire::req_array(*root, "symbols");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -103,9 +98,9 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             if (count == k_max_spot_symbols) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = element.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireSpotSymbol out{};
             const auto symbol = field(obj, "symbol");
@@ -123,7 +118,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             out.quote_precision = int_field(obj, "quotePrecision");
             obj.reset();
             out.spot_trading_allowed =
-                detail::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
+                wire::opt_bool(obj, "isSpotTradingAllowed").value_or(false);
             storage.symbols[count] = out;
             ++count;
         }

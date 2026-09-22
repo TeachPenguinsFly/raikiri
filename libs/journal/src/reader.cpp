@@ -1,4 +1,4 @@
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
 
 #include <fcntl.h>
@@ -52,7 +52,7 @@ std::expected<JournalReader, JournalError> JournalReader::open(std::string dir,
     JournalReader r;
     r.dir_ = std::move(dir);
     r.prefix_ = std::move(prefix);
-    const auto segments = detail::list_segments(r.dir_, r.prefix_);
+    const auto segments = internal::list_segments(r.dir_, r.prefix_);
     if (segments.empty()) {
         return std::unexpected{JournalError::NoSegments};
     }
@@ -81,7 +81,7 @@ JournalReader::open_after(std::string dir, std::string prefix, std::uint64_t aft
 
 bool JournalReader::open_segment(std::uint64_t segment_seq) noexcept {
     close_segment();
-    const std::string path = detail::segment_path(dir_, prefix_, segment_seq);
+    const std::string path = internal::segment_path(dir_, prefix_, segment_seq);
     const int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) {
         return false;
@@ -111,7 +111,7 @@ bool JournalReader::open_segment(std::uint64_t segment_seq) noexcept {
 
 ReadResult JournalReader::next(FrameView& out) noexcept {
     if (!have_segment_) {
-        const auto segments = detail::list_segments(dir_, prefix_);
+        const auto segments = internal::list_segments(dir_, prefix_);
         if (segments.empty() || !open_segment(segments.front())) {
             return ReadResult::Empty;
         }
@@ -126,7 +126,7 @@ ReadResult JournalReader::next(FrameView& out) noexcept {
         return ReadResult::Empty;
     }
 
-    if (!detail::decode_frame(base_, map_size_, read_off_, out)) {
+    if (!internal::decode_frame(base_, map_size_, read_off_, out)) {
         return ReadResult::Corrupt;
     }
     read_off_ += frame_bytes(out.payload.size());

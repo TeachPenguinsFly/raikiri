@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace raikiri::journal::detail {
+namespace raikiri::journal::internal {
 
 [[nodiscard]] bool mkdir_p(const std::string& dir) noexcept;
 
@@ -47,4 +47,4 @@ walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_s
 [[nodiscard]] bool
 decode_frame(const std::byte* base, std::size_t size, std::uint64_t off, FrameView& out) noexcept;
 
-} // namespace raikiri::journal::detail
+} // namespace raikiri::journal::internal

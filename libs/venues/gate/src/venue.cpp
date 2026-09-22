@@ -24,14 +24,13 @@
 
 namespace raikiri::venues::gate {
 
-using namespace detail;
+using internal::VenueState;
+using internal::await_response;
+using internal::make_data_client;
+using internal::make_execution_client;
+using internal::make_instrument_source;
 
-// A definition of something DECLARED in `detail` must name it: `using
-// namespace detail` only affects lookup, so an unqualified definition here
-// quietly declares a second function in this namespace and the real one goes
-// undefined at link.
-
-void detail::sync_clock(VenueState& state, net::RestClient& rest) {
+void internal::sync_clock(VenueState& state, net::RestClient& rest) {
     const auto sent = state.clock->wall();
     const auto response = await_response(state, rest, state.builder.server_time(), 5'000);
     if (!response.has_value() || response->transport_failed()) {

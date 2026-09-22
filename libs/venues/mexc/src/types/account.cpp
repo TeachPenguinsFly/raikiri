@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
+using wire::guarded;
 
-std::expected<void, WireError> read_record(detail::ondemand::object& obj, WireFundingRecord& out) {
+std::expected<void, WireError> read_record(wire::ondemand::object& obj, WireFundingRecord& out) {
     out.symbol = field(obj, "symbol");
     out.funding = field(obj, "funding");
     out.rate = field(obj, "rate");
@@ -28,7 +23,7 @@ std::expected<void, WireError> read_record(detail::ondemand::object& obj, WireFu
     }
     out.settle_ms = *settled;
     obj.reset();
-    const auto id = detail::opt_u64(obj, "id");
+    const auto id = wire::opt_u64(obj, "id");
     if (!id.has_value()) {
         return std::unexpected(id.error());
     }
@@ -41,15 +36,15 @@ std::expected<void, WireError> read_record(detail::ondemand::object& obj, WireFu
 std::expected<std::span<const WireFundingRecord>, WireError>
 parse_funding_records(std::string_view body, FundingRecordBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WireFundingRecord>, WireError> {
-        auto root = detail::session().open_object(body);
+        auto root = wire::session().open_object(body);
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        auto array = detail::req_array(*data, "resultList");
+        auto array = wire::req_array(*data, "resultList");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -58,9 +53,9 @@ parse_funding_records(std::string_view body, FundingRecordBuffer& storage) {
             if (count == k_max_funding_records) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = element.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireFundingRecord row{};
             if (const auto ok = read_record(obj, row); !ok.has_value()) {

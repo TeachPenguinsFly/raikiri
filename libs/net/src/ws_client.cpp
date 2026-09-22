@@ -242,7 +242,7 @@ std::string_view to_string(WsCloseReason reason) noexcept {
     return "unknown";
 }
 
-namespace detail {
+namespace internal {
 
 // Lifetime, stated once because every handler below depends on it.
 //
@@ -454,7 +454,7 @@ private:
         beast::get_lowest_layer(conn->stream).enable_stamps();
 #endif
         if (!is_ip_literal(cfg_.host) &&
-            !detail::set_sni_host(conn->stream.next_layer().native_handle(),
+            !internal::set_sni_host(conn->stream.next_layer().native_handle(),
                                   cfg_.host.c_str())) {
             close_with(WsCloseReason::Transport, "sni: refused");
             return;
@@ -774,13 +774,13 @@ private:
     std::chrono::steady_clock::time_point ping_sent_{};
 };
 
-} // namespace detail
+} // namespace internal
 
 struct WsClient::Impl {
     Impl(asio::io_context& ioc, WsConfig config, WsHandler& handler)
-        : session{std::make_shared<detail::WsSession>(ioc, std::move(config), handler)} {}
+        : session{std::make_shared<internal::WsSession>(ioc, std::move(config), handler)} {}
 
-    std::shared_ptr<detail::WsSession> session;
+    std::shared_ptr<internal::WsSession> session;
 };
 
 WsClient::WsClient(IoContext& io, WsConfig config, WsHandler& handler)

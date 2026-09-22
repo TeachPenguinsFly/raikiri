@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::weex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer; a
-// venue that reimplements opt_str or req_array is one that will disagree with
-// its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 [[nodiscard]] EventKind kind_of(std::string_view event) noexcept {
     if (event == "depth") {
@@ -42,7 +37,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         auto obj = *root;
 
-        const auto event = detail::opt_str(obj, "e");
+        const auto event = wire::opt_str(obj, "e");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
@@ -50,7 +45,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             EventInfo out{};
             out.kind = kind_of(*event);
             obj.reset();
-            const auto symbol = detail::opt_str(obj, "s");
+            const auto symbol = wire::opt_str(obj, "s");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
@@ -62,9 +57,9 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         // one whose misreading is silent — a refusal read as an acknowledgement
         // looks exactly like a channel with nothing to say.
         obj.reset();
-        if (detail::has_field(obj, "result")) {
+        if (wire::has_field(obj, "result")) {
             obj.reset();
-            const auto ok = detail::opt_bool(obj, "result");
+            const auto ok = wire::opt_bool(obj, "result");
             if (!ok.has_value()) {
                 return std::unexpected(ok.error());
             }
@@ -73,7 +68,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
 
         obj.reset();
-        const auto control = detail::opt_str(obj, "event");
+        const auto control = wire::opt_str(obj, "event");
         if (!control.has_value()) {
             return std::unexpected(control.error());
         }
@@ -95,13 +90,13 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         }
         auto obj = *root;
         StreamError out{};
-        const auto msg = detail::opt_str(obj, "msg");
+        const auto msg = wire::opt_str(obj, "msg");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
         }
         out.msg = *msg;
         obj.reset();
-        const auto id = detail::opt_u64(obj, "id");
+        const auto id = wire::opt_u64(obj, "id");
         if (!id.has_value()) {
             return std::unexpected(id.error());
         }
@@ -120,7 +115,7 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
             return RestError{};
         }
         auto obj = *root;
-        const auto code = detail::opt_i64(obj, "code");
+        const auto code = wire::opt_i64(obj, "code");
         if (!code.has_value()) {
             return std::unexpected(code.error());
         }
@@ -132,7 +127,7 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
         RestError out{};
         out.code = *code;
         obj.reset();
-        const auto msg = detail::opt_str(obj, "msg");
+        const auto msg = wire::opt_str(obj, "msg");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
         }
@@ -148,7 +143,7 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
             return std::unexpected(root.error());
         }
         auto obj = *root;
-        return detail::opt_u64(obj, "serverTime");
+        return wire::opt_u64(obj, "serverTime");
     });
 }
 

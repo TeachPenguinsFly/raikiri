@@ -5,15 +5,10 @@
 
 namespace raikiri::venues::kraken {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 [[nodiscard]] constexpr bool is_number_char(char c) noexcept {
     return (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.' || c == 'e' || c == 'E';
@@ -91,12 +86,12 @@ days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
 
 } // namespace
 
-std::expected<std::string_view, WireError> num_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    raw = detail::trim(raw);
+    raw = wire::trim(raw);
     if (raw == "null") {
         return std::string_view{};
     }
@@ -111,24 +106,24 @@ std::expected<std::string_view, WireError> num_of(detail::ondemand::value value)
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_num(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
                                                    std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return num_of(value);
 }
 
-std::expected<std::string_view, WireError> req_num(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
                                                    std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     auto text = num_of(value);
     if (text && text->empty()) {
@@ -138,7 +133,7 @@ std::expected<std::string_view, WireError> req_num(detail::ondemand::object& obj
 }
 
 std::expected<std::int64_t, WireError>
-opt_i64(detail::ondemand::object& obj, std::string_view key, bool& present) {
+opt_i64(wire::ondemand::object& obj, std::string_view key, bool& present) {
     present = false;
     std::int64_t out = 0;
     const auto ec = wire::find(obj, key).get_int64().get(out);
@@ -146,19 +141,19 @@ opt_i64(detail::ondemand::object& obj, std::string_view key, bool& present) {
         return std::int64_t{0};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     present = true;
     return out;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
                                                std::string_view key) {
     const auto text = opt_num(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
 std::expected<std::uint64_t, WireError> parse_iso8601_ms(std::string_view text) {
@@ -214,7 +209,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto event = detail::opt_str(*root, "event");
+        const auto event = wire::opt_str(*root, "event");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
@@ -223,12 +218,12 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             info.kind = kind_from_event(*event);
             return info; // control frames name product ids in an array, not a field
         }
-        const auto feed = detail::req_str(*root, "feed");
+        const auto feed = wire::req_str(*root, "feed");
         if (!feed.has_value()) {
             return std::unexpected(feed.error());
         }
         info.kind = kind_from_feed(*feed);
-        const auto product = detail::opt_str(*root, "product_id");
+        const auto product = wire::opt_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
         }
@@ -243,7 +238,7 @@ std::expected<StreamAlert, WireError> parse_stream_alert(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto message = detail::req_str(*root, "message");
+        const auto message = wire::req_str(*root, "message");
         if (!message.has_value()) {
             return std::unexpected(message.error());
         }
@@ -257,7 +252,7 @@ std::expected<WireChallenge, WireError> parse_challenge(std::string_view frame) 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto message = detail::req_str(*root, "message");
+        const auto message = wire::req_str(*root, "message");
         if (!message.has_value()) {
             return std::unexpected(message.error());
         }
@@ -271,27 +266,27 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto result = detail::req_str(*root, "result");
+        const auto result = wire::req_str(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
         RestEnvelope out{};
         out.ok = *result == "success";
         if (!out.ok) {
-            const auto error = detail::opt_str(*root, "error");
+            const auto error = wire::opt_str(*root, "error");
             if (!error.has_value()) {
                 return std::unexpected(error.error());
             }
             out.error = *error;
             if (out.error.empty()) {
-                const auto status = detail::opt_str(*root, "status");
+                const auto status = wire::opt_str(*root, "status");
                 if (!status.has_value()) {
                     return std::unexpected(status.error());
                 }
                 out.error = *status;
             }
         }
-        const auto server_time = detail::opt_str(*root, "serverTime");
+        const auto server_time = wire::opt_str(*root, "serverTime");
         if (!server_time.has_value()) {
             return std::unexpected(server_time.error());
         }

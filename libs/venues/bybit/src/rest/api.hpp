@@ -25,7 +25,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 
 class RestApi {
 public:
@@ -333,4 +333,4 @@ private:
     RequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

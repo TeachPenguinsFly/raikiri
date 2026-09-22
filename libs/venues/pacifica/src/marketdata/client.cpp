@@ -17,7 +17,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::pacifica::detail {
+namespace raikiri::venues::pacifica::internal {
 
 namespace {
 
@@ -334,4 +334,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<PacificaData>(std::move(state));
 }
 
-} // namespace raikiri::venues::pacifica::detail
+} // namespace raikiri::venues::pacifica::internal

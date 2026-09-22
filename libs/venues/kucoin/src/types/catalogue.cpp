@@ -6,15 +6,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -25,7 +20,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -34,14 +29,14 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             if (count == k_max_contracts) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireContract out{};
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto status = detail::req_str(obj, "status");
-            const auto type = detail::req_str(obj, "type");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto status = wire::req_str(obj, "status");
+            const auto type = wire::req_str(obj, "type");
             if (!symbol.has_value() || !status.has_value() || !type.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -50,15 +45,15 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.type = *type;
             // Optional so a row that names no pair costs that row, not the
             // catalogue; the mapper is what refuses it.
-            const auto base_currency = detail::opt_str(obj, "baseCurrency");
-            const auto quote_currency = detail::opt_str(obj, "quoteCurrency");
+            const auto base_currency = wire::opt_str(obj, "baseCurrency");
+            const auto quote_currency = wire::opt_str(obj, "quoteCurrency");
             if (!base_currency.has_value() || !quote_currency.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
             out.base_currency = *base_currency;
             out.quote_currency = *quote_currency;
-            out.asset_class = detail::opt_str(obj, "assetClass").value_or(std::string_view{});
-            const auto inverse = detail::opt_bool(obj, "isInverse");
+            out.asset_class = wire::opt_str(obj, "assetClass").value_or(std::string_view{});
+            const auto inverse = wire::opt_bool(obj, "isInverse");
             if (!inverse.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -112,7 +107,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -134,7 +129,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                     }
                     *field = *value;
                 }
-                const auto trading = detail::opt_bool(obj, "enableTrading");
+                const auto trading = wire::opt_bool(obj, "enableTrading");
                 if (!trading.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
@@ -155,7 +150,7 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -163,7 +158,7 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
         if (!time.has_value()) {
             return std::unexpected(time.error());
         }
-        auto array = detail::req_array(*data, "ticker");
+        auto array = wire::req_array(*data, "ticker");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -171,7 +166,7 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
             *array,
             storage.tickers,
             [&](auto& obj, WireSpotTicker& row) -> std::expected<void, WireError> {
-                const auto symbol = detail::req_str(obj, "symbol");
+                const auto symbol = wire::req_str(obj, "symbol");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
                 }

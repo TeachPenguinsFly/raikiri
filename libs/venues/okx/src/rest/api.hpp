@@ -23,7 +23,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::okx::detail {
+namespace raikiri::venues::okx::internal {
 
 class RestApi {
 public:
@@ -314,4 +314,4 @@ private:
     RequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::okx::detail
+} // namespace raikiri::venues::okx::internal

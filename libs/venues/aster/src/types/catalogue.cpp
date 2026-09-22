@@ -5,15 +5,10 @@
 
 namespace raikiri::venues::aster {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // Reads one filter object's field, e.g. PRICE_FILTER -> tickSize.
 struct FilterWanted {
@@ -31,7 +26,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto symbols = detail::req_array(*root, "symbols");
+        auto symbols = wire::req_array(*root, "symbols");
         if (!symbols.has_value()) {
             return std::unexpected(symbols.error());
         }
@@ -41,20 +36,20 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            const auto contract = detail::opt_str(obj, "contractType");
-            const auto status = detail::opt_str(obj, "status");
-            const auto base_asset = detail::opt_str(obj, "baseAsset");
-            const auto quote_asset = detail::opt_str(obj, "quoteAsset");
+            const auto contract = wire::opt_str(obj, "contractType");
+            const auto status = wire::opt_str(obj, "status");
+            const auto base_asset = wire::opt_str(obj, "baseAsset");
+            const auto quote_asset = wire::opt_str(obj, "quoteAsset");
             if (!contract.has_value() || !status.has_value() || !base_asset.has_value() ||
                 !quote_asset.has_value()) {
                 return std::unexpected(WireError::WrongType);
@@ -63,13 +58,13 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             out.status = *status;
             out.base_asset = *base_asset;
             out.quote_asset = *quote_asset;
-            const auto delivery = detail::opt_u64(obj, "deliveryDate");
+            const auto delivery = wire::opt_u64(obj, "deliveryDate");
             if (!delivery.has_value()) {
                 return std::unexpected(delivery.error());
             }
             out.delivery_ms = *delivery;
 
-            auto filters = detail::req_array(obj, "filters");
+            auto filters = wire::req_array(obj, "filters");
             if (!filters.has_value()) {
                 return std::unexpected(filters.error());
             }
@@ -79,12 +74,12 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
                 {"MIN_NOTIONAL", "notional", &out.min_notional},
             }};
             for (auto filter_entry : *filters) {
-                detail::ondemand::object filter;
+                wire::ondemand::object filter;
                 if (const auto ec = filter_entry.get_object().get(filter);
                     ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
-                const auto type = detail::opt_str(filter, "filterType");
+                const auto type = wire::opt_str(filter, "filterType");
                 if (!type.has_value()) {
                     return std::unexpected(type.error());
                 }
@@ -92,7 +87,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
                     if (*type != want.type) {
                         continue;
                     }
-                    const auto value = detail::opt_str(filter, want.field);
+                    const auto value = wire::opt_str(filter, want.field);
                     if (!value.has_value()) {
                         return std::unexpected(value.error());
                     }
@@ -118,12 +113,12 @@ parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
             if (count == k_max_funding_info) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireFundingInfo out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -133,12 +128,12 @@ parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
             // schedule guessed here would be indistinguishable downstream from
             // one aster published.
             out.interval_hours =
-                static_cast<std::uint32_t>(detail::opt_u64(obj, "fundingIntervalHours").value_or(0));
+                static_cast<std::uint32_t>(wire::opt_u64(obj, "fundingIntervalHours").value_or(0));
             // Absent on a row aster has not adjusted, which is why these are
             // optional and land UNDEF rather than zero: a floor of zero is a
             // claim that the venue never pays.
-            out.cap = detail::opt_str(obj, "adjustedFundingRateCap").value_or(std::string_view{});
-            out.floor = detail::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});
+            out.cap = wire::opt_str(obj, "adjustedFundingRateCap").value_or(std::string_view{});
+            out.floor = wire::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});
             storage.rows[count] = out;
             ++count;
         }

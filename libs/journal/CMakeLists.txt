@@ -1,5 +1,5 @@
 add_library(raikiri_journal STATIC
-  src/detail.cpp
+  src/internal.cpp
   src/reader.cpp
   src/writer.cpp
 )

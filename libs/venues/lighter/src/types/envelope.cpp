@@ -6,12 +6,10 @@
 
 namespace raikiri::venues::lighter {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 struct Named {
     std::string_view suffix;
@@ -33,16 +31,16 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto channel = detail::opt_str(*root, "channel");
+        const auto channel = wire::opt_str(*root, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
-        const auto type = detail::opt_str(*root, "type");
+        const auto type = wire::opt_str(*root, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
         if (type->empty()) {
-            if (detail::has_field(*root, "error")) {
+            if (wire::has_field(*root, "error")) {
                 return EventInfo{.kind = EventKind::Error, .snapshot = false};
             }
             return std::unexpected(WireError::UnknownMessage);
@@ -92,12 +90,12 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto error = detail::req_object(*root, "error");
+        auto error = wire::req_object(*root, "error");
         if (!error.has_value()) {
             return std::unexpected(error.error());
         }
-        const auto code = detail::opt_i64(*error, "code");
-        const auto message = detail::opt_str(*error, "message");
+        const auto code = wire::opt_i64(*error, "code");
+        const auto message = wire::opt_str(*error, "message");
         if (!code.has_value() || !message.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

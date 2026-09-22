@@ -3,22 +3,20 @@
 
 namespace raikiri::venues::phemex {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireRealLevel, WireError> read_level(detail::ondemand::array pair, WireRealLevel) {
+std::expected<WireRealLevel, WireError> read_level(wire::ondemand::array pair, WireRealLevel) {
     WireRealLevel out{};
     std::size_t field = 0;
     for (auto item : pair) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = item.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto text = detail::str_of(value);
+        const auto text = wire::str_of(value);
         if (!text.has_value()) {
             return std::unexpected(text.error());
         }
@@ -35,14 +33,14 @@ std::expected<WireRealLevel, WireError> read_level(detail::ondemand::array pair,
     return out;
 }
 
-std::expected<WireScaledLevel, WireError> read_level(detail::ondemand::array pair,
+std::expected<WireScaledLevel, WireError> read_level(wire::ondemand::array pair,
                                                      WireScaledLevel) {
     WireScaledLevel out{};
     std::size_t field = 0;
     for (auto item : pair) {
         std::int64_t value = 0;
         if (const auto ec = item.get_int64().get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (field == 0) {
             out.price_ep = value;
@@ -59,8 +57,8 @@ std::expected<WireScaledLevel, WireError> read_level(detail::ondemand::array pai
 
 template <typename Level>
 std::expected<std::size_t, WireError>
-read_side(detail::ondemand::object& book, std::string_view key, std::span<Level> into) {
-    auto array = detail::req_array(book, key);
+read_side(wire::ondemand::object& book, std::string_view key, std::span<Level> into) {
+    auto array = wire::req_array(book, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -69,9 +67,9 @@ read_side(detail::ondemand::object& book, std::string_view key, std::span<Level>
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(pair, Level{});
         if (!level.has_value()) {
@@ -92,23 +90,23 @@ parse_book(std::string_view frame, std::string_view key, LevelBuffer<Level>& sto
             return std::unexpected(root.error());
         }
         WireBook<Level> out{};
-        const auto symbol = detail::req_str(*root, "symbol");
-        const auto type = detail::req_str(*root, "type");
+        const auto symbol = wire::req_str(*root, "symbol");
+        const auto type = wire::req_str(*root, "type");
         if (!symbol.has_value() || !type.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.head.symbol = *symbol;
         out.head.snapshot = *type == "snapshot";
-        const auto depth = detail::opt_u64(*root, "depth");
-        const auto sequence = detail::opt_u64(*root, "sequence");
-        const auto ts = detail::opt_u64(*root, "timestamp");
+        const auto depth = wire::opt_u64(*root, "depth");
+        const auto sequence = wire::opt_u64(*root, "sequence");
+        const auto ts = wire::opt_u64(*root, "timestamp");
         if (!depth.has_value() || !sequence.has_value() || !ts.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.head.depth = static_cast<std::uint32_t>(*depth);
         out.head.sequence = *sequence;
         out.head.ts_ns = *ts;
-        auto book = detail::req_object(*root, key);
+        auto book = wire::req_object(*root, key);
         if (!book.has_value()) {
             return std::unexpected(book.error());
         }

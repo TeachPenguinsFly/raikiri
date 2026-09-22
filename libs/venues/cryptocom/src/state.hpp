@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace raikiri::venues::cryptocom::detail {
+namespace raikiri::venues::cryptocom::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -53,4 +53,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-} // namespace raikiri::venues::cryptocom::detail
+} // namespace raikiri::venues::cryptocom::internal

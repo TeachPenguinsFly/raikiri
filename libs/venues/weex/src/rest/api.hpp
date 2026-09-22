@@ -32,7 +32,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::weex::detail {
+namespace raikiri::venues::weex::internal {
 
 
 class RestApi {
@@ -303,4 +303,4 @@ private:
     RequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::weex::detail
+} // namespace raikiri::venues::weex::internal

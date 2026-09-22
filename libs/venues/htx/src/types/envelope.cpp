@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::htx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // The part of a topic after the contract code: "market.BTC-USDT.trade.detail"
 // -> "trade.detail". Empty when the shape does not hold.
@@ -75,9 +70,9 @@ std::string_view unquote(std::string_view raw) noexcept {
     return raw;
 }
 
-std::expected<std::string_view, WireError> num_of(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> num_of(wire::ondemand::object& obj,
                                                   std::string_view key) {
-    const auto raw = detail::opt_raw(obj, key);
+    const auto raw = wire::opt_raw(obj, key);
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
     }
@@ -85,13 +80,13 @@ std::expected<std::string_view, WireError> num_of(detail::ondemand::object& obj,
     return text == "null" ? std::string_view{} : text;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms_str(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_ms_str(wire::ondemand::object& obj,
                                                    std::string_view key) {
-    const auto text = detail::opt_str(obj, key);
+    const auto text = wire::opt_str(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
 std::string_view code_of(std::string_view topic) {
@@ -124,26 +119,26 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         Text ts{std::string_view{}};
         Text err_code{std::string_view{}};
         std::expected<std::int64_t, WireError> code{0};
-        const auto walked = detail::for_each_field(
-            *root, [&](std::string_view key, detail::ondemand::value& value) {
+        const auto walked = wire::for_each_field(
+            *root, [&](std::string_view key, wire::ondemand::value& value) {
                 if (key == "ch") {
-                    ch = detail::str_of(value);
+                    ch = wire::str_of(value);
                 } else if (key == "ts") {
-                    ts = detail::raw_of(value);
+                    ts = wire::raw_of(value);
                 } else if (key == "op") {
-                    op = detail::str_of(value);
+                    op = wire::str_of(value);
                 } else if (key == "action") {
-                    action = detail::str_of(value);
+                    action = wire::str_of(value);
                 } else if (key == "topic") {
-                    topic = detail::str_of(value);
+                    topic = wire::str_of(value);
                 } else if (key == "ping") {
-                    ping = detail::raw_of(value);
+                    ping = wire::raw_of(value);
                 } else if (key == "status") {
-                    status = detail::str_of(value);
+                    status = wire::str_of(value);
                 } else if (key == "err-code") {
-                    err_code = detail::raw_of(value);
+                    err_code = wire::raw_of(value);
                 } else if (key == "code") {
-                    code = detail::i64_of(value);
+                    code = wire::i64_of(value);
                 }
             });
         if (!walked.has_value()) {
@@ -195,11 +190,11 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                 if (root->reset().error() != simdjson::SUCCESS) {
                     return std::unexpected(WireError::NotJson);
                 }
-                auto data = detail::req_object(*root, "data");
+                auto data = wire::req_object(*root, "data");
                 if (!data.has_value()) {
                     return std::unexpected(data.error());
                 }
-                const auto data_ts = detail::opt_raw(*data, "ts");
+                const auto data_ts = wire::opt_raw(*data, "ts");
                 if (!data_ts.has_value()) {
                     return std::unexpected(data_ts.error());
                 }
@@ -275,8 +270,8 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto code = detail::opt_raw(*root, "err-code");
-        const auto msg = detail::opt_str(*root, "err-msg");
+        const auto code = wire::opt_raw(*root, "err-code");
+        const auto msg = wire::opt_str(*root, "err-msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -293,13 +288,13 @@ std::expected<WireAuthReply, WireError> parse_auth_reply(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto op = detail::opt_str(*root, "op");
+        const auto op = wire::opt_str(*root, "op");
         if (!op.has_value()) {
             return std::unexpected(op.error());
         }
         if (*op == "auth") {
-            const auto code = detail::opt_raw(*root, "err-code");
-            const auto msg = detail::opt_str(*root, "err-msg");
+            const auto code = wire::opt_raw(*root, "err-code");
+            const auto msg = wire::opt_str(*root, "err-msg");
             if (!code.has_value() || !msg.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -308,9 +303,9 @@ std::expected<WireAuthReply, WireError> parse_auth_reply(std::string_view frame)
         }
         // The spot v2 socket answers a REQUEST rather than an op, and states
         // success as HTTP 200 rather than as a zero error code.
-        const auto code = detail::opt_i64(*root, "code");
-        const auto raw = detail::opt_raw(*root, "code");
-        const auto msg = detail::opt_str(*root, "message");
+        const auto code = wire::opt_i64(*root, "code");
+        const auto raw = wire::opt_raw(*root, "code");
+        const auto msg = wire::opt_str(*root, "message");
         if (!code.has_value() || !raw.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -324,7 +319,7 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto status = detail::opt_str(*root, "status");
+        const auto status = wire::opt_str(*root, "status");
         if (!status.has_value()) {
             return std::unexpected(status.error());
         }
@@ -334,14 +329,14 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (*status != "error") {
             return std::unexpected(WireError::WrongType);
         }
-        auto code = detail::opt_raw(*root, "err_code");
-        auto msg = detail::opt_str(*root, "err_msg");
+        auto code = wire::opt_raw(*root, "err_code");
+        auto msg = wire::opt_str(*root, "err_msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         if (code->empty()) {
-            code = detail::opt_raw(*root, "err-code");
-            msg = detail::opt_str(*root, "err-msg");
+            code = wire::opt_raw(*root, "err-code");
+            msg = wire::opt_str(*root, "err-msg");
             if (!code.has_value() || !msg.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -359,11 +354,11 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto status = detail::opt_str(*root, "status");
+        const auto status = wire::opt_str(*root, "status");
         if (!status.has_value() || *status != "ok") {
             return std::unexpected(WireError::MissingField);
         }
-        const auto ts = detail::opt_u64(*root, "ts");
+        const auto ts = wire::opt_u64(*root, "ts");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }

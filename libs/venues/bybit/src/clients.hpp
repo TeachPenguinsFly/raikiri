@@ -14,7 +14,7 @@
 
 #include "state.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 
 [[nodiscard]] std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state,
                                                                  MarketType market);
@@ -25,4 +25,4 @@ make_execution_client(std::shared_ptr<VenueState> state);
 [[nodiscard]] std::unique_ptr<exec::InstrumentSource>
 make_instrument_source(std::shared_ptr<VenueState> state);
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

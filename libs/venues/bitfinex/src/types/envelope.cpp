@@ -5,17 +5,12 @@
 
 namespace raikiri::venues::bitfinex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-using JsonType = detail::ondemand::json_type;
+using JsonType = wire::ondemand::json_type;
 
 constexpr std::string_view k_error_tag = "error";
 
@@ -48,7 +43,7 @@ FrameKind kind_from_event(std::string_view event) noexcept {
 } // namespace
 
 bool is_array_frame(std::string_view frame) noexcept {
-    const auto text = detail::trim(frame);
+    const auto text = wire::trim(frame);
     return !text.empty() && text.front() == '[';
 }
 
@@ -56,12 +51,12 @@ bool is_array_frame(std::string_view frame) noexcept {
 // so quotes come off after trimming. Contents stay escaped: Bitfinex symbols
 // and decimal tokens cannot contain an escape, and letting simdjson unescape
 // would move every field into a buffer that cannot be rebased.
-std::expected<std::string_view, WireError> token_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> token_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    raw = detail::trim(raw);
+    raw = wire::trim(raw);
     if (raw == "null") {
         return std::string_view{};
     }
@@ -80,15 +75,15 @@ bool token_to_i64(std::string_view s, std::int64_t& out) noexcept {
     return ec == std::errc{} && stop == end;
 }
 
-std::expected<std::string_view, WireError> opt_token(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_token(wire::ondemand::object& obj,
                                                      std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return token_of(value);
 }
@@ -102,7 +97,7 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
                 return std::unexpected(root.error());
             }
             const auto event = opt_token(*root, "event");
-            const auto code = detail::opt_i64(*root, "code");
+            const auto code = wire::opt_i64(*root, "code");
             if (!event.has_value() || !code.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -117,9 +112,9 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
         }
         std::size_t index = 0;
         for (auto entry : *root) {
-            detail::ondemand::value value;
+            wire::ondemand::value value;
             if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (index == 0) {
                 const auto token = token_of(value);
@@ -134,7 +129,7 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
             }
             JsonType type{};
             if (const auto ec = value.type().get(type); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (index == 1 && type == JsonType::string) {
                 const auto token = token_of(value);
@@ -147,7 +142,7 @@ std::expected<FrameInfo, WireError> parse_frame(std::string_view frame) {
                 if (!token.has_value()) {
                     return std::unexpected(token.error());
                 }
-                info.ts_ms = detail::digits_to_u64(*token);
+                info.ts_ms = wire::digits_to_u64(*token);
             }
             ++index;
         }
@@ -165,7 +160,7 @@ std::expected<WireSubscribed, WireError> parse_subscribed(std::string_view frame
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto chan_id = detail::opt_i64(*root, "chanId");
+        const auto chan_id = wire::opt_i64(*root, "chanId");
         const auto channel = opt_token(*root, "channel");
         const auto symbol = opt_token(*root, "symbol");
         const auto key = opt_token(*root, "key");
@@ -187,7 +182,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto code = detail::opt_i64(*root, "code");
+        const auto code = wire::opt_i64(*root, "code");
         const auto msg = opt_token(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
@@ -204,7 +199,7 @@ std::expected<WireAuthAck, WireError> parse_auth_ack(std::string_view frame) {
         }
         const auto status = opt_token(*root, "status");
         const auto msg = opt_token(*root, "msg");
-        const auto code = detail::opt_i64(*root, "code");
+        const auto code = wire::opt_i64(*root, "code");
         if (!status.has_value() || !msg.has_value() || !code.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -213,12 +208,12 @@ std::expected<WireAuthAck, WireError> parse_auth_ack(std::string_view frame) {
 }
 
 bool is_rest_error(std::string_view body) noexcept {
-    auto text = detail::trim(body);
+    auto text = wire::trim(body);
     if (text.empty() || text.front() != '[') {
         return false;
     }
     text.remove_prefix(1);
-    return detail::trim(text).starts_with(k_quoted_error_tag);
+    return wire::trim(text).starts_with(k_quoted_error_tag);
 }
 
 std::expected<RestError, WireError> parse_rest_error(std::string_view body) {

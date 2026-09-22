@@ -7,21 +7,16 @@
 
 namespace raikiri::venues::gate {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A level is {"p":"64156.4","s":35680} on the websocket and in the REST
 // snapshot alike — same object either way, unlike okx's positional arrays.
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -30,9 +25,9 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object level;
+        wire::ondemand::object level;
         if (const auto ec = entry.get_object().get(level); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto price = req_num(level, "p");
         const auto qty = req_num(level, "s");
@@ -49,8 +44,8 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
 // where the futures deltas spell it as an object {"p":...,"s":...}. Same
 // numbers, same order, no shared reader.
 std::expected<std::size_t, WireError>
-read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -59,9 +54,9 @@ read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         std::string_view fields[2];
         std::size_t seen = 0;
@@ -99,11 +94,11 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
             return std::unexpected(root.error());
         }
         return with_result_object(
-            *root, [](detail::ondemand::object& obj) -> std::expected<WireBookTicker, WireError> {
+            *root, [](wire::ondemand::object& obj) -> std::expected<WireBookTicker, WireError> {
                 WireBookTicker out{};
                 const auto ts = num_u64(obj, "t");
                 const auto update_id = num_u64(obj, "u");
-                const auto contract = detail::req_str(obj, "s");
+                const auto contract = wire::req_str(obj, "s");
                 const auto bid_price = req_num(obj, "b");
                 const auto bid_qty = req_num(obj, "B");
                 const auto ask_price = req_num(obj, "a");
@@ -137,11 +132,11 @@ parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage) {
             if (count == storage.rows.size()) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto contract = detail::req_str(obj, "contract");
+            const auto contract = wire::req_str(obj, "contract");
             if (!contract.has_value()) {
                 return std::unexpected(contract.error());
             }
@@ -165,12 +160,12 @@ std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view fram
             return std::unexpected(root.error());
         }
         return with_result_object(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
                 WireBookUpdate out{};
                 const auto ts = num_u64(obj, "t");
                 const auto first = num_u64(obj, "U");
                 const auto last = num_u64(obj, "u");
-                const auto contract = detail::req_str(obj, "s");
+                const auto contract = wire::req_str(obj, "s");
                 if (!ts.has_value() || !first.has_value() || !last.has_value() ||
                     !contract.has_value()) {
                     return std::unexpected(WireError::MissingField);
@@ -202,11 +197,11 @@ std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view fr
             return std::unexpected(root.error());
         }
         return with_result_object(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookUpdate, WireError> {
                 WireBookUpdate out{};
                 const auto ts = num_u64(obj, "t");
                 const auto last = num_u64(obj, "lastUpdateId");
-                const auto contract = detail::req_str(obj, "s");
+                const auto contract = wire::req_str(obj, "s");
                 if (!ts.has_value() || !last.has_value() || !contract.has_value()) {
                     return std::unexpected(WireError::MissingField);
                 }

@@ -18,7 +18,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::okx::detail {
+namespace raikiri::venues::okx::internal {
 
 void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();
@@ -164,4 +164,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::okx::detail
+} // namespace raikiri::venues::okx::internal

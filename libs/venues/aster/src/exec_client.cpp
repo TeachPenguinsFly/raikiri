@@ -22,7 +22,7 @@
 #include "clients.hpp"
 #include "state.hpp"
 
-namespace raikiri::venues::aster::detail {
+namespace raikiri::venues::aster::internal {
 
 namespace {
 
@@ -109,4 +109,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<AsterExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::aster::detail
+} // namespace raikiri::venues::aster::internal

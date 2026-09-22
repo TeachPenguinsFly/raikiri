@@ -23,7 +23,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::htx::detail {
+namespace raikiri::venues::htx::internal {
 
 // HTX's code is a string on spot and a number on the swap, and VenueError
 // carries an integer, so the code travels in the message where an operator can
@@ -321,4 +321,4 @@ private:
     bool spot_enabled_{false};
 };
 
-} // namespace raikiri::venues::htx::detail
+} // namespace raikiri::venues::htx::internal

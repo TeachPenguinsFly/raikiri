@@ -6,15 +6,10 @@
 
 namespace raikiri::venues::xt {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -25,7 +20,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "result");
+        auto array = wire::req_array(*root, "result");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -34,13 +29,13 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto product_type = detail::req_str(obj, "productType");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto product_type = wire::req_str(obj, "productType");
             if (!symbol.has_value() || !product_type.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -49,13 +44,13 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             for (const auto& [key, field] : {std::pair{"minStepPrice", &out.tick_size},
                                              std::pair{"contractSize", &out.contract_size},
                                              std::pair{"minNotional", &out.min_notional}}) {
-                const auto value = detail::opt_str(obj, key);
+                const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());
                 }
                 *field = *value;
             }
-            const auto tags = detail::opt_raw(obj, "tags");
+            const auto tags = wire::opt_raw(obj, "tags");
             if (!tags.has_value()) {
                 return std::unexpected(tags.error());
             }
@@ -88,11 +83,11 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_object(*root, "result");
+        auto result = wire::req_object(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
-        auto array = detail::req_array(*result, "symbols");
+        auto array = wire::req_array(*result, "symbols");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -101,13 +96,13 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             if (count == k_max_spot_symbols) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireSpotSymbol out{};
-            const auto symbol = detail::req_str(obj, "symbol");
-            const auto state = detail::req_str(obj, "state");
+            const auto symbol = wire::req_str(obj, "symbol");
+            const auto state = wire::req_str(obj, "state");
             if (!symbol.has_value() || !state.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -127,11 +122,11 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             out.openapi_enabled = *openapi;
             // `filters` is a heterogeneous list keyed by a `filter` tag, so the
             // minimum notional is found by walking it rather than by name.
-            if (auto filters = detail::req_array(obj, "filters"); filters.has_value()) {
+            if (auto filters = wire::req_array(obj, "filters"); filters.has_value()) {
                 for (auto filter : *filters) {
-                    detail::ondemand::object row;
+                    wire::ondemand::object row;
                     if (const auto ec = filter.get_object().get(row); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     const auto tag = opt_scalar(row, "filter");
                     if (!tag.has_value()) {

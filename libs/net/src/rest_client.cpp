@@ -134,7 +134,7 @@ constexpr std::size_t k_no_slot = static_cast<std::size_t>(-1);
 
 } // namespace
 
-namespace detail {
+namespace internal {
 
 // Lifetime works the same way as in WsClient: every completion handler holds a
 // shared_ptr to the pool so the reactor can drain queued handlers after the
@@ -391,7 +391,7 @@ private:
             return;
         }
         if (!is_ip_literal(cfg_.host) &&
-            !detail::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
+            !internal::set_sni_host(conn->stream.native_handle(), cfg_.host.c_str())) {
             on_setup_failed(idx, beast::error_code{asio::error::invalid_argument});
             return;
         }
@@ -662,13 +662,13 @@ private:
     bool queue_timer_armed_{false};
 };
 
-} // namespace detail
+} // namespace internal
 
 struct RestClient::Impl {
     Impl(asio::io_context& ioc, RestConfig config)
-        : pool{std::make_shared<detail::RestPool>(ioc, std::move(config))} {}
+        : pool{std::make_shared<internal::RestPool>(ioc, std::move(config))} {}
 
-    std::shared_ptr<detail::RestPool> pool;
+    std::shared_ptr<internal::RestPool> pool;
     Admit admit;
 };
 

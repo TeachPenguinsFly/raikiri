@@ -16,7 +16,7 @@
 #include "clients.hpp"
 #include "rest/api.hpp"
 
-namespace raikiri::venues::hyperliquid::detail {
+namespace raikiri::venues::hyperliquid::internal {
 
 namespace {
 
@@ -402,4 +402,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<HyperliquidExec>(std::move(state));
 }
 
-} // namespace raikiri::venues::hyperliquid::detail
+} // namespace raikiri::venues::hyperliquid::internal

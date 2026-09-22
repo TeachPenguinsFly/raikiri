@@ -19,7 +19,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::bitget::detail {
+namespace raikiri::venues::bitget::internal {
 
 namespace {
 
@@ -112,4 +112,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<BitgetInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::bitget::detail
+} // namespace raikiri::venues::bitget::internal

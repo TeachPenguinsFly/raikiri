@@ -1,6 +1,6 @@
 #pragma once
 
-// detail, not anonymous: an anonymous type in a header differs in every includer.
+// internal, not anonymous: an anonymous type in a header differs in every includer.
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -20,7 +20,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace raikiri::venues::backpack::detail {
+namespace raikiri::venues::backpack::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -65,4 +65,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-} // namespace raikiri::venues::backpack::detail
+} // namespace raikiri::venues::backpack::internal

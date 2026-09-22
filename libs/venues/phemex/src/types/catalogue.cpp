@@ -5,22 +5,20 @@
 
 namespace raikiri::venues::phemex {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 struct Text {
     std::string_view key;
     std::string_view* into;
 };
 
-std::expected<void, WireError> read_text(detail::ondemand::object& obj,
+std::expected<void, WireError> read_text(wire::ondemand::object& obj,
                                          std::initializer_list<Text> wanted) {
     for (const auto& want : wanted) {
-        const auto value = detail::opt_str(obj, want.key);
+        const auto value = wire::opt_str(obj, want.key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -34,10 +32,10 @@ template <typename Int> struct Number {
     Int* into;
 };
 
-std::expected<void, WireError> read_u32(detail::ondemand::object& obj,
+std::expected<void, WireError> read_u32(wire::ondemand::object& obj,
                                         std::initializer_list<Number<std::uint32_t>> wanted) {
     for (const auto& want : wanted) {
-        const auto value = detail::opt_u64(obj, want.key);
+        const auto value = wire::opt_u64(obj, want.key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -46,10 +44,10 @@ std::expected<void, WireError> read_u32(detail::ondemand::object& obj,
     return {};
 }
 
-std::expected<void, WireError> read_i64(detail::ondemand::object& obj,
+std::expected<void, WireError> read_i64(wire::ondemand::object& obj,
                                         std::initializer_list<Number<std::int64_t>> wanted) {
     for (const auto& want : wanted) {
-        const auto value = detail::opt_i64(obj, want.key);
+        const auto value = wire::opt_i64(obj, want.key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -58,7 +56,7 @@ std::expected<void, WireError> read_i64(detail::ondemand::object& obj,
     return {};
 }
 
-std::expected<WireCurrency, WireError> read_currency(detail::ondemand::object& obj) {
+std::expected<WireCurrency, WireError> read_currency(wire::ondemand::object& obj) {
     WireCurrency out{};
     if (const auto ok = read_text(obj, {{"currency", &out.currency}}); !ok.has_value()) {
         return std::unexpected(ok.error());
@@ -69,7 +67,7 @@ std::expected<WireCurrency, WireError> read_currency(detail::ondemand::object& o
     return out;
 }
 
-std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj) {
+std::expected<WireProduct, WireError> read_product(wire::ondemand::object& obj) {
     WireProduct out{};
     if (const auto ok = read_text(obj,
                                   {{"symbol", &out.symbol},
@@ -99,9 +97,9 @@ std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj
         return std::unexpected(ok.error());
     }
     out.has_fees =
-        detail::has_field(obj, "defaultTakerFeeEr") && detail::has_field(obj, "defaultMakerFeeEr");
-    const auto tick = detail::opt_raw(obj, "tickSize");
-    const auto contract = detail::opt_raw(obj, "contractSize");
+        wire::has_field(obj, "defaultTakerFeeEr") && wire::has_field(obj, "defaultMakerFeeEr");
+    const auto tick = wire::opt_raw(obj, "tickSize");
+    const auto contract = wire::opt_raw(obj, "contractSize");
     if (!tick.has_value() || !contract.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -110,7 +108,7 @@ std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj
     return out;
 }
 
-std::expected<WirePerp, WireError> read_perp(detail::ondemand::object& obj) {
+std::expected<WirePerp, WireError> read_perp(wire::ondemand::object& obj) {
     WirePerp out{};
     if (const auto ok = read_text(obj,
                                   {{"symbol", &out.symbol},
@@ -134,12 +132,12 @@ std::expected<WirePerp, WireError> read_perp(detail::ondemand::object& obj) {
 // A row that will not read is skipped and counted rather than failing the
 // catalogue: most of the ~2000 rows are delisted leftovers.
 template <typename Row, typename Read>
-std::expected<std::size_t, WireError> read_rows(detail::ondemand::object& data,
+std::expected<std::size_t, WireError> read_rows(wire::ondemand::object& data,
                                                 std::string_view key,
                                                 std::span<Row> into,
                                                 std::size_t& malformed,
                                                 Read read) {
-    auto rows = detail::req_array(data, key);
+    auto rows = wire::req_array(data, key);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
     }
@@ -148,9 +146,9 @@ std::expected<std::size_t, WireError> read_rows(detail::ondemand::object& data,
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto row = read(obj);
         if (!row.has_value()) {
@@ -172,11 +170,11 @@ std::expected<WireCatalogue, WireError> parse_products(std::string_view body,
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto code = detail::opt_i64(*root, "code");
+        const auto code = wire::opt_i64(*root, "code");
         if (!code.has_value() || *code != 0) {
             return std::unexpected(WireError::UnknownMessage);
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }

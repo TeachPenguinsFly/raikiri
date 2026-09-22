@@ -9,15 +9,10 @@
 
 namespace raikiri::venues::binance {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -35,22 +30,22 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
         // sending this — v3 of this path already has — would silently turn
         // one account-wide number into a free balance of every asset.
         WireAccount account{};
-        detail::ondemand::value flag;
+        wire::ondemand::value flag;
         const auto found = wire::find(obj, "multiAssetsMargin").get(flag);
         if (found == simdjson::SUCCESS) {
             bool multi = true;
             if (const auto ec = flag.get_bool().get(multi); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             account.multi_assets_margin = multi;
         } else if (found != simdjson::NO_SUCH_FIELD) {
-            return std::unexpected(detail::map_error(found));
+            return std::unexpected(wire::map_error(found));
         }
         // An absent flag keeps the default. It is NOT a parse failure: the
         // mode qualifies one of three figures, and refusing the body over it
         // would lose the totals and the pnl beside it as well.
 
-        auto assets = detail::req_array(obj, "assets");
+        auto assets = wire::req_array(obj, "assets");
         if (!assets.has_value()) {
             return std::unexpected(assets.error());
         }
@@ -59,9 +54,9 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
             if (count == k_max_balances) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object row;
+            wire::ondemand::object row;
             if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             // The asset is read as optional, not required: one nameless row
             // must not cost the account every other balance in the body. The
@@ -74,7 +69,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
             if (const auto ok = read_strings(row, wanted); !ok.has_value()) {
                 return std::unexpected(ok.error());
             }
-            const auto update_ms = detail::opt_u64(row, "updateTime");
+            const auto update_ms = wire::opt_u64(row, "updateTime");
             if (!update_ms.has_value()) {
                 return std::unexpected(update_ms.error());
             }
@@ -99,9 +94,9 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
             if (count == k_max_income_rows) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireIncome out{};
             const std::array<Wanted, 4> wanted{{{"symbol", &out.symbol},
@@ -111,7 +106,7 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
             if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
                 return std::unexpected(ok.error());
             }
-            out.tran_id = detail::opt_u64(obj, "tranId").value_or(0);
+            out.tran_id = wire::opt_u64(obj, "tranId").value_or(0);
             // A STRING, AND ON EVERY ROW — "220574436" on a commission and ""
             // on a funding row, beside a `tranId` that is a bare number in the
             // same object. This was read with opt_u64, which wants a number,
@@ -124,8 +119,8 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
             // the exception, and the generalisation is what hid it.
             obj.reset();
             out.trade_id =
-                detail::digits_to_u64(detail::opt_str(obj, "tradeId").value_or(std::string_view{}));
-            const auto time_ms = detail::opt_u64(obj, "time");
+                wire::digits_to_u64(wire::opt_str(obj, "tradeId").value_or(std::string_view{}));
+            const auto time_ms = wire::opt_u64(obj, "time");
             if (!time_ms.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }

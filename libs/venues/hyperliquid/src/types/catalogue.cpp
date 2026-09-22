@@ -6,19 +6,14 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<std::size_t, WireError> read_universe(detail::ondemand::object& meta,
+std::expected<std::size_t, WireError> read_universe(wire::ondemand::object& meta,
                                                     AssetBuffer& storage) {
-    auto array = detail::req_array(meta, "universe");
+    auto array = wire::req_array(meta, "universe");
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -27,15 +22,15 @@ std::expected<std::size_t, WireError> read_universe(detail::ondemand::object& me
         if (count == k_max_assets) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         WireAsset out{};
-        const auto name = detail::req_str(obj, "name");
-        const auto sz_decimals = detail::opt_i64(obj, "szDecimals");
-        const auto max_leverage = detail::opt_i64(obj, "maxLeverage");
-        const auto delisted = detail::opt_bool(obj, "isDelisted");
+        const auto name = wire::req_str(obj, "name");
+        const auto sz_decimals = wire::opt_i64(obj, "szDecimals");
+        const auto max_leverage = wire::opt_i64(obj, "maxLeverage");
+        const auto delisted = wire::opt_bool(obj, "isDelisted");
         if (!name.has_value() || !sz_decimals.has_value() || !max_leverage.has_value() ||
             !delisted.has_value()) {
             return std::unexpected(WireError::MissingField);
@@ -64,7 +59,7 @@ std::expected<std::span<const WireAsset>, WireError> parse_meta(std::string_view
         if (!count.has_value()) {
             return std::unexpected(count.error());
         }
-        const auto collateral = detail::opt_i64(*root, "collateralToken");
+        const auto collateral = wire::opt_i64(*root, "collateralToken");
         if (!collateral.has_value()) {
             return std::unexpected(collateral.error());
         }
@@ -86,9 +81,9 @@ parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage) {
             if (count == k_max_perp_categories) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::array pair;
+            wire::ondemand::array pair;
             if (const auto ec = row.get_array().get(pair); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             std::array<std::string_view, 2> fields{};
             std::size_t read = 0;
@@ -97,7 +92,7 @@ parse_perp_categories(std::string_view body, PerpCategoryBuffer& storage) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
                 if (const auto ec = field.get_string().get(fields[read]); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 ++read;
             }
@@ -135,11 +130,11 @@ parse_perp_dexs(std::string_view body, PerpDexBuffer& storage) {
             if (count == k_max_perp_dexs) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto name = detail::req_str(obj, "name");
+            const auto name = wire::req_str(obj, "name");
             if (!name.has_value()) {
                 return std::unexpected(name.error());
             }
@@ -156,17 +151,17 @@ std::expected<std::string_view, WireError> parse_token_name(std::string_view bod
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto rows = detail::req_array(*root, "tokens");
+        auto rows = wire::req_array(*root, "tokens");
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
         for (auto row : *rows) {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto name = detail::req_str(obj, "name");
-            const auto at = detail::opt_i64(obj, "index");
+            const auto name = wire::req_str(obj, "name");
+            const auto at = wire::opt_i64(obj, "index");
             if (!name.has_value() || !at.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -197,18 +192,18 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
         static thread_local std::array<Token, k_max_spot_assets> tokens{};
         tokens.fill(Token{});
 
-        auto token_rows = detail::req_array(*root, "tokens");
+        auto token_rows = wire::req_array(*root, "tokens");
         if (!token_rows.has_value()) {
             return std::unexpected(token_rows.error());
         }
         for (auto row : *token_rows) {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto name = detail::req_str(obj, "name");
-            const auto decimals = detail::opt_i64(obj, "szDecimals");
-            const auto index = detail::opt_i64(obj, "index");
+            const auto name = wire::req_str(obj, "name");
+            const auto decimals = wire::opt_i64(obj, "szDecimals");
+            const auto index = wire::opt_i64(obj, "index");
             if (!name.has_value() || !decimals.has_value() || !index.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -219,7 +214,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
                 .name = *name, .sz_decimals = *decimals, .present = true};
         }
 
-        auto pairs = detail::req_array(*root, "universe");
+        auto pairs = wire::req_array(*root, "universe");
         if (!pairs.has_value()) {
             return std::unexpected(pairs.error());
         }
@@ -228,16 +223,16 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (count == k_max_spot_assets) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto name = detail::req_str(obj, "name");
-            const auto index = detail::opt_i64(obj, "index");
+            const auto name = wire::req_str(obj, "name");
+            const auto index = wire::opt_i64(obj, "index");
             if (!name.has_value() || !index.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
-            auto members = detail::req_array(obj, "tokens");
+            auto members = wire::req_array(obj, "tokens");
             if (!members.has_value()) {
                 return std::unexpected(members.error());
             }
@@ -253,7 +248,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
                 }
                 if (const auto ec = member.get_int64().get(members_at[read]);
                     ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 ++read;
             }

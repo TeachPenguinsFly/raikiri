@@ -5,17 +5,12 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
 namespace pb = raikiri::wire::pb;
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -29,7 +24,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -77,9 +72,9 @@ parse_spot_tickers(std::string_view body, SpotTickerBuffer& storage) {
             if (count == storage.rows.size()) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireSpotTicker out{};
             const auto symbol = req_scalar(obj, "symbol");
@@ -107,7 +102,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -116,9 +111,9 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTrade out{};
             out.symbol = *symbol; // per-print objects carry no symbol of their own
@@ -156,7 +151,7 @@ parse_funding_rates(std::string_view body, FundingRateBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -165,9 +160,9 @@ parse_funding_rates(std::string_view body, FundingRateBuffer& storage) {
             if (count == storage.rows.size()) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireFundingRate out{};
             const auto symbol = req_scalar(obj, "symbol");
@@ -199,7 +194,7 @@ std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view bo
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }

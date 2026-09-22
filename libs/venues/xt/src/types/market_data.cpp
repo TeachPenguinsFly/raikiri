@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::xt {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -24,13 +19,13 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& data) -> std::expected<WireTrade, WireError> {
+            *root, [&](wire::ondemand::object& data) -> std::expected<WireTrade, WireError> {
                 WireTrade out{};
-                const auto symbol = detail::req_str(data, "s");
-                const auto price = detail::req_str(data, "p");
+                const auto symbol = wire::req_str(data, "s");
+                const auto price = wire::req_str(data, "p");
                 // The two trees name the size differently — "a" on futures,
                 // "q" on spot — and say the aggressor differently too.
-                const auto qty = detail::req_str(data, spot ? "q" : "a");
+                const auto qty = wire::req_str(data, spot ? "q" : "a");
                 if (!symbol.has_value() || !price.has_value() || !qty.has_value()) {
                     return std::unexpected(WireError::MissingField);
                 }
@@ -45,13 +40,13 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
                     // disagreed on a quote that had already moved. Reading the
                     // two trees the same way is how a signed flow series comes
                     // out backwards on one of them.
-                    const auto buyer_is_maker = detail::opt_bool(data, "b");
+                    const auto buyer_is_maker = wire::opt_bool(data, "b");
                     if (!buyer_is_maker.has_value()) {
                         return std::unexpected(WireError::WrongType);
                     }
                     out.aggressor_bought = !*buyer_is_maker;
                 } else {
-                    const auto side = detail::req_str(data, "m");
+                    const auto side = wire::req_str(data, "m");
                     if (!side.has_value()) {
                         return std::unexpected(WireError::MissingField);
                     }
@@ -77,10 +72,10 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [](detail::ondemand::object& data) -> std::expected<WireMarkPrice, WireError> {
+            *root, [](wire::ondemand::object& data) -> std::expected<WireMarkPrice, WireError> {
                 WireMarkPrice out{};
-                const auto symbol = detail::req_str(data, "s");
-                const auto mark = detail::req_str(data, "p");
+                const auto symbol = wire::req_str(data, "s");
+                const auto mark = wire::req_str(data, "p");
                 if (!symbol.has_value() || !mark.has_value()) {
                     return std::unexpected(WireError::MissingField);
                 }
@@ -104,9 +99,9 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, Market
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& data) -> std::expected<WireTicker, WireError> {
+            *root, [&](wire::ondemand::object& data) -> std::expected<WireTicker, WireError> {
                 WireTicker out{};
-                const auto symbol = detail::req_str(data, "s");
+                const auto symbol = wire::req_str(data, "s");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
                 }
@@ -139,13 +134,13 @@ std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view bo
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_object(*root, "result");
+        auto result = wire::req_object(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
         WireFundingRate out{};
-        const auto symbol = detail::req_str(*result, "symbol");
-        const auto rate = detail::opt_raw(*result, "fundingRate");
+        const auto symbol = wire::req_str(*result, "symbol");
+        const auto rate = wire::opt_raw(*result, "fundingRate");
         if (!symbol.has_value() || !rate.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

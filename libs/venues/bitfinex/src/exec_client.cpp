@@ -11,7 +11,7 @@
 #include "rest/api.hpp"
 #include "userstream/stream.hpp"
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 namespace {
 
@@ -297,4 +297,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<BitfinexExec>(std::move(state), market);
 }
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

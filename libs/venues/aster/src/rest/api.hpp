@@ -32,7 +32,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::aster::detail {
+namespace raikiri::venues::aster::internal {
 
 // A build that failed for want of credentials is an AuthFailure, not a
 // Terminal one: the gateway must halt and say so rather than retry a request
@@ -133,4 +133,4 @@ public:
     net::RestClient rest_;
 };
 
-} // namespace raikiri::venues::aster::detail
+} // namespace raikiri::venues::aster::internal

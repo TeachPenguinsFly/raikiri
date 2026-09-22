@@ -23,7 +23,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::mexc::detail {
+namespace raikiri::venues::mexc::internal {
 
 namespace {
 
@@ -458,4 +458,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<MexcData>(std::move(state));
 }
 
-} // namespace raikiri::venues::mexc::detail
+} // namespace raikiri::venues::mexc::internal

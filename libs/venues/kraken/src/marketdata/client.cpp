@@ -23,7 +23,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::kraken::detail {
+namespace raikiri::venues::kraken::internal {
 
 namespace {
 
@@ -261,4 +261,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<KrakenData>(std::move(state));
 }
 
-} // namespace raikiri::venues::kraken::detail
+} // namespace raikiri::venues::kraken::internal

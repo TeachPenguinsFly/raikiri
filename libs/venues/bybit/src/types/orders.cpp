@@ -4,21 +4,16 @@
 
 namespace raikiri::venues::bybit {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+namespace ondemand = wire::ondemand;
 
 // Reads one order-shaped object. Shared because /v5/order/realtime returns
 // the same shape as the websocket `order` topic — the venue is consistent
 // here, so the parser is too.
 std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate& out) {
-    auto symbol = detail::req_str(obj, "symbol");
+    auto symbol = wire::req_str(obj, "symbol");
     if (!symbol.has_value()) {
         return std::unexpected{symbol.error()};
     }
@@ -26,7 +21,7 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
 
     const auto field = [&](std::string_view key) {
         obj.reset();
-        return detail::opt_str(obj, key).value_or(std::string_view{});
+        return wire::opt_str(obj, key).value_or(std::string_view{});
     };
     out.order_id = field("orderId");
     out.order_link_id = field("orderLinkId"); // our ULID returns here
@@ -40,7 +35,7 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
     out.reject_reason = field("rejectReason");
     out.status = order_status_from(field("orderStatus"));
     // Timestamps are milliseconds inside a JSON string on this stream.
-    out.updated_ms = detail::digits_to_u64(field("updatedTime"));
+    out.updated_ms = wire::digits_to_u64(field("updatedTime"));
     return {};
 }
 
@@ -98,14 +93,14 @@ parse_executions(std::string_view frame, ExecutionBuffer& storage) {
             storage.executions,
             k_max_updates,
             [](ondemand::object& obj, WireExecution& out) -> std::expected<void, WireError> {
-                auto symbol = detail::req_str(obj, "symbol");
+                auto symbol = wire::req_str(obj, "symbol");
                 if (!symbol.has_value()) {
                     return std::unexpected{symbol.error()};
                 }
                 out.symbol = *symbol;
                 const auto field = [&](std::string_view key) {
                     obj.reset();
-                    return detail::opt_str(obj, key).value_or(std::string_view{});
+                    return wire::opt_str(obj, key).value_or(std::string_view{});
                 };
                 out.exec_type = field("execType");
                 out.exec_id = field("execId");
@@ -116,9 +111,9 @@ parse_executions(std::string_view frame, ExecutionBuffer& storage) {
                 out.exec_qty = field("execQty");
                 out.exec_fee = field("execFee");
                 out.leaves_qty = field("leavesQty");
-                out.exec_ms = detail::digits_to_u64(field("execTime"));
+                out.exec_ms = wire::digits_to_u64(field("execTime"));
                 obj.reset();
-                out.is_maker = detail::opt_bool(obj, "isMaker").value_or(false);
+                out.is_maker = wire::opt_bool(obj, "isMaker").value_or(false);
                 return {};
             });
     });
@@ -138,7 +133,7 @@ parse_open_orders(std::string_view result, OrderUpdateBuffer& storage) {
 
 std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view result) {
     return guarded([&]() -> std::expected<WireOrderAck, WireError> {
-        auto& session = detail::session();
+        auto& session = wire::session();
         auto root = session.open_object(result);
         if (!root.has_value()) {
             return std::unexpected{root.error()};
@@ -146,9 +141,9 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view result) 
         auto obj = *root;
 
         WireOrderAck out{};
-        out.order_id = detail::opt_str(obj, "orderId").value_or(std::string_view{});
+        out.order_id = wire::opt_str(obj, "orderId").value_or(std::string_view{});
         obj.reset();
-        out.order_link_id = detail::opt_str(obj, "orderLinkId").value_or(std::string_view{});
+        out.order_link_id = wire::opt_str(obj, "orderLinkId").value_or(std::string_view{});
         if (out.order_id.empty() && out.order_link_id.empty()) {
             return std::unexpected{WireError::MissingField};
         }

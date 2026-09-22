@@ -24,14 +24,18 @@
 
 namespace raikiri::venues::bybit {
 
-using namespace detail;
+using internal::VenueState;
+using internal::await_response;
+using internal::make_data_client;
+using internal::make_execution_client;
+using internal::make_instrument_source;
 
 // Bybit refuses signatures outside recvWindow of ITS clock. A laptop drifting
 // two seconds therefore looks exactly like bad credentials, so the offset is
 // measured once at startup and applied to every signed request. Half the
 // round trip is subtracted because the server's timestamp was taken somewhere
 // in the middle of it.
-void detail::sync_clock(VenueState& state, net::RestClient& rest) {
+void internal::sync_clock(VenueState& state, net::RestClient& rest) {
     net::RestRequest request{};
     request.method = net::HttpMethod::Get;
     request.target = ep::k_server_time;

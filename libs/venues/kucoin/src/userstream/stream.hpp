@@ -20,7 +20,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::kucoin::detail {
+namespace raikiri::venues::kucoin::internal {
 
 class PrivateStream final : public net::WsHandler, public Pumped {
 public:
@@ -185,4 +185,4 @@ private:
     bool started_{false};
 };
 
-} // namespace raikiri::venues::kucoin::detail
+} // namespace raikiri::venues::kucoin::internal

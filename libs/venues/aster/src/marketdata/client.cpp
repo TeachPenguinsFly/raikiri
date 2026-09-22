@@ -27,7 +27,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::aster::detail {
+namespace raikiri::venues::aster::internal {
 
 namespace {
 
@@ -629,4 +629,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<AsterData>(std::move(state));
 }
 
-} // namespace raikiri::venues::aster::detail
+} // namespace raikiri::venues::aster::internal

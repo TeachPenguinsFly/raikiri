@@ -18,7 +18,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::grvt::detail {
+namespace raikiri::venues::grvt::internal {
 
 namespace {
 
@@ -422,4 +422,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<GrvtData>(std::move(state));
 }
 
-} // namespace raikiri::venues::grvt::detail
+} // namespace raikiri::venues::grvt::internal

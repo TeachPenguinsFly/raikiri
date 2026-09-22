@@ -36,7 +36,7 @@
 #include <raikiri/introspect/clock_probe.hpp>
 #include <raikiri/introspect/files.hpp>
 #include <raikiri/introspect/server_time.hpp>
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -1243,7 +1243,7 @@ int main(int argc, char** argv) {
 
     // shm segment (owner side).
     const auto seg_path = shm::gateway_segment_path(account);
-    if (!journal::detail::mkdir_p(platform::runtime_dir() + "/shm")) {
+    if (!journal::internal::mkdir_p(platform::runtime_dir() + "/shm")) {
         RLOG_ERROR("gatewayd: cannot create runtime dir");
         return 1;
     }

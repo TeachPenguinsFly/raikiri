@@ -18,7 +18,7 @@
 
 #include "state.hpp"
 
-namespace raikiri::venues::deribit::detail {
+namespace raikiri::venues::deribit::internal {
 
 namespace {
 
@@ -173,4 +173,4 @@ bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     return false;
 }
 
-} // namespace raikiri::venues::deribit::detail
+} // namespace raikiri::venues::deribit::internal

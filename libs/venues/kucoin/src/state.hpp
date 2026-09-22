@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -28,7 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::kucoin::detail {
+namespace raikiri::venues::kucoin::internal {
 
 // The bullet response states 18 s; this is the fallback if it ever omits it.
 constexpr std::uint64_t k_default_ping_ms = 18'000;
@@ -242,4 +242,4 @@ usable_body(const std::optional<net::RestResponse>& response) {
     return response->body;
 }
 
-} // namespace raikiri::venues::kucoin::detail
+} // namespace raikiri::venues::kucoin::internal

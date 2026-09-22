@@ -23,7 +23,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bitget::detail {
+namespace raikiri::venues::bitget::internal {
 
 class RestApi {
 public:
@@ -287,4 +287,4 @@ private:
     RequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::bitget::detail
+} // namespace raikiri::venues::bitget::internal

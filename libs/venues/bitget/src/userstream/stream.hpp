@@ -19,7 +19,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bitget::detail {
+namespace raikiri::venues::bitget::internal {
 
 // Private order stream. Login FIRST and subscribe only once Bitget answers:
 // a subscribe sent before the login lands is refused with 30004 and never
@@ -137,4 +137,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::bitget::detail
+} // namespace raikiri::venues::bitget::internal

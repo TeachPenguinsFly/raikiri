@@ -34,7 +34,7 @@
 // keeps forever. That single thread is what makes an HTTP handler calling
 // on_start sound: it runs between dispatches, never inside one.
 
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/log/log.hpp>

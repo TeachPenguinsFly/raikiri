@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::bitfinex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
+using wire::guarded;
 
-std::expected<WirePosition, WireError> read_position(detail::ondemand::value value) {
+std::expected<WirePosition, WireError> read_position(wire::ondemand::value value) {
     const auto row = read_row<k_position_arity>(value);
     if (!row.has_value()) {
         return std::unexpected(row.error());
@@ -23,7 +18,7 @@ std::expected<WirePosition, WireError> read_position(detail::ondemand::value val
     out.status = row->template at<k_position_status>();
     out.amount = row->template at<k_position_amount>();
     out.base_price = row->template at<k_position_base_price>();
-    out.mts_update = detail::digits_to_u64(row->template at<k_position_mts_update>());
+    out.mts_update = wire::digits_to_u64(row->template at<k_position_mts_update>());
     if (out.symbol.empty()) {
         return std::unexpected(WireError::MissingField);
     }
@@ -35,7 +30,7 @@ std::expected<WirePosition, WireError> read_position(detail::ondemand::value val
 std::expected<WirePosition, WireError> parse_position(std::string_view frame) {
     return guarded([&]() -> std::expected<WirePosition, WireError> {
         return with_row(frame,
-                        [](detail::ondemand::value payload) { return read_position(payload); });
+                        [](wire::ondemand::value payload) { return read_position(payload); });
     });
 }
 
@@ -43,7 +38,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
                                                                         PositionBuffer& storage) {
     return guarded([&]() -> std::expected<std::span<const WirePosition>, WireError> {
         const auto count =
-            rows_of<WirePosition>(body, storage.positions, [](detail::ondemand::value value) {
+            rows_of<WirePosition>(body, storage.positions, [](wire::ondemand::value value) {
                 return read_position(value);
             });
         if (!count.has_value()) {

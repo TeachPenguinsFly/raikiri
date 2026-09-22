@@ -6,17 +6,12 @@
 
 namespace raikiri::venues::okx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<void, WireError> read_bill(detail::ondemand::object& obj, WireBill& out) {
+std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& out) {
     // instId is OPTIONAL here and on purpose: a transfer or an interest row
     // names no instrument, and refusing the whole book over one would lose
     // every funding charge beside it.
@@ -30,7 +25,7 @@ std::expected<void, WireError> read_bill(detail::ondemand::object& obj, WireBill
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    const auto ts_ms = detail::opt_ms(obj, "ts");
+    const auto ts_ms = wire::opt_ms(obj, "ts");
     if (!ts_ms.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -51,8 +46,8 @@ std::expected<AccountMode, WireError> parse_account_mode(std::string_view body) 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return with_first_data(*root, [](detail::ondemand::object& obj) {
-            return detail::req_str(obj, "acctLv").transform([](std::string_view level) {
+        return with_first_data(*root, [](wire::ondemand::object& obj) {
+            return wire::req_str(obj, "acctLv").transform([](std::string_view level) {
                 // A level this does not know reads as Unknown rather than as
                 // the nearest one: OKX has added modes before, and guessing
                 // which side of the per-currency line a new one falls on is
@@ -82,17 +77,17 @@ parse_balances(std::string_view body, BalanceBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto accounts = detail::req_array(*root, "data");
+        auto accounts = wire::req_array(*root, "data");
         if (!accounts.has_value()) {
             return std::unexpected(accounts.error());
         }
         std::size_t count = 0;
         for (auto element : *accounts) {
-            detail::ondemand::object account;
+            wire::ondemand::object account;
             if (const auto ec = element.get_object().get(account); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            auto details = detail::req_array(account, "details");
+            auto details = wire::req_array(account, "details");
             if (!details.has_value()) {
                 return std::unexpected(details.error());
             }
@@ -100,9 +95,9 @@ parse_balances(std::string_view body, BalanceBuffer& storage) {
                 if (count == k_max_currencies) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
-                detail::ondemand::object obj;
+                wire::ondemand::object obj;
                 if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 WireCurrencyBalance out{};
                 if (const auto ok = read_strings(obj,
@@ -113,7 +108,7 @@ parse_balances(std::string_view body, BalanceBuffer& storage) {
                     !ok.has_value()) {
                     return std::unexpected(ok.error());
                 }
-                const auto at = detail::opt_ms(obj, "uTime");
+                const auto at = wire::opt_ms(obj, "uTime");
                 if (!at.has_value()) {
                     return std::unexpected(at.error());
                 }

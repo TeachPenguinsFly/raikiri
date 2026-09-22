@@ -20,7 +20,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::coinbase::detail {
+namespace raikiri::venues::coinbase::internal {
 
 // A refusal to build is terminal by construction: the same command built again
 // produces the same refusal. NotSigned is the exception, and it points at the
@@ -173,4 +173,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::coinbase::detail
+} // namespace raikiri::venues::coinbase::internal

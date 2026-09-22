@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace raikiri::venues::pacifica::detail {
+namespace raikiri::venues::pacifica::internal {
 
 // Indexed by SymbolId.
 struct Market {
@@ -50,4 +50,4 @@ struct VenueState {
     }
 };
 
-} // namespace raikiri::venues::pacifica::detail
+} // namespace raikiri::venues::pacifica::internal

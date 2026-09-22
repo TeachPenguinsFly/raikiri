@@ -1,4 +1,4 @@
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 
 #include <crc32c/crc32c.h>
 #include <dirent.h>
@@ -12,7 +12,7 @@
 #include <charconv>
 #include <cstring>
 
-namespace raikiri::journal::detail {
+namespace raikiri::journal::internal {
 
 bool mkdir_p(const std::string& dir) noexcept {
     std::string built;
@@ -126,4 +126,4 @@ walk_frames(const std::byte* base, std::size_t size, std::uint64_t base_record_s
     return result;
 }
 
-} // namespace raikiri::journal::detail
+} // namespace raikiri::journal::internal

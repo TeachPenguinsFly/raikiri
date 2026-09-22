@@ -28,7 +28,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::xt::detail {
+namespace raikiri::venues::xt::internal {
 
 namespace {
 
@@ -416,4 +416,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<XtData>(std::move(state));
 }
 
-} // namespace raikiri::venues::xt::detail
+} // namespace raikiri::venues::xt::internal

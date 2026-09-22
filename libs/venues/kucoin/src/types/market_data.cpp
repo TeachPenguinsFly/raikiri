@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -28,13 +23,13 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
             return std::unexpected(symbol.error());
         }
         return with_data(*root,
-                         [&](detail::ondemand::object& obj) -> std::expected<WireTrade, WireError> {
+                         [&](wire::ondemand::object& obj) -> std::expected<WireTrade, WireError> {
                              WireTrade out{};
                              out.symbol = *symbol;
-                             const auto trade_id = detail::req_str(obj, "tradeId");
+                             const auto trade_id = wire::req_str(obj, "tradeId");
                              const auto price = req_decimal(obj, "price");
                              const auto qty = req_decimal(obj, "size");
-                             const auto side = detail::req_str(obj, "side");
+                             const auto side = wire::req_str(obj, "side");
                              if (!trade_id.has_value() || !price.has_value() || !qty.has_value() ||
                                  !side.has_value()) {
                                  return std::unexpected(WireError::MissingField);
@@ -73,40 +68,40 @@ std::expected<WireTrade, WireError> parse_uta_trade(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto topic = detail::req_str(*root, "T");
+        const auto topic = wire::req_str(*root, "T");
         if (!topic.has_value()) {
             return std::unexpected(topic.error());
         }
         if (!topic->starts_with("trade.")) {
             return std::unexpected(WireError::WrongType);
         }
-        auto data = detail::req_object(*root, "d");
+        auto data = wire::req_object(*root, "d");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         WireTrade out{};
         std::string_view side;
         bool has_sequence = false;
-        const auto walked = detail::for_each_field(
+        const auto walked = wire::for_each_field(
             *data,
             [&](std::string_view key,
-                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "s") {
-                    out.symbol = detail::str_of(value).value_or(std::string_view{});
+                    out.symbol = wire::str_of(value).value_or(std::string_view{});
                 } else if (key == "p") {
-                    out.price = detail::str_of(value).value_or(std::string_view{});
+                    out.price = wire::str_of(value).value_or(std::string_view{});
                 } else if (key == "q") {
-                    out.qty = detail::str_of(value).value_or(std::string_view{});
+                    out.qty = wire::str_of(value).value_or(std::string_view{});
                 } else if (key == "S") {
-                    side = detail::str_of(value).value_or(std::string_view{});
+                    side = wire::str_of(value).value_or(std::string_view{});
                 } else if (key == "ti") {
-                    out.trade_id = detail::str_of(value).value_or(std::string_view{});
+                    out.trade_id = wire::str_of(value).value_or(std::string_view{});
                 } else if (key == "E") {
-                    const auto sequence = detail::i64_of(value);
+                    const auto sequence = wire::i64_of(value);
                     has_sequence = sequence.has_value();
                     out.sequence = sequence.value_or(0);
                 } else if (key == "M") {
-                    out.ts_ns = detail::u64_of(value).value_or(0);
+                    out.ts_ns = wire::u64_of(value).value_or(0);
                 }
                 return {};
             });
@@ -133,7 +128,7 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
             return std::unexpected(symbol.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireMarkPrice, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireMarkPrice, WireError> {
                 WireMarkPrice out{};
                 out.symbol = *symbol;
                 const auto mark = req_decimal(obj, "markPrice");
@@ -164,7 +159,7 @@ std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view fr
             return std::unexpected(symbol.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
                 WireFundingRate out{};
                 out.symbol = *symbol;
                 const auto rate = req_decimal(obj, "fundingRate");
@@ -191,7 +186,7 @@ std::expected<WireFundingRate, WireError> parse_funding_current(std::string_view
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [](detail::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
+            *root, [](wire::ondemand::object& obj) -> std::expected<WireFundingRate, WireError> {
                 WireFundingRate out{};
                 const auto rate = req_decimal(obj, "value");
                 const auto predicted = opt_decimal(obj, "predictedValue");

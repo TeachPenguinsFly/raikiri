@@ -22,7 +22,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
@@ -189,4 +189,4 @@ private:
     std::uint64_t next_ping_ns_{0};
 };
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

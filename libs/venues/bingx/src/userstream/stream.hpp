@@ -17,7 +17,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bingx::detail {
+namespace raikiri::venues::bingx::internal {
 
 constexpr std::uint32_t k_perp_stream_id = 1;
 
@@ -174,4 +174,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::bingx::detail
+} // namespace raikiri::venues::bingx::internal

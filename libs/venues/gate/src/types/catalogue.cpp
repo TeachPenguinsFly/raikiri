@@ -4,19 +4,14 @@
 
 namespace raikiri::venues::gate {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<void, WireError> read_currency_pair(detail::ondemand::object& obj,
+std::expected<void, WireError> read_currency_pair(wire::ondemand::object& obj,
                                                   WireCurrencyPair& out) {
-    const auto id = detail::req_str(obj, "id");
+    const auto id = wire::req_str(obj, "id");
     if (!id.has_value()) {
         return std::unexpected{id.error()};
     }
@@ -43,17 +38,17 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             if (count == k_max_contracts) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireContract out{};
-            const auto name = detail::req_str(obj, "name");
+            const auto name = wire::req_str(obj, "name");
             if (!name.has_value()) {
                 return std::unexpected(name.error());
             }
             out.name = *name;
-            const auto status = detail::opt_str(obj, "status");
+            const auto status = wire::opt_str(obj, "status");
             const auto tick = opt_num(obj, "order_price_round");
             const auto size_min = opt_num(obj, "order_size_min");
             const auto quanto = opt_num(obj, "quanto_multiplier");
@@ -61,7 +56,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             const auto rate = opt_num(obj, "funding_rate");
             const auto interval = num_u64(obj, "funding_interval");
             const auto next_apply = num_u64(obj, "funding_next_apply");
-            const auto delisting = detail::opt_bool(obj, "in_delisting");
+            const auto delisting = wire::opt_bool(obj, "in_delisting");
             if (!status.has_value() || !tick.has_value() || !size_min.has_value() ||
                 !quanto.has_value() || !mark.has_value() || !rate.has_value() ||
                 !interval.has_value() || !next_apply.has_value() || !delisting.has_value()) {
@@ -75,9 +70,9 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.funding_rate = *rate;
             out.funding_interval_s = static_cast<std::uint32_t>(*interval);
             out.funding_rate_limit =
-                detail::opt_str(obj, "funding_rate_limit").value_or(std::string_view{});
+                wire::opt_str(obj, "funding_rate_limit").value_or(std::string_view{});
             out.contract_type =
-                detail::opt_str(obj, "contract_type").value_or(std::string_view{});
+                wire::opt_str(obj, "contract_type").value_or(std::string_view{});
             out.funding_next_apply_s = *next_apply;
             out.in_delisting = *delisting;
             storage.contracts[count] = out;

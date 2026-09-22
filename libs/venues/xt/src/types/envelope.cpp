@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::xt {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_topic(std::string_view topic) noexcept {
     if (topic == "depth") {
@@ -50,24 +45,24 @@ PrivateTopic topic_of(std::string_view topic) noexcept {
 
 } // namespace
 
-std::expected<std::int64_t, WireError> req_i64(detail::ondemand::object& obj,
+std::expected<std::int64_t, WireError> req_i64(wire::ondemand::object& obj,
                                                std::string_view key) {
     std::int64_t out = 0;
     if (const auto ec = wire::find(obj, key).get_int64().get(out); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
 
-std::expected<bool, WireError> req_bool(detail::ondemand::object& obj, std::string_view key) {
+std::expected<bool, WireError> req_bool(wire::ondemand::object& obj, std::string_view key) {
     bool out = false;
     if (const auto ec = wire::find(obj, key).get_bool().get(out); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
                                                std::string_view key) {
     std::uint64_t out = 0;
     const auto ec = wire::find(obj, key).get_uint64().get(out);
@@ -75,18 +70,18 @@ std::expected<std::uint64_t, WireError> opt_ms(detail::ondemand::object& obj,
         return std::uint64_t{0};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
 
-std::expected<std::uint64_t, WireError> req_digits(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj,
                                                    std::string_view key) {
-    const auto text = detail::req_str(obj, key);
+    const auto text = wire::req_str(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    const auto value = detail::digits_to_u64(*text);
+    const auto value = wire::digits_to_u64(*text);
     if (value == 0) {
         return std::unexpected(WireError::WrongType);
     }
@@ -97,12 +92,12 @@ std::expected<std::uint64_t, WireError> req_digits(detail::ondemand::object& obj
 // so quotes come off after trimming. Contents stay escaped: XT symbols, order
 // ids and decimal tokens cannot contain an escape, and letting simdjson
 // unescape would move every field into a buffer that cannot be rebased.
-std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    raw = detail::trim(raw);
+    raw = wire::trim(raw);
     if (raw == "null") {
         return std::string_view{};
     }
@@ -114,27 +109,27 @@ std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value val
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
                                                       std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return scalar_of(value);
 }
 
 std::expected<std::int64_t, WireError>
-opt_i64(detail::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
+opt_i64(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
     auto field = wire::find(obj, key);
     if (field.error() == simdjson::NO_SUCH_FIELD) {
         return fallback;
     }
     if (field.error() != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(field.error()));
+        return std::unexpected(wire::map_error(field.error()));
     }
     // An explicit null is the venue saying "no value", which is what a fallback
     // is for. A wrong TYPE is not: XT spells some numbers as strings, and
@@ -144,13 +139,13 @@ opt_i64(detail::ondemand::object& obj, std::string_view key, std::int64_t fallba
     }
     std::int64_t out = 0;
     if (const auto ec = field.get_int64().get(out); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
 
 std::expected<bool, WireError>
-opt_bool_or(detail::ondemand::object& obj, std::string_view key, bool fallback) {
+opt_bool_or(wire::ondemand::object& obj, std::string_view key, bool fallback) {
     auto field = wire::find(obj, key);
     if (field.error() == simdjson::NO_SUCH_FIELD) {
         return fallback;
@@ -161,7 +156,7 @@ opt_bool_or(detail::ondemand::object& obj, std::string_view key, bool fallback) 
     bool out = false;
     const auto ec = field.get_bool().get(out);
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
@@ -170,31 +165,31 @@ opt_bool_or(detail::ondemand::object& obj, std::string_view key, bool fallback) 
 // an OBJECT wrapping `items` on the paged ones (/v4/trade, order/trade-list).
 // Asking for one shape and getting the other is not an error XT reports — the
 // read simply returns nothing — so the shape is resolved before the walk.
-std::expected<detail::ondemand::array, WireError> rows_of(detail::ondemand::object& root,
+std::expected<wire::ondemand::array, WireError> rows_of(wire::ondemand::object& root,
                                                           std::string_view key) {
-    detail::ondemand::value result;
+    wire::ondemand::value result;
     if (const auto ec = wire::find(root, "result").get(result); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    detail::ondemand::json_type type{};
+    wire::ondemand::json_type type{};
     if (const auto ec = result.type().get(type); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    if (type == detail::ondemand::json_type::array) {
-        detail::ondemand::array array;
+    if (type == wire::ondemand::json_type::array) {
+        wire::ondemand::array array;
         if (const auto ec = result.get_array().get(array); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         return array;
     }
-    if (type != detail::ondemand::json_type::object) {
+    if (type != wire::ondemand::json_type::object) {
         return std::unexpected(WireError::WrongType);
     }
-    detail::ondemand::object page;
+    wire::ondemand::object page;
     if (const auto ec = result.get_object().get(page); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    return detail::req_array(page, key);
+    return wire::req_array(page, key);
 }
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
@@ -203,7 +198,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto topic = detail::opt_str(*root, "topic");
+        const auto topic = wire::opt_str(*root, "topic");
         if (!topic.has_value()) {
             return std::unexpected(topic.error());
         }
@@ -217,8 +212,8 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         info.kind = kind_from_topic(*topic);
         return with_data(
-            *root, [&](detail::ondemand::object& data) -> std::expected<EventInfo, WireError> {
-                const auto symbol = detail::req_str(data, "s");
+            *root, [&](wire::ondemand::object& data) -> std::expected<EventInfo, WireError> {
+                const auto symbol = wire::req_str(data, "s");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
                 }
@@ -235,8 +230,8 @@ std::expected<StreamAck, WireError> parse_stream_ack(std::string_view frame) {
             return std::unexpected(root.error());
         }
         const auto code = req_i64(*root, "code");
-        const auto msg = detail::opt_str(*root, "msg");
-        const auto id = detail::opt_str(*root, "id");
+        const auto msg = wire::opt_str(*root, "msg");
+        const auto id = wire::opt_str(*root, "id");
         if (!code.has_value() || !msg.has_value() || !id.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -251,14 +246,14 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
             return std::unexpected(root.error());
         }
         const auto return_code = req_i64(*root, "returnCode");
-        const auto msg = detail::opt_str(*root, "msgInfo");
+        const auto msg = wire::opt_str(*root, "msgInfo");
         if (!return_code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         RestEnvelope out{.return_code = *return_code, .code = {}, .msg = *msg};
-        if (auto error = detail::req_object(*root, "error"); error.has_value()) {
-            const auto code = detail::opt_str(*error, "code");
-            const auto detail_msg = detail::opt_str(*error, "msg");
+        if (auto error = wire::req_object(*root, "error"); error.has_value()) {
+            const auto code = wire::opt_str(*error, "code");
+            const auto detail_msg = wire::opt_str(*error, "msg");
             if (!code.has_value() || !detail_msg.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -309,7 +304,7 @@ std::expected<std::uint64_t, WireError> parse_spot_server_time(std::string_view 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_object(*root, "result");
+        auto result = wire::req_object(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -330,7 +325,7 @@ std::expected<std::string_view, WireError> parse_spot_ws_token(std::string_view 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_object(*root, "result");
+        auto result = wire::req_object(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -351,18 +346,18 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        detail::ondemand::value result;
+        wire::ondemand::value result;
         if (const auto ec = wire::find(*root, "result").get(result); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        detail::ondemand::json_type type{};
+        wire::ondemand::json_type type{};
         if (const auto ec = result.type().get(type); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         // `result` is the key STRING itself. XT's own reference prints it as
         // `{}` — that is the doc's placeholder for every result, not a shape —
         // so an object is still read, for the one field it could hold.
-        if (type != detail::ondemand::json_type::object) {
+        if (type != wire::ondemand::json_type::object) {
             const auto key = scalar_of(result);
             if (!key.has_value()) {
                 return std::unexpected(key.error());
@@ -372,9 +367,9 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
             }
             return *key;
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = result.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto key = opt_scalar(obj, "listenKey");
         if (!key.has_value()) {
@@ -393,8 +388,8 @@ std::expected<PrivateFrame, WireError> parse_private_frame(std::string_view fram
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        if (detail::has_field(*root, "topic")) {
-            const auto topic = detail::req_str(*root, "topic");
+        if (wire::has_field(*root, "topic")) {
+            const auto topic = wire::req_str(*root, "topic");
             if (!topic.has_value()) {
                 return std::unexpected(topic.error());
             }

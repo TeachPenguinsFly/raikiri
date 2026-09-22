@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::bingx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -21,7 +19,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             return std::unexpected(root.error());
         }
         std::size_t count = 0;
-        const auto read_one = [&](detail::ondemand::object& obj) -> std::expected<void, WireError> {
+        const auto read_one = [&](wire::ondemand::object& obj) -> std::expected<void, WireError> {
             WireTrade out{};
             using Text = std::expected<std::string_view, WireError>;
             Text symbol{std::unexpected(WireError::MissingField)};
@@ -29,18 +27,18 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             Text qty{std::unexpected(WireError::MissingField)};
             std::expected<std::uint64_t, WireError> trade_ms{0};
             std::expected<bool, WireError> maker{false};
-            const auto walked = detail::for_each_field(
-                obj, [&](std::string_view key, detail::ondemand::value& value) {
+            const auto walked = wire::for_each_field(
+                obj, [&](std::string_view key, wire::ondemand::value& value) {
                     if (key == "s") {
-                        symbol = detail::str_of(value);
+                        symbol = wire::str_of(value);
                     } else if (key == "p") {
-                        price = detail::str_of(value);
+                        price = wire::str_of(value);
                     } else if (key == "q") {
-                        qty = detail::str_of(value);
+                        qty = wire::str_of(value);
                     } else if (key == "T") {
-                        trade_ms = detail::u64_of(value);
+                        trade_ms = wire::u64_of(value);
                     } else if (key == "m") {
-                        maker = detail::bool_of(value);
+                        maker = wire::bool_of(value);
                     }
                 });
             if (!walked.has_value()) {
@@ -68,36 +66,36 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         // sends ONE object under the same key. type() peeks without consuming:
         // a refused conversion would leave the document where no rewind helps.
         bool seen = false;
-        const auto walked = detail::for_each_field(
+        const auto walked = wire::for_each_field(
             *root,
             [&](std::string_view key,
-                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key != "data" || seen) {
                     return {};
                 }
                 seen = true;
-                detail::ondemand::json_type type{};
+                wire::ondemand::json_type type{};
                 if (const auto ec = value.type().get(type); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
-                if (type != detail::ondemand::json_type::array) {
-                    detail::ondemand::object single;
+                if (type != wire::ondemand::json_type::array) {
+                    wire::ondemand::object single;
                     if (const auto ec = value.get_object().get(single); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     return read_one(single);
                 }
-                detail::ondemand::array array;
+                wire::ondemand::array array;
                 if (const auto ec = value.get_array().get(array); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 for (auto entry : array) {
                     if (count == k_max_trades) {
                         return std::unexpected(WireError::TooManyEntries);
                     }
-                    detail::ondemand::object obj;
+                    wire::ondemand::object obj;
                     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
                     if (const auto one = read_one(obj); !one.has_value()) {
                         return std::unexpected(one.error());
@@ -121,19 +119,19 @@ std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         WireMarkPrice out{};
-        const auto symbol = detail::req_str(*data, "s");
-        const auto mark = detail::req_str(*data, "p");
+        const auto symbol = wire::req_str(*data, "s");
+        const auto mark = wire::req_str(*data, "p");
         if (!symbol.has_value() || !mark.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.symbol = *symbol;
         out.mark_price = *mark;
-        const auto event = detail::opt_u64(*data, "E");
+        const auto event = wire::opt_u64(*data, "E");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
@@ -148,12 +146,12 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         WireTicker out{};
-        const auto symbol = detail::req_str(*data, "s");
+        const auto symbol = wire::req_str(*data, "s");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
@@ -180,27 +178,27 @@ std::expected<WirePremiumIndex, WireError> parse_premium_index(std::string_view 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
         WirePremiumIndex out{};
-        const auto symbol = detail::req_str(*data, "symbol");
+        const auto symbol = wire::req_str(*data, "symbol");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        const auto mark = detail::opt_str(*data, "markPrice");
-        const auto index = detail::opt_str(*data, "indexPrice");
-        const auto rate = detail::opt_str(*data, "lastFundingRate");
+        const auto mark = wire::opt_str(*data, "markPrice");
+        const auto index = wire::opt_str(*data, "indexPrice");
+        const auto rate = wire::opt_str(*data, "lastFundingRate");
         if (!mark.has_value() || !index.has_value() || !rate.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
         out.mark_price = *mark;
         out.index_price = *index;
         out.last_funding_rate = *rate;
-        const auto next = detail::opt_u64(*data, "nextFundingTime");
-        const auto hours = detail::opt_i64(*data, "fundingIntervalHours");
+        const auto next = wire::opt_u64(*data, "nextFundingTime");
+        const auto hours = wire::opt_i64(*data, "fundingIntervalHours");
         if (!next.has_value() || !hours.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

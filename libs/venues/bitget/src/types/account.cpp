@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::bitget {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
+using wire::guarded;
 
-std::expected<void, WireError> read_bill(detail::ondemand::object& obj, WireBill& out) {
+std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& out) {
     out.bill_id = field(obj, "billId");
     out.symbol = field(obj, "symbol");
     out.coin = field(obj, "coin");
@@ -23,7 +18,7 @@ std::expected<void, WireError> read_bill(detail::ondemand::object& obj, WireBill
         return std::unexpected(WireError::MissingField);
     }
     obj.reset();
-    out.c_time_ms = detail::opt_ms(obj, "cTime").value_or(0);
+    out.c_time_ms = wire::opt_ms(obj, "cTime").value_or(0);
     return {};
 }
 

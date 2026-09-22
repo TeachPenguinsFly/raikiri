@@ -22,7 +22,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::mexc::detail {
+namespace raikiri::venues::mexc::internal {
 
 exec::VenueError build_failure(BuildError err) noexcept {
     // A refusal to build is terminal by construction: the same command built
@@ -338,4 +338,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::mexc::detail
+} // namespace raikiri::venues::mexc::internal

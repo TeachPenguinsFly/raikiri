@@ -6,19 +6,17 @@
 
 namespace raikiri::venues::dydx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireMarket, WireError> read_market(detail::ondemand::object& obj) {
+std::expected<WireMarket, WireError> read_market(wire::ondemand::object& obj) {
     WireMarket out{};
-    const auto ticker = detail::req_str(obj, "ticker");
-    const auto status = detail::req_str(obj, "status");
-    const auto tick = detail::req_str(obj, "tickSize");
-    const auto step = detail::req_str(obj, "stepSize");
+    const auto ticker = wire::req_str(obj, "ticker");
+    const auto status = wire::req_str(obj, "status");
+    const auto tick = wire::req_str(obj, "tickSize");
+    const auto step = wire::req_str(obj, "stepSize");
     if (!ticker.has_value() || !status.has_value() || !tick.has_value() || !step.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
@@ -29,14 +27,14 @@ std::expected<WireMarket, WireError> read_market(detail::ondemand::object& obj) 
     // A zero read for an absent exponent would be a grid a hundred-fold off, not a missing one.
     for (const auto key :
          {"atomicResolution", "quantumConversionExponent", "stepBaseQuantums", "subticksPerTick"}) {
-        if (!detail::has_field(obj, key)) {
+        if (!wire::has_field(obj, key)) {
             return std::unexpected(WireError::MissingField);
         }
     }
-    const auto resolution = detail::opt_i64(obj, "atomicResolution");
-    const auto conversion = detail::opt_i64(obj, "quantumConversionExponent");
-    const auto quantums = detail::opt_u64(obj, "stepBaseQuantums");
-    const auto subticks = detail::opt_u64(obj, "subticksPerTick");
+    const auto resolution = wire::opt_i64(obj, "atomicResolution");
+    const auto conversion = wire::opt_i64(obj, "quantumConversionExponent");
+    const auto quantums = wire::opt_u64(obj, "stepBaseQuantums");
+    const auto subticks = wire::opt_u64(obj, "subticksPerTick");
     if (!resolution.has_value() || !conversion.has_value() || !quantums.has_value() ||
         !subticks.has_value()) {
         return std::unexpected(WireError::WrongType);
@@ -45,9 +43,9 @@ std::expected<WireMarket, WireError> read_market(detail::ondemand::object& obj) 
     out.quantum_conversion_exponent = *conversion;
     out.step_base_quantums = *quantums;
     out.subticks_per_tick = *subticks;
-    const auto oracle = detail::opt_str(obj, "oraclePrice");
-    const auto funding = detail::opt_str(obj, "nextFundingRate");
-    const auto volume = detail::opt_str(obj, "volume24H");
+    const auto oracle = wire::opt_str(obj, "oraclePrice");
+    const auto funding = wire::opt_str(obj, "nextFundingRate");
+    const auto volume = wire::opt_str(obj, "volume24H");
     if (!oracle.has_value() || !funding.has_value() || !volume.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -58,35 +56,35 @@ std::expected<WireMarket, WireError> read_market(detail::ondemand::object& obj) 
 }
 
 // Both shapes: {"price":"1","size":"2"} on a snapshot, ["1","2"] on a delta.
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
-    detail::ondemand::json_type type{};
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
+    wire::ondemand::json_type type{};
     if (const auto ec = entry.type().get(type); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    if (type == detail::ondemand::json_type::object) {
-        detail::ondemand::object obj;
+    if (type == wire::ondemand::json_type::object) {
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto price = detail::req_str(obj, "price");
-        const auto size = detail::req_str(obj, "size");
+        const auto price = wire::req_str(obj, "price");
+        const auto size = wire::req_str(obj, "size");
         if (!price.has_value() || !size.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         return WireLevel{.price = *price, .size = *size};
     }
-    detail::ondemand::array pair;
+    wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     WireLevel out{};
     std::size_t field = 0;
     for (auto element : pair) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto text = detail::str_of(value);
+        const auto text = wire::str_of(value);
         if (!text.has_value()) {
             return std::unexpected(text.error());
         }
@@ -110,15 +108,15 @@ struct Cursor {
     bool overflow{false};
 };
 
-std::expected<void, WireError> read_side(detail::ondemand::object& obj,
+std::expected<void, WireError> read_side(wire::ondemand::object& obj,
                                          std::string_view key,
                                          std::span<WireLevel> into,
                                          std::size_t& count,
                                          bool& overflow) {
-    if (!detail::has_field(obj, key)) {
+    if (!wire::has_field(obj, key)) {
         return {};
     }
-    auto array = detail::req_array(obj, key);
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -127,9 +125,9 @@ std::expected<void, WireError> read_side(detail::ondemand::object& obj,
             overflow = true;
             return {};
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value);
         if (!level.has_value()) {
@@ -141,8 +139,8 @@ std::expected<void, WireError> read_side(detail::ondemand::object& obj,
 }
 
 std::expected<void, WireError>
-read_prints(detail::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
-    auto array = detail::req_array(obj, "trades");
+read_prints(wire::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
+    auto array = wire::req_array(obj, "trades");
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -151,14 +149,14 @@ read_prints(detail::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
             at.overflow = true;
             return {};
         }
-        detail::ondemand::object trade;
+        wire::ondemand::object trade;
         if (const auto ec = entry.get_object().get(trade); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto price = detail::req_str(trade, "price");
-        const auto size = detail::req_str(trade, "size");
-        const auto side = detail::req_str(trade, "side");
-        const auto created = detail::opt_str(trade, "createdAt");
+        const auto price = wire::req_str(trade, "price");
+        const auto size = wire::req_str(trade, "size");
+        const auto side = wire::req_str(trade, "side");
+        const auto created = wire::opt_str(trade, "createdAt");
         if (!price.has_value() || !size.has_value() || !side.has_value() || !created.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -169,7 +167,7 @@ read_prints(detail::ondemand::object& obj, FrameBuffer& storage, Cursor& at) {
 }
 
 std::expected<void, WireError>
-read_contents(detail::ondemand::object& obj, Channel channel, FrameBuffer& storage, Cursor& at) {
+read_contents(wire::ondemand::object& obj, Channel channel, FrameBuffer& storage, Cursor& at) {
     if (channel == Channel::Trades) {
         return read_prints(obj, storage, at);
     }
@@ -218,7 +216,7 @@ parse_perpetual_markets(std::string_view body, MarketBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto markets = detail::req_object(*root, "markets");
+        auto markets = wire::req_object(*root, "markets");
         if (!markets.has_value()) {
             return std::unexpected(markets.error());
         }
@@ -227,13 +225,13 @@ parse_perpetual_markets(std::string_view body, MarketBuffer& storage) {
             if (count == k_max_markets) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::field field;
+            wire::ondemand::field field;
             if (const auto ec = std::move(entry).get(field); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = field.value().get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto row = read_market(obj);
             if (!row.has_value()) {
@@ -251,15 +249,15 @@ std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuf
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto type = detail::req_str(*root, "type");
+        const auto type = wire::req_str(*root, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
         WireFrame out{};
         out.type = frame_type(*type);
-        const auto channel = detail::opt_str(*root, "channel");
-        const auto id = detail::opt_str(*root, "id");
-        const auto message = detail::opt_str(*root, "message");
+        const auto channel = wire::opt_str(*root, "channel");
+        const auto id = wire::opt_str(*root, "id");
+        const auto message = wire::opt_str(*root, "message");
         if (!channel.has_value() || !id.has_value() || !message.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -272,24 +270,24 @@ std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuf
         if (!carries) {
             return out;
         }
-        detail::ondemand::value contents;
+        wire::ondemand::value contents;
         if (const auto ec = wire::find(*root, "contents").get(contents); ec != simdjson::SUCCESS) {
             return std::unexpected(WireError::MissingField);
         }
         Cursor at{};
-        detail::ondemand::json_type kind{};
+        wire::ondemand::json_type kind{};
         if (const auto ec = contents.type().get(kind); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        if (kind == detail::ondemand::json_type::array) {
-            detail::ondemand::array batch;
+        if (kind == wire::ondemand::json_type::array) {
+            wire::ondemand::array batch;
             if (const auto ec = contents.get_array().get(batch); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             for (auto entry : batch) {
-                detail::ondemand::object obj;
+                wire::ondemand::object obj;
                 if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 if (const auto read = read_contents(obj, out.channel, storage, at);
                     !read.has_value()) {
@@ -300,9 +298,9 @@ std::expected<WireFrame, WireError> parse_frame(std::string_view frame, FrameBuf
                 }
             }
         } else {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = contents.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (const auto read = read_contents(obj, out.channel, storage, at); !read.has_value()) {
                 return std::unexpected(read.error());

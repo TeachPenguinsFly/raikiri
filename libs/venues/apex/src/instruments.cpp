@@ -11,7 +11,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::apex::detail {
+namespace raikiri::venues::apex::internal {
 
 namespace {
 
@@ -99,4 +99,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<ApexInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::apex::detail
+} // namespace raikiri::venues::apex::internal

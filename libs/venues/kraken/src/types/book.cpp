@@ -5,17 +5,15 @@
 
 namespace raikiri::venues::kraken {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
-    detail::ondemand::object obj;
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
+    wire::ondemand::object obj;
     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     const auto price = req_num(obj, "price");
     const auto qty = req_num(obj, "qty");
@@ -26,8 +24,8 @@ std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
 }
 
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -36,9 +34,9 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value);
         if (!level.has_value()) {
@@ -65,8 +63,8 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto feed = detail::req_str(*root, "feed");
-        const auto product = detail::req_str(*root, "product_id");
+        const auto feed = wire::req_str(*root, "feed");
+        const auto product = wire::req_str(*root, "product_id");
         if (!feed.has_value() || !product.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -80,7 +78,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             return std::unexpected(WireError::WrongType);
         }
         out.timestamp_ms = *timestamp;
-        out.seq = detail::digits_to_u64(*seq);
+        out.seq = wire::digits_to_u64(*seq);
 
         if (out.snapshot) {
             const auto bids = read_levels(*root, "bids", storage.bids);
@@ -95,7 +93,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
             out.asks = {storage.asks.data(), *asks};
             return out;
         }
-        const auto side = detail::req_str(*root, "side");
+        const auto side = wire::req_str(*root, "side");
         const auto price = req_num(*root, "price");
         const auto qty = req_num(*root, "qty");
         if (!side.has_value() || !price.has_value() || !qty.has_value()) {

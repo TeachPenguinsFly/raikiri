@@ -7,7 +7,7 @@
 #include "clients.hpp"
 #include "state.hpp"
 
-namespace raikiri::venues::lighter::detail {
+namespace raikiri::venues::lighter::internal {
 
 namespace {
 
@@ -86,4 +86,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<LighterExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::lighter::detail
+} // namespace raikiri::venues::lighter::internal

@@ -73,15 +73,14 @@ template <typename Entry, typename Read>
                                                                          Entry* storage,
                                                                          std::size_t capacity,
                                                                          Read&& read) {
-    namespace detail = raikiri::wire;
-    auto& session = detail::session();
+    auto& session = wire::session();
     auto root = session.open_object(frame);
     if (!root.has_value()) {
         return std::unexpected{root.error()};
     }
     auto obj = *root;
 
-    auto data = detail::req_array(obj, key);
+    auto data = wire::req_array(obj, key);
     if (!data.has_value()) {
         return std::unexpected{data.error()};
     }
@@ -90,7 +89,7 @@ template <typename Entry, typename Read>
         if (count == capacity) {
             return std::unexpected{WireError::TooManyEntries};
         }
-        detail::ondemand::object entry_obj;
+        wire::ondemand::object entry_obj;
         if (item.get_object().get(entry_obj) != simdjson::SUCCESS) {
             return std::unexpected{WireError::WrongType};
         }

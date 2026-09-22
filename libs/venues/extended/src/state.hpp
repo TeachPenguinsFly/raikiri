@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::extended::detail {
+namespace raikiri::venues::extended::internal {
 
 // What the gateway asked for on one instrument, and what the streams have said
 // about it. Indexed by SymbolId.
@@ -56,4 +56,4 @@ struct VenueState {
     }
 };
 
-} // namespace raikiri::venues::extended::detail
+} // namespace raikiri::venues::extended::internal

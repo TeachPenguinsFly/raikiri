@@ -5,15 +5,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // `subject` separates all five shapes, including the two sharing the
 // /contract/instrument topic, so the topic is read only for the symbol.
@@ -53,22 +48,22 @@ std::string_view symbol_of_topic(std::string_view topic) noexcept {
 // Shared body of the opt_/req_ pairs; an absent field reads as empty.
 template <typename Read>
 [[nodiscard]] std::expected<std::string_view, WireError>
-lookup(detail::ondemand::object& obj, std::string_view key, Read read) {
-    detail::ondemand::value value;
+lookup(wire::ondemand::object& obj, std::string_view key, Read read) {
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return read(value);
 }
 
 } // namespace
 
-std::expected<std::string_view, WireError> topic_symbol(detail::ondemand::object& root) {
-    const auto topic = detail::req_str(root, "topic");
+std::expected<std::string_view, WireError> topic_symbol(wire::ondemand::object& root) {
+    const auto topic = wire::req_str(root, "topic");
     if (!topic.has_value()) {
         return std::unexpected(topic.error());
     }
@@ -83,15 +78,15 @@ std::expected<std::string_view, WireError> topic_symbol(detail::ondemand::object
 // stay escaped: KuCoin symbols, order ids and decimal strings cannot contain an
 // escape, and letting simdjson unescape would move every field into a buffer
 // that cannot be rebased.
-std::expected<std::string_view, WireError> raw_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> raw_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    return session().rebase(detail::trim(raw));
+    return session().rebase(wire::trim(raw));
 }
 
-std::expected<std::string_view, WireError> decimal_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> decimal_of(wire::ondemand::value value) {
     const auto raw = raw_of(value);
     if (!raw.has_value()) {
         return raw;
@@ -112,12 +107,12 @@ std::int64_t i64_of_digits(std::string_view text) noexcept {
     return (ec == std::errc{} && stop == end) ? out : std::int64_t{0};
 }
 
-std::expected<std::string_view, WireError> opt_decimal(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_decimal(wire::ondemand::object& obj,
                                                        std::string_view key) {
     return lookup(obj, key, decimal_of);
 }
 
-std::expected<std::string_view, WireError> req_decimal(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> req_decimal(wire::ondemand::object& obj,
                                                        std::string_view key) {
     auto text = opt_decimal(obj, key);
     if (text.has_value() && text->empty()) {
@@ -126,16 +121,16 @@ std::expected<std::string_view, WireError> req_decimal(detail::ondemand::object&
     return text;
 }
 
-std::expected<std::uint64_t, WireError> opt_u64(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_u64(wire::ondemand::object& obj,
                                                 std::string_view key) {
     const auto text = opt_decimal(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
-std::expected<std::int64_t, WireError> opt_i64(detail::ondemand::object& obj,
+std::expected<std::int64_t, WireError> opt_i64(wire::ondemand::object& obj,
                                                std::string_view key) {
     const auto text = opt_decimal(obj, key);
     if (!text.has_value()) {
@@ -154,14 +149,14 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         Text type{std::unexpected(WireError::MissingField)};
         Text subject{std::unexpected(WireError::MissingField)};
         Text topic{std::unexpected(WireError::MissingField)};
-        const auto walked = detail::for_each_field(
-            *root, [&](std::string_view key, detail::ondemand::value& value) {
+        const auto walked = wire::for_each_field(
+            *root, [&](std::string_view key, wire::ondemand::value& value) {
                 if (key == "type") {
-                    type = detail::str_of(value);
+                    type = wire::str_of(value);
                 } else if (key == "subject") {
-                    subject = detail::str_of(value);
+                    subject = wire::str_of(value);
                 } else if (key == "topic") {
-                    topic = detail::str_of(value);
+                    topic = wire::str_of(value);
                 }
             });
         if (!walked.has_value()) {
@@ -209,7 +204,7 @@ std::expected<EventInfo, WireError> parse_private_event(std::string_view frame) 
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto type = detail::req_str(*root, "type");
+        const auto type = wire::req_str(*root, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
@@ -226,7 +221,7 @@ std::expected<EventInfo, WireError> parse_private_event(std::string_view frame) 
             }
             return info;
         }
-        const auto subject = detail::req_str(*root, "subject");
+        const auto subject = wire::req_str(*root, "subject");
         if (!subject.has_value()) {
             return std::unexpected(subject.error());
         }
@@ -246,7 +241,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
             return std::unexpected(root.error());
         }
         const auto code = opt_i64(*root, "code");
-        const auto msg = detail::opt_str(*root, "data");
+        const auto msg = wire::opt_str(*root, "data");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -260,12 +255,12 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto code = detail::req_str(*root, "code");
-        const auto msg = detail::opt_str(*root, "msg");
+        const auto code = wire::req_str(*root, "code");
+        const auto msg = wire::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        const auto value = detail::digits_to_u64(*code);
+        const auto value = wire::digits_to_u64(*code);
         if (value == 0) {
             return std::unexpected(WireError::WrongType);
         }
@@ -280,23 +275,23 @@ std::expected<WireBullet, WireError> parse_bullet(std::string_view body) {
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [](detail::ondemand::object& obj) -> std::expected<WireBullet, WireError> {
+            *root, [](wire::ondemand::object& obj) -> std::expected<WireBullet, WireError> {
                 WireBullet out{};
-                const auto token = detail::req_str(obj, "token");
+                const auto token = wire::req_str(obj, "token");
                 if (!token.has_value()) {
                     return std::unexpected(token.error());
                 }
                 out.token = *token;
-                auto servers = detail::req_array(obj, "instanceServers");
+                auto servers = wire::req_array(obj, "instanceServers");
                 if (!servers.has_value()) {
                     return std::unexpected(servers.error());
                 }
                 for (auto entry : *servers) {
-                    detail::ondemand::object server;
+                    wire::ondemand::object server;
                     if (const auto ec = entry.get_object().get(server); ec != simdjson::SUCCESS) {
-                        return std::unexpected(detail::map_error(ec));
+                        return std::unexpected(wire::map_error(ec));
                     }
-                    const auto endpoint = detail::req_str(server, "endpoint");
+                    const auto endpoint = wire::req_str(server, "endpoint");
                     const auto interval = opt_u64(server, "pingInterval");
                     const auto timeout = opt_u64(server, "pingTimeout");
                     if (!endpoint.has_value() || !interval.has_value() || !timeout.has_value()) {

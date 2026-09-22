@@ -3,12 +3,10 @@
 
 namespace raikiri::venues::backpack {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_event(std::string_view e) noexcept {
     if (e == "bookTicker") {
@@ -34,7 +32,7 @@ std::expected<std::string_view, WireError> unwrap(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto data = detail::opt_raw(*root, "data");
+        const auto data = wire::opt_raw(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -48,14 +46,14 @@ EventKind parse_event_kind(std::string_view payload) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto event = detail::opt_str(*root, "e");
+        const auto event = wire::opt_str(*root, "e");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
         if (!event->empty()) {
             return kind_from_event(*event);
         }
-        return detail::has_field(*root, "error") ? EventKind::Error : EventKind::Unknown;
+        return wire::has_field(*root, "error") ? EventKind::Error : EventKind::Unknown;
     });
     return kind.value_or(EventKind::Unknown);
 }
@@ -66,8 +64,8 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
         if (!root.has_value()) {
             return RestError{};
         }
-        const auto code = detail::opt_str(*root, "code");
-        const auto message = detail::opt_str(*root, "message");
+        const auto code = wire::opt_str(*root, "code");
+        const auto message = wire::opt_str(*root, "message");
         if (!code.has_value() || !message.has_value()) {
             return RestError{};
         }

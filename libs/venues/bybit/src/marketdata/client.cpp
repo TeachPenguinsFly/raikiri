@@ -20,7 +20,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 namespace {
 
 // Routes one public frame. Kept separate from the client so the dispatch is
@@ -287,4 +287,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<BybitData>(std::move(state), market);
 }
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

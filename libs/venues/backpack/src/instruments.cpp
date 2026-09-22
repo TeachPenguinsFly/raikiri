@@ -10,7 +10,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::backpack::detail {
+namespace raikiri::venues::backpack::internal {
 
 namespace {
 
@@ -77,4 +77,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<BackpackInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::backpack::detail
+} // namespace raikiri::venues::backpack::internal

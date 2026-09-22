@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // "B" bids, "A" asks — the venue's spelling everywhere a side appears, on both
 // the account reads and the public trade prints.
@@ -22,35 +17,35 @@ using detail::session;
 
 // An optional STRING field: absent reads as empty, which is what `cloid` does
 // on an order placed without one. A present JSON null reads as empty too.
-[[nodiscard]] std::expected<std::string_view, WireError> soft_str(detail::ondemand::object& obj,
+[[nodiscard]] std::expected<std::string_view, WireError> soft_str(wire::ondemand::object& obj,
                                                                   std::string_view key) {
-    const auto value = detail::opt_str(obj, key);
+    const auto value = wire::opt_str(obj, key);
     if (!value.has_value() && value.error() == WireError::MissingField) {
         return std::string_view{};
     }
     return value;
 }
 
-[[nodiscard]] std::expected<bool, WireError> soft_bool(detail::ondemand::object& obj,
+[[nodiscard]] std::expected<bool, WireError> soft_bool(wire::ondemand::object& obj,
                                                        std::string_view key) {
-    const auto value = detail::opt_bool(obj, key);
+    const auto value = wire::opt_bool(obj, key);
     if (!value.has_value() && value.error() == WireError::MissingField) {
         return false;
     }
     return value;
 }
 
-std::expected<WireOpenOrder, WireError> read_open_order(detail::ondemand::object& obj) {
+std::expected<WireOpenOrder, WireError> read_open_order(wire::ondemand::object& obj) {
     WireOpenOrder out{};
-    const auto coin = detail::req_str(obj, "coin");
-    const auto side = detail::req_str(obj, "side");
-    const auto price = detail::req_str(obj, "limitPx");
-    const auto qty = detail::req_str(obj, "sz");
+    const auto coin = wire::req_str(obj, "coin");
+    const auto side = wire::req_str(obj, "side");
+    const auto price = wire::req_str(obj, "limitPx");
+    const auto qty = wire::req_str(obj, "sz");
     const auto orig = soft_str(obj, "origSz");
     const auto cloid = soft_str(obj, "cloid");
     const auto order_type = soft_str(obj, "orderType");
     const auto tif = soft_str(obj, "tif");
-    const auto oid = detail::opt_u64(obj, "oid");
+    const auto oid = wire::opt_u64(obj, "oid");
     const auto ts = opt_number_ms(obj, "timestamp");
     const auto reduce_only = soft_bool(obj, "reduceOnly");
     const auto is_trigger = soft_bool(obj, "isTrigger");
@@ -87,33 +82,33 @@ std::expected<WireOpenOrder, WireError> read_open_order(detail::ondemand::object
     return ExchangeOutcome::Unknown;
 }
 
-std::expected<WireExchangeStatus, WireError> read_status(detail::ondemand::value entry) {
-    detail::ondemand::json_type kind{};
+std::expected<WireExchangeStatus, WireError> read_status(wire::ondemand::value entry) {
+    wire::ondemand::json_type kind{};
     if (const auto ec = entry.type().get(kind); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     WireExchangeStatus out{};
-    if (kind == detail::ondemand::json_type::string) {
-        const auto word = detail::str_of(entry);
+    if (kind == wire::ondemand::json_type::string) {
+        const auto word = wire::str_of(entry);
         if (!word.has_value()) {
             return std::unexpected(word.error());
         }
         out.outcome = outcome_from_word(*word);
         return out;
     }
-    detail::ondemand::object obj;
+    wire::ondemand::object obj;
     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     // The outcome IS the key, and there is exactly one. Walking the fields is
     // the only way to read it: On-Demand cannot try one name and then another.
     for (auto field : obj) {
         std::string_view key;
         if (const auto ec = field.unescaped_key().get(key); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (key == "error") {
-            const auto text = detail::str_of(field.value());
+            const auto text = wire::str_of(field.value());
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -121,12 +116,12 @@ std::expected<WireExchangeStatus, WireError> read_status(detail::ondemand::value
             out.error = *text;
             return out;
         }
-        detail::ondemand::object inner;
+        wire::ondemand::object inner;
         if (const auto ec = field.value().get_object().get(inner); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (key == "resting") {
-            const auto oid = detail::opt_u64(inner, "oid");
+            const auto oid = wire::opt_u64(inner, "oid");
             if (!oid.has_value()) {
                 return std::unexpected(oid.error());
             }
@@ -135,9 +130,9 @@ std::expected<WireExchangeStatus, WireError> read_status(detail::ondemand::value
             return out;
         }
         if (key == "filled") {
-            const auto qty = detail::req_str(inner, "totalSz");
-            const auto price = detail::req_str(inner, "avgPx");
-            const auto oid = detail::opt_u64(inner, "oid");
+            const auto qty = wire::req_str(inner, "totalSz");
+            const auto price = wire::req_str(inner, "avgPx");
+            const auto oid = wire::opt_u64(inner, "oid");
             if (!qty.has_value() || !price.has_value() || !oid.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -166,9 +161,9 @@ parse_open_orders(std::string_view body, OpenOrderBuffer& storage) {
             if (count == k_max_open_orders) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto order = read_open_order(obj);
             if (!order.has_value()) {
@@ -193,20 +188,20 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
             if (count == k_max_fills) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireFill out{};
-            const auto coin = detail::req_str(obj, "coin");
-            const auto price = detail::req_str(obj, "px");
-            const auto qty = detail::req_str(obj, "sz");
-            const auto side = detail::req_str(obj, "side");
-            const auto fee = detail::req_str(obj, "fee");
+            const auto coin = wire::req_str(obj, "coin");
+            const auto price = wire::req_str(obj, "px");
+            const auto qty = wire::req_str(obj, "sz");
+            const auto side = wire::req_str(obj, "side");
+            const auto fee = wire::req_str(obj, "fee");
             const auto fee_token = soft_str(obj, "feeToken");
             const auto cloid = soft_str(obj, "cloid");
-            const auto oid = detail::opt_u64(obj, "oid");
-            const auto tid = detail::opt_u64(obj, "tid");
+            const auto oid = wire::opt_u64(obj, "oid");
+            const auto tid = wire::opt_u64(obj, "tid");
             const auto ts = opt_number_ms(obj, "time");
             const auto crossed = soft_bool(obj, "crossed");
             if (!coin.has_value() || !price.has_value() || !qty.has_value() || !side.has_value() ||
@@ -238,7 +233,7 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto outer = detail::req_str(*root, "status");
+        const auto outer = wire::req_str(*root, "status");
         if (!outer.has_value()) {
             return std::unexpected(outer.error());
         }
@@ -246,11 +241,11 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
         if (*outer != "order") {
             return out; // "unknownOid": not found, and not an error either
         }
-        auto wrapper = detail::req_object(*root, "order");
+        auto wrapper = wire::req_object(*root, "order");
         if (!wrapper.has_value()) {
             return std::unexpected(wrapper.error());
         }
-        auto inner = detail::req_object(*wrapper, "order");
+        auto inner = wire::req_object(*wrapper, "order");
         if (!inner.has_value()) {
             return std::unexpected(inner.error());
         }
@@ -260,7 +255,7 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
         }
         // Read AFTER the nested object: On-Demand cannot revisit a field it
         // has already walked past, and `status` here shadows the outer one.
-        const auto status = detail::req_str(*wrapper, "status");
+        const auto status = wire::req_str(*wrapper, "status");
         const auto ts = opt_number_ms(*wrapper, "statusTimestamp");
         if (!status.has_value() || !ts.has_value()) {
             return std::unexpected(WireError::MissingField);
@@ -280,24 +275,24 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto status = detail::req_str(*root, "status");
+        const auto status = wire::req_str(*root, "status");
         if (!status.has_value()) {
             return std::unexpected(status.error());
         }
         WireExchangeReply out{};
         out.ok = *status == "ok";
 
-        detail::ondemand::value response;
+        wire::ondemand::value response;
         if (const auto ec = wire::find(*root, "response").get(response); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        detail::ondemand::json_type kind{};
+        wire::ondemand::json_type kind{};
         if (const auto ec = response.type().get(kind); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        if (kind == detail::ondemand::json_type::string) {
+        if (kind == wire::ondemand::json_type::string) {
             // The same key, another type: a top-level refusal answers prose.
-            const auto text = detail::str_of(response);
+            const auto text = wire::str_of(response);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -305,24 +300,24 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
             return out;
         }
 
-        detail::ondemand::object envelope;
+        wire::ondemand::object envelope;
         if (const auto ec = response.get_object().get(envelope); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto type = detail::req_str(envelope, "type");
+        const auto type = wire::req_str(envelope, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
         out.type = *type;
 
-        auto data = detail::req_object(envelope, "data");
+        auto data = wire::req_object(envelope, "data");
         if (!data.has_value()) {
             // Several actions answer {"type":"default"} with nothing beside it.
             return data.error() == WireError::MissingField
                        ? std::expected<WireExchangeReply, WireError>{out}
                        : std::unexpected(data.error());
         }
-        auto rows = detail::req_array(*data, "statuses");
+        auto rows = wire::req_array(*data, "statuses");
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
@@ -331,9 +326,9 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
             if (count == k_max_statuses) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::value entry;
+            wire::ondemand::value entry;
             if (const auto ec = row.get(entry); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto parsed = read_status(entry);
             if (!parsed.has_value()) {

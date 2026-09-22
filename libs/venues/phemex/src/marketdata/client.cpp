@@ -24,7 +24,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::phemex::detail {
+namespace raikiri::venues::phemex::internal {
 
 namespace {
 
@@ -544,4 +544,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<PhemexData>(std::move(state));
 }
 
-} // namespace raikiri::venues::phemex::detail
+} // namespace raikiri::venues::phemex::internal

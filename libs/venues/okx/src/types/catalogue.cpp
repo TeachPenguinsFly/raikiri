@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::okx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -22,7 +17,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -31,13 +26,13 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
-            const auto inst_id = detail::req_str(obj, "instId");
-            const auto inst_type = detail::req_str(obj, "instType");
+            const auto inst_id = wire::req_str(obj, "instId");
+            const auto inst_type = wire::req_str(obj, "instType");
             if (!inst_id.has_value() || !inst_type.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -53,7 +48,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                                              std::pair{"ctMult", &out.ct_mult},
                                              std::pair{"ctType", &out.ct_type},
                                              std::pair{"instCategory", &out.inst_category}}) {
-                const auto value = detail::opt_str(obj, key);
+                const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());
                 }

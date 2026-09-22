@@ -4,18 +4,16 @@
 
 namespace raikiri::venues::htx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // The swap's own order ids are JSON numbers past 2^53, so `order_id_str` is
 // the only spelling that survives; `order_id` is read solely as the fallback
 // for the endpoints that omit the string form.
-std::expected<std::string_view, WireError> order_id_of(detail::ondemand::object& obj) {
-    const auto text = detail::opt_str(obj, "order_id_str");
+std::expected<std::string_view, WireError> order_id_of(wire::ondemand::object& obj) {
+    const auto text = wire::opt_str(obj, "order_id_str");
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
@@ -90,12 +88,12 @@ bool spot_sells(std::string_view type) noexcept {
 
 // Reads the trade array a swap order push carries inline. `role` is HTX's word
 // for liquidity and is the only place the swap states it.
-std::expected<std::size_t, WireError> read_swap_fills(detail::ondemand::object& obj,
+std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& obj,
                                                       std::span<WireFill> into) {
     if (into.empty()) {
         return std::size_t{0}; // a caller that asked for no fills wants none
     }
-    detail::ondemand::array trades;
+    wire::ondemand::array trades;
     if (const auto ec = wire::find(obj, "trade").get_array().get(trades); ec != simdjson::SUCCESS) {
         return std::size_t{0}; // no trades on this frame is the ordinary case
     }
@@ -104,16 +102,16 @@ std::expected<std::size_t, WireError> read_swap_fills(detail::ondemand::object& 
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object trade;
+        wire::ondemand::object trade;
         if (const auto ec = entry.get_object().get(trade); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto id = detail::opt_str(trade, "id");
+        const auto id = wire::opt_str(trade, "id");
         const auto price = num_of(trade, "trade_price");
         const auto qty = num_of(trade, "trade_volume");
         const auto fee = num_of(trade, "trade_fee");
-        const auto role = detail::opt_str(trade, "role");
-        const auto created = detail::opt_u64(trade, "created_at");
+        const auto role = wire::opt_str(trade, "role");
+        const auto created = wire::opt_u64(trade, "created_at");
         if (!id.has_value() || !price.has_value() || !qty.has_value() || !fee.has_value() ||
             !role.has_value() || !created.has_value()) {
             return std::unexpected(WireError::MissingField);
@@ -141,19 +139,19 @@ std::expected<std::size_t, WireError> read_swap_fills(detail::ondemand::object& 
 
 // One swap order object, from a websocket notify or from any of the REST
 // reads: they are the same shape with a different wrapper.
-std::expected<WireOrder, WireError> read_swap_order(detail::ondemand::object& obj,
+std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj,
                                                     std::span<WireFill> fills) {
     WireOrder out{};
-    const auto code = detail::req_str(obj, "contract_code");
+    const auto code = wire::req_str(obj, "contract_code");
     const auto order_id = order_id_of(obj);
     const auto client_id = num_of(obj, "client_order_id");
     const auto price = num_of(obj, "price");
     const auto volume = num_of(obj, "volume");
     const auto traded = num_of(obj, "trade_volume");
-    const auto direction = detail::opt_str(obj, "direction");
-    const auto price_type = detail::opt_str(obj, "order_price_type");
-    const auto status = detail::opt_i64(obj, "status");
-    const auto created = detail::opt_u64(obj, "created_at");
+    const auto direction = wire::opt_str(obj, "direction");
+    const auto price_type = wire::opt_str(obj, "order_price_type");
+    const auto status = wire::opt_i64(obj, "status");
+    const auto created = wire::opt_u64(obj, "created_at");
     if (!code.has_value() || !order_id.has_value() || !client_id.has_value() ||
         !price.has_value() || !volume.has_value() || !traded.has_value() ||
         !direction.has_value() || !price_type.has_value() || !status.has_value() ||
@@ -183,9 +181,9 @@ std::expected<WireOrder, WireError> read_swap_order(detail::ondemand::object& ob
 // camelCase and REST's hyphenated one. Both are read, because an order that
 // arrives under the other spelling would otherwise look like an order with no
 // price and no size.
-std::expected<WireOrder, WireError> read_spot_order(detail::ondemand::object& obj) {
+std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj) {
     WireOrder out{};
-    const auto symbol = detail::req_str(obj, "symbol");
+    const auto symbol = wire::req_str(obj, "symbol");
     if (!symbol.has_value()) {
         return std::unexpected(symbol.error());
     }
@@ -193,8 +191,8 @@ std::expected<WireOrder, WireError> read_spot_order(detail::ondemand::object& ob
 
     const auto ws_order_id = num_of(obj, "orderId");
     const auto rest_order_id = num_of(obj, "id");
-    const auto ws_client = detail::opt_str(obj, "clientOrderId");
-    const auto rest_client = detail::opt_str(obj, "client-order-id");
+    const auto ws_client = wire::opt_str(obj, "clientOrderId");
+    const auto rest_client = wire::opt_str(obj, "client-order-id");
     const auto ws_price = num_of(obj, "orderPrice");
     const auto rest_price = num_of(obj, "price");
     const auto ws_size = num_of(obj, "orderSize");
@@ -205,10 +203,10 @@ std::expected<WireOrder, WireError> read_spot_order(detail::ondemand::object& ob
     // is what several spot endpoints still answer with.
     const auto rest_exec = num_of(obj, "filled-amount");
     const auto legacy_exec = num_of(obj, "field-amount");
-    const auto type = detail::opt_str(obj, "type");
-    const auto ws_status = detail::opt_str(obj, "orderStatus");
-    const auto rest_status = detail::opt_str(obj, "state");
-    const auto event = detail::opt_str(obj, "eventType");
+    const auto type = wire::opt_str(obj, "type");
+    const auto ws_status = wire::opt_str(obj, "orderStatus");
+    const auto rest_status = wire::opt_str(obj, "state");
+    const auto event = wire::opt_str(obj, "eventType");
     if (!ws_order_id.has_value() || !rest_order_id.has_value() || !ws_client.has_value() ||
         !rest_client.has_value() || !ws_price.has_value() || !rest_price.has_value() ||
         !ws_size.has_value() || !rest_size.has_value() || !left.has_value() ||
@@ -237,10 +235,10 @@ std::expected<WireOrder, WireError> read_spot_order(detail::ondemand::object& ob
         out.state = WireOrderState::Canceled;
     }
 
-    const auto created = detail::opt_u64(obj, "orderCreateTime");
-    const auto acted = detail::opt_u64(obj, "lastActTime");
-    const auto traded = detail::opt_u64(obj, "tradeTime");
-    const auto rest_created = detail::opt_u64(obj, "created-at");
+    const auto created = wire::opt_u64(obj, "orderCreateTime");
+    const auto acted = wire::opt_u64(obj, "lastActTime");
+    const auto traded = wire::opt_u64(obj, "tradeTime");
+    const auto rest_created = wire::opt_u64(obj, "created-at");
     if (!created.has_value() || !acted.has_value() || !traded.has_value() ||
         !rest_created.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -265,7 +263,7 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, Ma
         if (market == MarketType::Spot) {
             // Spot's `data` IS the order id, a bare string with no object
             // around it — the only create response on either API shaped so.
-            const auto id = detail::opt_str(*root, "data");
+            const auto id = wire::opt_str(*root, "data");
             if (!id.has_value()) {
                 return std::unexpected(id.error());
             }
@@ -274,7 +272,7 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, Ma
             }
             return WireOrderAck{.order_id = *id, .client_order_id = {}};
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -297,13 +295,13 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        detail::ondemand::value data;
+        wire::ondemand::value data;
         if (const auto ec = wire::find(*root, "data").get(data); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         simdjson::ondemand::json_type type{};
         if (const auto ec = data.type().get(type); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (market == MarketType::Spot) {
             // Cancel-by-order-id answers the order id as a string; cancel-by-
@@ -312,7 +310,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
             if (type == simdjson::ondemand::json_type::number) {
                 std::int64_t state = 0;
                 if (const auto ec = data.get_int64().get(state); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 return WireCancelOutcome{.accepted = state != 0,
                                          .code = state == 0 ? k_client_id_not_found
@@ -320,20 +318,20 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
             }
             return WireCancelOutcome{.accepted = true, .code = {}};
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = data.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         // The swap answers status "ok" whichever way the cancel went; the
         // per-id verdict is in `errors`, and `successes` is a comma-joined
         // STRING rather than an array.
         std::string_view first_error;
-        if (detail::ondemand::array errors;
+        if (wire::ondemand::array errors;
             wire::find(obj, "errors").get_array().get(errors) == simdjson::SUCCESS) {
             for (auto entry : errors) {
-                detail::ondemand::object row;
+                wire::ondemand::object row;
                 if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 const auto code = num_of(row, "err_code");
                 if (!code.has_value()) {
@@ -343,7 +341,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
                 break;
             }
         }
-        const auto successes = detail::opt_str(obj, "successes");
+        const auto successes = wire::opt_str(obj, "successes");
         if (!successes.has_value()) {
             return std::unexpected(successes.error());
         }
@@ -371,7 +369,7 @@ std::expected<WireOrder, WireError> parse_spot_order_push(std::string_view frame
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -385,24 +383,24 @@ std::expected<WireUserTrade, WireError> parse_spot_trade_push(std::string_view f
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        const auto symbol = detail::req_str(*data, "symbol");
+        const auto symbol = wire::req_str(*data, "symbol");
         const auto order_id = num_of(*data, "orderId");
-        const auto client_id = detail::opt_str(*data, "clientOrderId");
+        const auto client_id = wire::opt_str(*data, "clientOrderId");
         const auto price = num_of(*data, "tradePrice");
         const auto qty = num_of(*data, "tradeVolume");
         const auto trade_id = num_of(*data, "tradeId");
         const auto fee = num_of(*data, "transactFee");
-        const auto side = detail::opt_str(*data, "orderSide");
-        const auto type = detail::opt_str(*data, "orderType");
+        const auto side = wire::opt_str(*data, "orderSide");
+        const auto type = wire::opt_str(*data, "orderType");
         const auto left = num_of(*data, "remainAmt");
-        const auto ts = detail::opt_u64(*data, "tradeTime");
+        const auto ts = wire::opt_u64(*data, "tradeTime");
         // `aggressor` is the taker flag, and it is a BOOLEAN here where every
         // other HTX surface spells liquidity as the word "maker"/"taker".
-        const auto aggressor = detail::opt_bool(*data, "aggressor");
+        const auto aggressor = wire::opt_bool(*data, "aggressor");
         if (!symbol.has_value() || !order_id.has_value() || !client_id.has_value() ||
             !price.has_value() || !qty.has_value() || !trade_id.has_value() || !fee.has_value() ||
             !side.has_value() || !type.has_value() || !left.has_value() || !ts.has_value() ||
@@ -433,15 +431,15 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
             return std::unexpected(root.error());
         }
         std::size_t count = 0;
-        const auto read_rows = [&](detail::ondemand::array rows)
+        const auto read_rows = [&](wire::ondemand::array rows)
             -> std::expected<std::span<const WireOrder>, WireError> {
             for (auto entry : rows) {
                 if (count == k_max_orders) {
                     return std::unexpected(WireError::TooManyEntries);
                 }
-                detail::ondemand::object obj;
+                wire::ondemand::object obj;
                 if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 // A REST row carries no trade array, so every order shares one
                 // empty fill span rather than each claiming buffer it will not
@@ -464,18 +462,18 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
         // wraps its rows in a paging object. The type is checked before either
         // read — probing by trying get_array and falling back leaves the
         // iterator half-consumed.
-        detail::ondemand::value data;
+        wire::ondemand::value data;
         if (const auto ec = wire::find(*root, "data").get(data); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         simdjson::ondemand::json_type type{};
         if (const auto ec = data.type().get(type); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (type == simdjson::ondemand::json_type::object) {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = data.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (market == MarketType::Spot) {
                 const auto order = read_spot_order(obj);
@@ -485,15 +483,15 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
                 storage.orders[0] = *order;
                 return std::span<const WireOrder>{storage.orders.data(), 1};
             }
-            auto array = detail::req_array(obj, "orders");
+            auto array = wire::req_array(obj, "orders");
             if (!array.has_value()) {
                 return std::unexpected(array.error());
             }
             return read_rows(*array);
         }
-        detail::ondemand::array rows;
+        wire::ondemand::array rows;
         if (const auto ec = data.get_array().get(rows); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         return read_rows(rows);
     });

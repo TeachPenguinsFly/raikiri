@@ -4,19 +4,17 @@
 
 namespace raikiri::venues::kraken {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireTrade, WireError> read_trade(detail::ondemand::object& obj) {
+std::expected<WireTrade, WireError> read_trade(wire::ondemand::object& obj) {
     WireTrade out{};
-    const auto product = detail::req_str(obj, "product_id");
-    const auto uid = detail::opt_str(obj, "uid");
-    const auto type = detail::opt_str(obj, "type");
-    const auto side = detail::req_str(obj, "side");
+    const auto product = wire::req_str(obj, "product_id");
+    const auto uid = wire::opt_str(obj, "uid");
+    const auto type = wire::opt_str(obj, "type");
+    const auto side = wire::req_str(obj, "side");
     const auto price = req_num(obj, "price");
     const auto qty = req_num(obj, "qty");
     if (!product.has_value() || !uid.has_value() || !type.has_value() || !side.has_value() ||
@@ -38,7 +36,7 @@ std::expected<WireTrade, WireError> read_trade(detail::ondemand::object& obj) {
     if (!seq.has_value()) {
         return std::unexpected(seq.error());
     }
-    out.seq = detail::digits_to_u64(*seq);
+    out.seq = wire::digits_to_u64(*seq);
     return out;
 }
 
@@ -51,7 +49,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             return std::unexpected(root.error());
         }
         WireTicker out{};
-        const auto product = detail::req_str(*root, "product_id");
+        const auto product = wire::req_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
         }
@@ -88,7 +86,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         const auto next_funding = opt_ms(*root, "next_funding_rate_time");
         const auto time_ms = opt_ms(*root, "time");
-        const auto suspended = detail::opt_bool(*root, "suspended");
+        const auto suspended = wire::opt_bool(*root, "suspended");
         if (!next_funding.has_value() || !time_ms.has_value() || !suspended.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -106,7 +104,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto feed = detail::req_str(*root, "feed");
+        const auto feed = wire::req_str(*root, "feed");
         if (!feed.has_value()) {
             return std::unexpected(feed.error());
         }
@@ -118,7 +116,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             storage.trades[0] = *one;
             return std::span<const WireTrade>{storage.trades.data(), 1};
         }
-        auto array = detail::req_array(*root, "trades");
+        auto array = wire::req_array(*root, "trades");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -127,9 +125,9 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto one = read_trade(obj);
             if (!one.has_value()) {

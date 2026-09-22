@@ -23,7 +23,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::xt::detail {
+namespace raikiri::venues::xt::internal {
 
 // Every market this adapter can act on, named exhaustively so Option is a case
 // the compiler forces a decision about rather than something a default arm
@@ -444,4 +444,4 @@ private:
     bool perp_{false};
 };
 
-} // namespace raikiri::venues::xt::detail
+} // namespace raikiri::venues::xt::internal

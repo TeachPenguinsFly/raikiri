@@ -13,14 +13,18 @@
 
 namespace raikiri::venues::weex {
 
-using namespace detail;
+using internal::VenueState;
+using internal::await_response;
+using internal::make_data_client;
+using internal::make_execution_client;
+using internal::make_instrument_source;
 
 // WEEX refuses a signature stamped more than 30 SECONDS from its own clock, so
 // a laptop drifting a minute looks exactly like a revoked key. The offset is
 // measured once at start and applied to every signed request. Half the round
 // trip is subtracted because the server's timestamp was taken somewhere in the
 // middle of it.
-void detail::sync_clock(VenueState& state, net::RestClient& rest) {
+void internal::sync_clock(VenueState& state, net::RestClient& rest) {
     const net::RestRequest request{.method = net::HttpMethod::Get, .target = ep::k_server_time};
 
     const auto before = state.clock->wall();

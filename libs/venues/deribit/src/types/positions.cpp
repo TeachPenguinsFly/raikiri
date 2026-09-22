@@ -6,16 +6,14 @@
 
 namespace raikiri::venues::deribit {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WirePosition, WireError> read_position(detail::ondemand::object& obj) {
+std::expected<WirePosition, WireError> read_position(wire::ondemand::object& obj) {
     WirePosition out{};
-    const auto instrument = detail::opt_str(obj, "instrument_name");
+    const auto instrument = wire::opt_str(obj, "instrument_name");
     if (!instrument.has_value()) {
         return std::unexpected(instrument.error());
     }
@@ -44,7 +42,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             return std::unexpected(root.error());
         }
         const auto count = read_rows<WirePosition>(
-            *root, "result", storage.positions, [](detail::ondemand::object& obj) {
+            *root, "result", storage.positions, [](wire::ondemand::object& obj) {
                 return read_position(obj);
             });
         if (!count.has_value()) {

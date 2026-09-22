@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace raikiri::venues::edgex::detail {
+namespace raikiri::venues::edgex::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, MarketType market_type)
@@ -54,4 +54,4 @@ struct VenueState {
     }
 };
 
-} // namespace raikiri::venues::edgex::detail
+} // namespace raikiri::venues::edgex::internal

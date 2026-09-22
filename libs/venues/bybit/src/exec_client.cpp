@@ -12,7 +12,7 @@
 #include "rest/api.hpp"
 #include "userstream/stream.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 
 namespace {
 
@@ -265,4 +265,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<BybitExec>(std::move(state));
 }
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

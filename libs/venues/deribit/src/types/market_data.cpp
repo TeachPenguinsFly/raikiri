@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::deribit {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -24,7 +22,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!params.has_value()) {
             return std::unexpected(params.error());
         }
-        auto array = detail::req_array(*params, "data");
+        auto array = wire::req_array(*params, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -33,14 +31,14 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTrade out{};
-            const auto instrument = detail::req_str(obj, "instrument_name");
-            const auto trade_id = detail::opt_str(obj, "trade_id");
-            const auto direction = detail::req_str(obj, "direction");
+            const auto instrument = wire::req_str(obj, "instrument_name");
+            const auto trade_id = wire::opt_str(obj, "trade_id");
+            const auto direction = wire::req_str(obj, "direction");
             const auto price = req_num(obj, "price");
             const auto qty = req_num(obj, "amount");
             if (!instrument.has_value() || !trade_id.has_value() || !direction.has_value() ||
@@ -53,7 +51,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             out.qty = *qty;
             out.aggressor_bought = *direction == "buy";
             const auto ts = opt_ms(obj, "timestamp");
-            const auto seq = detail::opt_i64(obj, "trade_seq");
+            const auto seq = wire::opt_i64(obj, "trade_seq");
             if (!ts.has_value() || !seq.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -77,7 +75,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             return std::unexpected(data.error());
         }
         WireTicker out{};
-        const auto instrument = detail::req_str(*data, "instrument_name");
+        const auto instrument = wire::req_str(*data, "instrument_name");
         const auto mark = req_num(*data, "mark_price");
         if (!instrument.has_value() || !mark.has_value()) {
             return std::unexpected(WireError::MissingField);
@@ -98,7 +96,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         // Read before the option scalars so the cursor walks `stats` and then
         // `greeks` in the order the frame writes them. Absent is tolerated:
         // this must never cost the frame its funding rate.
-        if (auto stats = detail::req_object(*data, "stats"); stats.has_value()) {
+        if (auto stats = wire::req_object(*data, "stats"); stats.has_value()) {
             out.stats_volume = opt_num(*stats, "volume").value_or(std::string_view{});
             out.stats_volume_usd = opt_num(*stats, "volume_usd").value_or(std::string_view{});
         }
@@ -110,7 +108,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.bid_iv = opt_num(*data, "bid_iv").value_or(std::string_view{});
         out.ask_iv = opt_num(*data, "ask_iv").value_or(std::string_view{});
         out.underlying_price = opt_num(*data, "underlying_price").value_or(std::string_view{});
-        if (auto greeks = detail::req_object(*data, "greeks"); greeks.has_value()) {
+        if (auto greeks = wire::req_object(*data, "greeks"); greeks.has_value()) {
             out.delta = opt_num(*greeks, "delta").value_or(std::string_view{});
             out.gamma = opt_num(*greeks, "gamma").value_or(std::string_view{});
             out.vega = opt_num(*greeks, "vega").value_or(std::string_view{});

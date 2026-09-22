@@ -4,15 +4,10 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -23,7 +18,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto rows = detail::req_array(*root, "assetPositions");
+        auto rows = wire::req_array(*root, "assetPositions");
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
@@ -32,19 +27,19 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             if (count == k_max_positions) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object wrapper;
+            wire::ondemand::object wrapper;
             if (const auto ec = row.get_object().get(wrapper); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             // The `type` beside it ("oneWay") is the venue's position mode and
             // the domain has no other; reading it would only invite a switch.
-            auto position = detail::req_object(wrapper, "position");
+            auto position = wire::req_object(wrapper, "position");
             if (!position.has_value()) {
                 return std::unexpected(position.error());
             }
-            const auto coin = detail::req_str(*position, "coin");
-            const auto size = detail::req_str(*position, "szi");
-            const auto entry = detail::req_str(*position, "entryPx");
+            const auto coin = wire::req_str(*position, "coin");
+            const auto size = wire::req_str(*position, "szi");
+            const auto entry = wire::req_str(*position, "entryPx");
             if (!coin.has_value() || !size.has_value() || !entry.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }

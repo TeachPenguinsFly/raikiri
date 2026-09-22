@@ -13,7 +13,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::weex::detail {
+namespace raikiri::venues::weex::internal {
 
 namespace {
 
@@ -127,4 +127,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<WeexInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::weex::detail
+} // namespace raikiri::venues::weex::internal

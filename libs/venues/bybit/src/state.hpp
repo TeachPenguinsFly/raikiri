@@ -28,7 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 
 // Bybit's own ping cadence. Its documented idle timeout is 20 s and it drops
 // connections that answer only the websocket control frame, so the interval
@@ -116,4 +116,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 // Defined beside the catalogue loader it shares a transport with.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

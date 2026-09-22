@@ -4,18 +4,13 @@
 
 namespace raikiri::venues::okx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrder& out) {
-    const auto inst_id = detail::req_str(obj, "instId");
+std::expected<void, WireError> read_order(wire::ondemand::object& obj, WireOrder& out) {
+    const auto inst_id = wire::req_str(obj, "instId");
     if (!inst_id.has_value()) {
         return std::unexpected(inst_id.error());
     }
@@ -45,10 +40,10 @@ std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrd
         return std::unexpected(ok.error());
     }
     out.state = order_state_from(state);
-    out.code = static_cast<std::int64_t>(detail::digits_to_u64(code));
+    out.code = static_cast<std::int64_t>(wire::digits_to_u64(code));
 
-    const auto fill_ms = detail::opt_ms(obj, "fillTime");
-    const auto u_ms = detail::opt_ms(obj, "uTime");
+    const auto fill_ms = wire::opt_ms(obj, "fillTime");
+    const auto u_ms = wire::opt_ms(obj, "uTime");
     if (!fill_ms.has_value() || !u_ms.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -57,8 +52,8 @@ std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrd
     return {};
 }
 
-std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill& out) {
-    const auto inst_id = detail::req_str(obj, "instId");
+std::expected<void, WireError> read_fill(wire::ondemand::object& obj, WireFill& out) {
+    const auto inst_id = wire::req_str(obj, "instId");
     if (!inst_id.has_value()) {
         return std::unexpected(inst_id.error());
     }
@@ -75,7 +70,7 @@ std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    const auto fill_ms = detail::opt_ms(obj, "fillTime");
+    const auto fill_ms = wire::opt_ms(obj, "fillTime");
     if (!fill_ms.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -83,7 +78,7 @@ std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill
     return {};
 }
 
-std::expected<void, WireError> read_ack(detail::ondemand::object& obj, WireOrderAck& out) {
+std::expected<void, WireError> read_ack(wire::ondemand::object& obj, WireOrderAck& out) {
     if (const auto ok = read_strings(
             obj, {{"ordId", &out.ord_id}, {"clOrdId", &out.cl_ord_id}, {"sMsg", &out.s_msg}});
         !ok.has_value()) {
@@ -91,11 +86,11 @@ std::expected<void, WireError> read_ack(detail::ondemand::object& obj, WireOrder
     }
     // sCode is the per-order verdict and is REQUIRED: an object that does not
     // carry one must never be read as the "0" that means the order is live.
-    const auto s_code = detail::req_str(obj, "sCode");
+    const auto s_code = wire::req_str(obj, "sCode");
     if (!s_code.has_value()) {
         return std::unexpected(s_code.error());
     }
-    const auto value = detail::digits_to_u64(*s_code);
+    const auto value = wire::digits_to_u64(*s_code);
     if (value == 0 && *s_code != "0") {
         return std::unexpected(WireError::WrongType);
     }

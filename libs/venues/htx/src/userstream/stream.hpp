@@ -21,7 +21,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::htx::detail {
+namespace raikiri::venues::htx::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
@@ -288,4 +288,4 @@ private:
     net::WsClient client_;
 };
 
-} // namespace raikiri::venues::htx::detail
+} // namespace raikiri::venues::htx::internal

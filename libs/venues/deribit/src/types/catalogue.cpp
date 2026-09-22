@@ -6,12 +6,10 @@
 
 namespace raikiri::venues::deribit {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -22,7 +20,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "result");
+        auto array = wire::req_array(*root, "result");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -31,13 +29,13 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             if (count == k_max_instruments) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireInstrument out{};
-            const auto name = detail::req_str(obj, "instrument_name");
-            const auto kind = detail::req_str(obj, "kind");
+            const auto name = wire::req_str(obj, "instrument_name");
+            const auto kind = wire::req_str(obj, "kind");
             if (!name.has_value() || !kind.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -46,7 +44,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
             for (const auto& [key, field] : {std::pair{"instrument_type", &out.instrument_type},
                                              std::pair{"settlement_period", &out.settlement_period},
                                              std::pair{"option_type", &out.option_type}}) {
-                const auto value = detail::opt_str(obj, key);
+                const auto value = wire::opt_str(obj, key);
                 if (!value.has_value()) {
                     return std::unexpected(value.error());
                 }
@@ -63,7 +61,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                 *field = *value;
             }
             const auto expiry = opt_ms(obj, "expiration_timestamp");
-            const auto active = detail::opt_bool(obj, "is_active");
+            const auto active = wire::opt_bool(obj, "is_active");
             if (!expiry.has_value() || !active.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }

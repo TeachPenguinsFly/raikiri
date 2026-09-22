@@ -6,15 +6,10 @@
 
 namespace raikiri::venues::deribit {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // The parameter count distinguishes the two book streams:
 // "book.BTC-PERPETUAL.100ms" is incremental, "book.BTC-PERPETUAL.none.1.100ms"
@@ -85,38 +80,38 @@ bool names_instrument(EventKind kind) noexcept {
 // Shared spine of the opt_/req_ pairs; req_ adds a refusal of the empty case.
 template <typename Reader>
 [[nodiscard]] std::expected<std::string_view, WireError>
-find_scalar(detail::ondemand::object& obj, std::string_view key, Reader reader) {
-    detail::ondemand::value value;
+find_scalar(wire::ondemand::object& obj, std::string_view key, Reader reader) {
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return reader(value);
 }
 
 } // namespace
 
-std::expected<detail::ondemand::object, WireError> push_params(detail::ondemand::object& root) {
-    return detail::req_object(root, "params");
+std::expected<wire::ondemand::object, WireError> push_params(wire::ondemand::object& root) {
+    return wire::req_object(root, "params");
 }
 
-std::expected<detail::ondemand::object, WireError> push_data(detail::ondemand::object& root) {
+std::expected<wire::ondemand::object, WireError> push_data(wire::ondemand::object& root) {
     auto params = push_params(root);
     if (!params.has_value()) {
         return std::unexpected(params.error());
     }
-    return detail::req_object(*params, "data");
+    return wire::req_object(*params, "data");
 }
 
-std::expected<std::string_view, WireError> num_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    raw = detail::trim(raw);
+    raw = wire::trim(raw);
     if (raw == "null") {
         return std::string_view{};
     }
@@ -127,12 +122,12 @@ std::expected<std::string_view, WireError> num_of(detail::ondemand::value value)
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_num(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_num(wire::ondemand::object& obj,
                                                    std::string_view key) {
-    return find_scalar(obj, key, [](detail::ondemand::value v) { return num_of(v); });
+    return find_scalar(obj, key, [](wire::ondemand::value v) { return num_of(v); });
 }
 
-std::expected<std::string_view, WireError> req_num(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> req_num(wire::ondemand::object& obj,
                                                    std::string_view key) {
     const auto text = opt_num(obj, key);
     if (text.has_value() && text->empty()) {
@@ -151,7 +146,7 @@ std::uint64_t token_to_u64(std::string_view s) noexcept {
     return (ec == std::errc{} && stop == end) ? out : 0;
 }
 
-std::expected<std::uint64_t, WireError> opt_ms(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_ms(wire::ondemand::object& obj,
                                                std::string_view key) {
     const auto token = opt_num(obj, key);
     if (!token.has_value()) {
@@ -166,7 +161,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto method = detail::opt_str(*root, "method");
+        const auto method = wire::opt_str(*root, "method");
         if (!method.has_value()) {
             return std::unexpected(method.error());
         }
@@ -180,7 +175,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return std::unexpected(params.error());
         }
         if (*method == "heartbeat") {
-            const auto type = detail::req_str(*params, "type");
+            const auto type = wire::req_str(*params, "type");
             if (!type.has_value()) {
                 return std::unexpected(type.error());
             }
@@ -191,7 +186,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (*method != "subscription") {
             return info; // Unknown: ignored, never fatal
         }
-        const auto channel = detail::req_str(*params, "channel");
+        const auto channel = wire::req_str(*params, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
@@ -211,17 +206,17 @@ std::expected<WireResponse, WireError> parse_response(std::string_view frame) {
             return std::unexpected(root.error());
         }
         WireResponse out{};
-        const auto id = detail::opt_i64(*root, "id");
+        const auto id = wire::opt_i64(*root, "id");
         if (!id.has_value()) {
             return std::unexpected(id.error());
         }
         out.id = *id;
 
-        detail::ondemand::object error;
+        wire::ondemand::object error;
         const auto error_ec = wire::find(*root, "error").get_object().get(error);
         if (error_ec == simdjson::SUCCESS) {
-            const auto code = detail::opt_i64(error, "code");
-            const auto message = detail::opt_str(error, "message");
+            const auto code = wire::opt_i64(error, "code");
+            const auto message = wire::opt_str(error, "message");
             if (!code.has_value() || !message.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -230,14 +225,14 @@ std::expected<WireResponse, WireError> parse_response(std::string_view frame) {
             return out;
         }
         if (error_ec != simdjson::NO_SUCH_FIELD && error_ec != simdjson::INCORRECT_TYPE) {
-            return std::unexpected(detail::map_error(error_ec));
+            return std::unexpected(wire::map_error(error_ec));
         }
 
-        detail::ondemand::array accepted;
+        wire::ondemand::array accepted;
         if (wire::find(*root, "result").get_array().get(accepted) == simdjson::SUCCESS) {
             for (auto entry : accepted) {
                 if (const auto ec = entry.error(); ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 ++out.accepted;
             }

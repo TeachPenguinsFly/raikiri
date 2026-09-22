@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "bbo") {
@@ -53,7 +48,7 @@ std::expected<EventKind, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto channel = detail::req_str(*root, "channel");
+        const auto channel = wire::req_str(*root, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
@@ -68,7 +63,7 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
             return std::unexpected(root.error());
         }
         // `data` is prose, not an object: there is no code to read.
-        const auto msg = detail::req_str(*root, "data");
+        const auto msg = wire::req_str(*root, "data");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
         }
@@ -76,13 +71,13 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
     });
 }
 
-std::expected<std::uint64_t, WireError> opt_number_ms(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> opt_number_ms(wire::ondemand::object& obj,
                                                       std::string_view key) {
-    const auto text = detail::opt_raw(obj, key);
+    const auto text = wire::opt_raw(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
 } // namespace raikiri::venues::hyperliquid

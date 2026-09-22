@@ -27,7 +27,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::binance::detail {
+namespace raikiri::venues::binance::internal {
 
 namespace {
 
@@ -679,4 +679,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<BinanceData>(std::move(state));
 }
 
-} // namespace raikiri::venues::binance::detail
+} // namespace raikiri::venues::binance::internal

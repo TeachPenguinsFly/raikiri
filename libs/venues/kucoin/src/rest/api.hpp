@@ -30,7 +30,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::kucoin::detail {
+namespace raikiri::venues::kucoin::internal {
 
 class RestApi {
 public:
@@ -346,4 +346,4 @@ private:
     OrderRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::kucoin::detail
+} // namespace raikiri::venues::kucoin::internal

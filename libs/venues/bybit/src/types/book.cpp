@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::bybit {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+namespace ondemand = wire::ondemand;
 
 std::expected<std::size_t, WireError>
 read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
@@ -31,7 +26,7 @@ read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
             if (item.get(value) != simdjson::SUCCESS) {
                 return std::unexpected{WireError::WrongType};
             }
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected{text.error()};
             }
@@ -55,7 +50,7 @@ read_levels(ondemand::array levels, WireLevel* out, std::size_t capacity) {
 std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
                                                         OrderbookBuffer& storage) {
     return guarded([&]() -> std::expected<WireOrderbook, WireError> {
-        auto& session = detail::session();
+        auto& session = wire::session();
         auto root = session.open_object(frame);
         if (!root.has_value()) {
             return std::unexpected{root.error()};
@@ -63,32 +58,32 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
         auto obj = *root;
 
         WireOrderbook out{};
-        const auto type = detail::opt_str(obj, "type");
+        const auto type = wire::opt_str(obj, "type");
         out.is_snapshot = type.value_or(std::string_view{}) == "snapshot";
         obj.reset();
-        out.ts_ms = detail::opt_u64(obj, "ts").value_or(0);
+        out.ts_ms = wire::opt_u64(obj, "ts").value_or(0);
 
         obj.reset();
-        auto data = detail::req_object(obj, "data");
+        auto data = wire::req_object(obj, "data");
         if (!data.has_value()) {
             return std::unexpected{data.error()};
         }
         auto data_obj = *data;
 
-        auto symbol = detail::req_str(data_obj, "s");
+        auto symbol = wire::req_str(data_obj, "s");
         if (!symbol.has_value()) {
             return std::unexpected{symbol.error()};
         }
         out.symbol = *symbol;
 
         data_obj.reset();
-        out.update_id = detail::opt_u64(data_obj, "u").value_or(0);
+        out.update_id = wire::opt_u64(data_obj, "u").value_or(0);
         data_obj.reset();
-        out.seq = detail::opt_u64(data_obj, "seq").value_or(0);
+        out.seq = wire::opt_u64(data_obj, "seq").value_or(0);
 
         data_obj.reset();
         std::size_t bid_count = 0;
-        if (auto bids = detail::req_array(data_obj, "b"); bids.has_value()) {
+        if (auto bids = wire::req_array(data_obj, "b"); bids.has_value()) {
             const auto n = read_levels(*bids, storage.bids, k_max_levels);
             if (!n.has_value()) {
                 return std::unexpected{n.error()};
@@ -97,7 +92,7 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
         }
         data_obj.reset();
         std::size_t ask_count = 0;
-        if (auto asks = detail::req_array(data_obj, "a"); asks.has_value()) {
+        if (auto asks = wire::req_array(data_obj, "a"); asks.has_value()) {
             const auto n = read_levels(*asks, storage.asks, k_max_levels);
             if (!n.has_value()) {
                 return std::unexpected{n.error()};

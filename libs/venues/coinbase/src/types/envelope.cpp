@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::coinbase {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_type(std::string_view type) noexcept {
     if (type == "ticker") {
@@ -43,13 +38,13 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto type = detail::req_str(*root, "type");
+        const auto type = wire::req_str(*root, "type");
         if (!type.has_value()) {
             return std::unexpected(type.error());
         }
         EventInfo info{};
         info.kind = kind_from_type(*type);
-        const auto product = detail::opt_str(*root, "product_id");
+        const auto product = wire::opt_str(*root, "product_id");
         if (!product.has_value()) {
             return std::unexpected(product.error());
         }
@@ -64,8 +59,8 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto message = detail::req_str(*root, "message");
-        const auto reason = detail::opt_str(*root, "reason");
+        const auto message = wire::req_str(*root, "message");
+        const auto reason = wire::opt_str(*root, "reason");
         if (!message.has_value() || !reason.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -80,7 +75,7 @@ parse_subscriptions(std::string_view frame, AckBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "channels");
+        auto array = wire::req_array(*root, "channels");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -89,11 +84,11 @@ parse_subscriptions(std::string_view frame, AckBuffer& storage) {
             if (count == k_max_ack_channels) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto name = detail::req_str(obj, "name");
+            const auto name = wire::req_str(obj, "name");
             if (!name.has_value()) {
                 return std::unexpected(name.error());
             }
@@ -110,7 +105,7 @@ std::expected<std::string_view, WireError> parse_server_time(std::string_view bo
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return detail::req_str(*root, "iso");
+        return wire::req_str(*root, "iso");
     });
 }
 
@@ -120,7 +115,7 @@ std::expected<std::string_view, WireError> parse_rest_error(std::string_view bod
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        return detail::req_str(*root, "message");
+        return wire::req_str(*root, "message");
     });
 }
 

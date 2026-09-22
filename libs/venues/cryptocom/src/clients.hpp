@@ -8,7 +8,7 @@
 
 #include "state.hpp"
 
-namespace raikiri::venues::cryptocom::detail {
+namespace raikiri::venues::cryptocom::internal {
 
 [[nodiscard]] std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> state);
 
@@ -18,4 +18,4 @@ make_execution_client(std::shared_ptr<VenueState> state);
 [[nodiscard]] std::unique_ptr<exec::InstrumentSource>
 make_instrument_source(std::shared_ptr<VenueState> state);
 
-} // namespace raikiri::venues::cryptocom::detail
+} // namespace raikiri::venues::cryptocom::internal

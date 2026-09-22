@@ -22,7 +22,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::bitfinex::detail {
+namespace raikiri::venues::bitfinex::internal {
 
 namespace {
 
@@ -125,4 +125,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<BitfinexInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::bitfinex::detail
+} // namespace raikiri::venues::bitfinex::internal

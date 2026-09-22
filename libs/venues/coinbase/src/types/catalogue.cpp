@@ -5,20 +5,15 @@
 
 namespace raikiri::venues::coinbase {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A delisted row still ships every field, so nothing here is optional for
 // structural reasons; `status` and `trading_disabled` are what the mapper
 // refuses on.
-std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj) {
+std::expected<WireProduct, WireError> read_product(wire::ondemand::object& obj) {
     WireProduct out{};
     for (const auto& [key, field] : {std::pair{"id", &out.id},
                                      std::pair{"base_currency", &out.base_currency},
@@ -27,7 +22,7 @@ std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj
                                      std::pair{"base_increment", &out.base_increment},
                                      std::pair{"min_market_funds", &out.min_market_funds},
                                      std::pair{"status", &out.status}}) {
-        const auto value = detail::req_str(obj, key);
+        const auto value = wire::req_str(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -38,7 +33,7 @@ std::expected<WireProduct, WireError> read_product(detail::ondemand::object& obj
                                      std::pair{"post_only", &out.post_only},
                                      std::pair{"limit_only", &out.limit_only},
                                      std::pair{"auction_mode", &out.auction_mode}}) {
-        const auto value = detail::opt_bool(obj, key);
+        const auto value = wire::opt_bool(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -61,9 +56,9 @@ std::expected<std::span<const WireProduct>, WireError> parse_products(std::strin
             if (count == k_max_products) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto product = read_product(obj);
             if (!product.has_value()) {

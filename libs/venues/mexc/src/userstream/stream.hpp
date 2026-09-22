@@ -16,7 +16,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::mexc::detail {
+namespace raikiri::venues::mexc::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
@@ -154,4 +154,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::mexc::detail
+} // namespace raikiri::venues::mexc::internal

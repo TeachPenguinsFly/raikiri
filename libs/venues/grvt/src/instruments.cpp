@@ -10,7 +10,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::grvt::detail {
+namespace raikiri::venues::grvt::internal {
 
 namespace {
 
@@ -87,4 +87,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<GrvtInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::grvt::detail
+} // namespace raikiri::venues::grvt::internal

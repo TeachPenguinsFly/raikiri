@@ -1,5 +1,5 @@
 #include <raikiri/common/platform.hpp>
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/writer.hpp>
 
 #include <crc32c/crc32c.h>
@@ -69,7 +69,7 @@ void JournalWriter::prune_sealed() noexcept {
     }
     const auto oldest_kept = segment_seq_ - retain_segments_;
     for (std::uint64_t seq = oldest_kept; seq-- > 0;) {
-        const auto path = detail::segment_path(dir_, prefix_, seq);
+        const auto path = internal::segment_path(dir_, prefix_, seq);
         if (::unlink(path.c_str()) != 0) {
             break; // already gone, and everything older with it
         }
@@ -99,14 +99,14 @@ std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
     w.segment_bytes_ = segment_bytes;
     w.retain_segments_ = retain_segments;
 
-    if (!detail::mkdir_p(w.dir_)) {
+    if (!internal::mkdir_p(w.dir_)) {
         return std::unexpected{JournalError::OpenFailed};
     }
     if (auto claimed = w.claim(w.dir_, w.prefix_); !claimed.has_value()) {
         return std::unexpected{claimed.error()};
     }
 
-    const auto segments = detail::list_segments(w.dir_, w.prefix_);
+    const auto segments = internal::list_segments(w.dir_, w.prefix_);
     if (segments.empty()) {
         if (auto r = w.open_segment(0, SegmentOpen::Create); !r.has_value()) {
             return std::unexpected{r.error()};
@@ -117,7 +117,7 @@ std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
     // holds no frames by definition — a frame is only findable through a
     // header that was never written — so the sequence continues from the
     // segment before it, and the blank file is initialised in place.
-    if (detail::segment_is_blank(detail::segment_path(w.dir_, w.prefix_, segments.back()))) {
+    if (internal::segment_is_blank(internal::segment_path(w.dir_, w.prefix_, segments.back()))) {
         if (segments.size() >= 2) {
             if (auto r = w.open_segment(segments[segments.size() - 2], SegmentOpen::Recover);
                 !r.has_value()) {
@@ -146,7 +146,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     close_segment();
 
     const bool recover = how == SegmentOpen::Recover;
-    const std::string path = detail::segment_path(dir_, prefix_, segment_seq);
+    const std::string path = internal::segment_path(dir_, prefix_, segment_seq);
     const int flags = how == SegmentOpen::Create ? (O_RDWR | O_CREAT | O_EXCL) : O_RDWR;
     fd_ = ::open(path.c_str(), flags, 0600);
     if (fd_ < 0) {
@@ -181,7 +181,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
         if (header_->abi != k_file_abi) {
             return std::unexpected{JournalError::BadAbi};
         }
-        const auto walk = detail::walk_frames(base_, segment_bytes_, header_->base_record_seq);
+        const auto walk = internal::walk_frames(base_, segment_bytes_, header_->base_record_seq);
         write_off_ = walk.end_offset;
         next_seq_ = walk.next_seq;
         header_->committed_bytes.store(write_off_, std::memory_order_release);

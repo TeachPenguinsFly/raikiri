@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::aster {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_event(std::string_view e) noexcept {
     if (e == "bookTicker") {
@@ -51,7 +46,7 @@ std::expected<std::string_view, WireError> unwrap(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::opt_raw(*root, "data");
+        auto data = wire::opt_raw(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -74,13 +69,13 @@ std::expected<EventInfo, WireError> parse_event_payload(std::string_view payload
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto event = detail::opt_str(*root, "e");
+        auto event = wire::opt_str(*root, "e");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
         EventInfo info{};
         if (event->empty()) {
-            const auto err = detail::opt_raw(*root, "error");
+            const auto err = wire::opt_raw(*root, "error");
             if (!err.has_value()) {
                 return std::unexpected(err.error());
             }
@@ -88,7 +83,7 @@ std::expected<EventInfo, WireError> parse_event_payload(std::string_view payload
             return info;
         }
         info.kind = kind_from_event(*event);
-        auto symbol = detail::opt_str(*root, "s");
+        auto symbol = wire::opt_str(*root, "s");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
@@ -103,16 +98,16 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto id = detail::opt_u64(*root, "id");
+        const auto id = wire::opt_u64(*root, "id");
         if (!id.has_value()) {
             return std::unexpected(id.error());
         }
-        auto error = detail::req_object(*root, "error");
+        auto error = wire::req_object(*root, "error");
         if (!error.has_value()) {
             return std::unexpected(error.error());
         }
-        const auto code = detail::opt_i64(*error, "code");
-        const auto msg = detail::opt_str(*error, "msg");
+        const auto code = wire::opt_i64(*error, "code");
+        const auto msg = wire::opt_str(*error, "msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -126,14 +121,14 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
         if (!root.has_value()) {
             return RestError{};
         }
-        const auto code = detail::opt_i64(*root, "code");
+        const auto code = wire::opt_i64(*root, "code");
         if (!code.has_value()) {
             return std::unexpected(code.error());
         }
         if (*code >= 0) {
             return RestError{};
         }
-        const auto msg = detail::opt_str(*root, "msg");
+        const auto msg = wire::opt_str(*root, "msg");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
         }
@@ -147,7 +142,7 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto time = detail::opt_u64(*root, "serverTime");
+        const auto time = wire::opt_u64(*root, "serverTime");
         if (!time.has_value()) {
             return std::unexpected(time.error());
         }
@@ -164,7 +159,7 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto key = detail::opt_str(*root, "listenKey");
+        const auto key = wire::opt_str(*root, "listenKey");
         if (!key.has_value()) {
             return std::unexpected(key.error());
         }

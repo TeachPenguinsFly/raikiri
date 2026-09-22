@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace raikiri::venues::bitget::detail {
+namespace raikiri::venues::bitget::internal {
 
 // A subscription the gateway asked for, owned as strings because the
 // instrument table's views outlive nothing in particular.
@@ -133,4 +133,4 @@ inline std::expected<std::string, exec::VenueError> fetch_checked(VenueState& st
 // not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-} // namespace raikiri::venues::bitget::detail
+} // namespace raikiri::venues::bitget::internal

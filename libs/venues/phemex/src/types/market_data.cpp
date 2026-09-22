@@ -8,21 +8,19 @@
 
 namespace raikiri::venues::phemex {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<std::string_view, WireError> text_of(detail::ondemand::value& value) {
-    return detail::str_of(value);
+std::expected<std::string_view, WireError> text_of(wire::ondemand::value& value) {
+    return wire::str_of(value);
 }
 
-std::expected<std::int64_t, WireError> int_of(detail::ondemand::value& value) {
+std::expected<std::int64_t, WireError> int_of(wire::ondemand::value& value) {
     std::int64_t out = 0;
     if (const auto ec = value.get_int64().get(out); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
@@ -30,20 +28,20 @@ std::expected<std::int64_t, WireError> int_of(detail::ondemand::value& value) {
 // [ts_ns, side, price, qty], where price and qty are strings on the real
 // channel and integers on the scaled one.
 template <typename Print, typename Read>
-std::expected<Print, WireError> read_print(detail::ondemand::array row, Read read_number) {
+std::expected<Print, WireError> read_print(wire::ondemand::array row, Read read_number) {
     Print out{};
     std::size_t field = 0;
     for (auto item : row) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = item.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (field == 0) {
             if (const auto ec = value.get_uint64().get(out.ts_ns); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
         } else if (field == 1) {
-            const auto side = detail::str_of(value);
+            const auto side = wire::str_of(value);
             if (!side.has_value()) {
                 return std::unexpected(side.error());
             }
@@ -89,14 +87,14 @@ std::expected<WireTrades<Print>, WireError> parse_trades(std::string_view frame,
             return std::unexpected(root.error());
         }
         WireTrades<Print> out{};
-        const auto symbol = detail::req_str(*root, "symbol");
-        const auto type = detail::req_str(*root, "type");
+        const auto symbol = wire::req_str(*root, "symbol");
+        const auto type = wire::req_str(*root, "type");
         if (!symbol.has_value() || !type.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
         out.symbol = *symbol;
         out.snapshot = *type == "snapshot";
-        auto rows = detail::req_array(*root, key);
+        auto rows = wire::req_array(*root, key);
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
@@ -105,9 +103,9 @@ std::expected<WireTrades<Print>, WireError> parse_trades(std::string_view frame,
             if (count == k_max_prints) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::array row;
+            wire::ondemand::array row;
             if (const auto ec = entry.get_array().get(row); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto print = read_print<Print>(row, read_number);
             if (!print.has_value()) {
@@ -121,15 +119,15 @@ std::expected<WireTrades<Print>, WireError> parse_trades(std::string_view frame,
     });
 }
 
-std::expected<void, WireError> read_columns(detail::ondemand::array fields, PackColumns& columns) {
+std::expected<void, WireError> read_columns(wire::ondemand::array fields, PackColumns& columns) {
     PackColumns out{};
     int index = 0;
     for (auto item : fields) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = item.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto name = detail::str_of(value);
+        const auto name = wire::str_of(value);
         if (!name.has_value()) {
             return std::unexpected(name.error());
         }
@@ -155,7 +153,7 @@ std::expected<void, WireError> read_columns(detail::ondemand::array fields, Pack
     return {};
 }
 
-std::expected<WirePackRow, WireError> read_pack_row(detail::ondemand::array row,
+std::expected<WirePackRow, WireError> read_pack_row(wire::ondemand::array row,
                                                     const PackColumns& columns) {
     WirePackRow out{};
     const std::array<std::pair<int, std::string_view*>, 6> wanted{{
@@ -168,15 +166,15 @@ std::expected<WirePackRow, WireError> read_pack_row(detail::ondemand::array row,
     }};
     int index = 0;
     for (auto item : row) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = item.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         for (const auto& [column, into] : wanted) {
             if (column != index) {
                 continue;
             }
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -192,9 +190,9 @@ std::expected<WirePackRow, WireError> read_pack_row(detail::ondemand::array row,
 }
 
 // Absent is nullopt; present but not an integer is an error.
-std::expected<std::optional<std::int64_t>, WireError> opt_int(detail::ondemand::object& obj,
+std::expected<std::optional<std::int64_t>, WireError> opt_int(wire::ondemand::object& obj,
                                                               std::string_view key) {
-    const auto raw = detail::opt_raw(obj, key);
+    const auto raw = wire::opt_raw(obj, key);
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
     }
@@ -214,7 +212,7 @@ struct IntField {
     std::optional<std::int64_t>* into;
 };
 
-std::expected<void, WireError> read_ints(detail::ondemand::object& obj,
+std::expected<void, WireError> read_ints(wire::ondemand::object& obj,
                                          std::initializer_list<IntField> wanted) {
     for (const auto& want : wanted) {
         const auto value = opt_int(obj, want.key);
@@ -245,8 +243,8 @@ parse_perp_pack(std::string_view frame, PackColumns& columns, PackBuffer& storag
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        if (detail::has_field(*root, "fields")) {
-            auto fields = detail::req_array(*root, "fields");
+        if (wire::has_field(*root, "fields")) {
+            auto fields = wire::req_array(*root, "fields");
             if (!fields.has_value()) {
                 return std::unexpected(fields.error());
             }
@@ -258,12 +256,12 @@ parse_perp_pack(std::string_view frame, PackColumns& columns, PackBuffer& storag
             return std::unexpected(WireError::MissingField);
         }
         WirePack out{};
-        const auto ts = detail::opt_u64(*root, "timestamp");
+        const auto ts = wire::opt_u64(*root, "timestamp");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }
         out.ts_ns = *ts;
-        auto rows = detail::req_array(*root, "data");
+        auto rows = wire::req_array(*root, "data");
         if (!rows.has_value()) {
             return std::unexpected(rows.error());
         }
@@ -272,9 +270,9 @@ parse_perp_pack(std::string_view frame, PackColumns& columns, PackBuffer& storag
             if (count == k_max_pack_rows) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::array row;
+            wire::ondemand::array row;
             if (const auto ec = entry.get_array().get(row); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto parsed = read_pack_row(row, columns);
             if (!parsed.has_value()) {
@@ -295,16 +293,16 @@ std::expected<WireInverseTicker, WireError> parse_inverse_ticker(std::string_vie
             return std::unexpected(root.error());
         }
         WireInverseTicker out{};
-        const auto ts = detail::opt_u64(*root, "timestamp");
+        const auto ts = wire::opt_u64(*root, "timestamp");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }
         out.ts_ns = *ts;
-        auto body = detail::req_object(*root, "market24h");
+        auto body = wire::req_object(*root, "market24h");
         if (!body.has_value()) {
             return std::unexpected(body.error());
         }
-        const auto symbol = detail::req_str(*body, "symbol");
+        const auto symbol = wire::req_str(*body, "symbol");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
@@ -329,16 +327,16 @@ std::expected<WireSpotTicker, WireError> parse_spot_ticker(std::string_view fram
             return std::unexpected(root.error());
         }
         WireSpotTicker out{};
-        const auto ts = detail::opt_u64(*root, "timestamp");
+        const auto ts = wire::opt_u64(*root, "timestamp");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }
         out.ts_ns = *ts;
-        auto body = detail::req_object(*root, "spot_market24h");
+        auto body = wire::req_object(*root, "spot_market24h");
         if (!body.has_value()) {
             return std::unexpected(body.error());
         }
-        const auto symbol = detail::req_str(*body, "symbol");
+        const auto symbol = wire::req_str(*body, "symbol");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }

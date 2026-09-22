@@ -5,7 +5,7 @@
 #include <raikiri/exec/instrument_table.hpp>
 #include <raikiri/net/io_context.hpp>
 
-namespace raikiri::venues::blofin::detail {
+namespace raikiri::venues::blofin::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -20,4 +20,4 @@ struct VenueState {
     exec::InstrumentTable instruments;
 };
 
-} // namespace raikiri::venues::blofin::detail
+} // namespace raikiri::venues::blofin::internal

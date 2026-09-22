@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::kraken::detail {
+namespace raikiri::venues::kraken::internal {
 
 // Kraken pushes the whole book, not a fixed depth: a live PF_XBTUSD snapshot
 // measured 107 KiB, so the transport's 1 MiB default gets headroom.
@@ -123,4 +123,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-} // namespace raikiri::venues::kraken::detail
+} // namespace raikiri::venues::kraken::internal

@@ -27,9 +27,13 @@
 
 namespace raikiri::venues::xt {
 
-using namespace detail;
+using internal::VenueState;
+using internal::await_response;
+using internal::make_data_client;
+using internal::make_execution_client;
+using internal::make_instrument_source;
 
-void detail::sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
+void internal::sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
     const auto sent = state.clock->wall();
     const auto response = await_response(state, rest, builder.server_time(), 5'000);
     if (!response.has_value() || response->transport_failed()) {
@@ -46,7 +50,7 @@ void detail::sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder
         static_cast<std::int64_t>(*venue_ms * 1'000'000ULL) - static_cast<std::int64_t>(midpoint);
 }
 
-void detail::sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
+void internal::sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder) {
     const auto sent = state.clock->wall();
     const auto response = await_response(state, rest, builder.spot_server_time(), 5'000);
     if (!response.has_value() || response->transport_failed()) {

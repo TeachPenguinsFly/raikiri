@@ -4,18 +4,13 @@
 
 namespace raikiri::venues::okx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<void, WireError> read_position(detail::ondemand::object& obj, WirePosition& out) {
-    const auto inst_id = detail::req_str(obj, "instId");
+std::expected<void, WireError> read_position(wire::ondemand::object& obj, WirePosition& out) {
+    const auto inst_id = wire::req_str(obj, "instId");
     if (!inst_id.has_value()) {
         return std::unexpected(inst_id.error());
     }
@@ -25,7 +20,7 @@ std::expected<void, WireError> read_position(detail::ondemand::object& obj, Wire
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    const auto u_ms = detail::opt_ms(obj, "uTime");
+    const auto u_ms = wire::opt_ms(obj, "uTime");
     if (!u_ms.has_value()) {
         return std::unexpected(WireError::WrongType);
     }

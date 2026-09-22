@@ -11,7 +11,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::pacifica::detail {
+namespace raikiri::venues::pacifica::internal {
 
 namespace {
 
@@ -98,4 +98,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<PacificaInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::pacifica::detail
+} // namespace raikiri::venues::pacifica::internal

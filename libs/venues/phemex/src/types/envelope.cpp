@@ -5,12 +5,10 @@
 
 namespace raikiri::venues::phemex {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 struct Named {
     std::string_view key;
@@ -38,7 +36,7 @@ std::expected<EventKind, WireError> parse_event(std::string_view frame) {
         for (auto field : *root) {
             std::string_view key;
             if (const auto ec = field.unescaped_key().get(key); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             for (const auto& named : k_payloads) {
                 if (key == named.key) {
@@ -46,7 +44,7 @@ std::expected<EventKind, WireError> parse_event(std::string_view frame) {
                 }
             }
             if (key == "method") {
-                const auto method = detail::str_of(field.value());
+                const auto method = wire::str_of(field.value());
                 if (method.has_value() && method->starts_with("perp_market24h_pack_p")) {
                     return EventKind::PerpPack;
                 }
@@ -56,7 +54,7 @@ std::expected<EventKind, WireError> parse_event(std::string_view frame) {
                 bool is_null = false;
                 if (const auto ec = field.value().is_null().get(is_null);
                     ec != simdjson::SUCCESS) {
-                    return std::unexpected(detail::map_error(ec));
+                    return std::unexpected(wire::map_error(ec));
                 }
                 return is_null ? EventKind::Reply : EventKind::Error;
             }
@@ -71,16 +69,16 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto error = detail::req_object(*root, "error");
+        auto error = wire::req_object(*root, "error");
         if (!error.has_value()) {
             return std::unexpected(error.error());
         }
-        const auto code = detail::opt_i64(*error, "code");
-        const auto message = detail::opt_str(*error, "message");
+        const auto code = wire::opt_i64(*error, "code");
+        const auto message = wire::opt_str(*error, "message");
         if (!code.has_value() || !message.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        const auto id = detail::opt_u64(*root, "id");
+        const auto id = wire::opt_u64(*root, "id");
         if (!id.has_value()) {
             return std::unexpected(id.error());
         }

@@ -23,7 +23,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::weex::detail {
+namespace raikiri::venues::weex::internal {
 
 namespace {
 
@@ -476,4 +476,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<WeexData>(std::move(state));
 }
 
-} // namespace raikiri::venues::weex::detail
+} // namespace raikiri::venues::weex::internal

@@ -20,7 +20,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::kraken::detail {
+namespace raikiri::venues::kraken::internal {
 
 // The private socket is its own connection, so it reports its own health.
 constexpr std::uint32_t k_private_stream_id = 1;
@@ -286,4 +286,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::kraken::detail
+} // namespace raikiri::venues::kraken::internal

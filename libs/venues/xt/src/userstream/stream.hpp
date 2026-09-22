@@ -19,7 +19,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::xt::detail {
+namespace raikiri::venues::xt::internal {
 
 // XT closes a private socket that has sent no application `ping` for 30 s, and
 // only CLIENT messages count toward that timer — a connection receiving order
@@ -238,4 +238,4 @@ private:
     std::uint64_t next_ping_ns_{0};
 };
 
-} // namespace raikiri::venues::xt::detail
+} // namespace raikiri::venues::xt::internal

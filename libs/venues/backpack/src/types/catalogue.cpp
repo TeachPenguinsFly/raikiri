@@ -3,23 +3,21 @@
 
 namespace raikiri::venues::backpack {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // Named apart from wire::opt_u64, which refuses the null every spot row sends.
-std::expected<std::uint64_t, WireError> nullable_u64(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> nullable_u64(wire::ondemand::object& obj,
                                                      std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::uint64_t{0};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     bool is_null = false;
     if (value.is_null().get(is_null) == simdjson::SUCCESS && is_null) {
@@ -27,18 +25,18 @@ std::expected<std::uint64_t, WireError> nullable_u64(detail::ondemand::object& o
     }
     std::uint64_t out = 0;
     if (const auto num_ec = value.get_uint64().get(out); num_ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(num_ec));
+        return std::unexpected(wire::map_error(num_ec));
     }
     return out;
 }
 
 std::expected<std::string_view, WireError>
-nested_str(detail::ondemand::object& filters, std::string_view group, std::string_view key) {
-    auto inner = detail::req_object(filters, group);
+nested_str(wire::ondemand::object& filters, std::string_view group, std::string_view key) {
+    auto inner = wire::req_object(filters, group);
     if (!inner.has_value()) {
         return std::unexpected(inner.error());
     }
-    return detail::opt_str(*inner, key);
+    return wire::opt_str(*inner, key);
 }
 
 } // namespace
@@ -55,21 +53,21 @@ std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_
             if (count == k_max_markets) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireMarket out{};
-            const auto symbol = detail::req_str(obj, "symbol");
+            const auto symbol = wire::req_str(obj, "symbol");
             if (!symbol.has_value()) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            const auto base = detail::opt_str(obj, "baseSymbol");
-            const auto quote = detail::opt_str(obj, "quoteSymbol");
-            const auto kind = detail::opt_str(obj, "marketType");
-            const auto state = detail::opt_str(obj, "orderBookState");
-            const auto rwa = detail::opt_str(obj, "rwaMarketType");
+            const auto base = wire::opt_str(obj, "baseSymbol");
+            const auto quote = wire::opt_str(obj, "quoteSymbol");
+            const auto kind = wire::opt_str(obj, "marketType");
+            const auto state = wire::opt_str(obj, "orderBookState");
+            const auto rwa = wire::opt_str(obj, "rwaMarketType");
             if (!base.has_value() || !quote.has_value() || !kind.has_value() ||
                 !state.has_value() || !rwa.has_value()) {
                 return std::unexpected(WireError::WrongType);
@@ -85,7 +83,7 @@ std::expected<std::span<const WireMarket>, WireError> parse_markets(std::string_
             }
             out.funding_interval_ms = *interval;
 
-            auto filters = detail::req_object(obj, "filters");
+            auto filters = wire::req_object(obj, "filters");
             if (!filters.has_value()) {
                 return std::unexpected(filters.error());
             }

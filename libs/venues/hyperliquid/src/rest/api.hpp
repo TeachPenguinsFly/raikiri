@@ -25,7 +25,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::hyperliquid::detail {
+namespace raikiri::venues::hyperliquid::internal {
 
 // Asked BEFORE the instrument table is read: find() compares the WHOLE id, so
 // an id for a market never loaded here resolves to nothing and would answer
@@ -284,4 +284,4 @@ private:
     ExchangeBuilder builder_;
 };
 
-} // namespace raikiri::venues::hyperliquid::detail
+} // namespace raikiri::venues::hyperliquid::internal

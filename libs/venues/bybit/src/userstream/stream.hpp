@@ -21,7 +21,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 
 void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto topic = parse_topic(frame);
@@ -132,4 +132,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

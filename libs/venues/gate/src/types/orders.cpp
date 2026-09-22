@@ -4,16 +4,11 @@
 
 namespace raikiri::venues::gate {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+using wire::session;
+namespace ondemand = wire::ondemand;
 
 // Venue milliseconds from whichever of Gate's six timestamp spellings this
 // object carries. The `_ms` fields are milliseconds; the bare ones are
@@ -119,7 +114,7 @@ namespace ondemand = detail::ondemand;
 }
 
 std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireOrder& out) {
-    const auto contract = detail::req_str(obj, "contract");
+    const auto contract = wire::req_str(obj, "contract");
     if (!contract.has_value()) {
         return std::unexpected{contract.error()};
     }
@@ -148,7 +143,7 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireOrd
 }
 
 std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireOrder& out) {
-    const auto pair = detail::req_str(obj, "currency_pair");
+    const auto pair = wire::req_str(obj, "currency_pair");
     if (!pair.has_value()) {
         return std::unexpected{pair.error()};
     }
@@ -198,7 +193,7 @@ std::expected<void, WireError>
 read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
     switch (market) {
     case MarketType::Perp: {
-        const auto contract = detail::req_str(obj, "contract");
+        const auto contract = wire::req_str(obj, "contract");
         if (!contract.has_value()) {
             return std::unexpected{contract.error()};
         }
@@ -209,7 +204,7 @@ read_user_trade(ondemand::object& obj, WireUserTrade& out, MarketType market) {
         break;
     }
     case MarketType::Spot: {
-        const auto pair = detail::req_str(obj, "currency_pair");
+        const auto pair = wire::req_str(obj, "currency_pair");
         if (!pair.has_value()) {
             return std::unexpected{pair.error()};
         }
@@ -241,7 +236,7 @@ parse_ws_orders(std::string_view frame, OrderBuffer& storage, MarketType market)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_array(*root, "result");
+        auto result = wire::req_array(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -259,7 +254,7 @@ parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketTyp
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto result = detail::req_array(*root, "result");
+        auto result = wire::req_array(*root, "result");
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -311,7 +306,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_spot_open_orders(std:
             if (group.get_object().get(obj) != simdjson::SUCCESS) {
                 return std::unexpected(WireError::WrongType);
             }
-            auto orders = detail::req_array(obj, "orders");
+            auto orders = wire::req_array(obj, "orders");
             if (!orders.has_value()) {
                 return std::unexpected(orders.error());
             }

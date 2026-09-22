@@ -11,7 +11,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::phemex::detail {
+namespace raikiri::venues::phemex::internal {
 
 namespace {
 
@@ -102,4 +102,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<PhemexInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::phemex::detail
+} // namespace raikiri::venues::phemex::internal

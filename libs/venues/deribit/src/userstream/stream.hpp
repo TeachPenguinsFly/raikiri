@@ -19,7 +19,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::deribit::detail {
+namespace raikiri::venues::deribit::internal {
 
 // Distinguishes the private socket's connectivity from the market-data one in
 // everything the gateway logs.
@@ -151,4 +151,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::deribit::detail
+} // namespace raikiri::venues::deribit::internal

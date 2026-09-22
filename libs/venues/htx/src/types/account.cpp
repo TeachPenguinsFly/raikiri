@@ -4,12 +4,10 @@
 
 namespace raikiri::venues::htx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -19,18 +17,18 @@ std::expected<std::uint64_t, WireError> parse_spot_account_id(std::string_view b
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
         for (auto entry : *array) {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto type = detail::opt_str(obj, "type");
-            const auto state = detail::opt_str(obj, "state");
-            const auto id = detail::opt_u64(obj, "id");
+            const auto type = wire::opt_str(obj, "type");
+            const auto state = wire::opt_str(obj, "state");
+            const auto id = wire::opt_u64(obj, "id");
             if (!type.has_value() || !state.has_value() || !id.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -52,7 +50,7 @@ parse_financial_records(std::string_view body, FinancialRecordBuffer& storage) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -61,16 +59,16 @@ parse_financial_records(std::string_view body, FinancialRecordBuffer& storage) {
             if (count == k_max_financial_records) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto code = detail::req_str(obj, "contract_code");
-            const auto asset = detail::opt_str(obj, "asset");
+            const auto code = wire::req_str(obj, "contract_code");
+            const auto asset = wire::opt_str(obj, "asset");
             const auto amount = num_of(obj, "amount");
-            const auto type = detail::opt_i64(obj, "type");
-            const auto query_id = detail::opt_u64(obj, "query_id");
-            const auto ts = detail::opt_u64(obj, "ts");
+            const auto type = wire::opt_i64(obj, "type");
+            const auto query_id = wire::opt_u64(obj, "query_id");
+            const auto ts = wire::opt_u64(obj, "ts");
             if (!code.has_value() || !asset.has_value() || !amount.has_value() ||
                 !type.has_value() || !query_id.has_value() || !ts.has_value()) {
                 return std::unexpected(WireError::MissingField);

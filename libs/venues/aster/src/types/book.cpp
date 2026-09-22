@@ -6,21 +6,16 @@
 
 namespace raikiri::venues::aster {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A level is a two-element array of strings, ["64488.50","5.560"], on the
 // depth stream and in the REST snapshot alike.
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(root, key);
+read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(root, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -29,18 +24,18 @@ read_levels(detail::ondemand::object& root, std::string_view key, std::span<Wire
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         WireLevel level{};
         std::size_t field = 0;
         for (auto element : pair) {
-            detail::ondemand::value value;
+            wire::ondemand::value value;
             if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -76,7 +71,7 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
             return std::unexpected(root.error());
         }
         WireBookTicker out{};
-        const auto symbol = detail::req_str(*root, "s");
+        const auto symbol = wire::req_str(*root, "s");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
@@ -85,15 +80,15 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
                                          std::pair{"B", &out.bid_qty},
                                          std::pair{"a", &out.ask_price},
                                          std::pair{"A", &out.ask_qty}}) {
-            const auto value = detail::req_str(*root, key);
+            const auto value = wire::req_str(*root, key);
             if (!value.has_value()) {
                 return std::unexpected(value.error());
             }
             *field = *value;
         }
-        const auto update_id = detail::opt_u64(*root, "u");
-        const auto transaction = detail::opt_u64(*root, "T");
-        const auto event = detail::opt_u64(*root, "E");
+        const auto update_id = wire::opt_u64(*root, "u");
+        const auto transaction = wire::opt_u64(*root, "T");
+        const auto event = wire::opt_u64(*root, "E");
         if (!update_id.has_value() || !transaction.has_value() || !event.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -112,15 +107,15 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view da
             return std::unexpected(root.error());
         }
         WireDepthUpdate out{};
-        const auto symbol = detail::req_str(*root, "s");
+        const auto symbol = wire::req_str(*root, "s");
         if (!symbol.has_value()) {
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        const auto first = detail::opt_u64(*root, "U");
-        const auto last = detail::opt_u64(*root, "u");
-        const auto prev = detail::opt_u64(*root, "pu");
-        const auto event = detail::opt_u64(*root, "E");
+        const auto first = wire::opt_u64(*root, "U");
+        const auto last = wire::opt_u64(*root, "u");
+        const auto prev = wire::opt_u64(*root, "pu");
+        const auto event = wire::opt_u64(*root, "E");
         if (!first.has_value() || !last.has_value() || !prev.has_value() || !event.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -151,9 +146,9 @@ std::expected<WireDepthSnapshot, WireError> parse_depth_snapshot(std::string_vie
             return std::unexpected(root.error());
         }
         WireDepthSnapshot out{};
-        const auto last = detail::opt_u64(*root, "lastUpdateId");
-        const auto transaction = detail::opt_u64(*root, "T");
-        const auto event = detail::opt_u64(*root, "E");
+        const auto last = wire::opt_u64(*root, "lastUpdateId");
+        const auto transaction = wire::opt_u64(*root, "T");
+        const auto event = wire::opt_u64(*root, "E");
         if (!last.has_value() || !transaction.has_value() || !event.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

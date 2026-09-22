@@ -17,7 +17,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::bybit::detail {
+namespace raikiri::venues::bybit::internal {
 namespace {
 
 class BybitInstruments final : public exec::InstrumentSource {
@@ -150,4 +150,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<BybitInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::bybit::detail
+} // namespace raikiri::venues::bybit::internal

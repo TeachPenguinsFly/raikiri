@@ -10,7 +10,7 @@
 #include "clients.hpp"
 #include "state.hpp"
 
-namespace raikiri::venues::cryptocom::detail {
+namespace raikiri::venues::cryptocom::internal {
 
 namespace {
 
@@ -86,4 +86,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<CryptoComExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::cryptocom::detail
+} // namespace raikiri::venues::cryptocom::internal

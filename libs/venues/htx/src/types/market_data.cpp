@@ -4,25 +4,23 @@
 
 namespace raikiri::venues::htx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // Both market-data dialects wrap the payload the same way once the outer
 // envelope is off: `tick` on the market socket, `data[0]` on the
 // notification socket.
-std::expected<detail::ondemand::object, WireError> first_data(detail::ondemand::object& root) {
-    auto array = detail::req_array(root, "data");
+std::expected<wire::ondemand::object, WireError> first_data(wire::ondemand::object& root) {
+    auto array = wire::req_array(root, "data");
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
     for (auto entry : *array) {
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         return obj;
     }
@@ -38,16 +36,16 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto ch = detail::req_str(*root, "ch");
+        const auto ch = wire::req_str(*root, "ch");
         if (!ch.has_value()) {
             return std::unexpected(ch.error());
         }
         const auto code = code_of(*ch);
-        auto tick = detail::req_object(*root, "tick");
+        auto tick = wire::req_object(*root, "tick");
         if (!tick.has_value()) {
             return std::unexpected(tick.error());
         }
-        auto array = detail::req_array(*tick, "data");
+        auto array = wire::req_array(*tick, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -56,9 +54,9 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTrade out{};
             out.contract_code = code;
@@ -69,20 +67,20 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             std::expected<std::uint64_t, WireError> id{0};
             std::expected<std::string_view, WireError> direction{
                 std::unexpected(WireError::MissingField)};
-            const auto walked = detail::for_each_field(
-                obj, [&](std::string_view key, detail::ondemand::value& value) {
+            const auto walked = wire::for_each_field(
+                obj, [&](std::string_view key, wire::ondemand::value& value) {
                     if (key == "amount") {
-                        amount = detail::raw_of(value);
+                        amount = wire::raw_of(value);
                     } else if (key == "quantity") {
-                        quantity = detail::raw_of(value);
+                        quantity = wire::raw_of(value);
                     } else if (key == "price") {
-                        price = detail::raw_of(value);
+                        price = wire::raw_of(value);
                     } else if (key == "ts") {
-                        ts = detail::u64_of(value);
+                        ts = wire::u64_of(value);
                     } else if (key == "id") {
-                        id = detail::u64_of(value);
+                        id = wire::u64_of(value);
                     } else if (key == "direction") {
-                        direction = detail::str_of(value);
+                        direction = wire::str_of(value);
                     }
                 });
             if (!walked.has_value()) {
@@ -115,15 +113,15 @@ std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto ch = detail::req_str(*root, "ch");
+        const auto ch = wire::req_str(*root, "ch");
         if (!ch.has_value()) {
             return std::unexpected(ch.error());
         }
-        const auto ts = detail::opt_u64(*root, "ts");
+        const auto ts = wire::opt_u64(*root, "ts");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }
-        auto tick = detail::req_object(*root, "tick");
+        auto tick = wire::req_object(*root, "tick");
         if (!tick.has_value()) {
             return std::unexpected(tick.error());
         }
@@ -133,8 +131,8 @@ std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {
         // Both columns OPTIONAL: opt_raw answers an empty token for a field
         // the tick omits, and this frame's job is the turnover — there is
         // nothing else on it worth refusing the whole push over.
-        const auto amount = detail::opt_raw(*tick, "amount");
-        const auto turnover = detail::opt_raw(*tick, "trade_turnover");
+        const auto amount = wire::opt_raw(*tick, "amount");
+        const auto turnover = wire::opt_raw(*tick, "trade_turnover");
         if (!amount.has_value() || !turnover.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -150,7 +148,7 @@ std::expected<WireFunding, WireError> parse_funding(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto ts = detail::opt_u64(*root, "ts");
+        const auto ts = wire::opt_u64(*root, "ts");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());
         }
@@ -160,14 +158,14 @@ std::expected<WireFunding, WireError> parse_funding(std::string_view frame) {
         }
         WireFunding out{};
         out.ts_ms = *ts;
-        const auto code = detail::req_str(*obj, "contract_code");
+        const auto code = wire::req_str(*obj, "contract_code");
         if (!code.has_value()) {
             return std::unexpected(code.error());
         }
         out.contract_code = *code;
         const auto funding_ms = opt_ms_str(*obj, "funding_time");
-        const auto rate = detail::opt_str(*obj, "funding_rate");
-        const auto estimated = detail::opt_str(*obj, "estimated_rate");
+        const auto rate = wire::opt_str(*obj, "funding_rate");
+        const auto estimated = wire::opt_str(*obj, "estimated_rate");
         const auto settlement_ms = opt_ms_str(*obj, "settlement_time");
         if (!funding_ms.has_value() || !rate.has_value() || !estimated.has_value() ||
             !settlement_ms.has_value()) {

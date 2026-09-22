@@ -20,7 +20,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::lighter::detail {
+namespace raikiri::venues::lighter::internal {
 
 namespace {
 
@@ -388,4 +388,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<LighterData>(std::move(state));
 }
 
-} // namespace raikiri::venues::lighter::detail
+} // namespace raikiri::venues::lighter::internal

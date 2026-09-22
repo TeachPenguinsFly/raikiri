@@ -4,17 +4,12 @@
 
 namespace raikiri::venues::mexc {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
 namespace pb = raikiri::wire::pb;
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // Spot envelope fields, off a live capture.
 constexpr std::uint32_t k_field_channel = 1;
@@ -79,7 +74,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     return EventKind::Unknown;
 }
 
-std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value value) {
+std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value) {
     // raw_json() on a scalar returns the token plus whitespace up to the next
     // one, so quotes come off after trimming. Contents stay escaped: MEXC
     // symbols, trade ids and decimal tokens cannot contain an escape, and
@@ -87,9 +82,9 @@ std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value val
     // cannot be rebased.
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
-    raw = detail::trim(raw);
+    raw = wire::trim(raw);
     if (raw == "null") {
         return std::string_view{};
     }
@@ -101,24 +96,24 @@ std::expected<std::string_view, WireError> scalar_of(detail::ondemand::value val
     return session().rebase(raw);
 }
 
-std::expected<std::string_view, WireError> opt_scalar(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> opt_scalar(wire::ondemand::object& obj,
                                                       std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     const auto ec = wire::find(obj, key).get(value);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return std::string_view{};
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return scalar_of(value);
 }
 
-std::expected<std::string_view, WireError> req_scalar(detail::ondemand::object& obj,
+std::expected<std::string_view, WireError> req_scalar(wire::ondemand::object& obj,
                                                       std::string_view key) {
-    detail::ondemand::value value;
+    wire::ondemand::value value;
     if (const auto ec = wire::find(obj, key).get(value); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     auto text = scalar_of(value);
     if (text && text->empty()) {
@@ -128,25 +123,25 @@ std::expected<std::string_view, WireError> req_scalar(detail::ondemand::object& 
 }
 
 std::expected<std::int64_t, WireError>
-opt_int(detail::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
+opt_int(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback) {
     std::int64_t out = 0;
     const auto ec = wire::find(obj, key).get_int64().get(out);
     if (ec == simdjson::NO_SUCH_FIELD) {
         return fallback;
     }
     if (ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return out;
 }
 
-std::expected<std::uint64_t, WireError> scalar_ms(detail::ondemand::object& obj,
+std::expected<std::uint64_t, WireError> scalar_ms(wire::ondemand::object& obj,
                                                   std::string_view key) {
     const auto text = opt_scalar(obj, key);
     if (!text.has_value()) {
         return std::unexpected(text.error());
     }
-    return detail::digits_to_u64(*text);
+    return wire::digits_to_u64(*text);
 }
 
 std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
@@ -190,7 +185,7 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         bool success = false;
         if (const auto ec = wire::find(*root, "success").get_bool().get(success);
             ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto code = opt_int(*root, "code", -1);
         if (!code.has_value()) {

@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::deribit::detail {
+namespace raikiri::venues::deribit::internal {
 
 // Deribit's floor is 10 s; near it keeps a quiet option contract's socket
 // demonstrably alive rather than merely un-torn-down.
@@ -103,4 +103,4 @@ void sync_clock(VenueState& state, net::RestClient& rest);
 // caller sends it: the private stream has one, the market-data pool several.
 [[nodiscard]] bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received);
 
-} // namespace raikiri::venues::deribit::detail
+} // namespace raikiri::venues::deribit::internal

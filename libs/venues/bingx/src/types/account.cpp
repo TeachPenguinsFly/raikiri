@@ -9,12 +9,10 @@
 
 namespace raikiri::venues::bingx {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 } // namespace
 
@@ -24,18 +22,18 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto direct = detail::opt_str(*root, "listenKey");
+        const auto direct = wire::opt_str(*root, "listenKey");
         if (!direct.has_value()) {
             return std::unexpected(direct.error());
         }
         if (!direct->empty()) {
             return *direct;
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
-        const auto nested = detail::req_str(*data, "listenKey");
+        const auto nested = wire::req_str(*data, "listenKey");
         if (!nested.has_value()) {
             return std::unexpected(nested.error());
         }
@@ -54,7 +52,7 @@ read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     if (!root.has_value()) {
         return std::unexpected(root.error());
     }
-    auto array = detail::req_array(*root, "data");
+    auto array = wire::req_array(*root, "data");
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -63,9 +61,9 @@ read_data(std::string_view body, std::span<Entry> into, Read&& read) {
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = element.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         Entry entry{};
         if (const auto ok = read(obj, entry); !ok.has_value()) {
@@ -80,7 +78,7 @@ read_data(std::string_view body, std::span<Entry> into, Read&& read) {
 // Every field optional, the asset included, because this endpoint IS KNOWN TO
 // SEND A ROW WITH NO ASSET: refusing the body over one would cost the account
 // every balance beside it. The mapper drops the nameless row instead.
-std::expected<void, WireError> read_balance(detail::ondemand::object& obj, WireBalance& out) {
+std::expected<void, WireError> read_balance(wire::ondemand::object& obj, WireBalance& out) {
     for (const auto& [key, field] : {std::pair{"asset", &out.asset},
                                      std::pair{"balance", &out.balance},
                                      std::pair{"availableMargin", &out.available_margin},
@@ -94,7 +92,7 @@ std::expected<void, WireError> read_balance(detail::ondemand::object& obj, WireB
     return {};
 }
 
-std::expected<void, WireError> read_income(detail::ondemand::object& obj, WireIncome& out) {
+std::expected<void, WireError> read_income(wire::ondemand::object& obj, WireIncome& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"incomeType", &out.income_type},
                                      std::pair{"income", &out.income},
@@ -133,7 +131,7 @@ std::expected<bool, WireError> parse_position_mode(std::string_view body) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto data = detail::req_object(*root, "data");
+        auto data = wire::req_object(*root, "data");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }

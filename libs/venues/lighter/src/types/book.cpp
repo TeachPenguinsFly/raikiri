@@ -4,16 +4,14 @@
 
 namespace raikiri::venues::lighter {
 
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& book, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(book, key);
+read_levels(wire::ondemand::object& book, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(book, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -22,12 +20,12 @@ read_levels(detail::ondemand::object& book, std::string_view key, std::span<Wire
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::object obj;
+        wire::ondemand::object obj;
         if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
-        const auto price = detail::req_str(obj, "price");
-        const auto size = detail::req_str(obj, "size");
+        const auto price = wire::req_str(obj, "price");
+        const auto size = wire::req_str(obj, "size");
         if (!price.has_value() || !size.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -52,8 +50,8 @@ std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
             return std::unexpected(root.error());
         }
         WireOrderBook out{};
-        const auto type = detail::req_str(*root, "type");
-        const auto channel = detail::req_str(*root, "channel");
+        const auto type = wire::req_str(*root, "type");
+        const auto channel = wire::req_str(*root, "channel");
         if (!type.has_value() || !channel.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -63,7 +61,7 @@ std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
             return std::unexpected(market.error());
         }
         out.market_id = *market;
-        auto book = detail::req_object(*root, "order_book");
+        auto book = wire::req_object(*root, "order_book");
         if (!book.has_value()) {
             return std::unexpected(book.error());
         }
@@ -76,12 +74,12 @@ std::expected<WireOrderBook, WireError> parse_order_book(std::string_view frame,
             return std::unexpected(asks.error());
         }
         // A missing nonce fails the parse rather than reading as zero.
-        if (!detail::has_field(*book, "nonce")) {
+        if (!wire::has_field(*book, "nonce")) {
             return std::unexpected(WireError::MissingField);
         }
-        const auto nonce = detail::opt_u64(*book, "nonce");
-        const auto begin = detail::opt_u64(*book, "begin_nonce");
-        const auto updated = detail::opt_u64(*book, "last_updated_at");
+        const auto nonce = wire::opt_u64(*book, "nonce");
+        const auto begin = wire::opt_u64(*book, "begin_nonce");
+        const auto updated = wire::opt_u64(*book, "last_updated_at");
         if (!nonce.has_value() || !begin.has_value() || !updated.has_value()) {
             return std::unexpected(WireError::WrongType);
         }

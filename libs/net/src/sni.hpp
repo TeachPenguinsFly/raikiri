@@ -15,7 +15,7 @@
 
 #include <openssl/ssl.h>
 
-namespace raikiri::net::detail {
+namespace raikiri::net::internal {
 
 [[nodiscard]] inline bool set_sni_host(::SSL* ssl, const char* host) noexcept {
 #if defined(__GNUC__) && !defined(__clang__)
@@ -28,4 +28,4 @@ namespace raikiri::net::detail {
 #endif
 }
 
-} // namespace raikiri::net::detail
+} // namespace raikiri::net::internal

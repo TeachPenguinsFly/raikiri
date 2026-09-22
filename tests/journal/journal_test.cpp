@@ -1,6 +1,6 @@
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/market_data.hpp>
-#include <raikiri/journal/detail.hpp>
+#include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/journal/writer.hpp>
 #include <raikiri/schema/codec.hpp>
@@ -324,7 +324,7 @@ TEST(Journal, ASegmentCreatedButNeverHeaderedIsAdoptedRatherThanRefused) {
         }
         // Named by the writer's own rule, not by a copy of it: a test that
         // spells the filename itself passes against a name nothing reads.
-        const auto name = journal::detail::segment_path(dir, "journal", next);
+        const auto name = journal::internal::segment_path(dir, "journal", next);
         const int fd = ::open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
         ASSERT_GE(fd, 0);
         ASSERT_EQ(::ftruncate(fd, static_cast<off_t>(k_small)), 0);

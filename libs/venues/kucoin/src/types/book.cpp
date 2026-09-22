@@ -8,15 +8,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // "62234.6,buy,1" -> price, side, size. A partly-formed change would apply a
 // real price at an invented size, so anything short of three fields fails.
@@ -45,11 +40,11 @@ std::expected<void, WireError> split_change(std::string_view change, WireBookCha
 // The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
 // where the futures stream packs one into a comma-joined string. Same numbers,
 // nothing shared.
-std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value side,
+std::expected<std::size_t, WireError> read_pair_levels(wire::ondemand::value side,
                                                        std::span<WireLevel> into) {
-    detail::ondemand::array array;
+    wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     const auto& s = session();
     std::size_t count = 0;
@@ -57,9 +52,9 @@ std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value s
         if (count == into.size()) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         std::string_view fields[2];
         std::size_t seen = 0;
@@ -69,7 +64,7 @@ std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value s
             }
             std::string_view text;
             if (const auto ec = field.value().raw_json().get(text); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
                 text = text.substr(1, text.size() - 2);
@@ -86,26 +81,26 @@ std::expected<std::size_t, WireError> read_pair_levels(detail::ondemand::value s
 }
 
 std::expected<std::size_t, WireError>
-read_pair_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    detail::ondemand::value side;
+read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    wire::ondemand::value side;
     if (const auto ec = wire::find(obj, key).get(side); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     return read_pair_levels(side, into);
 }
 
 // A level is [price, size] with both members written as JSON numbers.
 std::expected<void, WireError>
-read_pair(detail::ondemand::value entry, std::string_view& price, std::string_view& qty) {
-    detail::ondemand::array pair;
+read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty) {
+    wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     std::size_t field = 0;
     for (auto element : pair) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (field < 2) {
             const auto raw = raw_of(value);
@@ -123,8 +118,8 @@ read_pair(detail::ondemand::value entry, std::string_view& price, std::string_vi
 }
 
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -133,9 +128,9 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (const auto ok = read_pair(value, into[count].price, into[count].qty); !ok.has_value()) {
             return std::unexpected(ok.error());
@@ -165,7 +160,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
             return std::unexpected(symbol.error());
         }
         return with_data(*root,
-                         [&](detail::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
+                         [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
                              // Futures: bestBidPrice/bestBidSize and a NANOSECOND `ts`.
                              // Spot:    bestBid/bestBidSize and a MILLISECOND `time`, with
                              // the sequence as a digit string rather than a number.
@@ -179,8 +174,8 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
                              Text time{std::string_view{}};
                              Text ts{std::string_view{}};
                              Text sequence{std::string_view{}};
-                             const auto walked = detail::for_each_field(
-                                 obj, [&](std::string_view key, detail::ondemand::value& value) {
+                             const auto walked = wire::for_each_field(
+                                 obj, [&](std::string_view key, wire::ondemand::value& value) {
                                      if (key == bid_key) {
                                          bid = decimal_of(value);
                                      } else if (key == "bestBidSize") {
@@ -215,14 +210,14 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
                                  if (!time.has_value()) {
                                      return std::unexpected(WireError::WrongType);
                                  }
-                                 out.ts_ns = detail::digits_to_u64(*time) * 1'000'000ULL;
+                                 out.ts_ns = wire::digits_to_u64(*time) * 1'000'000ULL;
                                  out.sequence = 0; // a digit string here; nothing reads it
                                  return out;
                              }
                              if (!ts.has_value() || !sequence.has_value()) {
                                  return std::unexpected(WireError::WrongType);
                              }
-                             out.ts_ns = detail::digits_to_u64(*ts);
+                             out.ts_ns = wire::digits_to_u64(*ts);
                              out.sequence = i64_of_digits(*sequence);
                              return out;
                          });
@@ -240,17 +235,17 @@ std::expected<WireBookChange, WireError> parse_book_change(std::string_view fram
             return std::unexpected(symbol.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireBookChange, WireError> {
                 WireBookChange out{};
                 out.symbol = *symbol;
                 std::expected<std::string_view, WireError> change{
                     std::unexpected(WireError::MissingField)};
                 std::expected<std::string_view, WireError> ts{std::string_view{}};
                 std::expected<std::string_view, WireError> sequence{std::string_view{}};
-                const auto walked = detail::for_each_field(
-                    obj, [&](std::string_view key, detail::ondemand::value& value) {
+                const auto walked = wire::for_each_field(
+                    obj, [&](std::string_view key, wire::ondemand::value& value) {
                         if (key == "change") {
-                            change = detail::str_of(value);
+                            change = wire::str_of(value);
                         } else if (key == "timestamp") {
                             ts = decimal_of(value);
                         } else if (key == "sequence") {
@@ -272,7 +267,7 @@ std::expected<WireBookChange, WireError> parse_book_change(std::string_view fram
                 if (!ts.has_value() || !sequence.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
-                out.ts_ms = detail::digits_to_u64(*ts);
+                out.ts_ms = wire::digits_to_u64(*ts);
                 out.sequence = i64_of_digits(*sequence);
                 return out;
             });
@@ -295,7 +290,7 @@ std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view 
         }
         return with_data(
             *root,
-            [&](detail::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
+            [&](wire::ondemand::object& obj) -> std::expected<WireBookSnapshot, WireError> {
                 WireBookSnapshot out{};
                 out.symbol = *symbol;
                 const auto asks = read_pair_levels(obj, "asks", storage.asks);
@@ -322,7 +317,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         }
         // `t` separates the opening whole book from the deltas that follow it.
         // Anything else on this channel is not a book frame.
-        const auto kind = detail::req_str(*root, "t");
+        const auto kind = wire::req_str(*root, "t");
         if (!kind.has_value()) {
             return std::unexpected(kind.error());
         }
@@ -330,7 +325,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         if (!snapshot && *kind != "delta") {
             return std::unexpected(WireError::WrongType);
         }
-        auto data = detail::req_object(*root, "d");
+        auto data = wire::req_object(*root, "d");
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
@@ -342,10 +337,10 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         std::optional<std::size_t> asks;
         std::optional<std::size_t> bids;
         std::uint64_t ts_ns = 0;
-        const auto walked = detail::for_each_field(
+        const auto walked = wire::for_each_field(
             *data,
             [&](std::string_view key,
-                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "a" || key == "b") {
                     const bool ask = key == "a";
                     const auto count = read_pair_levels(value, ask ? storage.asks : storage.bids);
@@ -354,13 +349,13 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
                     }
                     (ask ? asks : bids) = *count;
                 } else if (key == "s") {
-                    symbol = detail::str_of(value);
+                    symbol = wire::str_of(value);
                 } else if (key == "O") {
-                    start = detail::i64_of(value);
+                    start = wire::i64_of(value);
                 } else if (key == "C") {
-                    end = detail::i64_of(value);
+                    end = wire::i64_of(value);
                 } else if (key == "M") {
-                    ts_ns = detail::u64_of(value).value_or(0);
+                    ts_ns = wire::u64_of(value).value_or(0);
                 }
                 return {};
             });
@@ -401,9 +396,9 @@ std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view b
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
+            *root, [&](wire::ondemand::object& obj) -> std::expected<WireOrderBook, WireError> {
                 WireOrderBook out{};
-                const auto symbol = detail::req_str(obj, "symbol");
+                const auto symbol = wire::req_str(obj, "symbol");
                 const auto sequence = opt_i64(obj, "sequence");
                 const auto ts = opt_u64(obj, "ts");
                 if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {

@@ -11,7 +11,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::extended::detail {
+namespace raikiri::venues::extended::internal {
 
 namespace {
 
@@ -112,4 +112,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<ExtendedInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::extended::detail
+} // namespace raikiri::venues::extended::internal

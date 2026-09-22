@@ -21,7 +21,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::deribit::detail {
+namespace raikiri::venues::deribit::internal {
 
 // A refusal to build a request is terminal by construction: the same command
 // built again produces the same refusal.
@@ -226,4 +226,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::deribit::detail
+} // namespace raikiri::venues::deribit::internal

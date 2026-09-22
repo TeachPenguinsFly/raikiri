@@ -22,7 +22,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::bingx::detail {
+namespace raikiri::venues::bingx::internal {
 
 // A build that failed for want of credentials is an AuthFailure, not a
 // Terminal one: the gateway must halt and say so rather than retry a request
@@ -354,4 +354,4 @@ private:
     SignedRequestBuilder builder_;
 };
 
-} // namespace raikiri::venues::bingx::detail
+} // namespace raikiri::venues::bingx::internal

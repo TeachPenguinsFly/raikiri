@@ -3,15 +3,10 @@
 
 namespace raikiri::venues::okx {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "bbo-tbt") {
@@ -46,7 +41,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto event = detail::opt_str(*root, "event");
+        const auto event = wire::opt_str(*root, "event");
         if (!event.has_value()) {
             return std::unexpected(event.error());
         }
@@ -61,16 +56,16 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
                                             : EventKind::SubscribeAck;
             return info;
         }
-        auto arg = detail::req_object(*root, "arg");
+        auto arg = wire::req_object(*root, "arg");
         if (!arg.has_value()) {
             return std::unexpected(arg.error());
         }
-        const auto channel = detail::req_str(*arg, "channel");
+        const auto channel = wire::req_str(*arg, "channel");
         if (!channel.has_value()) {
             return std::unexpected(channel.error());
         }
         info.kind = kind_from_channel(*channel);
-        const auto inst_id = detail::opt_str(*arg, "instId");
+        const auto inst_id = wire::opt_str(*arg, "instId");
         if (!inst_id.has_value()) {
             return std::unexpected(inst_id.error());
         }
@@ -85,12 +80,12 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto msg = detail::opt_str(*root, "msg");
-        const auto code = detail::opt_str(*root, "code");
+        const auto msg = wire::opt_str(*root, "msg");
+        const auto code = wire::opt_str(*root, "code");
         if (!msg.has_value() || !code.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        return StreamError{.code = static_cast<std::int64_t>(detail::digits_to_u64(*code)),
+        return StreamError{.code = static_cast<std::int64_t>(wire::digits_to_u64(*code)),
                            .msg = *msg};
     });
 }
@@ -101,12 +96,12 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        const auto code = detail::req_str(*root, "code");
-        const auto msg = detail::opt_str(*root, "msg");
+        const auto code = wire::req_str(*root, "code");
+        const auto msg = wire::opt_str(*root, "msg");
         if (!code.has_value() || !msg.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
-        const auto value = detail::digits_to_u64(*code);
+        const auto value = wire::digits_to_u64(*code);
         if (value == 0 && *code != "0") {
             return std::unexpected(WireError::WrongType);
         }
@@ -121,8 +116,8 @@ std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body)
             return std::unexpected(root.error());
         }
         return with_first_data(
-            *root, [](detail::ondemand::object& obj) -> std::expected<std::uint64_t, WireError> {
-                const auto ts = detail::opt_ms(obj, "ts");
+            *root, [](wire::ondemand::object& obj) -> std::expected<std::uint64_t, WireError> {
+                const auto ts = wire::opt_ms(obj, "ts");
                 if (!ts.has_value()) {
                     return std::unexpected(ts.error());
                 }

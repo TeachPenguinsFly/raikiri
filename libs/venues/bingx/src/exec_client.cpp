@@ -14,7 +14,7 @@
 #include "rest/api.hpp"
 #include "userstream/stream.hpp"
 
-namespace raikiri::venues::bingx::detail {
+namespace raikiri::venues::bingx::internal {
 
 namespace {
 
@@ -452,4 +452,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<BingxExec>(std::move(state), market);
 }
 
-} // namespace raikiri::venues::bingx::detail
+} // namespace raikiri::venues::bingx::internal

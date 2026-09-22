@@ -32,7 +32,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::binance::detail {
+namespace raikiri::venues::binance::internal {
 
 // A build that failed for want of credentials is an AuthFailure, not a
 // Terminal one: the gateway must halt and say so rather than retry a request
@@ -375,4 +375,4 @@ private:
     net::RestClient rest_;
 };
 
-} // namespace raikiri::venues::binance::detail
+} // namespace raikiri::venues::binance::internal

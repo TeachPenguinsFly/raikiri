@@ -7,7 +7,7 @@
 #include "clients.hpp"
 #include "state.hpp"
 
-namespace raikiri::venues::grvt::detail {
+namespace raikiri::venues::grvt::internal {
 
 namespace {
 
@@ -86,4 +86,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<GrvtExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::grvt::detail
+} // namespace raikiri::venues::grvt::internal

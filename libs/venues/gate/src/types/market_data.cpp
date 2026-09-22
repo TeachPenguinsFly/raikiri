@@ -4,24 +4,19 @@
 
 namespace raikiri::venues::gate {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer;
-// a venue that reimplements opt_str or req_array is one that will disagree
-// with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireTrade, WireError> read_futures_trade(detail::ondemand::object& obj) {
+std::expected<WireTrade, WireError> read_futures_trade(wire::ondemand::object& obj) {
     WireTrade out{};
     const auto trade_id = num_u64(obj, "id");
     const auto size = req_num(obj, "size");
     // create_time_ms, not create_time: the latter is whole seconds.
     const auto ts = num_u64(obj, "create_time_ms");
     const auto price = req_num(obj, "price");
-    const auto contract = detail::req_str(obj, "contract");
+    const auto contract = wire::req_str(obj, "contract");
     if (!trade_id.has_value() || !size.has_value() || !ts.has_value() || !price.has_value() ||
         !contract.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -41,14 +36,14 @@ std::expected<WireTrade, WireError> read_futures_trade(detail::ondemand::object&
 // `amount` for size, `currency_pair` for the symbol, and `side` naming the
 // TAKER — so no sign to split. Its create_time_ms is a decimal STRING with a
 // fractional part ("1787832783276.263"), which whole_u64 truncates at the dot.
-std::expected<WireTrade, WireError> read_spot_trade(detail::ondemand::object& obj) {
+std::expected<WireTrade, WireError> read_spot_trade(wire::ondemand::object& obj) {
     WireTrade out{};
     const auto trade_id = num_u64(obj, "id");
     const auto amount = req_num(obj, "amount");
     const auto ts = req_num(obj, "create_time_ms");
     const auto price = req_num(obj, "price");
-    const auto pair = detail::req_str(obj, "currency_pair");
-    const auto side = detail::req_str(obj, "side");
+    const auto pair = wire::req_str(obj, "currency_pair");
+    const auto side = wire::req_str(obj, "side");
     if (!trade_id.has_value() || !amount.has_value() || !ts.has_value() || !price.has_value() ||
         !pair.has_value() || !side.has_value()) {
         return std::unexpected(WireError::MissingField);
@@ -77,7 +72,7 @@ parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
         }
         // Futures batch prints into an array; spot sends one object.
         if (spot) {
-            auto obj = detail::req_object(*root, "result");
+            auto obj = wire::req_object(*root, "result");
             if (!obj.has_value()) {
                 return std::unexpected(obj.error());
             }
@@ -88,7 +83,7 @@ parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
             storage.trades[0] = *one;
             return std::span<const WireTrade>{storage.trades.data(), 1};
         }
-        auto array = detail::req_array(*root, "result");
+        auto array = wire::req_array(*root, "result");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -97,9 +92,9 @@ parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto one = read_futures_trade(obj);
             if (!one.has_value()) {
@@ -118,17 +113,17 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "result");
+        auto array = wire::req_array(*root, "result");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
         for (auto entry : *array) {
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTicker out{};
-            const auto contract = detail::req_str(obj, "contract");
+            const auto contract = wire::req_str(obj, "contract");
             if (!contract.has_value()) {
                 return std::unexpected(contract.error());
             }

@@ -17,7 +17,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::edgex::detail {
+namespace raikiri::venues::edgex::internal {
 
 namespace {
 
@@ -352,4 +352,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<EdgexData>(std::move(state));
 }
 
-} // namespace raikiri::venues::edgex::detail
+} // namespace raikiri::venues::edgex::internal

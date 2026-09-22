@@ -8,23 +8,18 @@
 
 namespace raikiri::venues::weex {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson layer; a
-// venue that reimplements opt_str or req_array is one that will disagree with
-// its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A level is a two-element array of strings, ["79375.3","2.5048"], on the socket
 // and in the REST body alike.
-std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
+std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
                                                   std::span<WireLevel> into) {
-    detail::ondemand::array array;
+    wire::ondemand::array array;
     if (const auto ec = side.get_array().get(array); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     const auto& s = session();
     std::size_t count = 0;
@@ -32,18 +27,18 @@ std::expected<std::size_t, WireError> read_levels(detail::ondemand::value side,
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::array pair;
+        wire::ondemand::array pair;
         if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         WireLevel level{};
         std::size_t field = 0;
         for (auto element : pair) {
-            detail::ondemand::value value;
+            wire::ondemand::value value;
             if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
-            const auto text = detail::str_of(value, s);
+            const auto text = wire::str_of(value, s);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -89,10 +84,10 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         Number tier{0};
         std::optional<std::size_t> bids;
         std::optional<std::size_t> asks;
-        const auto walked = detail::for_each_field(
+        const auto walked = wire::for_each_field(
             *root,
             [&](std::string_view key,
-                detail::ondemand::value& value) -> std::expected<void, WireError> {
+                wire::ondemand::value& value) -> std::expected<void, WireError> {
                 if (key == "b" || key == "a") {
                     const bool bid = key == "b";
                     const auto count = read_levels(value, bid ? storage.bids : storage.asks);
@@ -101,19 +96,19 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
                     }
                     (bid ? bids : asks) = *count;
                 } else if (key == "e") {
-                    event = detail::str_of(value);
+                    event = wire::str_of(value);
                 } else if (key == "s") {
-                    symbol = detail::str_of(value);
+                    symbol = wire::str_of(value);
                 } else if (key == "d") {
-                    disposition = detail::str_of(value);
+                    disposition = wire::str_of(value);
                 } else if (key == "U") {
-                    first = detail::u64_of(value);
+                    first = wire::u64_of(value);
                 } else if (key == "u") {
-                    last = detail::u64_of(value);
+                    last = wire::u64_of(value);
                 } else if (key == "E") {
-                    event_ms = detail::u64_of(value);
+                    event_ms = wire::u64_of(value);
                 } else if (key == "l") {
-                    tier = detail::u64_of(value);
+                    tier = wire::u64_of(value);
                 }
                 return {};
             });

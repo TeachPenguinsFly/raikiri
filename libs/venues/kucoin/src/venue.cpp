@@ -28,7 +28,10 @@
 
 namespace raikiri::venues::kucoin {
 
-using namespace detail;
+using internal::VenueState;
+using internal::make_data_client;
+using internal::make_execution_client;
+using internal::make_instrument_source;
 
 namespace {
 

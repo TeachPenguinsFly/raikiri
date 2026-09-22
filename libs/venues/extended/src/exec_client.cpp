@@ -11,7 +11,7 @@
 #include "clients.hpp"
 #include "state.hpp"
 
-namespace raikiri::venues::extended::detail {
+namespace raikiri::venues::extended::internal {
 
 namespace {
 
@@ -88,4 +88,4 @@ std::unique_ptr<exec::ExecutionClient> make_execution_client(std::shared_ptr<Ven
     return std::make_unique<ExtendedExecution>(std::move(state));
 }
 
-} // namespace raikiri::venues::extended::detail
+} // namespace raikiri::venues::extended::internal

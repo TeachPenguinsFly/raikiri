@@ -21,7 +21,7 @@
 
 #include "../state.hpp"
 
-namespace raikiri::venues::binance::detail {
+namespace raikiri::venues::binance::internal {
 
 // Handles one user-stream frame. Kept out of the client so dispatch is
 // testable without a socket.
@@ -114,4 +114,4 @@ private:
     net::WsClient ws_;
 };
 
-} // namespace raikiri::venues::binance::detail
+} // namespace raikiri::venues::binance::internal

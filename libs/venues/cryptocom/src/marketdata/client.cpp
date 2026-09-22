@@ -16,7 +16,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::cryptocom::detail {
+namespace raikiri::venues::cryptocom::internal {
 
 namespace {
 
@@ -424,4 +424,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<CryptoComData>(std::move(state));
 }
 
-} // namespace raikiri::venues::cryptocom::detail
+} // namespace raikiri::venues::cryptocom::internal

@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace raikiri::venues::xt::detail {
+namespace raikiri::venues::xt::internal {
 
 // Live orders tracked for their leaves, their side and our own id. Far above
 // any sane working set; the cap exists so a venue incident cannot turn the map
@@ -169,4 +169,4 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
 void sync_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
 void sync_spot_clock(VenueState& state, net::RestClient& rest, RequestBuilder& builder);
 
-} // namespace raikiri::venues::xt::detail
+} // namespace raikiri::venues::xt::internal

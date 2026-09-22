@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/exec/events.hpp>
@@ -21,7 +21,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace raikiri::venues::weex::detail {
+namespace raikiri::venues::weex::internal {
 
 // State every WEEX connection shares within one gateway process. Single
 // threaded by contract: the gateway loop is the only caller, which is why
@@ -160,4 +160,4 @@ inline constexpr std::size_t k_max_unanswered = 512;
 // shares its transport.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-} // namespace raikiri::venues::weex::detail
+} // namespace raikiri::venues::weex::internal

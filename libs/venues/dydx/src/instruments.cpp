@@ -11,7 +11,7 @@
 
 #include "clients.hpp"
 
-namespace raikiri::venues::dydx::detail {
+namespace raikiri::venues::dydx::internal {
 
 namespace {
 
@@ -109,4 +109,4 @@ std::unique_ptr<exec::InstrumentSource> make_instrument_source(std::shared_ptr<V
     return std::make_unique<DydxInstruments>(std::move(state));
 }
 
-} // namespace raikiri::venues::dydx::detail
+} // namespace raikiri::venues::dydx::internal

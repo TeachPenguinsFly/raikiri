@@ -5,16 +5,11 @@
 
 namespace raikiri::venues::coinbase {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
-namespace ondemand = detail::ondemand;
+using wire::guarded;
+using wire::session;
+namespace ondemand = wire::ondemand;
 
 std::expected<WireOrder, WireError> read_order(ondemand::object& obj) {
     WireOrder out{};
@@ -29,7 +24,7 @@ std::expected<WireOrder, WireError> read_order(ondemand::object& obj) {
                                      std::pair{"filled_size", &out.filled_size},
                                      std::pair{"created_at", &out.created_at},
                                      std::pair{"done_at", &out.done_at}}) {
-        const auto value = detail::opt_str(obj, key);
+        const auto value = wire::opt_str(obj, key);
         if (!value.has_value()) {
             return std::unexpected(value.error());
         }
@@ -38,7 +33,7 @@ std::expected<WireOrder, WireError> read_order(ondemand::object& obj) {
     if (out.id.empty() || out.product_id.empty()) {
         return std::unexpected(WireError::MissingField);
     }
-    const auto side = detail::opt_str(obj, "side");
+    const auto side = wire::opt_str(obj, "side");
     if (!side.has_value()) {
         return std::unexpected(side.error());
     }
@@ -75,7 +70,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
             }
             ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto row = read_order(obj);
             if (!row.has_value()) {

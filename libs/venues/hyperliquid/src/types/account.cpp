@@ -4,30 +4,25 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-std::expected<WireFundingCharge, WireError> read_charge(detail::ondemand::object& obj) {
+std::expected<WireFundingCharge, WireError> read_charge(wire::ondemand::object& obj) {
     WireFundingCharge out{};
     const auto ts = opt_number_ms(obj, "time");
     if (!ts.has_value()) {
         return std::unexpected(ts.error());
     }
     out.time_ms = *ts;
-    auto delta = detail::req_object(obj, "delta");
+    auto delta = wire::req_object(obj, "delta");
     if (!delta.has_value()) {
         return std::unexpected(delta.error());
     }
-    const auto type = detail::req_str(*delta, "type");
-    const auto coin = detail::req_str(*delta, "coin");
-    const auto usdc = detail::req_str(*delta, "usdc");
+    const auto type = wire::req_str(*delta, "type");
+    const auto coin = wire::req_str(*delta, "coin");
+    const auto usdc = wire::req_str(*delta, "usdc");
     if (!type.has_value() || !coin.has_value() || !usdc.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
@@ -51,9 +46,9 @@ parse_user_funding(std::string_view body, FundingChargeBuffer& storage) {
             if (count == k_max_funding_charges) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = row.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto charge = read_charge(obj);
             if (!charge.has_value()) {

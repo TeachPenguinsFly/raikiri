@@ -6,15 +6,10 @@
 
 namespace raikiri::venues::kucoin {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 OrderChangeType change_from(std::string_view type) noexcept {
     if (type == "open") {
@@ -37,7 +32,7 @@ OrderChangeType change_from(std::string_view type) noexcept {
 
 // Both hosts spell the shared order fields the same way; what differs is which
 // of them arrive, so every one is optional and the mapper decides what it needs.
-std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrder& out) {
+std::expected<void, WireError> read_order(wire::ondemand::object& obj, WireOrder& out) {
     const auto symbol = req_decimal(obj, "symbol");
     if (!symbol.has_value()) {
         return std::unexpected(symbol.error());
@@ -60,9 +55,9 @@ std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrd
     }
     // Spot says `active` and `lastUpdatedAt`, futures says `isActive` and
     // `updatedAt`; reading only one pair loses half the answer.
-    const auto active = detail::opt_bool(obj, "active");
-    const auto is_active = detail::opt_bool(obj, "isActive");
-    const auto cancel_exist = detail::opt_bool(obj, "cancelExist");
+    const auto active = wire::opt_bool(obj, "active");
+    const auto is_active = wire::opt_bool(obj, "isActive");
+    const auto cancel_exist = wire::opt_bool(obj, "cancelExist");
     if (!active.has_value() || !is_active.has_value() || !cancel_exist.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -77,7 +72,7 @@ std::expected<void, WireError> read_order(detail::ondemand::object& obj, WireOrd
     return {};
 }
 
-std::expected<void, WireError> read_fill(detail::ondemand::object& obj, WireFill& out) {
+std::expected<void, WireError> read_fill(wire::ondemand::object& obj, WireFill& out) {
     for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                      std::pair{"tradeId", &out.trade_id},
                                      std::pair{"orderId", &out.order_id},
@@ -112,7 +107,7 @@ std::expected<WireOrderChange, WireError> parse_order_change(std::string_view fr
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [](detail::ondemand::object& obj) -> std::expected<WireOrderChange, WireError> {
+            *root, [](wire::ondemand::object& obj) -> std::expected<WireOrderChange, WireError> {
                 WireOrderChange out{};
                 for (const auto& [key, field] : {std::pair{"symbol", &out.symbol},
                                                  std::pair{"orderId", &out.order_id},
@@ -164,7 +159,7 @@ std::expected<std::span<const WireOrder>, WireError> parse_spot_orders(std::stri
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        auto array = detail::req_array(*root, "data");
+        auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
@@ -185,9 +180,9 @@ std::expected<std::span<const WireOrder>, WireError> parse_futures_orders(std::s
             return std::unexpected(root.error());
         }
         return with_data(*root,
-                         [&](detail::ondemand::object& obj)
+                         [&](wire::ondemand::object& obj)
                              -> std::expected<std::span<const WireOrder>, WireError> {
-                             auto array = detail::req_array(obj, "items");
+                             auto array = wire::req_array(obj, "items");
                              if (!array.has_value()) {
                                  return std::unexpected(array.error());
                              }
@@ -211,9 +206,9 @@ parse_active_symbols(std::string_view body, SymbolBuffer& storage) {
             return std::unexpected(root.error());
         }
         return with_data(*root,
-                         [&](detail::ondemand::object& obj)
+                         [&](wire::ondemand::object& obj)
                              -> std::expected<std::span<const std::string_view>, WireError> {
-                             auto array = detail::req_array(obj, "symbols");
+                             auto array = wire::req_array(obj, "symbols");
                              if (!array.has_value()) {
                                  return std::unexpected(array.error());
                              }
@@ -222,11 +217,11 @@ parse_active_symbols(std::string_view body, SymbolBuffer& storage) {
                                  if (count == storage.symbols.size()) {
                                      return std::unexpected(WireError::TooManyEntries);
                                  }
-                                 detail::ondemand::value value;
+                                 wire::ondemand::value value;
                                  if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-                                     return std::unexpected(detail::map_error(ec));
+                                     return std::unexpected(wire::map_error(ec));
                                  }
-                                 const auto text = detail::str_of(value);
+                                 const auto text = wire::str_of(value);
                                  if (!text.has_value()) {
                                      return std::unexpected(text.error());
                                  }
@@ -247,9 +242,9 @@ std::expected<std::span<const WireFill>, WireError> parse_fills(std::string_view
             return std::unexpected(root.error());
         }
         return with_data(*root,
-                         [&](detail::ondemand::object& obj)
+                         [&](wire::ondemand::object& obj)
                              -> std::expected<std::span<const WireFill>, WireError> {
-                             auto array = detail::req_array(obj, "items");
+                             auto array = wire::req_array(obj, "items");
                              if (!array.has_value()) {
                                  return std::unexpected(array.error());
                              }

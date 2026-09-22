@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/exec/events.hpp>
@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace raikiri::venues::apex::detail {
+namespace raikiri::venues::apex::internal {
 
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
@@ -43,4 +43,4 @@ struct VenueState {
     std::uint64_t resubscribes{0};
 };
 
-} // namespace raikiri::venues::apex::detail
+} // namespace raikiri::venues::apex::internal

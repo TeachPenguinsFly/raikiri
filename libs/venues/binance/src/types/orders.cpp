@@ -6,17 +6,12 @@
 
 namespace raikiri::venues::binance {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
-[[nodiscard]] std::expected<WireOrder, WireError> read_order(detail::ondemand::object& obj) {
+[[nodiscard]] std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
     WireOrder out{};
     const std::array<Wanted, 6> wanted{{{"symbol", &out.symbol},
                                         {"clientOrderId", &out.client_order_id},
@@ -27,13 +22,13 @@ using detail::session;
     if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    const auto executed = detail::opt_str(obj, "executedQty");
+    const auto executed = wire::opt_str(obj, "executedQty");
     if (!executed.has_value()) {
         return std::unexpected(executed.error());
     }
     out.executed_qty = *executed;
-    const auto order_id = detail::opt_u64(obj, "orderId");
-    const auto update_ms = detail::opt_u64(obj, "updateTime");
+    const auto order_id = wire::opt_u64(obj, "orderId");
+    const auto update_ms = wire::opt_u64(obj, "updateTime");
     if (!order_id.has_value() || !update_ms.has_value()) {
         return std::unexpected(WireError::WrongType);
     }
@@ -54,13 +49,13 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view da
             return std::unexpected(root.error());
         }
         WireOrderUpdate out{};
-        const auto event_ms = detail::opt_u64(*root, "E");
+        const auto event_ms = wire::opt_u64(*root, "E");
         if (!event_ms.has_value()) {
             return std::unexpected(event_ms.error());
         }
         out.event_ms = *event_ms;
 
-        auto order = detail::req_object(*root, "o");
+        auto order = wire::req_object(*root, "o");
         if (!order.has_value()) {
             return std::unexpected(order.error());
         }
@@ -82,17 +77,17 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view da
         if (const auto ok = read_strings(*order, wanted); !ok.has_value()) {
             return std::unexpected(ok.error());
         }
-        const auto commission = detail::opt_str(*order, "n");
+        const auto commission = wire::opt_str(*order, "n");
         if (!commission.has_value()) {
             return std::unexpected(commission.error());
         }
         out.commission = *commission;
 
-        const auto order_id = detail::opt_u64(*order, "i");
-        const auto trade_id = detail::opt_u64(*order, "t");
-        const auto trade_ms = detail::opt_u64(*order, "T");
-        const auto maker = detail::opt_bool(*order, "m");
-        const auto reduce_only = detail::opt_bool(*order, "R");
+        const auto order_id = wire::opt_u64(*order, "i");
+        const auto trade_id = wire::opt_u64(*order, "t");
+        const auto trade_ms = wire::opt_u64(*order, "T");
+        const auto maker = wire::opt_bool(*order, "m");
+        const auto reduce_only = wire::opt_bool(*order, "R");
         if (!order_id.has_value() || !trade_id.has_value() || !trade_ms.has_value() ||
             !maker.has_value() || !reduce_only.has_value()) {
             return std::unexpected(WireError::WrongType);
@@ -133,9 +128,9 @@ std::expected<std::span<const WireOrder>, WireError> parse_orders(std::string_vi
             if (count == k_max_orders) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             const auto order = read_order(obj);
             if (!order.has_value()) {
@@ -160,9 +155,9 @@ std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::stri
             if (count == k_max_trades) {
                 return std::unexpected(WireError::TooManyEntries);
             }
-            detail::ondemand::object obj;
+            wire::ondemand::object obj;
             if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
-                return std::unexpected(detail::map_error(ec));
+                return std::unexpected(wire::map_error(ec));
             }
             WireTrade out{};
             const std::array<Wanted, 5> wanted{{{"symbol", &out.symbol},
@@ -173,10 +168,10 @@ std::expected<std::span<const WireTrade>, WireError> parse_user_trades(std::stri
             if (const auto ok = read_strings(obj, wanted); !ok.has_value()) {
                 return std::unexpected(ok.error());
             }
-            const auto trade_id = detail::opt_u64(obj, "id");
-            const auto order_id = detail::opt_u64(obj, "orderId");
-            const auto time_ms = detail::opt_u64(obj, "time");
-            const auto maker = detail::opt_bool(obj, "maker");
+            const auto trade_id = wire::opt_u64(obj, "id");
+            const auto order_id = wire::opt_u64(obj, "orderId");
+            const auto time_ms = wire::opt_u64(obj, "time");
+            const auto maker = wire::opt_bool(obj, "maker");
             if (!trade_id.has_value() || !order_id.has_value() || !time_ms.has_value() ||
                 !maker.has_value()) {
                 return std::unexpected(WireError::WrongType);

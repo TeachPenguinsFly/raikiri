@@ -4,32 +4,27 @@
 
 namespace raikiri::venues::xt {
 
-// The shared JSON readers. `raikiri::wire` is the deliberate simdjson
-// layer; a venue that reimplements opt_str or req_array is one that will
-// disagree with its neighbours about what an absent field means.
-namespace detail = raikiri::wire;
-
 namespace {
 
-using detail::guarded;
-using detail::session;
+using wire::guarded;
+using wire::session;
 
 // A level is ["64152.1","71044"]: price and a count of contracts. XT appends
 // nothing after those two, unlike okx's four-element form.
-std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
-    detail::ondemand::array pair;
+std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
+    wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
-        return std::unexpected(detail::map_error(ec));
+        return std::unexpected(wire::map_error(ec));
     }
     WireLevel level{};
     std::size_t field = 0;
     for (auto element : pair) {
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         if (field < 2) {
-            const auto text = detail::str_of(value);
+            const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
             }
@@ -44,8 +39,8 @@ std::expected<WireLevel, WireError> read_level(detail::ondemand::value entry) {
 }
 
 std::expected<std::size_t, WireError>
-read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
-    auto array = detail::req_array(obj, key);
+read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
+    auto array = wire::req_array(obj, key);
     if (!array.has_value()) {
         return std::unexpected(array.error());
     }
@@ -54,9 +49,9 @@ read_levels(detail::ondemand::object& obj, std::string_view key, std::span<WireL
         if (count == k_max_levels) {
             return std::unexpected(WireError::TooManyEntries);
         }
-        detail::ondemand::value value;
+        wire::ondemand::value value;
         if (const auto ec = entry.get(value); ec != simdjson::SUCCESS) {
-            return std::unexpected(detail::map_error(ec));
+            return std::unexpected(wire::map_error(ec));
         }
         const auto level = read_level(value);
         if (!level.has_value()) {
@@ -79,9 +74,9 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
             return std::unexpected(root.error());
         }
         return with_data(
-            *root, [&](detail::ondemand::object& data) -> std::expected<WireDepth, WireError> {
+            *root, [&](wire::ondemand::object& data) -> std::expected<WireDepth, WireError> {
                 WireDepth out{};
-                const auto symbol = detail::req_str(data, "s");
+                const auto symbol = wire::req_str(data, "s");
                 if (!symbol.has_value()) {
                     return std::unexpected(symbol.error());
                 }
@@ -90,7 +85,7 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
                 // JSON number "i". Reading only the futures spelling refused
                 // every spot snapshot, and the refusal was silent: the socket
                 // stayed up and the book simply never appeared.
-                const auto update_id = spot ? detail::opt_u64(data, "i") : req_digits(data, "id");
+                const auto update_id = spot ? wire::opt_u64(data, "i") : req_digits(data, "id");
                 if (!update_id.has_value()) {
                     return std::unexpected(update_id.error());
                 }
@@ -124,9 +119,9 @@ std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view fr
         }
         return with_data(
             *root,
-            [&](detail::ondemand::object& data) -> std::expected<WireDepthUpdate, WireError> {
+            [&](wire::ondemand::object& data) -> std::expected<WireDepthUpdate, WireError> {
                 WireDepthUpdate out{};
-                const auto symbol = detail::req_str(data, "s");
+                const auto symbol = wire::req_str(data, "s");
                 const auto first = req_digits(data, "fu");
                 const auto prev = req_digits(data, "pu");
                 const auto update_id = req_digits(data, "u");

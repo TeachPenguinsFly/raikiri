@@ -1,6 +1,6 @@
 #pragma once
 
-// `detail`, not an anonymous namespace: a type declared in a header inside an
+// `internal`, not an anonymous namespace: a type declared in a header inside an
 // anonymous namespace is a DIFFERENT type in every file that includes it.
 
 #include <raikiri/config/secret.hpp>
@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-namespace raikiri::venues::hyperliquid::detail {
+namespace raikiri::venues::hyperliquid::internal {
 
 // Owned as strings: the instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
@@ -140,4 +140,4 @@ inline exec::VenueError unreadable(WireError err) noexcept {
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(err));
 }
 
-} // namespace raikiri::venues::hyperliquid::detail
+} // namespace raikiri::venues::hyperliquid::internal

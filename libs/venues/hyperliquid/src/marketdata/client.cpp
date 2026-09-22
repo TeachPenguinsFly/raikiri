@@ -25,7 +25,7 @@
 
 #include "../clients.hpp"
 
-namespace raikiri::venues::hyperliquid::detail {
+namespace raikiri::venues::hyperliquid::internal {
 
 namespace {
 
@@ -312,4 +312,4 @@ std::unique_ptr<exec::DataClient> make_data_client(std::shared_ptr<VenueState> s
     return std::make_unique<HyperliquidData>(std::move(state));
 }
 
-} // namespace raikiri::venues::hyperliquid::detail
+} // namespace raikiri::venues::hyperliquid::internal
