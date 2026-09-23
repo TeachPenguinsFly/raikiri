@@ -1,12 +1,7 @@
 # The browser check
 
-Every other check in this repository stops at the socket. `tools/venue_smoke.sh`
-proves a venue still sends bytes, `tools/terminal_smoke.sh` proves a quote
-reaches the browser's doorstep — and says itself that it stops there. On
-2026-09-06 the doorstep was fine and the board showed a column of em-dashes for
-a whole session, because a hook handed the same `Map` back forever and the
-`useMemo` that builds the rows never recomputed. Everything was green. Only a
-browser fails on that.
+Playwright tests that load the terminal against a running admind and check what
+the page renders, since a quote can reach the socket and still never be drawn.
 
 ## Running it
 

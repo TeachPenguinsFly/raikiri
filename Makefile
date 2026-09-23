@@ -45,13 +45,13 @@ test: build
 # optional and their absence is stated rather than fatal.
 up: build
 	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
-	PRESET=$(PRESET) ./tools/dev_up.sh
+	PRESET=$(PRESET) ./scripts/dev_up.sh
 
 # Postgres, the schema, and every backend process in one go; the terminal is
 # `make web`, in its own shell.
 dup: build db-up db-migrate
 	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
-	RAIKIRI_PG_DSN=$(PG_DSN) WEB=none PRESET=$(PRESET) ./tools/dev_up.sh
+	RAIKIRI_PG_DSN=$(PG_DSN) WEB=none PRESET=$(PRESET) ./scripts/dev_up.sh
 
 web:
 	@test -d frontend/node_modules || (cd frontend && npm install)

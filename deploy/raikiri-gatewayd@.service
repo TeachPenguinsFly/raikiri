@@ -2,7 +2,7 @@
 #
 # TEMPLATED ON THE ACCOUNT NAME, not the venue: one adapter serves several
 # markets and the account name is what tells two processes apart, in the segment
-# they own and in the journal they write. tools/venue_args.sh turns the name
+# they own and in the journal they write. deploy/venue_args.sh turns the name
 # back into arguments, so the channel decisions live in one file rather than in
 # every unit.
 [Unit]

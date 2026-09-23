@@ -3,7 +3,7 @@
 #
 #   gateway-run okx-spot
 #
-# The venue mapping is NOT repeated here: tools/venue_args.sh holds it, and the
+# The venue mapping is NOT repeated here: deploy/venue_args.sh holds it, and the
 # same file answers for the desk. A gateway started with the wrong channel set
 # does not fail — it quietly carries a fraction of its catalogue.
 set -uo pipefail
@@ -11,7 +11,7 @@ set -uo pipefail
 ACCOUNT="${1:?usage: gateway-run <account>}"
 ROOT="${RAIKIRI_ROOT:-/opt/raikiri}"
 
-# shellcheck source=../tools/venue_args.sh
+# shellcheck source=venue_args.sh
 source "$ROOT/share/venue_args.sh"
 
 read -r -a args <<< "$(venue_argv "$ACCOUNT")"

@@ -9,7 +9,7 @@
 # server in front. Ctrl+C takes all of it down together — a half-stopped set of
 # gateways leaves segments behind that the next run refuses to reuse.
 #
-# CREDENTIALS ARE OPTIONAL. With tools/credentials.env the account half comes
+# CREDENTIALS ARE OPTIONAL. With scripts/credentials.env the account half comes
 # alive: balances, positions, the private stream. Without it every gateway runs
 # public market data only and says so — which is the state the repository is
 # meant to clone into.
@@ -29,12 +29,12 @@ BIN="build/$PRESET/apps"
 PORT="${PORT:-8787}"
 STREAM_PORT="${STREAM_PORT:-$((PORT + 1))}"
 WEB_PORT="${WEB_PORT:-5173}"
-ENV_FILE=tools/credentials.env
+ENV_FILE=scripts/credentials.env
 export RAIKIRI_DATA_DIR="${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}"
 
 # Measured once, written down once. See there for every number behind it.
-# shellcheck source=tools/venue_args.sh
-source "$(dirname "$0")/venue_args.sh"
+# shellcheck source=../deploy/venue_args.sh
+source "$(dirname "$0")/../deploy/venue_args.sh"
 # EMPTY MEANS EVERY LISTING, and that is the default on purpose: the markets
 # tab lets a person open any of a thousand markets, and a gateway only streams
 # what it subscribed to at startup. Narrow subscriptions would leave every row
@@ -115,7 +115,7 @@ if [[ -f "$ENV_FILE" && -z "${RAIKIRI_SECRETS_RESOLVED:-}" ]] && grep -q "^[A-Z_
             echo "    1Password will authenticate through the desktop app, and macOS" >&2
             echo "    will ask this terminal for permission to control it — every run." >&2
             echo "    Set OP_SERVICE_ACCOUNT_TOKEN to stop that; see the comment in" >&2
-            echo "    tools/dev_up.sh for how to mint one." >&2
+            echo "    scripts/dev_up.sh for how to mint one." >&2
         fi
         export RAIKIRI_SECRETS_RESOLVED=1
         exec op run --env-file="$ENV_FILE" -- "$0" "$@"

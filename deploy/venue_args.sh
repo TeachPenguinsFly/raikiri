@@ -1,11 +1,11 @@
 # What to ask each venue for, and why — the one copy.
 #
-# Sourced by tools/dev_up.sh and by the deployment's per-account unit, because
+# Sourced by scripts/dev_up.sh and by the deployment's per-account unit, because
 # the answers below were measured and neither should drift from the other. A
 # gateway started with the wrong channel set does not fail; it quietly carries
 # a fraction of its catalogue, which is the defect this file exists to prevent.
 #
-#   source tools/venue_args.sh
+#   source deploy/venue_args.sh
 #   venue_argv okx-spot          # prints: --venue=okx --market=spot --channels=bbo,funding
 
 # venue → market and the symbols to subscribe. The CATALOGUE loads in full

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build here, ship there, restart. One command.
 #
-#   tools/deploy.sh raikiri@1.2.3.4
-#   HOST=raikiri@1.2.3.4 tools/deploy.sh
+#   deploy/deploy.sh raikiri@1.2.3.4
+#   HOST=raikiri@1.2.3.4 deploy/deploy.sh
 #
 # NOT YET RUN AGAINST A REAL HOST. This repository has never been built on
 # Linux — its CI targets ubuntu-24.04 and has never executed, because nothing
@@ -16,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HOST="${1:-${HOST:?usage: tools/deploy.sh user@host}}"
+HOST="${1:-${HOST:?usage: deploy/deploy.sh user@host}}"
 
 # SOURCE AND INSTALL ARE TWO PLACES, and conflating them is why this script
 # failed on its first real run: /opt/raikiri is root-owned, so rsyncing the
@@ -30,11 +30,11 @@ REMOTE_ROOT="${REMOTE_ROOT:-/opt/raikiri}"
 PRESET="${PRESET:-rel}"
 
 # A DIRECTORY OF ALREADY-BUILT LINUX BINARIES, which skips the remote compile
-# entirely. tools/build-linux.sh produces one in build/linux in seconds; the
+# entirely. deploy/build-linux.sh produces one in build/linux in seconds; the
 # same build on this two-vCPU server ran at one translation unit a minute
 # against the live gateways, which is seven hours and a hole in the recording.
 #
-#   BINARIES=build/linux tools/deploy.sh raikiri-tokyo
+#   BINARIES=build/linux deploy/deploy.sh raikiri-tokyo
 #
 # Unset keeps the remote build, which is the only path for anyone without
 # Docker and the reason it is still here.
@@ -51,7 +51,7 @@ echo "==> source and units to $HOST"
 # shipping ~100 MB of it to a 2-vCPU box on every deploy buys nothing there.
 rsync -a --delete \
     --exclude build/ --exclude .git/ --exclude frontend/node_modules/ \
-    --exclude raikiri-data/ \
+    --exclude raikiri-data/ --exclude tools/ \
     ./ "$HOST:$SRC_DIR/"
 rsync -a frontend/dist/ "$HOST:$SRC_DIR/web-dist/"
 if [[ -n "$BINARIES" ]]; then
@@ -99,7 +99,7 @@ for app in gatewayd admind replay persisterd; do
     fi
 done
 sudo install -m 0755 deploy/gateway-run "$REMOTE_ROOT/bin/"
-sudo install -m 0644 tools/venue_args.sh "$REMOTE_ROOT/share/"
+sudo install -m 0644 deploy/venue_args.sh "$REMOTE_ROOT/share/"
 sudo install -m 0644 deploy/raikiri-gatewayd@.service deploy/raikiri-admind.service /etc/systemd/system/
 sudo systemctl daemon-reload
 

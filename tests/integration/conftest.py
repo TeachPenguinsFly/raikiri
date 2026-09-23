@@ -6,7 +6,7 @@ they must share a host and cannot be one container each. The isolation that
 matters here is a private `RAIKIRI_RUNTIME_DIR` and free ports, and both are a
 tmpdir away.
 
-WHY NOT tools/dev_up.sh: it starts a venue set for a person to look at, and a
+WHY NOT scripts/dev_up.sh: it starts a venue set for a person to look at, and a
 test wants the opposite — the sim venue, no credentials, no network, and a
 teardown that leaves nothing behind for the next run to trip over.
 """

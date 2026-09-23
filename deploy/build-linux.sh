@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # The Linux binaries, built here rather than on the server.
 #
-#   tools/build-linux.sh                  # gatewayd admind replay persisterd
-#   TARGETS=gatewayd tools/build-linux.sh
+#   deploy/build-linux.sh                  # gatewayd admind replay persisterd
+#   TARGETS=gatewayd deploy/build-linux.sh
 #
 # Output lands in build/linux/, STRIPPED. Deploy it with:
 #
-#   BINARIES=build/linux tools/deploy.sh raikiri-tokyo
+#   BINARIES=build/linux deploy/deploy.sh raikiri-tokyo
 #
 # THE SYMBOLS ARE NOT THROWN AWAY, they are moved: each binary's debug info is
 # split into build/linux-debug/<app>.debug and the shipped file carries a
@@ -35,7 +35,7 @@ DEBUG_OUT="${DEBUG_OUT:-build/linux-debug}"
 MARCH="${RAIKIRI_MARCH:-haswell}"
 
 echo "==> builder image"
-docker build --platform linux/amd64 -t "$IMAGE" -f tools/linux-builder.Dockerfile tools/
+docker build --platform linux/amd64 -t "$IMAGE" -f deploy/linux-builder.Dockerfile deploy/
 
 echo "==> deps and build (x86_64, RelWithDebInfo)"
 docker run --rm --platform linux/amd64 \
@@ -66,7 +66,7 @@ docker run --rm --platform linux/amd64 \
             -DCMAKE_TOOLCHAIN_FILE=/build/deps/relwithdebinfo/conan_toolchain.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DRAIKIRI_MARCH=$MARCH
-        cmake --build /build/rel --target $TARGETS -j\$(nproc) -- -k 0
+        cmake --build /build/rel --target $TARGETS -j${JOBS:-\$(nproc)} -- -k 0
     "
 
 echo "==> out"

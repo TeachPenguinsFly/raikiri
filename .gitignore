@@ -12,19 +12,18 @@ todo.md
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
-tools/credentials.env
-tools/op.env
-# A COPY IS THE SAME SECRET. These two hold 1Password references, and the
-# vault name in them is not ours to publish — a hand-made .bak beside the
-# original would carry it into the history where no later edit removes it.
-tools/credentials.env.*
-tools/op.env.*
-!tools/credentials.env.example
-!tools/op.env.example
+scripts/credentials.env
+scripts/op.env
+# a copy holds the same vault references
+scripts/credentials.env.*
+scripts/op.env.*
+!scripts/credentials.env.example
+!scripts/op.env.example
+# local helper scripts
+tools/
 .venv-test/
 .claude/
 
-# Python bytecode from tools/
 __pycache__/
 .pytest_cache/
 

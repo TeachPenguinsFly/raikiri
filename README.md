@@ -76,8 +76,7 @@ running a gateway and adding a venue.
 | `xt` | CEX | spot · perp | REST | – | – | ListenKey | ✓ |
 <!-- venues:end -->
 
-Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp) by
-[`tools/venue_table.py`](tools/venue_table.py). Column meanings are in the
+Generated from [`libs/exec/src/caps.cpp`](libs/exec/src/caps.cpp). Column meanings are in the
 [documentation](docs/README.md#venue-table).
 
 ---

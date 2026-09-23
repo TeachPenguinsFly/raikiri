@@ -99,15 +99,11 @@ make deps && make build
 
 # one venue, one symbol, twenty seconds of live market data
 build/dev-asan/apps/gatewayd/gatewayd --venue=bybit --symbol=BTCUSDT --duration 20
-
-# every implemented venue at once, reporting what each actually delivered
-tools/venue_smoke.sh 20
 ```
 
-On exit a gateway prints the instruments it loaded and its BBO, depth, trade and
-funding counts. A venue can rename a channel or stop publishing a stream without any
-unit test noticing, so the smoke run fails a venue that loads no instruments or
-publishes no quote.
+When a gateway stops it prints the instruments it loaded and its BBO, depth, trade and
+funding counts. A venue that renamed a channel or stopped publishing a stream shows up
+there as a zero that no unit test would catch.
 
 Credentials are passed as references (`env:NAME`, `file:/path`, `exec:command` or
 `op://vault/item/field`), never as values, because a secret on the command line is
@@ -123,8 +119,7 @@ gatewayd --venue=bybit --market=perp \
 ## Venue table
 
 The table in the [project README](../README.md#venues) is generated from
-[`libs/exec/src/caps.cpp`](../libs/exec/src/caps.cpp) by
-[`tools/venue_table.py`](../tools/venue_table.py).
+[`libs/exec/src/caps.cpp`](../libs/exec/src/caps.cpp).
 
 | column | meaning |
 | :-- | :-- |
