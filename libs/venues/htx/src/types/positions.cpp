@@ -37,9 +37,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             }
             const auto code = wire::req_str(obj, "contract_code");
             const auto volume = num_of(obj, "volume");
-            // cost_hold is the average cost of what is still held; cost_open
-            // is the average of what was opened and stops moving after a
-            // partial close, which makes it the wrong number for an entry.
+            // cost_hold is the entry; cost_open stops moving after a partial close
             const auto cost = num_of(obj, "cost_hold");
             const auto direction = wire::opt_str(obj, "direction");
             if (!code.has_value() || !volume.has_value() || !cost.has_value() ||

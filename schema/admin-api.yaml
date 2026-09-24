@@ -1,39 +1,7 @@
 openapi: 3.1.0
 
-# The contract between raikiri and its terminal.
-#
-# This file is the ONLY place a field is described. TypeScript types are
-# generated from it and never hand-edited; admind's responses are validated
-# against it in tests. A field the server can send is a field named here, and
-# CI fails when it is not.
-#
-# It sits beside schema/journal.xml because both are contracts this system
-# publishes and neither may break quietly.
-#
-# ---------------------------------------------------------------- units ----
-#
-# EVERY NUMBER THAT CANNOT SURVIVE A DOUBLE IS A STRING. JavaScript has one
-# numeric type and it holds integers exactly only to 2^53 — about 9.0e15.
-# Nanoseconds since the epoch are already 1.79e18, so a ns timestamp parsed as
-# a JSON number silently rounds to the nearest ~200 ns. Instrument and order
-# ids are packed 64-bit words and overflow the same way. Prices in a double
-# render as 79418.299999996.
-#
-# So: decimal strings for prices, sizes and money; digit strings for ids and
-# timestamps. The client parses once, at the edge, and never has to know an
-# instrument's tick size to display its price.
-#
-# ------------------------------------------------------------- v1 reads ----
-#
-# THIS VERSION IS READ-ONLY, and that is a design constraint rather than an
-# omission. Every write — halting an instrument, cancelling an order, moving a
-# risk limit — needs a path into a running strategyd, and the command rings are
-# SPSC with strategyd as their single producer. A second producer is a decision
-# to be made deliberately, not a POST added quietly.
-#
-# Authentication is likewise unresolved and deliberately absent: admind binds
-# localhost until an identity story exists. Shipping one that "works for now"
-# is how a terminal ends up with a static token in a repository.
+# contract between admind and the terminal; frontend/src/api/types.ts is generated from it
+# prices, sizes and money are decimal strings; ids and ns timestamps are digit strings
 
 info:
   title: raikiri admin API
@@ -41,11 +9,9 @@ info:
   license:
     name: LGPL-3.0-or-later
   description: |
-    Reads over a running raikiri deployment: the live state in each gateway's
-    shared-memory segment, and the history persisterd has written to Postgres.
-
-    Live data does NOT come through these endpoints. It rides one WebSocket,
-    described under `/v1/stream`.
+    Reads over a running raikiri deployment: live state from each gateway's
+    shared-memory segment and history from Postgres. Live data comes over the
+    WebSocket at `/v1/stream`.
 
 servers:
   - url: http://127.0.0.1:8787
@@ -94,21 +60,9 @@ paths:
       tags: [catalogue]
       summary: The catalogue grouped by market, not listed by venue
       description: |
-        One row per canonical symbol, carrying every venue that lists it. This
-        is what a cross-venue view searches: a market is the thing several
-        venues have in common, and asking "which venues quote BTC/USDT" is a
-        different question from "what does bybit list".
-
-        The grouping happens here and not in the client. Two clients grouping
-        separately is two answers to "is this the same market", which is the
-        question this endpoint exists to settle.
-
-        Ordered by how many venues list a market, then by name — a search for
-        "BTC" answers with what eight venues quote before what one does.
-
-        SPOT AND PERPETUALS ONLY carry a canonical symbol; dated futures and
-        options keep the venue's own, because a dated contract's identity
-        includes its expiry and an option's includes its strike.
+        One row per canonical symbol with every venue that lists it, ordered by
+        venue count, then name. Only spot and perpetuals carry a canonical symbol;
+        dated futures and options keep the venue's own.
       operationId: listMarkets
       parameters:
         - name: q
@@ -142,8 +96,8 @@ paths:
         - name: expiry
           in: query
           description: |
-            Options and dated futures only. An exact expiry, as nanoseconds —
-            the values `GET /v1/instruments` returns in `expiry`.
+            Options and dated futures only. An exact expiry in nanoseconds, as
+            `GET /v1/instruments` returns it in `expiry`.
           schema: { $ref: "#/components/schemas/Nanos" }
         - { $ref: "#/components/parameters/Cursor" }
         - { $ref: "#/components/parameters/Limit" }
@@ -213,32 +167,18 @@ paths:
       summary: Place an order by hand
       operationId: placeOrder
       description: |
-        The manual path into execution.
-
-        **202, not 201.** What this returns means the desk accepted the intent
-        and wrote it to the command ring — NOT that a venue accepted an order.
-        The venue's answer arrives later as order events, and a 2xx that implied
-        otherwise would have callers believing they are in a market they are not
-        in. Follow `GET /v1/orders/{client_order_id}/events`, or the `orders`
-        feed on `/v1/stream`, for what actually happened.
-
-        **The id is minted here, not supplied.** A `client_order_id` packs
-        `{strategy_id|seq}`, and the manual desk owns a reserved strategy id —
-        letting a caller choose one would let two clients collide on a key the
-        whole ledger is built around, and would let a caller impersonate a
-        strategy.
-
-        **Retries need `Idempotency-Key`.** An order request that times out is
-        the one case where a client cannot tell "never arrived" from "arrived
-        and I lost the answer", and retrying without a key is how one intent
-        becomes two positions.
+        The manual path into execution. 202 means the intent was written to the
+        command ring, not that a venue accepted it; follow
+        `GET /v1/orders/{client_order_id}/events` or the `orders` feed on
+        `/v1/stream`. The `client_order_id` is minted here under the desk's reserved
+        strategy id. Send `Idempotency-Key` to retry safely.
       parameters:
         - name: Idempotency-Key
           in: header
           required: true
           description: |
-            Any opaque string, stable across retries of the SAME intent. A
-            repeat returns the original 202 and places nothing.
+            Any opaque string, stable across retries of the same intent. A repeat
+            returns the original 202 and places nothing.
           schema: { type: string, minLength: 8, maxLength: 128 }
       requestBody:
         required: true
@@ -253,24 +193,16 @@ paths:
               schema: { $ref: "#/components/schemas/OrderAccepted" }
         "422":
           description: |
-            Refused by the DESK, before anything was queued: an instrument no
-            attached gateway lists, a price that is not a multiple of the tick,
-            a quantity that is not a multiple of the lot, a market order
-            carrying a price or a limit order without one.
-
-            THE RISK GATE DOES NOT ANSWER HERE. It lives in strategyd, past
-            this ring, so a fat-finger price or a size over the limit is
-            accepted with a 202 and refused a moment later — the refusal
-            arrives on the order's events, not in this response. A caller that
-            treats 202 as "the order is good" will be wrong about exactly the
-            orders it most needs to be right about.
+            Refused by the desk before anything was queued: an unknown instrument, a
+            price off the tick, a quantity off the lot, a market order with a price or a
+            limit order without one. Risk checks run later in strategyd and arrive as
+            order events.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
         "503":
           description: |
-            No desk is attached, so there is nothing to hand the intent to.
-            Distinct from a refusal: this one is worth retrying.
+            No desk is attached. Worth retrying.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -294,9 +226,7 @@ paths:
       summary: Cancel a working order
       operationId: cancelOrder
       description: |
-        202 for the same reason as placing one: the cancel has been queued, not
-        confirmed. An order can fill in the time a cancel is in flight, and a
-        response that said "canceled" would be a guess.
+        The cancel is queued, not confirmed; the order can still fill meanwhile.
       parameters:
         - { $ref: "#/components/parameters/ClientOrderId" }
       responses:
@@ -308,8 +238,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: |
-            The order is already in a state a cancel cannot reach — filled,
-            expired or canceled. Nothing was queued.
+            The order is already filled, expired or canceled. Nothing was queued.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -324,8 +253,8 @@ paths:
       tags: [trading]
       summary: Every lifecycle event this order went through, oldest first
       description: |
-        The order row above is a projection of these. When the two disagree the
-        events are right: they are what the journal recorded.
+        The events behind the order row. When the two disagree the events are
+        right.
       operationId: listOrderEvents
       parameters:
         - { $ref: "#/components/parameters/ClientOrderId" }
@@ -371,17 +300,9 @@ paths:
       tags: [trading]
       summary: What each venue says the account holds
       description: |
-        LIVE, read from the gateway segments — nothing persists a balance. A
-        balance is what the venue says right now, and a stored one could only
-        answer "as of when?" wrongly.
-
-        A balance is NOT a position and NOT equity. Equity is a sum over these,
-        and this endpoint deliberately does not compute it: a venue liquidates
-        on its own arithmetic, and a second answer stored beside it would
-        disagree at exactly the moment it mattered.
-
-        A gateway whose venue cannot report balances appears with an empty
-        `assets` and no `reported_at`. That is not an empty account.
+        Live from the gateway segments; balances are not persisted. This is not
+        equity and does not compute it. A venue that cannot report balances appears
+        with an empty `assets` and no `reported_at`.
       operationId: listBalances
       parameters:
         - { $ref: "#/components/parameters/Account" }
@@ -419,9 +340,8 @@ paths:
       tags: [analytics]
       summary: The PnL ledger, as increments
       description: |
-        Increments, never a running total: the ledger is append-only and
-        idempotent, and a total is a question asked of it rather than a row
-        stored in it. Sum them yourself over whatever window you mean.
+        Ledger increments, not a running total. Sum them over the window you
+        need.
       operationId: listPnl
       parameters:
         - { $ref: "#/components/parameters/Account" }
@@ -451,10 +371,7 @@ paths:
       tags: [analytics]
       summary: Funding rates as observed, not as charged
       description: |
-        These are the rates the venues published. They are NOT money: no
-        adapter yet reads the charge a venue actually took, so nothing here has
-        moved the ledger. When that lands it will arrive as a `funding` kind in
-        `/v1/pnl`, and this endpoint will stay what it is — observations.
+        Rates the venues published, not funding charged.
       operationId: listFunding
       parameters:
         - name: instrument_id
@@ -483,13 +400,9 @@ paths:
       tags: [cache]
       summary: What every gateway on this machine is subscribed to, right now
       description: |
-        A debug view, read from the snapshot each gatewayd writes every five
-        seconds to `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. Nothing here
-        touches Postgres or a venue.
-
-        A snapshot older than 30 s is still listed, with `stale: true` and its
-        age. A gateway whose process is gone is listed as `down` and adds
-        nothing to the rollup's traffic.
+        Debug view of the snapshot each gatewayd writes every 5 s to
+        `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. A snapshot older than 30 s is
+        listed with `stale: true`; a gateway whose process is gone is `down`.
       operationId: getCacheStats
       responses:
         "200":
@@ -562,20 +475,10 @@ paths:
       tags: [system]
       summary: Forwarded to a service this API does not describe
       description: |
-        admind can be started with `--upstream <name>=<port>` and then forwards
-        `/v1/x/<name>/<path>` to that service on loopback, returning its answer
-        verbatim.
-
-        **The payload is deliberately not described here.** This repository is
-        the framework; what anyone computes on top of it is theirs, and a
-        contract that named the fields an upstream returns would publish their
-        model in a public schema. The one shape admind knows about is
-        `UpstreamTable`, which exists so a generic screen can render a table it
-        was not written for.
-
-        An upstream that was never configured is a **404** — nothing is broken.
-        One that does not answer is a **503**, because an empty body would say
-        it ran and returned nothing, which is a different fact.
+        With `--upstream <name>=<port>`, admind forwards `/v1/x/<name>/<path>` to
+        that loopback service and returns its answer verbatim. The payload is not
+        described here, apart from `UpstreamTable`. An unconfigured upstream is a 404;
+        one that does not answer is a 503.
       operationId: getUpstream
       parameters:
         - name: upstream
@@ -633,29 +536,15 @@ paths:
       tags: [live]
       summary: Everything live, over one WebSocket
       description: |
-        A WebSocket upgrade. OpenAPI cannot describe the protocol that follows,
-        so it is described here and every message shape is a schema below —
-        which is what makes the generated types cover the live path too.
+        A WebSocket upgrade. Every message shape is a schema below.
 
-        ## Two kinds of data, and the difference matters
+        ## State and events
 
-        **State** — quotes, books, greeks, funding, positions, health. The
-        server SAMPLES these from the gateway's seqlock tables at a fixed
-        cadence and sends the current value of what changed. It does not
-        forward every tick. A client that falls behind therefore loses
-        intermediate values and never builds a backlog: there is no queue
-        between the venue and the browser, so a slow connection means fewer
-        frames, never growing lag. A quote you did not receive had already been
-        replaced by one you did.
-
-        **Events** — order events, fills, reconciliation breaks. These are
-        sequenced and must not be coalesced: every fill is money. Each carries
-        a `seq`, and if the server's own ring overran, a `gap` frame says so
-        rather than letting the loss pass as quiet.
-
-        That split is not invented for the wire. It is the same one the
-        shared-memory channels are built on: overwrite-newest tables for state,
-        a lossless ring for execution.
+        State (quotes, books, greeks, funding, positions, health) is sampled from
+        the seqlock tables at a fixed cadence and only the current value is sent,
+        so a slow client gets fewer frames, not lag. Events (order events, fills,
+        reconciliation breaks) are sequenced and never coalesced; each carries a
+        `seq`, and a `gap` frame reports a ring overrun.
 
         ## Client messages
 
@@ -665,8 +554,7 @@ paths:
             {"op":"subscribe","id":"a1","events":["orders","fills","recon"]}
             {"op":"unsubscribe","id":"q1"}
 
-        `id` is the client's own handle for the subscription and comes back on
-        the ack and on every frame it produced.
+        `id` is the client's handle and comes back on the ack and every frame.
 
         ## Server messages
 
@@ -682,10 +570,9 @@ paths:
 
         ## Cadence
 
-        Default 10 Hz per state subscription. `hz` on the subscribe message
-        asks for something else and the server answers with what it will
-        actually do — it will not go above its own sampling rate, and asking
-        for more is answered with less rather than refused.
+        Default 10 Hz per state subscription. `hz` on the subscribe asks for
+        another rate; the ack states what the server will do, capped at its own
+        sampling rate.
       operationId: openStream
       responses:
         "101":
@@ -717,8 +604,7 @@ components:
       name: cursor
       in: query
       description: |
-        Opaque; take it from the previous page's `next_cursor`. Cursors, not
-        offsets: rows arrive continuously, and an offset walks a moving list.
+        Opaque; take it from the previous page's `next_cursor`.
       schema: { type: string }
     Limit:
       name: limit
@@ -733,31 +619,26 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
-    # ------------------------------------------------------- primitives ----
 
     Decimal:
       type: string
       description: |
-        An exact decimal. A string because a double cannot hold one: 79418.30
-        parsed as a number and printed back is 79418.299999996.
+        An exact decimal, as a string.
       pattern: '^-?\d+(\.\d+)?$'
       examples: ["79418.30", "-0.008", "0"]
 
     Nanos:
       type: string
       description: |
-        Nanoseconds since the Unix epoch. A string because the value is already
-        1.79e18 and JavaScript holds integers exactly only to 9.0e15 — as a
-        number it would round to the nearest ~200 ns.
+        Nanoseconds since the Unix epoch, as a string; the value exceeds 2^53.
       pattern: '^\d+$'
       examples: ["1787840965107000000"]
 
     InstrumentId:
       type: string
       description: |
-        The packed instrument word, `{venue|market|reserved|symbol}`, as
-        decimal digits. A string for the same reason as Nanos: the venue byte
-        sits at bit 56, so every id is far past 2^53.
+        The packed instrument word, `{venue|market|reserved|symbol}`, as decimal
+        digits; a string because it exceeds 2^53.
       pattern: '^\d+$'
 
     ClientOrderId:
@@ -789,8 +670,6 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Absent or null on the last page.
-
-    # ------------------------------------------------------------- cache ----
 
     CacheStats:
       type: object
@@ -963,13 +842,12 @@ components:
 
     VenueClock:
       description: |
-        The venue's clock minus ours. A venue stamp converts to our clock as
-        `ts_event - offset_ns`. `rest_probe` takes the minimum-round-trip probe
-        of the last eight against `endpoint`, and `uncertainty_ns` is half that
-        round trip plus half the stamp's resolution. `feed_bound` is for a
-        venue with no time endpoint: the smallest `ts_init - ts_event` over the
-        last 30-60 s, negated, which is a LOWER bound — the true offset is this
-        plus the fastest one-way latency. `none` until either has a sample.
+        The venue's clock minus ours; a venue stamp converts as
+        `ts_event - offset_ns`. `rest_probe` uses the minimum-round-trip probe of the
+        last eight against `endpoint`, and `uncertainty_ns` is half that round trip
+        plus half the stamp's resolution. `feed_bound` is for a venue with no time
+        endpoint: the smallest `ts_init - ts_event` over the last 30-60 s, negated,
+        a lower bound. `none` until either has a sample.
       type: object
       required: [venue, method, endpoint, offset_ns, uncertainty_ns, rtt_ns, sampled_ns, samples]
       properties:
@@ -984,17 +862,14 @@ components:
 
     LatencySeries:
       description: |
-        Quantiles over the trailing 30-60 s; `total` and `sum_ns` since the
-        gateway started. Stages: `feed` is ts_init - ts_event + offset per
-        market-data channel, `internal` is receipt to shared-memory publish,
-        `kernel_queue` (Linux) is the kernel's software receive stamp of a
-        message's last segment to our read of it, per socket host — where it
-        is measured, ts_init is that kernel stamp, so `feed` is the network
-        and `internal` includes the queueing,
-        `rest` is one round trip per endpoint (the channel), `ws_ping` a
-        keepalive round trip per socket host, `order_ack` and `order_fill` from
-        submit to the first acceptance and the first fill. A negative value is
-        clamped to zero and counted in `below_zero`.
+        Quantiles over the trailing 30-60 s; `total` and `sum_ns` since start.
+        Stages: `feed` is ts_init - ts_event + offset per market-data channel,
+        `internal` is receipt to shared-memory publish, `kernel_queue` (linux) is the
+        kernel's receive stamp of a message's last segment to our read, per socket
+        host (where measured, ts_init is that stamp), `rest` one round trip per
+        endpoint, `ws_ping` a keepalive round trip per socket host, `order_ack` and
+        `order_fill` from submit to the first acceptance and first fill. Negative
+        values are clamped to zero and counted in `below_zero`.
       type: object
       required: [channel, stage, count, p50_ns, p90_ns, p99_ns, p999_ns, max_ns, total, sum_ns, below_zero, buckets]
       properties:
@@ -1012,10 +887,9 @@ components:
         buckets:
           type: array
           description: |
-            Since start, how many values were at or below each bound: five a
-            decade from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10
-            each decade, ending at 10 s). GET /metrics exports them as the
-            `le` buckets of `raikiri_latency_seconds`.
+            Since start, how many values were at or below each bound: five per decade
+            from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10). GET /metrics
+            exports them as the `le` buckets of `raikiri_latency_seconds`.
           items: { type: integer }
 
     CacheLatency:
@@ -1041,8 +915,6 @@ components:
           type: array
           items: { $ref: "#/components/schemas/CacheLatency" }
 
-    # ------------------------------------------------------------ system ----
-
     Account:
       type: object
       required: [account, venue, market, gateway]
@@ -1062,44 +934,28 @@ components:
         alive:
           type: boolean
           description: |
-            The segment owner is answering. A gateway that restarted is a new
-            generation, and everything read from the previous one — cursors,
-            ids, the book — belongs to a world that no longer exists.
+            The segment owner is answering. A restarted gateway is a new generation,
+            and cursors, ids and books from the previous one are invalid.
         generation: { $ref: "#/components/schemas/Nanos" }
         last_heartbeat: { $ref: "#/components/schemas/Nanos" }
         instruments:
           type: integer
           description: |
-            What the venue LISTS — the catalogue's size, and nothing about what
-            is arriving. A gateway carrying a third of it reports the same
-            number as one carrying all of it.
+            How many instruments the venue lists, regardless of what is arriving.
         priced:
           type: integer
           description: |
-            How many of those have actually put a quote on the wire since this
-            gateway started. `alive` cannot answer this: htx ran at 65 of 340
-            for days while every other field here said it was well.
-
-            Cumulative rather than a freshness window, because what it exists
-            to catch is a chunk the venue silently never sends — those cells are
-            never written at all, while a genuinely quiet altcoin would fail any
-            window short enough to be useful. Read it together with
-            `last_heartbeat`: it is only meaningful once the gateway has been up
-            long enough for a slow venue to tick.
+            How many of those have put a quote on the wire since the gateway
+            started. Cumulative; read it with `last_heartbeat`, since it means little
+            until a slow venue has had time to tick.
         coverage_pct:
           type: integer
           description: |
-            `priced` over `instruments`, rounded down, so a screen and an alert
-            agree on one number instead of each deriving its own. Below 70 is
-            the line `tools/coverage_smoke.sh` draws between a thin tail and a
-            venue dropping a chunk in silence.
+            `priced` over `instruments`, rounded down.
         subscribe_refusals:
           type: integer
           description: |
-            Subscriptions the venue answered with NO. Distinct from the silent
-            kind `coverage_pct` catches — a refusal was answered — and counted
-            by thirteen adapters since they were written, with nothing able to
-            read it until now.
+            Subscriptions the venue explicitly refused.
 
     Health:
       type: object
@@ -1116,10 +972,8 @@ components:
             lag_seconds:
               type: [number, "null"]
               description: |
-                How far persisterd is behind the journals it tails. Null when
-                it cannot be determined, which is not the same as zero.
-
-    # --------------------------------------------------------- catalogue ----
+                How far persisterd is behind the journals it tails. Null when unknown,
+                which differs from zero.
 
     Listing:
       type: object
@@ -1132,8 +986,7 @@ components:
         exchange_symbol:
           type: string
           description: |
-            What the venue calls it. Kept beside the canonical name because it
-            is what a person recognises and what an order carries.
+            The venue's own name for the instrument, as orders carry it.
 
     Market:
       type: object
@@ -1169,8 +1022,7 @@ components:
           enum: [unknown, linear, inverse]
           description: |
             Linear settles in the quote currency, inverse in the base with a
-            reciprocal PnL. Reading one as the other inverts every position's
-            profit, so it is stated rather than inferred.
+            reciprocal pnl.
         # Dated futures and options only.
         expiry:
           allOf: [{ $ref: "#/components/schemas/Nanos" }]
@@ -1182,8 +1034,6 @@ components:
           type: string
           enum: [put, call]
           description: Options only.
-
-    # -------------------------------------------------------------- live ----
 
     Quote:
       type: object
@@ -1222,11 +1072,8 @@ components:
 
     Greeks:
       description: |
-        The VENUE'S analytics for an option, not ours. Computing them here
-        would need a vol surface, a rate curve and a dividend assumption, and
-        each is a number that would then have to be defended against the
-        venue's own. The implied vols and the underlying ride along because a
-        delta without them has no provenance.
+        The venue's own option analytics, with the implied vols and underlying
+        they were computed from.
       type: object
       required: [instrument_id, ts_event]
       properties:
@@ -1260,16 +1107,14 @@ components:
         interval_seconds:
           type: [integer, "null"]
           description: |
-            The rate's own interval. Hyperliquid quotes hourly where most
-            venues quote per eight hours, so annualising without this is wrong
-            by a factor of eight.
+            The rate's own interval; hyperliquid quotes hourly, most venues per eight
+            hours.
         accrual:
           type: string
           enum: [discrete, continuous]
           description: |
-            Absent when the venue did not say. `continuous` has no payment
-            instant, and interval_seconds is then the rate's unit rather than a
-            payment cadence.
+            Absent when the venue did not say. For `continuous`, interval_seconds is
+            the rate's unit rather than a payment cadence.
         ts_event: { $ref: "#/components/schemas/Nanos" }
 
     Ticker:
@@ -1280,18 +1125,14 @@ components:
         volume_24h_base:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            Traded in the base asset over the venue's rolling 24 hours. Compares
-            between venues quoting the SAME base and between nothing else.
+            Traded in the base asset over the venue's rolling 24 hours. Comparable
+            only between venues with the same base.
         volume_24h_quote:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            The same window in the QUOTE currency, which for a coin-margined
-            contract is not dollars. This is the column a cross-venue board
-            ranks on; a board that ranks on the base column puts an inverse
-            contract at the top.
+            The same window in the quote currency, which for a coin-margined contract
+            is not dollars. Rank cross-venue boards on this column.
         ts_event: { $ref: "#/components/schemas/Nanos" }
-
-    # ----------------------------------------------------------- trading ----
 
     NewOrder:
       type: object
@@ -1300,8 +1141,8 @@ components:
         account:
           type: string
           description: |
-            Which gateway sends it, as `format_account` writes the name —
-            `bybit`, `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
+            Which gateway sends it, as `format_account` writes the name: `bybit`,
+            `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
         side: { $ref: "#/components/schemas/Side" }
         order_type: { type: string, enum: [limit, market] }
@@ -1312,8 +1153,7 @@ components:
         price:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            Required for `limit`, refused for `market`. A market order carrying
-            a price is an instruction with two meanings.
+            Required for `limit`, refused for `market`.
         qty: { $ref: "#/components/schemas/Decimal" }
         post_only:
           type: boolean
@@ -1323,9 +1163,8 @@ components:
           type: boolean
           default: false
           description: |
-            The flag that makes a close a close. Without it an order sized to
-            flatten a position that has moved since you read it opens the
-            opposite one instead.
+            Only reduces a position; an order sized to close cannot open the opposite
+            side.
 
     OrderAccepted:
       type: object
@@ -1338,8 +1177,8 @@ components:
           type: string
           enum: [queued]
           description: |
-            The only value this endpoint can honestly return. A venue status
-            appears on the order itself once the venue has answered.
+            The only value this endpoint returns. The venue's status appears on the
+            order once it has answered.
 
     Order:
       type: object
@@ -1361,27 +1200,21 @@ components:
         leaves:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            What is still working. The filled amount is the DROP in this
-            between two events, never an event's own `qty` — a venue that
-            resends a fill notification would otherwise book it twice.
+            What is still working. The filled amount is the drop in this between two
+            events, not an event's own `qty`, so a resent fill is not booked twice.
         status: { $ref: "#/components/schemas/OrderStatus" }
         reject_class:
           type: string
           enum: [terminal, retryable, rate_limited, auth_failure, connectivity]
           description: |
-            How the venue's refusal should be acted on. Present only on a
-            rejected order, and ABSENT — not empty — on one refused before the
-            journal carried a reason at all: "not recorded" and "the venue gave
-            no reason" are different answers.
+            How to act on the venue's refusal. Present only on a rejected order, and
+            absent on one journalled before reasons were recorded.
         reject_code:
           type: integer
           format: int32
           description: |
-            The venue's OWN numeric code, unchanged and untranslated. Present
-            beside `reject_class` on a rejection. This is the half a person can
-            look up in the venue's documentation — weex answers -1058 for a
-            contract it lists but will not trade through the API, and the class
-            alone would only say "terminal".
+            The venue's own numeric code, untranslated, beside `reject_class` on a
+            rejection.
         ts_created: { $ref: "#/components/schemas/Nanos" }
         ts_updated: { $ref: "#/components/schemas/Nanos" }
 
@@ -1420,8 +1253,7 @@ components:
         exec_id:
           type: string
           description: |
-            The venue's own idea of unique, and what dedup keys on together
-            with the venue.
+            The venue's own unique id; dedup keys on it together with the venue.
         client_order_id: { $ref: "#/components/schemas/ClientOrderId" }
         exchange_order_id: { type: string }
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
@@ -1444,23 +1276,17 @@ components:
         avg_entry_price:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            Derived from this system's own cost basis, never adopted from a
-            venue: a venue recomputes an average by its own rules — with or
-            without leverage, fees inside or outside — and two queries can
-            disagree.
+            Derived from this system's own cost basis, not the venue's average.
         realized: { $ref: "#/components/schemas/Decimal" }
         venue_qty:
           type: [string, "null"]
           description: |
-            What the venue last said it holds, or null when it has not said
-            anything recently. NULL IS NOT FLAT. A venue that cannot answer, an
-            answer that failed and an answer of zero are three different facts.
+            What the venue last said it holds, or null when it has not said anything
+            recently. Null does not mean flat.
         venue_reported_at:
           type: [string, "null"]
           description: When that snapshot was taken. Null when there is none.
         ts_updated: { $ref: "#/components/schemas/Nanos" }
-
-    # --------------------------------------------------------- analytics ----
 
     Balance:
       type: object
@@ -1470,14 +1296,13 @@ components:
         total:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            The venue's own total for this asset. ABSENT when it did not say,
-            which is not zero.
+            The venue's own total for this asset. Absent when it did not say, which
+            differs from zero.
         available:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: |
-            What may be committed to a new order. Several venues publish only a
-            total; this is absent there rather than repeating it, because a
-            caller that read the total as free would commit margin twice.
+            What may be committed to a new order. Absent where the venue publishes
+            only a total.
         unrealized:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: On the venue's marks, reported and never recomputed here.
@@ -1491,15 +1316,13 @@ components:
         reported_at:
           type: [string, "null"]
           description: |
-            When the venue last answered, as nanoseconds. Null when it has not —
-            and then `assets` is empty because there is nothing to say, never
-            because the account is.
+            When the venue last answered, in nanoseconds. Null when it has not, and
+            `assets` is then empty.
         stale:
           type: boolean
           description: |
             True once the last answer is older than three of the gateway's pull
-            rounds. The figures are still the last ones the venue gave; what has
-            expired is the claim that they are current.
+            rounds. The figures are the last ones the venue gave.
         assets:
           type: array
           items: { $ref: "#/components/schemas/Balance" }
@@ -1515,8 +1338,7 @@ components:
         source_id:
           type: string
           description: |
-            The idempotency key the ledger dedupes on. Replaying a journal
-            twice must not move the money twice.
+            The idempotency key the ledger dedupes on.
         account: { type: string }
         kind: { $ref: "#/components/schemas/PnlKind" }
         instrument_id: { $ref: "#/components/schemas/InstrumentId" }
@@ -1537,8 +1359,7 @@ components:
       type: object
       required: [tables]
       description: |
-        What an upstream serves, so a screen can offer a tab per table without
-        being told in advance what the tables are.
+        What an upstream serves, so a screen can offer a tab per table.
       properties:
         tables:
           type: array
@@ -1560,28 +1381,23 @@ components:
           enum: [text, number, signed, venue, duration]
           default: text
           description: |
-            How to draw it, never what it means. `signed` is painted by sign,
-            `venue` is drawn as a venue mark, `duration` is a nanosecond instant
-            rendered as time remaining.
+            How to draw it: `signed` is painted by sign, `venue` as a venue mark,
+            `duration` as time remaining to a nanosecond instant.
         align: { type: string, enum: [left, right], default: left }
 
     UpstreamTable:
       type: object
       required: [columns, rows]
       description: |
-        A table an upstream describes and a generic screen draws. THE COLUMNS
-        COME WITH THE DATA: a screen that hardcoded them would carry the
-        upstream's model in this repository, which is what the proxy exists to
-        avoid.
+        A table an upstream describes and a generic screen draws; the columns
+        come with the data.
       properties:
         title: { type: string }
         ts: { $ref: "#/components/schemas/Nanos" }
         note:
           type: string
           description: |
-            Said when there are no rows. An upstream that looked at nothing and
-            one that looked at everything and found nothing are different facts,
-            and only the upstream knows which happened.
+            Shown when there are no rows.
         columns:
           type: array
           items: { $ref: "#/components/schemas/UpstreamColumn" }
@@ -1595,7 +1411,7 @@ components:
       type: string
       enum: [break, unknown]
       description: |
-        `unknown` is the venue not answering, and it is NOT agreement. Agreeing
+        `unknown` means the venue did not answer, not agreement. Agreeing
         instruments are not recorded.
 
     ReconBreak:
@@ -1610,8 +1426,6 @@ components:
         venue_qty: { $ref: "#/components/schemas/Decimal" }
         detail: { type: string }
         ts_seen: { $ref: "#/components/schemas/Nanos" }
-
-    # -------------------------------------------------- stream messages ----
 
     StreamSubscribe:
       type: object
@@ -1640,9 +1454,8 @@ components:
         hz:
           type: number
           description: |
-            Asked-for cadence for the state subscriptions in this message. The
-            ack states what the server will actually do; asking above its own
-            sampling rate is answered with less, not refused.
+            Requested cadence for the state subscriptions in this message. The ack
+            states what the server will do, capped at its sampling rate.
 
     StreamUnsubscribe:
       type: object
@@ -1735,9 +1548,7 @@ components:
 
     StreamEvent:
       description: |
-        A sequenced event. NOT coalesced, unlike every state frame above:
-        every fill is money, and one that was skipped is one the book never
-        learned about.
+        A sequenced event, never coalesced.
       type: object
       required: [type, id, seq]
       properties:
@@ -1752,9 +1563,8 @@ components:
 
     StreamGap:
       description: |
-        The server's own ring overran and events were lost. Said out loud
-        rather than swallowed: a client that silently misses a fill carries a
-        position it does not know about. Refetch the affected resource.
+        The server's ring overran and events were lost. Refetch the affected
+        resource.
       type: object
       required: [type, id, missed]
       properties:
@@ -1786,10 +1596,7 @@ components:
         - { $ref: "#/components/schemas/StreamProblem" }
       discriminator:
         propertyName: type
-        # SPELLED OUT. Without a mapping the discriminator's value defaults to
-        # the SCHEMA NAME, so a generator emits `type: "StreamGreeks"` while
-        # this file's own `const` says `greeks` — two answers to one question,
-        # and the wire would follow whichever side was read.
+        # explicit mapping; without it the discriminator value defaults to the schema name
         mapping:
           ack: "#/components/schemas/StreamAck"
           quotes: "#/components/schemas/StreamQuotes"

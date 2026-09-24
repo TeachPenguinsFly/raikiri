@@ -19,15 +19,12 @@ struct CuratedRow {
 
 [[nodiscard]] std::span<const CuratedRow> curated_rows() noexcept;
 
-// True for a venue whose adapter reads the class off the venue's own catalogue
-// field. There an Unknown the adapter left stays Unknown; elsewhere it defaults
-// to Crypto.
+// true where the adapter reads asset class from the venue's catalogue; elsewhere it defaults to
+// crypto
 [[nodiscard]] bool states_asset_class(VenueId venue) noexcept;
 
-// Settles `asset_class` and `underlying` once the adapter has mapped the row:
-// the curated table first, then the adapter's own verdict, then the default. A
-// dex-prefixed name ("xyz:TSLA") never defaults — the prefix is there because
-// the bare ticker means something else on the main dex.
+// curated table first, then the adapter's verdict, then the default; a dex-prefixed name never
+// defaults
 void classify(VenueId venue, InstrumentBase& base) noexcept;
 
 inline void classify(VenueId venue, Instrument& instrument) noexcept {

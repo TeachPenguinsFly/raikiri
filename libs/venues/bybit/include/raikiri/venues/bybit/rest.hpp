@@ -1,12 +1,6 @@
 #pragma once
 
-// Signed bybit v5 REST requests.
-//
-// so a POST that signs the query string, or a GET that signs a body it does
-// not send, produces a signature that is wrong in a way the venue reports as
-// a generic authentication error — which reads like a bad key and costs
-// hours. The two paths are therefore separate functions here, and the tests
-// pin the exact bytes that go into the digest.
+// signed v5 requests: post signs the body, get signs the query
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/caps.hpp>
@@ -31,9 +25,7 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
 
-// bybit's product category. Perps are "linear"; spot is "spot". Every
-// endpoint takes it, and sending the wrong one returns an empty result
-// rather than an error, which is its own kind of debugging afternoon.
+// perps are "linear", spot "spot"; the wrong category returns an empty result
 [[nodiscard]] std::string_view category_of(MarketType market) noexcept;
 
 class RequestBuilder {
@@ -53,7 +45,7 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    // The dead-man switch every venue gateway needs on its way down.
+    // cancel-all for gateway shutdown
     [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_all(MarketType market,
                                                                          UnixNanos now);
 
@@ -66,18 +58,16 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
-    // The venue's own record of funding it charged. Paired with
-    // `VenueCaps::funding_charge`: a venue that cannot answer must not be asked.
+    // pair with VenueCaps::funding_charge
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     funding_charges(MarketType market, UnixNanos since, UnixNanos now);
 
-    // What the account holds, coin by coin. It takes no category: one unified
-    // wallet backs both markets.
+    // no category: one unified wallet backs both markets
     [[nodiscard]] std::expected<net::RestRequest, BuildError> wallet_balance(UnixNanos now);
 
     [[nodiscard]] net::RestRequest instruments(MarketType market, std::string_view cursor = {});
 
-    // Exposed for tests: the exact bytes that go into the HMAC.
+    // exposed for tests: the exact bytes that go into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
@@ -90,7 +80,6 @@ private:
     const net::Signer* signer_;
     std::uint32_t recv_window_ms_;
 
-    // Scratch, reused per build.
     std::array<char, 1024> body_{};
     std::array<char, 256> target_{};
     std::array<char, 512> sign_msg_{};

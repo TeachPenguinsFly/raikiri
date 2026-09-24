@@ -39,7 +39,6 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay.
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -54,11 +53,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    // Deribit's client_id is the api key and its client_secret the secret; the
-    // signer holds both under the names every other adapter uses.
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // client_id is the api key and client_secret the secret
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
         .secret(state->signer.secret())

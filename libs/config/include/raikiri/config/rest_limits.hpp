@@ -1,8 +1,5 @@
 #pragma once
 
-// The REST half of a venue's limits table, in the shape exec::RateBudget takes.
-// Header-only so config itself need not link exec.
-
 #include <raikiri/config/settings.hpp>
 #include <raikiri/exec/rate_budget.hpp>
 

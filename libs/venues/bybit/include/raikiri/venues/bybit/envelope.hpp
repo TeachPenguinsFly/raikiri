@@ -1,11 +1,5 @@
 #pragma once
 
-// What every bybit answer is wrapped in, on both transports.
-//
-// A websocket frame names its topic; a REST body carries retCode and hides the
-// payload under "result". Neither belongs to any one domain, and both have to
-// be read before anything else can be.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/wire/json.hpp>
@@ -20,9 +14,6 @@
 
 namespace raikiri::venues::bybit {
 
-// Which stream a public frame belongs to. Resolved from "topic" once, so the
-// dispatch that follows is an integer compare rather than a string compare
-// per message.
 enum class TopicKind : std::uint8_t {
     Orderbook,   // orderbook.{depth}.{symbol}
     PublicTrade, // publicTrade.{symbol}
@@ -41,18 +32,13 @@ struct TopicInfo {
     std::string_view symbol; // empty for private and control frames
 };
 
-// Resolves a bare topic string, with no frame around it. Exported because a
-// subscription key IS a topic on this venue, and a key must map back to a book
-// by the same rule the frame dispatch maps a topic by — two copies of "the
-// symbol is the last segment" is one copy that drifts.
+// exported so subscription keys map to books by the same rule as frames
 [[nodiscard]] TopicInfo classify_topic(std::string_view topic) noexcept;
 
-// Peeks at "topic"/"op" without consuming the rest of the frame.
+// peeks at "topic"/"op" without consuming the rest of the frame
 [[nodiscard]] std::expected<TopicInfo, WireError> parse_topic(std::string_view frame);
 
-// Every v5 REST response wraps its payload in this envelope. retCode == 0
-// is success; anything else carries the venue's reason, which the adapter
-// classifies rather than logging and forgetting.
+// retCode 0 is success
 struct WireRestEnvelope {
     std::int64_t ret_code{0};
     std::string_view ret_msg;
@@ -62,11 +48,7 @@ struct WireRestEnvelope {
 
 [[nodiscard]] std::expected<WireRestEnvelope, WireError> parse_envelope(std::string_view body);
 
-// A `{"list": [...]}` array under a REST result, read into caller storage.
-//
-// A template because the row reader differs per domain and nothing else does:
-// the envelope, the key, the capacity refusal and the per-row object walk are
-// identical for orders, positions, balances and the account book alike.
+// a {"list": [...]} array under a rest result, read into caller storage
 template <typename Entry, typename Read>
 [[nodiscard]] std::expected<std::span<const Entry>, WireError> read_list(std::string_view frame,
                                                                          std::string_view key,

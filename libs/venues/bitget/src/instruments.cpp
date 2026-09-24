@@ -38,9 +38,7 @@ public:
         case MarketType::Perp:
             return load_mix(market);
         case MarketType::Future:
-            // Delivery contracts ride the same catalogue as the perps, but the
-            // mapper reads symbolType "perpetual" only and would hand back an
-            // empty list — which reads as a venue that lists no futures.
+            // the mapper reads perpetual rows only, so delivery would return an empty list
             return std::unexpected{exec::not_implemented("bitget delivery futures catalogue")};
         case MarketType::Option:
             return std::unexpected{exec::not_implemented("bitget options catalogue")};
@@ -63,7 +61,7 @@ private:
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                continue; // duplicate or table full: reported by count, not by throw
+                continue; // duplicate or table full; reported by count
             }
             loaded.push_back(*state_->instruments.find(*id));
         }

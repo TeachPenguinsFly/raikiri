@@ -16,7 +16,7 @@ std::expected<void, WireError> read_futures_order(ondemand::object& obj, WireFut
         return std::unexpected(WireError::MissingField);
     }
     out.symbol = symbol;
-    // `orderId` over REST, `id` over the socket. Neither host sends both.
+    // `orderId` over rest, `id` over the socket
     out.order_id = field(obj, "orderId");
     if (out.order_id.empty()) {
         out.order_id = field(obj, "id");
@@ -82,7 +82,7 @@ std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireSpotOr
     out.status = spot_order_status(field(obj, "status"));
     out.update_ms = wire::digits_to_u64(field(obj, "updateTime"));
     if (out.update_ms == 0) {
-        // A create response has `transactTime` and neither of the other two.
+        // a create response carries only `transactTime`
         out.update_ms = wire::digits_to_u64(field(obj, "transactTime"));
     }
     if (out.update_ms == 0) {
@@ -123,8 +123,7 @@ WireOrderStatus spot_order_status(std::string_view text) noexcept {
     if (text == "FILLED") {
         return WireOrderStatus::Filled;
     }
-    // PARTIALLY_CANCELED is a cancel that took some volume first; the fill was
-    // already reported by its own trade, so the lifecycle event is a cancel.
+    // PARTIALLY_CANCELED is a cancel after some fills, already reported by their trades
     if (text == "CANCELED" || text == "PARTIALLY_CANCELED") {
         return WireOrderStatus::Cancelled;
     }

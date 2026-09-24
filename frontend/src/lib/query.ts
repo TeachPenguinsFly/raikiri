@@ -6,12 +6,6 @@ export type Query<T> =
   | { state: 'ready'; data: T }
   | { state: 'failed'; status: number | null; title: string; detail?: string | undefined }
 
-/** Runs a fetch and reports all three outcomes as data.
- *
- *  There is no fourth state for "no backend": a screen that cannot reach
- *  admind has FAILED, and saying so is the point. v2 had a flag that swapped
- *  screens to invented numbers when the backend was absent, and both paths had
- *  to be maintained forever. */
 export function useQuery<T>(run: () => Promise<T>, deps: unknown[], refreshMs?: number): Query<T> {
   const [result, setResult] = useState<Query<T>>({ state: 'loading' })
 

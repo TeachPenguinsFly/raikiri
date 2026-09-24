@@ -6,15 +6,7 @@ import { SidebarNav } from './SidebarNav'
 import { TopCommandBar } from './TopCommandBar'
 
 export function AppShell() {
-  // HEALTH IS THE ONE CALL THAT ANSWERS "is anything there". Every screen
-  // needs admind, so a screen that cannot reach it has nothing true to draw.
-  //
-  // BOTH SHAPES OF UNREACHABLE, because the two deployments fail differently:
-  // served straight, a dead admind is a transport error and `status` is null;
-  // behind the dev server's proxy the same outage arrives as HTTP 500, since
-  // the proxy answers on admind's behalf. Checking only for the first showed
-  // the page as normal with every panel empty, which is the exact lie this
-  // component exists to stop.
+  // behind the dev proxy a dead admind arrives as http 500 rather than a transport error
   const health = useQuery(() => api.health(), [], 5_000)
   const unreachable =
     health.state === 'failed' && (health.status === null || health.status >= 500)

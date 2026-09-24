@@ -31,15 +31,10 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
         ++denials_;
         return std::unexpected{RateDenied{.retry_after_ns = blocked_until_ns_ - now.ns}};
     }
-    // The floor this class may not spend below. An order may take the bucket
-    // to nothing; a poll must leave the reserve standing for one.
-    // A reserve wider than the bucket leaves a poll nothing, which is a
-    // configuration error rather than an unlimited allowance: clamped here so
-    // the subtraction below cannot wrap and hand out everything.
+    // a poll leaves the reserve; a reserve wider than the bucket is clamped so the subtraction cannot wrap
     const std::uint32_t floor = cls == RateClass::Order ? 0U : std::min(reserve_, capacity_);
     if (cost > capacity_ - floor) {
-        // Larger than this class can ever afford: waiting cannot help, so the
-        // caller is told so rather than handed a retry that will fail again.
+        // larger than this class can ever afford
         ++denials_;
         return std::unexpected{RateDenied{.retry_after_ns = 0}};
     }
@@ -49,7 +44,7 @@ RateLimiter::take(std::uint32_t cost, MonoNanos now, RateClass cls) noexcept {
         return std::unexpected{RateDenied{
             .retry_after_ns = (static_cast<std::uint64_t>(missing) * window_ns_) / capacity_}};
     }
-    // AND THE WINDOW ITSELF, which the bucket does not enforce; see the header.
+    // and the window ceiling, which the bucket does not enforce
     if (window_ns_ != 0) {
         if (now.ns - window_start_ns_ >= window_ns_) {
             window_start_ns_ = now.ns;

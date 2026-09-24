@@ -19,8 +19,7 @@ export type UpstreamTable = Schema<'UpstreamTable'>
 export type UpstreamColumn = Schema<'UpstreamColumn'>
 export type UpstreamIndex = Schema<'UpstreamIndex'>
 
-/** A refusal the server explained. Carries the RFC 9457 body, so a screen can
- *  say what went wrong instead of "something went wrong". */
+/** a refusal carrying its rfc 9457 problem body */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -39,20 +38,13 @@ async function get<T>(path: string, params?: Record<string, string | undefined>)
   const url = query.size > 0 ? `${path}?${query}` : path
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
-    // The server answers problems as JSON; anything else is a proxy or a
-    // process that is not admind, and pretending otherwise hides which.
     const problem = await res.json().catch(() => null)
     throw new ApiError(res.status, problem as Problem | null)
   }
   return (await res.json()) as T
 }
 
-/** A write, which needs the one header a read does not.
- *
- *  IDEMPOTENCY-KEY IS MANDATORY and the server mints the order id, not us: a
- *  retry after a timeout must reach the same order rather than a second one.
- *  The key is generated per ATTEMPT by the caller and reused across retries of
- *  that attempt — generating a fresh one on retry is the bug this guards. */
+/** the caller reuses one idempotency key across retries of the same attempt */
 async function post<T>(path: string, body: unknown, idempotencyKey: string): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
@@ -73,10 +65,7 @@ async function post<T>(path: string, body: unknown, idempotencyKey: string): Pro
 export type NewOrder = Schema<'NewOrder'>
 export type OrderAccepted = Schema<'OrderAccepted'>
 
-/** Hands an order to the desk. A 202 means QUEUED, not filled and not even
- *  accepted by the venue: the risk gate sits past this call, and its refusal
- *  arrives later on the order's own events. A screen that reads 202 as success
- *  is claiming something this answer does not say. */
+/** 202 means queued; a risk refusal arrives later on the order's events */
 export const placeOrder = (order: NewOrder, idempotencyKey: string) =>
   post<OrderAccepted>('/v1/orders', order, idempotencyKey)
 
@@ -85,9 +74,6 @@ type InstrumentQuery = NonNullable<paths['/v1/instruments']['get']['parameters']
 export const api = {
   health: () => get<Health>('/v1/health'),
   accounts: () => get<Account[]>('/v1/accounts'),
-  // FORWARDED, and this file does not know what comes back. The upstream
-  // names its own tables and its own columns; a screen that hardcoded them
-  // would carry somebody's model in a public repository.
   upstreamIndex: (name: string) => get<UpstreamIndex>(`/v1/x/${name}/`),
   upstreamTable: (name: string, path: string) => get<UpstreamTable>(`/v1/x/${name}/${path}`),
   instrument: (id: string) => get<Instrument>(`/v1/instruments/${id}`),
@@ -105,9 +91,7 @@ export const api = {
       cursor: params.cursor,
       limit: params.limit,
     }),
-  // Everything from here reads Postgres and answers 503 without a DSN. That
-  // refusal is a real answer and must reach the screen — a screen that renders
-  // an empty table instead is claiming nothing happened.
+  // the routes below read postgres and answer 503 without a dsn
   orders: (params: { account?: string | undefined; open?: boolean | undefined } = {}) =>
     get<{ items: Order[]; next_cursor?: string | null }>('/v1/orders', {
       account: params.account,
@@ -138,11 +122,7 @@ export const api = {
     }),
 }
 
-/** Every increment since a cutoff, oldest first.
- *
- *  The ledger is append-only increments and never a running total — a total is
- *  a question asked of it. So a chart of the balance over time has to walk the
- *  pages and sum them here. */
+/** every pnl increment since a cutoff, oldest first */
 export async function allPnl(sinceNanos?: string): Promise<PnlIncrement[]> {
   const out: PnlIncrement[] = []
   let cursor: string | undefined
@@ -154,10 +134,6 @@ export async function allPnl(sinceNanos?: string): Promise<PnlIncrement[]> {
   return out.sort((a, b) => (BigInt(a.ts_event) < BigInt(b.ts_event) ? -1 : 1))
 }
 
-/** Walks every page. The catalogue is thousands of rows on an options venue
- *  and the table virtualises anyway, so the alternative — a "load more"
- *  button on a chain — would be a control that exists to serve pagination
- *  rather than the person reading the chain. */
 export async function allInstruments(
   params: { account?: string | undefined; kind?: InstrumentQuery['kind'] | undefined },
   onPage?: (total: number) => void,

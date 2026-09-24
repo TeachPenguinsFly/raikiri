@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per file
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>

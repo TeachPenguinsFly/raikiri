@@ -63,8 +63,7 @@ BookResult Book::apply(const WireDepth& frame) {
         return BookResult::BadLevel;
     }
     version_ = frame.end_version;
-    // The 15-level window is the server's to keep; a crossed top means it did
-    // not, and no delta that follows can say which side is wrong.
+    // a crossed top means the server's window is wrong and no later delta can fix it
     if (const auto touch = ladders_.touch();
         touch.has_value() && touch->first.price >= touch->second.price) {
         ++gaps_;

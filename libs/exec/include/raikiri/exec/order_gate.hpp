@@ -1,29 +1,7 @@
 #pragma once
 
-// Venue-agnostic order plumbing: what every ExecutionClient needs before it
-// may send a live order, and what none of them should write twice.
-//
-// RateLimiter. Every venue meters differently — binance charges WEIGHT per
-// endpoint against a per-minute budget and counts orders separately, bybit
-// meters per endpoint, bitmex allows a flat 180/min — so the limiter takes a
-// cost per request instead of assuming one. It refuses rather than sleeps: a
-// gateway that blocks in submit() stalls the loop that also drains cancels,
-// and an order delayed behind a rate limit is worse than an order refused
-// while the escape hatch still works.
-//
-// THE RESERVE IS WHY THE CLASS OF A REQUEST MATTERS. Reconciliation pulls are
-// numerous, individually cheap to delay and expensive to skip; order traffic is
-// rare and cannot wait. Sharing one flat bucket lets a poll cycle spend the
-// budget a cancel is about to need — and a cancel that cannot be sent is an
-// open position the strategy believes is closed. Polls therefore may not draw
-// the bucket below `reserve`, which only order traffic may spend.
-//
-// InFlightTable. An order handed to a venue and never answered is the failure
-// this exists for. REST can time out after the exchange accepted the order,
-// so the verdict is unknown rather than negative — but leaving it unknown
-// forever means the OMS holds an order that no event will ever close. The
-// table ages requests out and hands them back so the adapter can synthesize a
-// terminal event and let reconciliation establish the truth.
+// RateLimiter refuses rather than sleeps; polls may not draw below `reserve`
+// InFlightTable ages out unanswered orders so the adapter can synthesize a terminal event
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -34,38 +12,21 @@
 
 namespace raikiri::exec {
 
-// A refusal, not a delay. `retry_after_ns` is what the caller should wait
-// before asking again; it is advice for the backoff, not a sleep taken here.
+// a refusal; `retry_after_ns` is advice for the caller's backoff
 struct RateDenied {
     std::uint64_t retry_after_ns{0};
 };
 
-// What a request is spending on. The distinction exists for the reserve.
+// what a request spends on; only orders may spend the reserve
 enum class RateClass : std::uint8_t {
     Order, // create, cancel, amend — may spend the reserve
     Poll,  // catalogue, positions, balances, ledgers — may not
 };
 
-// Token bucket over a fixed window, with a CEILING ON THE WINDOW ITSELF.
-// Costs are venue units: 1 request, or binance's endpoint weight, or an order
-// count against a separate budget.
-//
-// The bucket alone is not the venue's rule and is looser than it. It starts
-// full and refills continuously, so a caller may spend the capacity it began
-// with AND a window's worth of refill — twice what the line in venues.yaml
-// says. Against binance's 2400 a minute that is roughly 4560 inside one
-// calendar minute with nothing refused, and a full 571-instrument seed round
-// fits in the gap.
-//
-// So the bucket keeps its job, which is smoothing WITHIN a window, and a plain
-// counter enforces the window itself. That is the venue's own model — binance
-// resets its weight on the calendar minute — and for a venue quoting a rate
-// instead (bybit's fifty a second) the same ceiling is exactly that rate, so
-// one mechanism is honest for both.
+// token bucket smoothing within a window, plus a per-window ceiling matching the venue's rule
 class RateLimiter {
 public:
-    // `reserve` is the floor a Poll may not spend below. Zero is right only
-    // where nothing but order traffic shares the budget.
+    // `reserve` is the floor a Poll may not spend below
     RateLimiter(std::uint32_t capacity,
                 std::uint64_t refill_window_ns,
                 std::uint32_t reserve = 0) noexcept
@@ -92,29 +53,25 @@ private:
     std::uint64_t blocked_until_ns_{0};
     std::uint64_t denials_{0};
 
-    // What has been spent since the current window opened, and when it did.
+    // spent since the current window opened, and when it opened
     std::uint32_t window_spent_{0};
     std::uint64_t window_start_ns_{0};
 };
 
-// One request awaiting a venue verdict.
+// one request awaiting a venue verdict
 struct InFlight {
     ClientOrderId client_order_id{};
-    // The id the VENUE knows it by, which is what a follow-up question has to
-    // quote. Our own id never left this process.
+    // the id the venue knows it by
     ExchangeClientOrderId exchange_client_order_id{};
     InstrumentId instrument{};
-    // Enough to describe the order in an event without going back to the store:
-    // the whole point of this table is that the store is still waiting.
+    // enough to describe the order without the store
     Side side{Side::Buy};
     QtyLots qty{};
     CmdKind kind{CmdKind::Create};
     MonoNanos sent{};
 };
 
-// Tracks requests between "handed to the transport" and "the venue answered".
-// Deliberately small and flat: a live gateway holds tens of these, and a hash
-// map would cost more than the linear scan it replaces.
+// requests between the transport and the venue's answer; small, so a linear scan
 class InFlightTable {
 public:
     explicit InFlightTable(std::size_t capacity) { entries_.reserve(capacity); }

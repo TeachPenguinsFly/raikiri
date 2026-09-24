@@ -27,13 +27,13 @@ struct EventInfo {
     std::string_view inst_id;
 };
 
-// The keepalive answer is the bare text "pong" and fails here as NotJson.
+// the keepalive answer is the bare text "pong" and fails here as NotJson
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
 struct StreamError {
     std::int64_t code{0};
     std::string_view msg;
-    // Recovered from the frame the venue echoes inside `msg`; empty when it echoes none.
+    // recovered from the frame the venue echoes inside `msg`; empty when it echoes none
     std::string_view inst_id;
     std::size_t args{0};
 };

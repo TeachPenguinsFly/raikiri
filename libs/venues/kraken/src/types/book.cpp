@@ -48,8 +48,7 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// The venue's own reader: parse_decimal_e9 refuses the exponents this venue
-// writes. The exact-or-refuse rule itself is book::exact_steps.
+// parse_decimal_e9 refuses exponents, so this uses the venue's own reader
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_number_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -71,7 +70,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
         WireBook out{};
         out.product_id = *product;
         out.snapshot = *feed == "book_snapshot";
-        // `seq` is the continuity chain and runs contiguous across both.
+        // seq is contiguous across snapshot and delta
         const auto timestamp = opt_ms(*root, "timestamp");
         const auto seq = opt_num(*root, "seq");
         if (!timestamp.has_value() || !seq.has_value()) {
@@ -132,7 +131,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
         const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)};
 
         if (level.qty.raw == 0) {
-            // Quantity zero is Kraken's delete: 615 of 8069 live deltas.
+            // quantity zero deletes the level
             side.remove(level.price);
             continue;
         }
@@ -155,7 +154,7 @@ BookResult Book::apply(const WireBook& update) {
     }
 
     if (!synced_) {
-        // A delta before any snapshot has no book to chain onto.
+        // a delta before any snapshot has no book
         return BookResult::Ignored;
     }
     if (update.seq != last_seq_ + 1) {

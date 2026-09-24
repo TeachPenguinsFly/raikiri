@@ -1,39 +1,12 @@
 @import 'tailwindcss';
 
-/* ---------------------------------------------------------------------------
-   The terminal's design system.
-
-   Everything visual is named here. A component that needs a colour, a size, a
-   radius or a height takes it from this file; a component that invents one is
-   a component that will drift. The rules the tokens encode:
-
-   - SURFACE CARRIES STRUCTURE, NOT BORDERS. Five neutral steps separate the
-     app from a panel from a popover from a hovered row. A hairline is drawn
-     only where a surface step cannot do the job — under a table header, and
-     nowhere else. Every rectangle having an outline is what makes a screen
-     read as a developer tool.
-   - GREEN AND RED ARE MARKET SEMANTICS. They say up and down, bid and ask,
-     long and short. They never decorate a container, a tab or a badge that is
-     not about direction.
-   - NUMBERS ARE TABULAR EVERYWHERE. A column of prices that does not align is
-     a column you have to read twice.
---------------------------------------------------------------------------- */
+/* design tokens; green and red are reserved for direction */
 
 @theme {
-  /* --- type ------------------------------------------------------------- */
-  /* Inter for the interface: a tall x-height and true tabular figures, which
-     is the whole job on a screen that is mostly numbers. JetBrains Mono for
-     identifiers only — exchange symbols, order ids — where the reader is
-     comparing characters rather than reading words. */
-  /* ONE FAMILY. Symbols and order ids used to be set in a mono face, which put
-     two typefaces in one table row — `BTCUSDT` in one voice and `Orders` in
-     another — and the mono was the worse of the two at 12px on a dark ground.
-     Inter's tabular figures line a column up without help. */
+  /* one family; inter's tabular figures align columns */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
-  /* Six steps, and the smallest is 11px. A label below that is a label nobody
-     reads, which makes it a label that should not have been drawn. */
   --text-2xs: 0.6875rem; /* 11 — column headers, units, counts */
   --text-2xs--line-height: 0.875rem;
   --text-xs: 0.75rem; /* 12 — secondary metadata */
@@ -49,43 +22,27 @@
   --text-2xl: 1.5rem; /* 24 */
   --text-2xl--line-height: 1.875rem;
 
-  /* --- surfaces --------------------------------------------------------- */
-  /* Deep blue-black. THE GUTTER IS THE BORDER: the dark ground running between
-     panels is what separates them, and it can only do that job if the panels
-     are clearly lighter than it — so every step here is wide enough to see at
-     a glance rather than to find by looking. */
   --color-canvas: #060910; /* the ground the panels sit on */
   --color-panel: #0f141d; /* a workspace panel */
   --color-raised: #19212c; /* popovers, inputs, title strips */
   --color-hover: #202a37; /* a row or control under the pointer */
   --color-active: #2a3646; /* pressed, or selected and not hovered */
 
-  /* --- lines ------------------------------------------------------------ */
-  /* One separator, used under a table header and nowhere else. */
+  /* used under a table header only */
   --color-line: #1e2734;
   --color-line-strong: #2e3a4a;
 
-  /* --- text ------------------------------------------------------------- */
-  /* Three levels, spaced far enough apart that a reader can tell which is
-     which without comparing them side by side. Not #fff at the top: pure white
-     on a dark panel vibrates at 13px. */
   --color-fg: #eef3fa;
   --color-fg-mid: #93a3b8;
   --color-fg-dim: #5b6a7d;
 
-  /* --- semantics -------------------------------------------------------- */
-  /* Mint and rose rather than grass and vermilion: the pair is matched in
-     lightness, so a column of gains is no louder than a column of losses.
-     The accent is the brand cyan the wordmark is drawn in. */
+  /* up and down matched in lightness */
   --color-up: #2ecc8f;
   --color-down: #f0566e;
   --color-accent: #38bdf8;
   --color-amber: #e0a541;
   --color-violet: #a98cf5;
 
-  /* --- radii ------------------------------------------------------------ */
-  /* Three. A trading terminal that rounds like a phone app stops looking
-     precise. */
   --radius-sm: 4px; /* chips, badges, small controls */
   --radius-md: 6px; /* buttons, inputs, rows */
   --radius-lg: 8px; /* panels and popovers */
@@ -111,8 +68,6 @@
     background: color-mix(in srgb, var(--color-accent) 30%, transparent);
   }
 
-  /* The scrollbar is chrome, not content: it appears against the surface it
-     scrolls and never draws a track. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -146,44 +101,28 @@
 }
 
 @layer components {
-  /* A workspace panel. NO BORDER — the step from canvas to panel is what
-     separates it, and an outline on top of that step is the thing that makes
-     a screen look like a wireframe. */
   .panel {
     @apply bg-panel rounded-lg;
   }
 
-  /* The name of a panel: a 12px label on a 28px strip. A panel head set at a
-     web heading's size and height spends forty-four pixels of a trading screen
-     saying a word the reader already knows. */
   .panel-title {
     @apply text-xs font-medium tracking-[-0.005em] text-fg-mid;
   }
 
-  /* A table's column header.
-     Small, upper, tracked, dim. Not a style choice — a header set like the
-     data under it competes with the data; set like this it disappears until
-     you look for it, which is the only time a column header is wanted. This
-     is the one place uppercase earns its keep. */
   .col-head {
     @apply text-[10px] leading-4 font-medium tracking-[0.06em] text-fg-dim uppercase;
   }
 
-  /* Secondary status set beside a title: a count, a span, a row total. */
   .meta {
     @apply text-xs text-fg-dim;
     font-variant-numeric: tabular-nums;
   }
 
-  /* Every figure lines up. Non-negotiable in a blotter. */
   .num {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.006em;
   }
 
-  /* One row rhythm for every table in the product. 28px, not 32: the screen is
-     read by scanning a column down, and four pixels a row is two more venues
-     visible without the type getting any smaller. */
   .row {
     @apply h-7 transition-colors duration-150;
   }
@@ -193,9 +132,6 @@
 }
 
 @layer utilities {
-  /* A value that briefly tints when it changes. 220ms out, because the point
-     is which row moved, and a tint that lingers turns the board into a
-     christmas tree. */
   .flash-up {
     animation: flash-up 0.55s ease-out;
   }
@@ -229,8 +165,7 @@
 }
 
 
-/* One-shot entrance when a screen first has data, staggered per row.
-   `both` so a delayed row holds its hidden start rather than flashing in. */
+/* fill mode both keeps a delayed row hidden until it starts */
 .enter-fade-up {
   animation: enter-fade-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--enter-delay, 0ms);
@@ -247,9 +182,7 @@
   }
 }
 
-/* The donut's arcs grow to whatever length their attributes say. A `from`-only
-   keyframe animates towards the element's own computed value, so the geometry
-   stays in the component and the motion stays in CSS. */
+/* from-only keyframe: the arc grows to its own attribute values */
 @keyframes donut-grow {
   from {
     stroke-dasharray: 0 var(--circumference);

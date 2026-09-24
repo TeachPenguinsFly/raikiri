@@ -46,8 +46,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
 
-        // A failed read leaves every period at 0, which a carry board must refuse
-        // rather than read as eight hours.
+        // a failed read leaves every period at 0, which a carry board must refuse
         std::unordered_map<std::string_view, const WireFundingRow*> schedule;
         static thread_local const auto funding_owner = std::make_unique<FundingBuffer>();
         std::string funding_body;

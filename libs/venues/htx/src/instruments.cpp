@@ -30,10 +30,7 @@ public:
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host()},
                                 .port = "443",
-                                // Measured 13.3 s on a cold endpoint against a
-                                // 5 s default, so the gateway refused to start
-                                // with a timeout that reads as the venue being
-                                // down. It warms to 0.2 s afterwards.
+                                // the cold endpoint is slower than the 5 s default
                                 .timeout_ms = 20'000}},
           spot_rest_{state_->io,
                      net::RestConfig{.host = std::string{spot_rest_host()},

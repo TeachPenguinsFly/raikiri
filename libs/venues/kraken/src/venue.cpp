@@ -37,11 +37,8 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
-    // The secret is kept in its PRINTABLE base64 form: sign.hpp decodes it at
-    // every signature, because the decoded bytes are the HMAC key.
+    // a factory cannot report a bad reference, so a typo reads as a revoked key
+    // the secret stays in base64; sign.hpp decodes it per signature
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
         .secret(state->signer.secret())

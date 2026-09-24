@@ -1,14 +1,6 @@
 #pragma once
 
-// Append-only mmap journal: durability, replay, and the hot->cold data feed in
-// one mechanism.
-//
-// Hot append = memcpy into the mapping + release-store of committed_bytes.
-// No syscall, no fsync on the hot path; a cold thread calls flush() on a
-// 50 ms cadence (group commit). The durability window is explicit and
-// documented: the venue is the ultimate system of record and reconciliation
-// covers the gap — what the journal must never do is present a torn frame
-// as valid, and the CRC walk at open guarantees that.
+// hot append is a memcpy plus a release store of committed_bytes; a cold thread flushes
 
 #include <cstddef>
 #include <cstdint>
@@ -35,14 +27,12 @@ enum class JournalError : std::uint8_t {
     AlreadyWriting, // another live process holds this journal
 };
 
-// Total on-disk size of a frame carrying `payload_len` bytes.
 [[nodiscard]] constexpr std::size_t frame_bytes(std::size_t payload_len) noexcept {
     const std::size_t raw = k_frame_header_bytes + payload_len + k_frame_trailer_bytes;
     return (raw + 7U) & ~std::size_t{7U};
 }
 
-// Decoded view of one frame; `payload` points into the reader's mapping and
-// is valid until the reader advances past the segment.
+// `payload` points into the reader's mapping until it leaves the segment
 struct FrameView {
     std::uint16_t schema_id{0};
     std::uint16_t schema_version{0};

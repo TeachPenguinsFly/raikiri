@@ -11,30 +11,23 @@ namespace raikiri::venues::weex {
 
 namespace {
 
-// Header names are WEEX's, hyphens and capitals and all. The error table spells
-// them with underscores (ACCESS_KEY); the wire wants the hyphen.
+// the wire uses hyphens; the error table spells them with underscores
 constexpr std::string_view k_hdr_key = "ACCESS-KEY";
 constexpr std::string_view k_hdr_sign = "ACCESS-SIGN";
 constexpr std::string_view k_hdr_timestamp = "ACCESS-TIMESTAMP";
 constexpr std::string_view k_hdr_passphrase = "ACCESS-PASSPHRASE";
 
-// The venue's own page ceiling on both list reads.
+// the venue's page ceiling on both list reads
 constexpr std::string_view k_page_limit = "100";
 
-// Funding rows are asked for by type rather than filtered afterwards: the bill
-// list answers every deposit, transfer and fee the account ever made, and a
-// hundred-row page of those could contain no settlement at all.
+// ask for funding rows by type; a page of other bills may hold none
 constexpr std::string_view k_income_funding = "position_funding";
 
-// WEEX refuses a fills window wider than seven days and a bill window wider
-// than a hundred, and answers an over-wide request with an error rather than a
-// truncated page. Clamped here, because a silently short answer reads as "no
-// fills" and "no funding was charged".
+// weex refuses fill windows over 7 days and bill windows over 100, so clamp
 constexpr std::uint64_t k_max_fill_window_ms = 7ULL * 24 * 60 * 60 * 1000;
 constexpr std::uint64_t k_max_bill_window_ms = 100ULL * 24 * 60 * 60 * 1000;
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed payload authenticates as something we did not mean to send.
+// reports overflow instead of truncating a signed payload
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -89,28 +82,15 @@ private:
     return side == Side::Buy ? "BUY" : "SELL";
 }
 
-// WEEX REQUIRES A POSITION SIDE ON EVERY ORDER and its vocabulary is LONG and
-// SHORT with no "both" — the value a one-way account would otherwise carry. So
-// it is DERIVED, and this is the single most likely thing in this file to be
-// wrong the first time a credential reaches the venue:
-//
-//   an opening order faces the way it trades — a buy opens a long;
-//   a reduce-only order faces the position it is closing, which is the OPPOSITE
-//   of the way it trades — a buy closes a short.
-//
-// Under `separatedMode` COMBINED, which is the one-way account, both readings
-// name the one position the account has and the field is a formality. Under
-// SEPARATED they name different legs, and a wrong one opens a hedge instead of
-// closing a position. Nothing here can tell which mode an account is in —
-// /capi/v3/account/accountConfig says, and this adapter does not read it.
+// weex requires positionSide LONG or SHORT: an opening order faces its side, a reduce-only one the opposite
+// unverified under separated mode, which this adapter does not read
 [[nodiscard]] std::string_view position_side_text(Side side, OrderFlags flags) noexcept {
     const bool closing = has_flag(flags, OrderFlags::ReduceOnly);
     const bool facing_long = (side == Side::Buy) != closing;
     return facing_long ? "LONG" : "SHORT";
 }
 
-// Post-only is a TIME IN FORCE value on WEEX, not a separate boolean. Sending
-// it as a flag is ignored and the order crosses.
+// post-only is a time in force value on weex
 [[nodiscard]] std::string_view tif_text(TimeInForce tif, OrderFlags flags) noexcept {
     if (has_flag(flags, OrderFlags::PostOnly)) {
         return "POST_ONLY";
@@ -126,9 +106,7 @@ private:
     return "GTC";
 }
 
-// The contract tree and nothing else. Answered before a request exists rather
-// than left to the venue, which would take a spot symbol it does not list and
-// answer -1121.
+// contract tree only; weex would answer a spot symbol with -1121
 [[nodiscard]] bool serves(MarketType market) noexcept {
     return market == MarketType::Perp;
 }
@@ -166,8 +144,7 @@ net::RestRequest RequestBuilder::api_trading_symbols() noexcept {
 }
 
 net::RestRequest RequestBuilder::premium_index() noexcept {
-    // NO `symbol`: the bare path answers for every contract in one body, which
-    // is one call a minute rather than one per instrument watched.
+    // no symbol: one body covers every contract
     return {.method = net::HttpMethod::Get, .target = ep::k_premium_index};
 }
 
@@ -193,9 +170,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // The "?" belongs to the SIGNER and not to the query: a query carrying its
-    // own leading "?" doubles it here, and an empty query that got one anyway
-    // signs a string the venue never sees.
+    // the signer adds "?" only when a query exists
     Appender msg{sign_msg_};
     msg << ts.view() << method_text(method) << path;
     if (!query.empty()) {
@@ -229,8 +204,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod
                        {k_hdr_sign, signature},
                        {k_hdr_timestamp, ts.view()},
                        {k_hdr_passphrase, passphrase_}};
-    // WEEX refuses anything else with -1045, on a GET with no body as much as
-    // on a POST with one.
+    // weex refuses any other content type with -1045, even on a GET
     request.content_type = "application/json";
     return request;
 }
@@ -246,16 +220,12 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     }
     const auto& base = base_of(*instrument);
     const bool is_limit = cmd.order_type == OrderType::Limit;
-    // UNDEF IS NOT ZERO, and a quantity the OMS never filled in must not be
-    // rendered as one: WEEX would refuse "0" with -1142 on a good day and take
-    // it on a bad one.
+    // undef must not render as "0"
     if (cmd.qty.is_undef() || (is_limit && cmd.price.is_undef())) {
         return std::unexpected{BuildError::BadValue};
     }
     if (cmd.exchange_client_order_id.empty()) {
-        // `newClientOrderId` is REQUIRED on this venue, so an order with no id
-        // cannot be sent at all — and one sent without would come back
-        // unattributable.
+        // newClientOrderId is required
         return std::unexpected{BuildError::NoOrderTarget};
     }
 
@@ -284,8 +254,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(const OrderCmd& cmd,
                                                                          UnixNanos now) {
-    // NO SYMBOL AND NO MARKET: WEEX cancels by id alone, which is why this one
-    // builder needs neither the instrument table nor a live catalogue.
+    // weex cancels by id alone
     Appender query{query_};
     if (!cmd.target_exchange_order_id.empty()) {
         query << "orderId=" << cmd.target_exchange_order_id.view();
@@ -305,10 +274,7 @@ RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds, UnixNanos now) {
     if (cmds.empty() || cmds.size() > k_max_cancel_batch) {
         return std::unexpected{BuildError::NoOrderTarget};
     }
-    // BY CLIENT ID ONLY. WEEX takes `orderIdList` or `origClientOrderIdList`
-    // and this sends the second: every order this process placed carries a
-    // ULID — the venue requires one — while the venue's own id is known only
-    // for orders it has already answered about.
+    // by client id: every order placed carries a ulid
     Appender list{list_};
     list << "[";
     for (std::size_t i = 0; i < cmds.size(); ++i) {
@@ -361,8 +327,7 @@ RequestBuilder::fills(MarketType market, UnixNanos since, UnixNanos now) {
         }
         query << "&startTime=" << start_ms << "&endTime=" << end_ms;
     }
-    // A caller that named no `since` sends no window at all, which is WEEX's
-    // own default of the last seven days rather than a window invented here.
+    // no since means weex's default of the last seven days
     if (!query.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
@@ -378,8 +343,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
 }
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::balances(UnixNanos now) {
-    // NO MARKET. One collateral pool backs every contract on this host, so the
-    // answer does not vary by market and narrowing it would be an invention.
+    // one collateral pool backs every contract
     return sign(net::HttpMethod::Get, ep::k_balance, {}, {}, now);
 }
 

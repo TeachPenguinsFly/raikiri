@@ -19,8 +19,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_forbidden:
     case k_permission_denied:
     case k_scope_exceeded:
-    // The venue has taken the account away from us; retrying spends the rate
-    // budget and changes nothing until a human intervenes.
+    // retrying cannot help until a human intervenes
     case k_account_locked:
         return exec::ErrorClass::AuthFailure;
 
@@ -41,12 +40,10 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_timed_out:
         return exec::ErrorClass::Retryable;
 
-    // The token expired mid-flight rather than never existing; the adapter
-    // re-authenticates and the same order is worth sending again.
+    // the token expired mid-flight; the adapter re-authenticates
     case k_authorization_required:
         return exec::ErrorClass::Retryable;
 
-    // A channel Deribit stopped serving.
     case k_subscribe_error_unsubscribed:
         return exec::ErrorClass::Retryable;
 
@@ -66,7 +63,7 @@ exec::ErrorClass classify_http(int status) noexcept {
         return exec::ErrorClass::Retryable;
     }
     if (status >= k_http_ok_min && status <= k_http_ok_max) {
-        return exec::ErrorClass::Terminal; // the JSON-RPC envelope decides
+        return exec::ErrorClass::Terminal; // the json-rpc envelope decides
     }
     return exec::ErrorClass::Terminal;
 }

@@ -1,11 +1,6 @@
 #pragma once
 
-// Per-strategy id mint. One IdGen per strategy instance, single-threaded by
-// design (the OMS owns it): a plain counter for ClientOrderId keeps the
-// {strategy_id | seq} handle dense and journal-replayable, and one UlidGen
-// keeps ExchangeClientOrderIds monotone within the process — see ulid.hpp for
-// why monotonicity matters. Seq starts at 1 so raw 0 stays the universal
-// "no order" sentinel (ClientOrderId::valid()).
+// per-strategy id mint, single-threaded; seq starts at 1 so raw 0 means no order
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/common/ulid.hpp>

@@ -12,32 +12,24 @@ namespace {
 constexpr std::string_view k_product_live = "USDT-FUTURES";
 constexpr std::string_view k_product_demo = "SUSDT-FUTURES";
 
-// Header names are Bitget's, hyphens and all. The error strings say
-// ACCESS_KEY with an underscore; the wire wants the hyphen.
+// header names use hyphens; the error strings spell them with underscores
 constexpr std::string_view k_hdr_key = "ACCESS-KEY";
 constexpr std::string_view k_hdr_sign = "ACCESS-SIGN";
 constexpr std::string_view k_hdr_timestamp = "ACCESS-TIMESTAMP";
 constexpr std::string_view k_hdr_passphrase = "ACCESS-PASSPHRASE";
 constexpr std::string_view k_hdr_locale = "locale";
 
-// Response-message language only, but it sits inside the documented "must
-// contain" header block, so it is sent rather than argued with.
 constexpr std::string_view k_locale = "en-US";
 
-// One-way position mode, cross margin. tradeSide belongs to hedge mode and
-// reduceOnly only works outside it, so an account in hedge mode will see
-// every order refused with 45021 rather than opening the wrong leg.
+// one-way mode, cross margin; a hedge-mode account gets every order refused with 45021
 constexpr std::string_view k_margin_mode = "crossed";
 
-// Bitget caps a page at 100 on every list endpoint here.
+// bitget caps a page at 100 on these list endpoints
 constexpr std::string_view k_page_limit = "100";
 
-// The one funding value in the classic v2 businessType enum.
 constexpr std::string_view k_settle_fee_type = "contract_settle_fee";
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long symbol yields a request
-// Bitget refuses with 40034 instead of one that names a different contract.
+// an overflowing part is dropped whole, so the venue refuses the request instead of reading another contract
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -69,8 +61,7 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed payload authenticates as something we did not mean to send.
+// reports overflow rather than truncating a signed payload
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -125,10 +116,7 @@ private:
     return side == Side::Buy ? "buy" : "sell";
 }
 
-// v2 calls time-in-force `force` on BOTH APIs and shares one value set;
-// `timeInForceValue` was v1 and is gone. Post-only is a force value here, not
-// a separate flag — sending it as a boolean is silently ignored and the order
-// crosses.
+// post-only is a force value; a boolean flag is ignored and the order crosses
 [[nodiscard]] std::string_view force_text(TimeInForce tif, OrderFlags flags) noexcept {
     if (has_flag(flags, OrderFlags::PostOnly)) {
         return "post_only";
@@ -175,8 +163,7 @@ std::string_view product_type(bool testnet) noexcept {
 }
 
 std::string_view margin_coin(std::string_view product) noexcept {
-    // "USDT-FUTURES" settles in USDT, "SUSDT-FUTURES" in the demo SUSDT. The
-    // catalogue row carries no settle coin, so the product is the only source.
+    // the settle coin is the product name's prefix before the dash
     const auto dash = product.find('-');
     return dash == std::string_view::npos ? product : product.substr(0, dash);
 }
@@ -185,8 +172,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-// Every public builder below writes into the same buffer, so a request must be
-// sent before the next one is built. One catalogue load at a time is the only use.
+// all public builders share one buffer; send each request before building the next
 net::RestRequest RequestBuilder::contracts(std::string_view product) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_mix_contracts);
@@ -250,8 +236,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod
                                                                  std::string_view query,
                                                                  std::string_view body,
                                                                  UnixNanos now) {
-    // The passphrase is as load-bearing as the secret: without it Bitget
-    // answers 40011, which is not the code a missing key produces.
+    // without the passphrase bitget answers 40011, not the missing-key code
     if (signer_ == nullptr || !signer_->has_credentials() || passphrase_.empty()) {
         return std::unexpected{BuildError::NotSigned};
     }
@@ -261,8 +246,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::sign(net::HttpMethod
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // The "?" belongs to the signer, not to the query: a query carrying its
-    // own leading "?" doubles it here and answers 40009.
+    // the signer adds the "?"; a query with its own doubles it and gets 40009
     Appender msg{sign_msg_};
     msg << ts.view() << method_text(method) << path;
     if (!query.empty()) {
@@ -323,8 +307,7 @@ RequestBuilder::create_order(const OrderCmd& cmd,
     if (cmd.qty.is_undef() || (cmd.order_type == OrderType::Limit && cmd.price.is_undef())) {
         return std::unexpected{BuildError::BadValue};
     }
-    // A market order that must not cross is a contradiction, and `force`
-    // carries both meanings here, so it cannot be expressed at all.
+    // force carries both post-only and tif, so a post-only market order cannot be expressed
     if (cmd.order_type == OrderType::Market && has_flag(cmd.flags, OrderFlags::PostOnly)) {
         return std::unexpected{BuildError::UnsupportedOrder};
     }
@@ -334,9 +317,7 @@ RequestBuilder::create_order(const OrderCmd& cmd,
     net::JsonWriter json{body_};
     switch (cmd.instrument.market()) {
     case MarketType::Spot: {
-        // Spot `size` is base coin EXCEPT on a market buy, where it is the
-        // quote coin. An OrderCmd carries lots of the base, so there is no
-        // honest rendering of that one shape.
+        // spot market buys size in the quote coin, which an OrderCmd cannot express
         if (cmd.order_type == OrderType::Market && cmd.side == Side::Buy) {
             return std::unexpected{BuildError::UnsupportedOrder};
         }
@@ -344,8 +325,7 @@ RequestBuilder::create_order(const OrderCmd& cmd,
             .str("symbol", symbol)
             .str("side", side_text(cmd.side))
             .str("orderType", cmd.order_type == OrderType::Market ? "market" : "limit")
-            // Documented required on spot whatever the order type, and ignored
-            // for market orders; mix documents the opposite. Each follows its own.
+            // required on spot for every order type; mix documents the opposite
             .str("force", force);
         if (cmd.order_type == OrderType::Limit) {
             json.decimal("price", base.ticks_to_price(cmd.price));
@@ -368,20 +348,17 @@ RequestBuilder::create_order(const OrderCmd& cmd,
             json.decimal("price", base.ticks_to_price(cmd.price)).str("force", force);
         }
         if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
-            // Only honoured in one-way mode, which is the mode this adapter
-            // assumes by never sending tradeSide.
+            // honoured only in one-way mode, which this adapter assumes
             json.str("reduceOnly", "YES");
         }
         json.str("clientOid", cmd.exchange_client_order_id.view()).obj_end();
         break;
     }
     case MarketType::Future:
-        // Delivery contracts use these very endpoints, but map_instrument
-        // reads symbolType "perpetual" only, so none can reach this call.
+        // map_instrument reads perpetual rows only, so delivery never reaches here
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Option:
-        // Bitget v2 has no crypto options at all; its only options product is
-        // US equity options behind the separate v3 UTA API.
+        // bitget v2 has no crypto options
         return std::unexpected{BuildError::UnsupportedMarket};
     }
 
@@ -417,10 +394,9 @@ RequestBuilder::cancel_order(const OrderCmd& cmd,
     case MarketType::Future:
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Option:
-        // No crypto options exist to cancel.
         return std::unexpected{BuildError::UnsupportedMarket};
     }
-    // orderId wins when both are sent, so only one goes on the wire.
+    // orderId wins when both are sent
     if (!cmd.target_exchange_order_id.empty()) {
         json.str("orderId", cmd.target_exchange_order_id.view());
     } else {
@@ -473,9 +449,7 @@ RequestBuilder::cancel_batch(std::span<const OrderCmd> cmds,
         return std::unexpected{BuildError::UnsupportedMarket};
     }
 
-    // Bitget refuses a batch that mixes orderId with clientOid — the entries
-    // carrying only a clientOid are silently left open — so every entry here
-    // names the client id and nothing else.
+    // a batch mixing orderId and clientOid leaves the clientOid entries open, so only clientOid is sent
     net::JsonWriter list{list_};
     list.arr_begin();
     for (std::size_t i = 0; i < batch; ++i) {
@@ -549,8 +523,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::order_by_client_id(
 
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::fills(MarketType market, std::string_view product, UnixNanos since, UnixNanos now) {
-    // Keys ascend: Bitget's own signing sample sorts the query, and the only
-    // way to satisfy both that and "sign what you send" is to send it sorted.
+    // keys sorted ascending, as bitget's signing sample expects
     Appender query{body_};
     query << "limit=" << k_page_limit;
     switch (market) {
@@ -585,15 +558,11 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::settle_bills(MarketT
                                                                          UnixNanos now) {
     switch (market) {
     case MarketType::Perp: {
-        // Keys ascend, like every other signed read here. `businessType`
-        // narrows at the venue: `contract_settle_fee` is the only funding
-        // value classic v2 has, and asking for it keeps the page from filling
-        // with the open/close rows this never books.
+        // keys ascend; businessType filters to contract_settle_fee at the venue
         Appender query{body_};
         query << "businessType=" << k_settle_fee_type << "&limit=" << k_page_limit
               << "&productType=" << product;
-        // Bitget refuses a window wider than 30 days. Omitting startTime asks
-        // for the newest page instead, which is what a cursor of zero means.
+        // bitget refuses windows over 30 days; no startTime asks for the newest page
         if (since.ns != 0) {
             query << "&startTime=" << since.ns / 1'000'000ULL;
         }
@@ -614,8 +583,7 @@ std::expected<net::RestRequest, BuildError>
 RequestBuilder::positions(MarketType market, std::string_view product, UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
-        // Spot holds coin balances, not per-instrument positions: there is
-        // nothing here to report against an InstrumentId.
+        // spot holds coin balances, not per-instrument positions
         return std::unexpected{BuildError::UnsupportedMarket};
     case MarketType::Perp: {
         Appender query{body_};

@@ -18,9 +18,6 @@ std::int64_t total(const std::vector<FundingShare>& shares) {
 }
 
 TEST(FundingSplit, TheSharesSumToTheChargeExactly) {
-    // The invariant the whole function exists for: rounding each share on its
-    // own loses units into nobody's book, and the ledger then disagrees with
-    // the venue's balance forever.
     const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 1},
                                              {.strategy_id = 2, .lots = 1},
                                              {.strategy_id = 3, .lots = 1}};
@@ -28,7 +25,6 @@ TEST(FundingSplit, TheSharesSumToTheChargeExactly) {
 
     ASSERT_EQ(shares.size(), 3U);
     EXPECT_EQ(total(shares), -100) << "three equal shares of a hundred do not divide";
-    // Two get the rounded share; the last carries the remainder.
     EXPECT_EQ(shares[0].amount.raw, -33);
     EXPECT_EQ(shares[1].amount.raw, -33);
     EXPECT_EQ(shares[2].amount.raw, -34);
@@ -46,8 +42,6 @@ TEST(FundingSplit, ProRatedByTheSizeEachCarries) {
 }
 
 TEST(FundingSplit, AShortIsChargedExactlyAsALongIs) {
-    // The magnitude, not the sign: funding is paid on the size carried, and a
-    // negative lot count is a direction, not a smaller position.
     const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = -10},
                                              {.strategy_id = 2, .lots = 10}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-200), k_manual);
@@ -58,8 +52,6 @@ TEST(FundingSplit, AShortIsChargedExactlyAsALongIs) {
 }
 
 TEST(FundingSplit, AChargeNobodyIsHoldingLandsOnTheManualBookRatherThanBeingDropped) {
-    // Dropping it would put the ledger permanently at odds with the venue's
-    // balance: the money moved whether or not a strategy claims it.
     const std::vector<FundingHolder> holders{{.strategy_id = 4, .lots = 0}};
     const auto shares = split_funding(holders, FixedE9::from_raw(-55), k_manual);
 
@@ -94,8 +86,6 @@ TEST(FundingSplit, NothingToBookIsNoRowsAtAll) {
 }
 
 TEST(FundingSplit, FundingReceivedSplitsTheSameWay) {
-    // A positive charge is funding the account was PAID. Nothing about the
-    // arithmetic changes, and the remainder still lands whole.
     const std::vector<FundingHolder> holders{{.strategy_id = 1, .lots = 1},
                                              {.strategy_id = 2, .lots = 2}};
     const auto shares = split_funding(holders, FixedE9::from_raw(10), k_manual);

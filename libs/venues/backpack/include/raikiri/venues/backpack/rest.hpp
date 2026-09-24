@@ -13,8 +13,7 @@ public:
     [[nodiscard]] net::RestRequest markets() const noexcept;
     [[nodiscard]] net::RestRequest tickers() const noexcept;
 
-    // The returned target views this builder's buffer and is valid until the
-    // next call; empty when the symbol does not fit.
+    // the target views this builder's buffer until the next call; empty when the symbol does not fit
     [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol,
                                                   std::uint32_t limit) noexcept;
 

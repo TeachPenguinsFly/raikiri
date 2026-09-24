@@ -129,8 +129,7 @@ std::expected<WirePerp, WireError> read_perp(wire::ondemand::object& obj) {
     return out;
 }
 
-// A row that will not read is skipped and counted rather than failing the
-// catalogue: most of the ~2000 rows are delisted leftovers.
+// an unreadable row is skipped and counted; most rows are delisted
 template <typename Row, typename Read>
 std::expected<std::size_t, WireError> read_rows(wire::ondemand::object& data,
                                                 std::string_view key,

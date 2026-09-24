@@ -17,23 +17,12 @@ namespace raikiri::config {
 
 namespace {
 
-// Output of a probe command. Bounded because a hung or chatty `op` must not
-// be able to grow our address space.
 constexpr std::size_t k_probe_bytes = 4096;
 
-// EVERY `op` CALL IS ON A CLOCK. `op whoami` blocks indefinitely when the
-// desktop app is waiting on a biometric prompt nobody is there to answer, and
-// the version that used popen simply never returned: the probe is behind a
-// function-local static, so a gateway resolving its first credential hung at
-// startup rather than reporting a bad one, and the unit test that calls the
-// probe hung the whole suite. Generous enough that a person can reach the
-// sensor, finite so that nobody has to.
+// op whoami can block forever on a biometric prompt
 constexpr int k_op_timeout_ms = 10'000;
 
-// What a bounded run produced, WITHOUT a copy of it. The secret path fills a
-// caller-owned buffer it can zero; putting the bytes in a std::string here
-// would leave the value in an unzeroed heap allocation and make the mlock and
-// the wiping downstream meaningless.
+// holds no copy of the output, so the secret path can zero its own buffer
 struct Ran {
     std::size_t bytes{0};
     int exit_code{-1};
@@ -46,9 +35,7 @@ struct Captured {
     bool timed_out{false};
 };
 
-// popen gives no pid, so a child that never writes cannot be killed through
-// it. Fork directly, put the child in its own process group — `op` spawns
-// helpers and the group is what reaches them — and read under a deadline.
+// fork into a new process group so the child and op's helpers can be killed on timeout
 [[nodiscard]] Ran run_bounded(const char* command, std::span<char> into) {
     Ran out{};
     std::array<int, 2> fds{};
@@ -75,9 +62,7 @@ struct Captured {
     ::close(fds[1]);
 
     std::size_t filled = 0;
-    // ONE DEADLINE FOR THE WHOLE READ, not one per poll: a command that writes
-    // a byte just before each timeout would otherwise never be cut off, which
-    // is the same unbounded wait wearing a bound.
+    // one deadline across the whole read so a slow writer is still cut off
     const auto expires_at =
         std::chrono::steady_clock::now() + std::chrono::milliseconds{k_op_timeout_ms};
     while (filled < into.size()) {
@@ -119,8 +104,7 @@ struct Captured {
     return out;
 }
 
-// Probes only. The secret path never goes through here — it must not merge
-// stderr into the value.
+// probes only; the secret path must not merge stderr into the value
 [[nodiscard]] Captured run_probe(const char* command) {
     std::array<char, k_probe_bytes> buf{};
     const auto ran = run_bounded(command, std::span{buf}.first(buf.size() - 1));
@@ -138,9 +122,7 @@ struct Captured {
     return value != nullptr && *value != '\0';
 }
 
-// Anything that could turn a reference into a command. The reference is
-// interpolated into a shell line, so this is the boundary that keeps a config
-// file from being an execution vector.
+// the reference is interpolated into a shell line
 [[nodiscard]] bool is_shell_safe(std::string_view text) noexcept {
     constexpr std::string_view k_forbidden = "`$;&|<>()'\"\\ \t\n\r*?[]{}!#~";
     return text.find_first_of(k_forbidden) == std::string_view::npos;
@@ -188,9 +170,6 @@ OpStatus probe_one_password() {
 
     const auto version = run_probe("op --version 2>/dev/null");
     if (version.timed_out) {
-        // Installed and wedged is not the same as absent, and the fix is not
-        // the same either: one is `brew install`, the other is a prompt on a
-        // screen nobody is looking at.
         status.diagnostic = "op did not answer `--version` within the deadline";
         return status;
     }
@@ -216,11 +195,7 @@ OpStatus probe_one_password() {
         return status;
     }
 
-    // `op whoami` answers for ONE account and refuses when several are
-    // configured and none is pinned — while `op read` against a full reference
-    // still resolves, because the reference names the vault it wants. So a
-    // failing whoami is not proof of a dead session, and treating it as one
-    // stops a gateway that could have read every key it needed.
+    // whoami fails with several accounts configured and none pinned, while op read still resolves
     const auto accounts = run_probe("op account list 2>/dev/null");
     if (accounts.exit_code == 0 && !accounts.text.empty()) {
         status.auth = OpAuth::UserSession;
@@ -254,9 +229,6 @@ resolve_one_password(std::string_view reference, const OpStatus& status, Secret&
     command.append(reference);
     command.append(" 2>/dev/null");
 
-    // ON THE SAME CLOCK AS THE PROBE. This runs while a gateway is starting
-    // and holds up everything behind it; an `op` waiting on a prompt nobody
-    // will answer has to become a refusal, not a process that never comes up.
     std::array<char, Secret::k_max_bytes + 1> buf{};
     const auto ran = run_bounded(command.c_str(), std::span{buf});
     const auto fail = [&buf](SecretError err) {

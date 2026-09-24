@@ -1,6 +1,3 @@
-// Phemex parser and mapper tests, against bytes captured live on 2026-09-25.
-// See fixtures/README.md for provenance.
-
 #include <raikiri/venues/phemex/book.hpp>
 #include <raikiri/venues/phemex/catalogue.hpp>
 #include <raikiri/venues/phemex/envelope.hpp>
@@ -60,8 +57,6 @@ const Listed& listed(std::string_view symbol, MarketType market) {
     return none;
 }
 
-// --- the catalogue -------------------------------------------------------
-
 TEST(PhemexCatalogue, LoadsOnlyListedRowsOfTheAskedMarket) {
     const auto storage = std::make_unique<CatalogueBuffer>();
     const auto wire = parse_products(fixture("rest_products.json"), *storage);
@@ -86,7 +81,7 @@ TEST(PhemexCatalogue, ALinearPerpReadsDecimalStringsAndItsOwnInterval) {
     EXPECT_EQ(perp.funding_interval_s, 28800U);
     EXPECT_TRUE(perp.funding_cap.is_undef());
     EXPECT_EQ(btc.listing.encoding, Encoding::Real);
-    // Its description says every 8 hours; the field says four.
+    // the description says 8 hours; the field says four
     EXPECT_EQ(listed("CAKEUSDT", MarketType::Perp).listing.funding_interval_s, 14400U);
     EXPECT_EQ(listed("XAUUSDT", MarketType::Perp).listing.funding_interval_s, 14400U);
     EXPECT_EQ(base_of(listed("u1000SHIBUSDT", MarketType::Perp).instrument).local_symbol.view(),
@@ -122,8 +117,6 @@ TEST(PhemexCatalogue, ASpotPairTakesItsLotFromTheBaseCoinsScale) {
               *scaled_e9(shib.listing.qty_step, shib.listing.volume_scale));
 }
 
-// --- the two number formats ----------------------------------------------
-
 TEST(PhemexNumbers, TheTwoDecodersRefuseAnythingOffTheGrid) {
     EXPECT_EQ(real_steps("84258.6", e9("0.1")), 842586);
     EXPECT_FALSE(real_steps("84258.65", e9("0.1")).has_value());
@@ -142,8 +135,6 @@ TEST(PhemexNumbers, TheNextSettlementIsTheNextStepOfTheContractsUtcGrid) {
               1'790'323'200ULL * 1'000'000'000ULL + 4 * k_hour_ns);
     EXPECT_EQ(next_funding_time(now, 0).ns, 0U);
 }
-
-// --- the book ------------------------------------------------------------
 
 template <typename Level>
 std::size_t levels_of(const WireBook<Level>& wire,
@@ -248,8 +239,6 @@ TEST(PhemexBook, ACrossedTopDropsTheBookUntilTheNextSnapshot) {
     EXPECT_EQ(book.crossings(), 1U);
 }
 
-// --- trades --------------------------------------------------------------
-
 TEST(PhemexTrades, TheSubscribeBacklogIsFlaggedAndTheTapeCarriesTheTakerSide) {
     PrintBuffer<WireRealPrint> storage;
     const auto backlog = parse_real_trades(fixture("ws_real_trades_snapshot.json"), storage);
@@ -283,8 +272,6 @@ TEST(PhemexTrades, ScaledPrintsDecodeOnTheirOwnGrid) {
         }
     }
 }
-
-// --- funding and the 24-hour window --------------------------------------
 
 TEST(PhemexFunding, ThePackNamesItsColumnsOnceAndTheUpdatesReuseThem) {
     PackColumns columns;
@@ -363,8 +350,6 @@ TEST(PhemexFunding, TheSpotTickerStatesBothVolumes) {
     EXPECT_EQ(stats->volume_24h_base, *scaled_e9(*wire->volume_ev, 8));
     EXPECT_EQ(stats->volume_24h_quote, FixedE6::from_raw(*wire->turnover_ev / 100));
 }
-
-// --- the socket ----------------------------------------------------------
 
 TEST(PhemexEnvelope, EveryFrameIsRecognisedByItsPayloadKey) {
     const std::array<std::pair<std::string_view, EventKind>, 12> cases{{

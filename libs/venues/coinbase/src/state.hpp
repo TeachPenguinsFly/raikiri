@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous namespace in a header is a different type per file
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -25,20 +24,15 @@
 
 namespace raikiri::venues::coinbase::internal {
 
-// Far above any sane working set; the cap exists so a venue incident cannot
-// turn the client-id memo into the heap.
+// caps the client-id memo
 constexpr std::size_t k_max_tracked_orders = 65'536;
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string channel;
     std::string product_id;
 };
 
-// State every coinbase connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single-threaded: the gateway loop is the only caller
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
         : sink{&sink_ref}, clock{&clock_ref} {}
@@ -52,8 +46,7 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
     net::Signer signer;
-    // Coinbase's third credential. Held as a string because it travels in a
-    // header on every signed request and is not itself a signing key.
+    // the third credential, sent as a header on every signed request
     std::string passphrase;
 
     std::vector<OwnedSubscription> desired;
@@ -65,15 +58,10 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     exec::VenueError last_error{};
 
-    // The UUID this adapter derived from a ULID cannot be turned back into
-    // one, so the mapping is remembered for as long as the process lives. An
-    // order placed by an EARLIER process comes back from a sweep with no
-    // client id, which is a gap reconciliation must be told about rather than
-    // one that is quietly filled with a wrong id.
+    // uuid to ulid memo for this process; orders from an earlier process come back without a client id
     std::unordered_map<std::string, ExchangeClientOrderId> client_ids;
 
-    // Deribit-style venue clock correction: Coinbase rejects a signature more
-    // than 30 seconds from its own clock.
+    // coinbase rejects signatures more than 30 s off its clock
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = static_cast<std::int64_t>(clock->wall().ns);
         return UnixNanos{static_cast<std::uint64_t>(local + clock_offset_ns)};
@@ -92,9 +80,7 @@ struct VenueState {
         return at == client_ids.end() ? ExchangeClientOrderId{} : at->second;
     }
 
-    // False when the pair was already asked for. The pool must not be handed
-    // the same key twice: it counts keys against a socket's room and would
-    // spend it on a subscription the venue already holds.
+    // false when already asked for; the pool counts keys against socket room
     [[nodiscard]] bool add_subscription(std::string_view channel, std::string_view product_id) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.product_id == product_id) {
@@ -118,8 +104,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
+// measured once at startup
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::coinbase::internal

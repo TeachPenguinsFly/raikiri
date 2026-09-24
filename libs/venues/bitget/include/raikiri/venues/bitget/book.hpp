@@ -1,8 +1,5 @@
 #pragma once
 
-// The order book: the level rows and the chain that says whether a delta may
-// be applied at all.
-
 #include <raikiri/venues/bitget/errors.hpp>
 
 #include <array>
@@ -18,8 +15,7 @@ struct WireLevel {
     std::string_view qty; // "0" means delete this level
 };
 
-// `books` snapshots 500 levels a side; the ceiling leaves room without
-// letting a hostile frame make us allocate.
+// books snapshots 500 levels a side
 inline constexpr std::size_t k_max_levels = 1024;
 
 struct LevelBuffer {
@@ -27,10 +23,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// Continuity is the seq chain: an update applies when its prev_seq_id equals
-// the previous message's seq_id. books15 restates the whole top of book and
-// pins prev_seq_id to 0, so only the incremental `books` channel has a chain
-// worth checking — 0 for "no predecessor", where okx uses -1.
+// an update applies when its prev_seq_id equals the previous seq_id; books15 pins prev_seq_id to 0
 struct WireBooks {
     std::string_view inst_id;
     bool snapshot{false}; // action: "snapshot" vs "update"
@@ -44,8 +37,7 @@ struct WireBooks {
 [[nodiscard]] std::expected<WireBooks, WireError> parse_books(std::string_view frame,
                                                               LevelBuffer& storage);
 
-// /api/v2/mix/market/orderbook. Unlike every other endpoint here its `data`
-// is an OBJECT, not a single-element array, so it needs its own reader.
+// its data is an object, unlike every other endpoint here
 [[nodiscard]] std::expected<WireBooks, WireError> parse_rest_orderbook(std::string_view body,
                                                                        LevelBuffer& storage);
 

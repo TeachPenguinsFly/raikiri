@@ -1,6 +1,6 @@
 #pragma once
 
-// internal, not anonymous: an anonymous type in a header differs in every includer.
+// anonymous types in a header differ per includer
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -42,18 +42,18 @@ struct VenueState {
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
 
-    // bookTicker sends no snapshot, so each quote is seeded once from REST; `quoted`
-    // keeps a slow answer from overwriting a live frame that beat it.
+    // bookTicker sends no snapshot, so each quote is seeded once from rest;
+    // quoted stops a slow answer from overwriting a live frame
     std::vector<InstrumentId> pending_touches;
     std::unordered_set<std::uint64_t> quoted;
 
-    // On a spot pair, funding means only the turnover the tickers poll publishes.
+    // on a spot pair funding carries only the tickers poll turnover
     std::vector<InstrumentId> funding_instruments;
 
     std::uint64_t subscribe_refusals{0};
 };
 
-// A refusal leaves the caller due, so the next tick asks again.
+// a refusal leaves the caller due, so the next tick asks again
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
     rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }

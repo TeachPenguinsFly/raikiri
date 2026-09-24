@@ -1,11 +1,6 @@
 #pragma once
 
-// XT futures public websocket protocol: topic naming and subscription frames.
-//
-// The BBO comes from `depth`, a periodic top-N snapshot. XT's agg_ticker looks
-// like the natural BBO channel and is not: it publishes `bp` and `ap` with no
-// sizes at all, so it cannot fill a Bbo. `bbo@` and `book_ticker@` do not
-// exist. depth@sym,5,100ms is the fastest self-contained top of book XT has.
+// bbo comes from the depth snapshot; agg_ticker has no sizes and bbo@/book_ticker@ do not exist
 
 #include <raikiri/exec/data_client.hpp>
 
@@ -25,16 +20,12 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// XT publishes no futures testnet endpoint, so unlike okx there is no flag:
-// the demo host documented for spot does not serve fstream.
+// xt has no futures testnet; the spot demo host does not serve fstream
 [[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
 
-// A topic is the channel plus whatever XT requires after the symbol. `params`
-// is empty for most channels and ",5,100ms" for depth — VERIFIED: levels must
-// be one of 5/10/20/50 ("levels error" otherwise) and the interval one of
-// 100ms/250ms/1000ms ("interval error" otherwise).
+// depth params: levels must be 5/10/20/50 and interval 100ms/250ms/1000ms
 struct Topic {
     std::string_view channel; // empty for a kind XT does not stream
     std::string_view params;
@@ -42,11 +33,7 @@ struct Topic {
 
 [[nodiscard]] Topic topic_for(exec::SubKind kind, MarketType market) noexcept;
 
-// The rolling 24-hour window, which no SubKind names. It rides alongside the
-// BBO subscription because that is the one kind asked for on every instrument
-// and on both trees — XT streams no funding at all, so hanging it off
-// SubKind::Funding would leave spot with no turnover. Same channel name on
-// both deployments; only the payload's base column differs (see market_data.hpp).
+// rides with the bbo subscription since xt streams no funding; spot needs it too
 [[nodiscard]] Topic ticker_topic() noexcept;
 
 struct Subscription {
@@ -62,11 +49,7 @@ public:
         std::size_t consumed{0};
     };
 
-    // A TEXT frame, not a websocket ping, and the PUBLIC socket needs it as
-    // much as the private one: MEASURED against stream.xt.com/public, a
-    // connection answering XT's own control pings and receiving a push every
-    // few hundred milliseconds was still closed with 1000 "Bye" at 30.6 s. It
-    // is what the client SENDS that resets the timer.
+    // an application text ping; xt closes a socket that sends none for 30 s, public included
     [[nodiscard]] static std::string_view ping_frame() noexcept;
 
     [[nodiscard]] std::expected<Frame, WsBuildError>
@@ -83,46 +66,31 @@ private:
     std::uint64_t next_id_{1};
 };
 
-// ---------------------------------------------------------- private ----
-//
-// The two private streams share nothing but the word "subscribe":
-//
-//   futures  wss://fstream.xt.com/ws/user, method "SUBSCRIBE" (uppercase),
-//            and the listen key is GLUED TO EACH TOPIC with `@`.
-//   spot     wss://stream.xt.com/private, method "subscribe" (lowercase), and
-//            the token is a SEPARATE TOP-LEVEL FIELD named `listenKey`.
-//
-// Sending one tree's frame to the other is answered `Invalid Parameter`, which
-// looks exactly like a malformed topic name.
+// futures: fstream /ws/user, "SUBSCRIBE", listen key appended to each topic with @;
+// spot: stream /private, "subscribe", token in a top-level listenKey field
 
 [[nodiscard]] std::string_view private_stream_host() noexcept;
 [[nodiscard]] std::string_view private_stream_path() noexcept;
 [[nodiscard]] std::string_view spot_private_stream_host() noexcept;
 [[nodiscard]] std::string_view spot_private_stream_path() noexcept;
 
-// The subscribe answer's `code`: 0 accepted, 1 refused, 2 the key is no longer
-// valid. 2 is the one that has a remedy — mint a new key and resubscribe —
-// so it is named rather than folded into "refused".
+// code 2 means the key expired: mint a new one and resubscribe
 inline constexpr std::int64_t k_listen_key_invalid = 2;
 
 class PrivateProtocol {
 public:
-    // order and trade only. `position`, `balance` and `notify` also stream,
-    // but GatewaySink carries no channel for any of them, and a subscription
-    // whose pushes are dropped is a hot loop's worth of parsing for nothing —
-    // positions are pulled over REST where the reconciler asks for them.
+    // order and trade only; GatewaySink has no channel for position, balance or notify
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     futures_subscribe(std::string_view listen_key);
 
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     spot_subscribe(std::string_view access_token);
 
-    // A TEXT frame, not a websocket ping: XT closes a connection that has sent
-    // no application ping for 30 s regardless of how much it received.
+    // an application text ping; xt closes a socket that sends none for 30 s
     [[nodiscard]] static std::string_view ping_frame() noexcept;
 
 private:
-    // The spot token is a JWT and runs to several hundred bytes.
+    // the spot token is a jwt of several hundred bytes
     std::array<char, 2048> frame_{};
     std::uint64_t next_id_{1};
 };

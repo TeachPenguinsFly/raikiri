@@ -33,7 +33,7 @@ std::size_t count_of(std::string_view text, std::string_view needle) noexcept {
     return count;
 }
 
-// `msg` is read raw, so the echoed frame's quotes are still escaped.
+// `msg` is read raw, so the echoed frame's quotes are still escaped
 std::string_view echoed_inst_id(std::string_view msg) noexcept {
     constexpr std::string_view key = R"(instId\":\")";
     const auto at = msg.find(key);

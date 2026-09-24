@@ -1,12 +1,6 @@
 #pragma once
 
-// Gzip frame decompression for venues that compress their market data.
-//
-// This sits in net rather than in a venue because it is a property of the
-// transport, not of any exchange: libs/net hands on_message the bytes of a
-// binary websocket message unchanged — it never inspects the opcode and
-// decompresses nothing — so whoever knows the frames are compressed has to
-// inflate them. BingX and HTX both do, identically.
+// gzip frame decompression for bingx and htx; net passes binary messages through untouched
 
 #include <cstdint>
 #include <expected>
@@ -24,9 +18,7 @@ enum class InflateError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(InflateError err) noexcept;
 
-// Gzip -> the JSON the wire parsers read. The returned view points into this
-// object's buffer and lives only until the next call — on_message's own
-// contract exactly.
+// the returned view is valid until the next call
 class Inflater {
 public:
     Inflater();

@@ -12,9 +12,7 @@ namespace {
 constexpr std::string_view k_hdr_key = "X-MBX-APIKEY";
 constexpr std::string_view k_form = "application/x-www-form-urlencoded";
 
-// Appends into a fixed buffer and remembers whether it ever ran out. A
-// truncated query would still be signed, and the signature would then
-// authenticate an order that is not the one intended.
+// a truncated query would still be signed, so overflow is remembered
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -39,8 +37,7 @@ public:
         return *this << std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())};
     }
 
-    // RFC 3986: a raw UTF-8 byte in the request line is a 400 at a strict edge,
-    // and binance lists symbols like 龙虾USDT.
+    // percent-encoded: binance lists non-ascii symbols
     Appender& encoded(std::string_view text) noexcept {
         constexpr std::string_view hex = "0123456789ABCDEF";
         for (const char c : text) {
@@ -74,8 +71,7 @@ private:
     return side == Side::Buy ? "BUY" : "SELL";
 }
 
-// Post-only is a time-in-force value on binance (GTX), not a separate flag,
-// so it displaces whatever the order asked for rather than accompanying it.
+// post-only is tif GTX on binance and replaces the requested tif
 [[nodiscard]] std::string_view tif_text(TimeInForce tif, OrderFlags flags) noexcept {
     if (has_flag(flags, OrderFlags::PostOnly)) {
         return "GTX";
@@ -95,9 +91,7 @@ private:
     return ns.ns / 1'000'000ULL;
 }
 
-// Renders an instrument-scaled integer back to the decimal text binance
-// expects. Goes through FixedE9 rather than a float: a double round trip is
-// exactly how a price arrives one tick away from the intended one.
+// through FixedE9 to avoid a float round trip
 [[nodiscard]] bool put_scaled(Appender& out, std::int64_t steps, FixedE9 step) noexcept {
     if (step.raw <= 0) {
         return false;
@@ -136,8 +130,7 @@ net::RestRequest RequestBuilder::instruments() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
 }
 
-// Every symbol in one call. Binance answers ~880 rows, which is cheaper than
-// asking per instrument and is why this needs no round-robin cursor.
+// every symbol in one call
 net::RestRequest RequestBuilder::ticker_24h() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_ticker_24h, .body = {}};
 }
@@ -322,21 +315,14 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::query_order(
     return finish(net::HttpMethod::Get, ep::k_order, q.size());
 }
 
-// The account's own record of what it was charged — settlements AND commissions.
-//
-// `income` is SIGNED the way the account moved, so it needs no flipping to
-// reach the domain's convention. REALIZED_PNL rows also arrive here and are
-// dropped by the caller: that number is derived from fills this process already
-// booked, and taking the venue's copy as well would count every close twice.
+// settlements and commissions; realized pnl rows are dropped by the caller
 std::expected<net::RestRequest, BuildError> RequestBuilder::funding_income(UnixNanos since,
                                                                            UnixNanos now) {
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
     Appender q{query_};
-    // NO incomeType FILTER. The same endpoint states COMMISSION beside
-    // FUNDING_FEE, and the fee rows are what a fee reconciliation compares
-    // against — asking twice would spend thirty weight twice for one answer.
+    // no incomeType filter: fee rows are needed too, and each call costs weight 30
     q << "limit=200";
     if (since.ns != 0) {
         q << "&startTime=" << to_ms(since);
@@ -353,11 +339,7 @@ RequestBuilder::user_trades(std::string_view symbol, UnixNanos since, UnixNanos 
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NoCredentials};
     }
-    // AN EMPTY SYMBOL ASKS FOR THE WHOLE ACCOUNT, and that is what a
-    // reconciliation wants. Measured 2026-09-16: /fapi/v1/userTrades answers
-    // without one, across every contract — unlike the SPOT tree's myTrades and
-    // unlike mexc, bingx and htx, which genuinely demand one and whose adapters
-    // refuse the pull outright and say why.
+    // an empty symbol asks for the whole account
     Appender q{query_};
     if (!symbol.empty()) {
         q << "symbol=";

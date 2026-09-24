@@ -20,8 +20,7 @@ void to_hex(std::span<const std::uint8_t> digest, char* out) noexcept {
     }
 }
 
-// Hand-rolled rather than OpenSSL's EVP_EncodeBlock: no allocation, no
-// newline behavior to remember, and the input length is always 32.
+// hand-rolled: no allocation, fixed 32-byte input
 void to_base64(std::span<const std::uint8_t, k_hmac_bytes> digest, char* out) noexcept {
     std::size_t o = 0;
     std::size_t i = 0;
@@ -77,8 +76,7 @@ std::string_view sha512_hex(std::string_view message, std::span<char> out) noexc
     }
     std::array<std::uint8_t, k_hmac512_bytes> digest{};
     unsigned int len = 0;
-    // An empty body still hashes: Gate signs SHA512("") for every GET, so a
-    // null message pointer must not short-circuit into an empty digest.
+    // an empty body still hashes; gate signs SHA512("") for every GET
     if (::EVP_Digest(message.data(), message.size(), digest.data(), &len, EVP_sha512(), nullptr) !=
             1 ||
         len != k_hmac512_bytes) {

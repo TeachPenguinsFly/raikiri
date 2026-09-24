@@ -21,7 +21,7 @@ import phemexIcon from '@/assets/exchanges/phemex.png'
 import weexIcon from '@/assets/exchanges/weex.png'
 import xtIcon from '@/assets/exchanges/xt.png'
 
-// Real favicons (fetched from each exchange) for venues without a hand-drawn SVG mark.
+// favicons for venues without a hand-drawn svg mark
 const FAVICONS: Record<string, string> = {
   aster: asterIcon,
   backpack: backpackIcon,
@@ -46,10 +46,6 @@ const FAVICONS: Record<string, string> = {
   xt: xtIcon,
 }
 
-/** The venue's own mark. A hand-drawn SVG where one was worth drawing, the
- *  venue's favicon where it was not, and the first two letters where neither
- *  exists — a row identified only by a colour swatch is a row you have to read
- *  twice. */
 export function ExchangeIcon({ venue, className }: { venue: string; className?: string }) {
   const c = cn('inline-block shrink-0', className)
   const favicon = FAVICONS[venue]
@@ -61,7 +57,6 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       return (
         <svg viewBox="0 0 24 24" className={c} role="img" aria-label="Binance">
           <rect width="24" height="24" rx="5" fill="#F0B90B" />
-          {/* official Binance mark: 4 chevrons + centre diamond */}
           <g fill="#181A20" transform="translate(4 4) scale(0.1264)">
             <path d="M38.73 53.2 63.32 28.62 87.92 53.22 102.22 38.91 63.32 0 24.42 38.9Z" />
             <path d="M0 63.31 14.3 49 28.61 63.31 14.3 77.61Z" />
@@ -88,7 +83,6 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       return (
         <svg viewBox="0 0 24 24" className={c} role="img" aria-label="Bybit">
           <rect width="24" height="24" rx="5" fill="#1E2433" />
-          {/* official Bybit app-icon: BYBIT wordmark, white with a gold "I" */}
           <g transform="translate(12 12) scale(1.15) translate(-12 -12)">
             <path fill="#fff" d="M4.993 15H3v-4.626h1.913c.93 0 1.471.507 1.471 1.3c0 .513-.348.845-.588.955c.287.13.655.423.655 1.04c0 .863-.609 1.33-1.458 1.33m-.154-3.82h-.91v1.065h.91c.395 0 .615-.214.615-.533c0-.317-.22-.532-.615-.532m.06 1.877h-.97v1.137h.97c.42 0 .622-.259.622-.571s-.201-.565-.622-.565zm4.388.046V15h-.923v-1.898l-1.431-2.728h1.01l.889 1.864l.877-1.864h1.01zM13.355 15h-1.993v-4.626h1.913c.93 0 1.47.507 1.47 1.3c0 .513-.347.845-.588.955c.287.13.655.423.655 1.04c0 .863-.608 1.33-1.457 1.33m-.155-3.82h-.91v1.065h.91c.395 0 .616-.214.616-.533c0-.317-.22-.532-.616-.532m.06 1.877h-.97v1.137h.97c.422 0 .622-.259.622-.571s-.2-.565-.622-.565zm6.495-1.876V15h-.929v-3.82h-1.245v-.806H21v.806z" />
             <path fill="#F6A500" d="M15.829 13.626V9h.93v4.626z" />
@@ -99,7 +93,6 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       return (
         <svg viewBox="0 0 24 24" className={c} role="img" aria-label="Gate">
           <rect width="24" height="24" rx="5" fill="#0B0E13" />
-          {/* official Gate mark: blue gateway ring + teal square */}
           <g transform="translate(12 12) scale(0.82) translate(-12 -12)">
             <path fill="#2354E6" d="M12 16.95a4.95 4.95 0 1 1 0-9.9V3a9 9 0 1 0 9 9h-4.05A4.95 4.95 0 0 1 12 16.95" />
             <path fill="#17E6A1" d="M16.95 7.05H12V12h4.95z" />
@@ -110,7 +103,6 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       return (
         <svg viewBox="0 0 144 144" className={c} role="img" aria-label="Hyperliquid">
           <rect width="144" height="144" rx="30" fill="#0a1a17" />
-          {/* official Hyperliquid mint logomark, inset on a dark teal tile */}
           <path
             transform="translate(14.4 14.4) scale(0.8)"
             fill="#97FCE4"
@@ -122,7 +114,6 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
       return (
         <svg viewBox="0 0 24 24" className={c} role="img" aria-label="Deribit">
           <rect width="24" height="24" rx="5" fill="#0c1226" />
-          {/* teal "d" mark with the brand slice */}
           <g fill="#05c0a5">
             <path d="M14.5 4.5h3v15h-3z" />
             <path d="M14.5 8.5a5.5 5.5 0 1 0 0 11v-3a2.5 2.5 0 1 1 0-5z" />
@@ -130,7 +121,7 @@ export function ExchangeIcon({ venue, className }: { venue: string; className?: 
         </svg>
       )
     default: {
-      // Generic monogram chip for the long tail of venues (coinbase, mexc, kucoin, …).
+      // monogram chip for venues with no mark
       const palette: Record<string, string> = {
         kraken: '#5741d9', kucoin: '#23af91', bitget: '#00f0ff', bingx: '#2f7bff', mexc: '#1972f5',
         coinbase: '#0052ff', htx: '#1d72f3', coinex: '#15b08e', bitmart: '#15c0e6', cryptocom: '#103f9e',

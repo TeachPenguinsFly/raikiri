@@ -1,8 +1,5 @@
 #pragma once
 
-// What the venue lists, and the numbers that decide whether an order it
-// accepts is an order it will fill.
-
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -14,13 +11,7 @@
 
 namespace raikiri::venues::deribit {
 
-// One /public/get_instruments row; numeric fields are raw tokens.
-//
-// kind + settlement_period together decide the market: BTC-PERPETUAL is kind
-// "future" with settlement_period "perpetual", because there is no "perpetual"
-// kind — asking for one is an Invalid params error (verified). instrument_type
-// decides what contract_size COUNTS, which is the difference between a correct
-// notional and one off by the price of BTC.
+// the perpetual is kind future with settlement_period perpetual; there is no perpetual kind
 struct WireInstrument {
     std::string_view instrument_name;
     std::string_view kind;              // future, option, spot
@@ -35,8 +26,6 @@ struct WireInstrument {
     bool is_active{false};
 };
 
-// 794 live BTC options the day this was written. The catalogue is pulled one
-// currency at a time so this tracks a strike ladder, not the whole universe.
 inline constexpr std::size_t k_max_instruments = 2048;
 
 struct InstrumentBuffer {

@@ -1,4 +1,4 @@
-# One target per layer, so a dependency pointing outward fails to link.
+# one target per layer, so an outward dependency fails to link
 
 add_library(raikiri_introspect STATIC
   src/stats.cpp

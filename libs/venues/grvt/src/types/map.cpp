@@ -80,7 +80,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
 
     PerpInstrument perp{};
     perp.base = base;
-    // Stated per contract, 4 h or 8 h; 0 stays 0 so the carry board refuses it.
+    // stated per contract, 4 h or 8 h; 0 stays 0 so the carry board refuses it
     perp.funding_interval_s = wire.funding_interval_hours * 3600U;
     perp.funding_cap = percent_to_ratio(wire.funding_cap);
     perp.funding_floor = percent_to_ratio(wire.funding_floor);
@@ -122,7 +122,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = rate;
-    // The mark sits off the tick grid, so it is truncated rather than refused.
+    // the mark sits off the tick grid, so it is truncated rather than refused
     if (const auto mark = parse_decimal_e9(wire.mark_price);
         mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);

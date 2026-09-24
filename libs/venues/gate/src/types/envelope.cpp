@@ -10,10 +10,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// raw_json() on a scalar returns the token plus whitespace up to the next one.
-// Contents stay escaped: Gate contract names and decimal strings cannot
-// contain an escape, and letting simdjson unescape would move every field into
-// a buffer that cannot be rebased.
+// raw_json() keeps the token escaped; gate names and decimals contain no escapes
 std::expected<std::string_view, WireError> token_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
@@ -74,8 +71,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     return EventKind::Unknown;
 }
 
-// The echoed subscription payload. Its first element is the contract on every
-// channel; the depth channel appends an interval and a level count.
+// the echoed payload's first element is the contract
 std::expected<std::string_view, WireError> first_payload(wire::ondemand::object& root) {
     auto array = wire::req_array(root, "payload");
     if (!array.has_value()) {

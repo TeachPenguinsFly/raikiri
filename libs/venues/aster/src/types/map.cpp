@@ -9,10 +9,7 @@ namespace raikiri::venues::aster {
 
 namespace {
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means aster changed a filter, so the message is dropped
-// rather than rounded — rounding is how an order ends up one tick away from
-// the intended price.
+// exact against the instrument step; a remainder drops the message
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -34,8 +31,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates keep 1e9 scale, not instrument ticks
 FixedE9 to_e9(std::string_view text) {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -93,7 +89,7 @@ map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos t
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // The flip: `m` says the BUYER was the maker, so the aggressor sold.
+    // m means the buyer was the maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
     out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
     out.ts_init = ts_init;
@@ -134,12 +130,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // USD-M FUTURES ONLY. The rows come from /fapi/v1/exchangeInfo and the
-    // whole adapter speaks to fapi.aster.com; aster spot is another host
-    // and another API. Admitting a Spot id here would intern every futures
-    // row — perpetuals AND dated quarterlies — as a SpotInstrument with a
-    // pinned contract_value, which is worse than refusing because it looks
-    // like it worked.
+    // usd-m futures only; aster spot is another api
     switch (market) {
     case MarketType::Perp:
         break;
@@ -166,12 +157,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Aster, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // A row whose pair aster did not state is DROPPED rather than carried
-    // under the exchange symbol: an instrument nothing can group shows in a
-    // cross-venue view as a market of its own.
+    // rows without a stated pair are dropped
     const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -182,13 +171,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.min_notional = to_e9(wire.min_notional);
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
-    // STAMPED FROM fundingInfo BY THE CATALOGUE LOADER, not read off the row
-    // this function was handed — exchangeInfo does not carry a schedule. It
-    // was 28'800 unconditionally here, and aster settles 465 of its 571
-    // perps every four hours: the interval is the denominator that makes two
-    // venues' rates comparable, so a wrong one reports half the funding an
-    // instrument pays rather than merely mislabelling it. 0 is "aster did
-    // not say", and stays 0.
+    // interval stamped from fundingInfo by the catalogue loader; 0 means unstated
     return PerpInstrument{base, wire.funding_interval_s};
 }
 

@@ -7,10 +7,7 @@
 
 namespace raikiri::admin {
 
-// The request body of POST /v1/orders, exactly as the contract writes it.
-// Every field is a string or a bool because the contract says so: a decimal
-// arrives as text, and parsing it to a double here would undo the whole reason
-// it is text.
+// the POST /v1/orders body; decimals arrive as text
 struct NewOrderBody {
     std::string account;
     std::string instrument_id;
@@ -33,9 +30,7 @@ namespace {
 // Namespaced so a proxied path can never shadow one this API owns.
 constexpr std::string_view k_upstream_prefix = "/v1/x/";
 
-// glaze omits an empty optional, which is exactly the contract's rule: a field
-// that has no answer is absent, never zero. An expiry of zero is a date in
-// 1970 and a strike of zero is a free option.
+// glaze omits an empty optional; the contract's absent fields rely on it
 constexpr glz::opts k_opts{.skip_null_members = true};
 
 template <typename T> http::Response json(const T& value) {
@@ -46,9 +41,7 @@ template <typename T> http::Response json(const T& value) {
     return {.status = 200, .content_type = "application/json", .body = std::move(out)};
 }
 
-// A page of already-selected rows. Cursors are opaque by contract, and this
-// one is the index of the next row — honest for a catalogue that is stable
-// within a gateway's lifetime, and replaced the day a source needs more.
+// the cursor is the index of the next row
 template <typename T>
 std::pair<std::vector<T>, std::optional<std::string>>
 paginate(std::vector<T> rows, std::string_view cursor, std::size_t limit) {
@@ -69,9 +62,7 @@ paginate(std::vector<T> rows, std::string_view cursor, std::size_t limit) {
     return {std::move(page), std::move(next)};
 }
 
-// The markets board's own limit. Absent means EVERYTHING, because the board
-// exists to be browsed; the paged routes below cannot afford that and keep
-// their 200.
+// absent means everything; the board is for browsing
 std::size_t read_markets_limit(std::string_view text) {
     if (text.empty()) {
         return std::numeric_limits<std::size_t>::max();
@@ -95,8 +86,7 @@ std::size_t read_limit(std::string_view text) {
     return std::min(value, k_max);
 }
 
-// A whole field of digits, or nothing. A partial parse is a refusal: "12abc"
-// is not the id 12, it is a client that built a URL wrong.
+// the whole field or nothing; "12abc" is refused
 std::optional<std::uint64_t> read_digits(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -125,8 +115,7 @@ std::optional<MarketType> read_market(std::string_view text) {
     return std::nullopt;
 }
 
-// The filters every listing shares. A refusal comes back as the response to
-// send, so a caller cannot forget to send one.
+// a refusal comes back as the response to send
 std::expected<PageQuery, http::Response> read_page_query(const http::Request& req) {
     PageQuery query{};
     query.limit = read_limit(http::query_param(req.query, "limit"));
@@ -164,8 +153,7 @@ std::expected<PageQuery, http::Response> read_page_query(const http::Request& re
     return query;
 }
 
-// Absent is not false. `?open=` and no `open` at all both mean "do not filter",
-// and only the words true and false mean the two things they say.
+// absent or empty means no filter; only true and false parse
 std::expected<std::optional<bool>, http::Response> read_flag(std::string_view text) {
     if (text.empty()) {
         return std::optional<bool>{};
@@ -189,19 +177,14 @@ http::Response no_database() {
 
 } // namespace
 
-// Forwarded, not rendered again. `admin::Problem` stays in types.hpp because
-// the WebSocket frames carry one inside a message envelope, but the HTTP
-// response shape has exactly one home — a second renderer would drift a field
-// and a caller behind the proxy would meet two dialects of the same error.
+// rendered by http's problem response, the one home for that shape
 http::Response problem(int status, std::string_view title, std::string_view detail) {
     return http::problem(status, title, detail);
 }
 
 namespace {
 
-// The status a refusal deserves. A ring that is full is the one worth
-// retrying; everything else is the caller's request being wrong, and telling
-// them to try again would be telling them to place the same bad order twice.
+// only a full ring is worth retrying
 int status_for(DeskError error) noexcept {
     return error == DeskError::RingFull ? 503 : 422;
 }
@@ -211,10 +194,7 @@ http::Response place_order(ManualDesk* desk, const http::Request& req, UnixNanos
         return problem(503, "no desk", "no gateway is attached to place orders through");
     }
     if (req.idempotency_key.empty()) {
-        // Required, not optional. An order request that times out is the one
-        // case where a caller cannot tell "never arrived" from "arrived and I
-        // lost the answer", and a retry without a key turns one intent into
-        // two positions.
+        // required so a retried order cannot become two positions
         return problem(400, "Idempotency-Key required", "see schema/admin-api.yaml");
     }
     NewOrderBody body{};
@@ -267,8 +247,7 @@ http::Response place_order(ManualDesk* desk, const http::Request& req, UnixNanos
     }
     const OrderAcceptedBody accepted{.client_order_id = std::to_string(placed->raw)};
     auto answer = json(accepted);
-    // 202: the desk has it, no venue has yet seen it. Anything else would have
-    // callers believing they are in a market they are not in.
+    // 202: accepted by the desk, not yet seen by a venue
     answer.status = 202;
     return answer;
 }
@@ -318,19 +297,14 @@ http::Handler make_router(const Registry& registry,
             return problem(405, "method not allowed", "this path serves reads");
         }
 
-        // FORWARDED VERBATIM, and this file does not know what comes back.
-        // `/v1/x/<name>/<rest>` goes to the upstream registered under <name>
-        // with <rest> intact. Naming the shapes an upstream carries would put
-        // somebody's model in a public repository, which is the one thing the
-        // proxy exists to avoid.
+        // forwarded verbatim to the upstream registered under <name>
         if (req.path.starts_with(k_upstream_prefix)) {
             const auto tail = req.path.substr(k_upstream_prefix.size());
             const auto slash = tail.find('/');
             const auto name = tail.substr(0, slash);
             const auto found = upstreams.find(std::string{name});
             if (found == upstreams.end()) {
-                // A 404, not a 503: nothing is broken, this admind was simply
-                // never told about an upstream by that name.
+                // an unconfigured upstream is a 404
                 return problem(404, "no such upstream", req.path);
             }
             const auto target = slash == std::string_view::npos ? std::string{"/"}
@@ -359,9 +333,7 @@ http::Handler make_router(const Registry& registry,
         }
 
         if (req.path == "/v1/balances") {
-            // LIVE, from the gateway segments — not from Postgres. Nothing
-            // persists a balance: it is what the venue says right now, and a
-            // stored one would answer "as of when?" wrongly.
+            // live from the gateway segments; balances are not persisted
             const auto account = http::query_param(req.query, "account");
             if (!account.empty() && registry.find(account) == nullptr) {
                 return problem(404, "no such account", account);
@@ -370,15 +342,8 @@ http::Handler make_router(const Registry& registry,
         }
 
         if (req.path == "/v1/markets") {
-            // The catalogue GROUPED, which is a different question from the
-            // catalogue listed: a search asks "which market", and a market is
-            // the thing several venues have in common.
             const auto query = http::query_param(req.query, "q");
-            // NO LIMIT BY DEFAULT, unlike every paged route beside it. The
-            // board is the screen for browsing the whole catalogue, and the
-            // shared default of 200 silently served a fifth of it — a person
-            // scrolling to the end had no way to tell a short list from the
-            // end of the list. A caller that wants a page still asks for one.
+            // no limit by default; the board browses the whole catalogue
             return json(
                 registry.markets(query, read_markets_limit(http::query_param(req.query, "limit"))));
         }
@@ -410,12 +375,7 @@ http::Handler make_router(const Registry& registry,
             return json(*found);
         }
 
-        // ------------------------------------------------------- cold ----
-        //
-        // Everything below reads Postgres. The paths are matched before the
-        // null check so that a missing DSN answers 503 on a path that exists
-        // and 404 on one that does not — a client should not have to guess
-        // which of the two it hit.
+        // postgres paths, matched before the null check so a missing dsn gives 503, not 404
 
         static constexpr std::string_view k_orders = "/v1/orders";
         if (req.path == k_orders) {

@@ -1,13 +1,6 @@
 #pragma once
 
-// An order's life on the wire: what the channel says happened to it, what a
-// REST answer says about it, and the fills it produced.
-//
-// Spot and futures are two APIs wearing one brand. The same order is `amount`
-// on one and `size` on the other, a decimal string here and a signed integer
-// there, `status` on one transport and `event` on another. The normalisation
-// happens here so the mapper sees one shape, and the two readers stay apart so
-// neither one's quirks leak into the other.
+// spot and futures order shapes differ; normalised here so the mapper sees one
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/venues/gate/errors.hpp>
@@ -20,10 +13,7 @@
 
 namespace raikiri::venues::gate {
 
-// What an order frame says happened, normalised across the two APIs. Gate
-// spells this three different ways — futures `finish_as` (with the WS-only
-// pseudo-values `_new` and `_update`), spot `status`, and the spot socket's
-// per-order `event` — and none of them is a superset of the others.
+// normalises futures finish_as, spot status and the spot socket's event
 enum class WireOrderState : std::uint8_t {
     Open,      // accepted, still working
     Filled,    // finished, fully filled
@@ -32,9 +22,7 @@ enum class WireOrderState : std::uint8_t {
     Unknown,
 };
 
-// One order across both APIs. `amount` and `left` are MAGNITUDES: futures
-// signs both to carry the side, and a reader that keeps the sign turns a short
-// into a negative quantity halfway down the mapper.
+// amount and left are magnitudes; futures signs both
 struct WireOrder {
     std::string_view contract;
     std::string_view order_id; // `id`, venue-minted
@@ -42,7 +30,7 @@ struct WireOrder {
     std::string_view price;
     std::string_view amount; // futures `size`, spot `amount`
     std::string_view left;
-    std::string_view fill_price; // AVERAGE over the order, not this fill
+    std::string_view fill_price; // average over the order
     std::string_view tif;        // gtc, ioc, poc, fok
     std::string_view order_type; // spot only; futures has no type field
     bool sell{false};
@@ -51,16 +39,14 @@ struct WireOrder {
     std::uint64_t ts_ms{0};
 };
 
-// Gate's own cap is 1000 rows per list call, which is also the largest
-// websocket batch observed.
+// gate caps a list call at 1000 rows
 inline constexpr std::size_t k_max_private_entries = 1024;
 
 struct OrderBuffer {
     std::array<WireOrder, k_max_private_entries> orders{};
 };
 
-// One fill. There is no `left` here on either API — the remaining size lives
-// on the ORDERS channel — so a mapper needs both frames to state leaves.
+// no left here; leaves come from the orders channel
 struct WireUserTrade {
     std::string_view contract;
     std::string_view trade_id; // `id`, the dedupe key
@@ -78,23 +64,21 @@ struct UserTradeBuffer {
     std::array<WireUserTrade, k_max_private_entries> trades{};
 };
 
-// Websocket pushes: the rows hang off `result`, an array on both channels.
+// websocket pushes: rows hang off result
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
 parse_ws_orders(std::string_view frame, OrderBuffer& storage, MarketType market);
 
 [[nodiscard]] std::expected<std::span<const WireUserTrade>, WireError>
 parse_ws_user_trades(std::string_view frame, UserTradeBuffer& storage, MarketType market);
 
-// REST bodies: a top-level array, with no envelope to unwrap.
+// rest bodies: a top-level array
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
 parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market);
 
 [[nodiscard]] std::expected<WireOrder, WireError> parse_rest_order(std::string_view body,
                                                                    MarketType market);
 
-// GET /spot/open_orders answers with one row PER CURRENCY PAIR, each holding
-// its own `orders` array. Reading it as a flat order list yields nothing at
-// all, silently.
+// one row per currency pair, each with its own orders array
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
 parse_spot_open_orders(std::string_view body, OrderBuffer& storage);
 

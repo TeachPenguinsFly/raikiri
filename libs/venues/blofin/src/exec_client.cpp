@@ -1,5 +1,4 @@
-// Refuses everything. Execution is blocked by ACCESS (no MiCA licence, AMF blacklist, KYC
-// for a Belarusian passport unestablished), not by signing: net::Signer needs one new encoding.
+// refuses everything; execution is blocked by venue access, not by signing
 
 #include <raikiri/exec/execution_client.hpp>
 

@@ -1,7 +1,6 @@
 #pragma once
 
-// INFRASTRUCTURE: each venue's public time endpoint, read over REST. A venue
-// absent from the table has none worth asking, and is bounded from its feed.
+// each venue's public rest time endpoint; venues without one are bounded from the feed
 
 #include <raikiri/introspect/clock_probe.hpp>
 
@@ -29,7 +28,7 @@ struct TimeEndpoint {
 [[nodiscard]] std::optional<TimeEndpoint> time_endpoint(std::string_view venue,
                                                         std::string_view market) noexcept;
 
-// The first number after `"key":`, quoted or not, in `unit_ns`.
+// the first number after `"key":`, quoted or not, in `unit_ns`
 [[nodiscard]] std::optional<std::uint64_t>
 parse_server_time(std::string_view body, std::string_view key, std::uint64_t unit_ns) noexcept;
 

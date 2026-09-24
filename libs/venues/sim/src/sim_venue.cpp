@@ -11,9 +11,7 @@ namespace raikiri::venues::sim {
 
 namespace {
 
-// Shared venue state: one Engine + MdGen behind both client facades. The
-// gateway thread is the only caller (single-threaded by architecture), so no
-// synchronization exists here on purpose.
+// one Engine and MdGen behind both clients; single-threaded
 struct SimState {
     explicit SimState(exec::GatewaySink& sink) : sink_ref{sink}, mdgen{k_seed} {}
 
@@ -161,10 +159,7 @@ public:
         return std::unexpected{exec::not_implemented("sim reconciliation pulls")};
     }
 
-    // Sim answers this one. It is the matching engine: it printed the fills,
-    // so it knows the position the way a venue does, and answering makes the
-    // reconciliation path something `make demo` actually walks rather than
-    // something only live keys can reach.
+    // the engine printed the fills, so it answers positions like a venue
     std::expected<std::vector<exec::PositionReport>, exec::VenueError>
     position_reports(MarketType market) override {
         if (market != MarketType::Perp) {

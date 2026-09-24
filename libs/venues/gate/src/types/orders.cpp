@@ -10,10 +10,7 @@ using wire::guarded;
 using wire::session;
 namespace ondemand = wire::ondemand;
 
-// Venue milliseconds from whichever of Gate's six timestamp spellings this
-// object carries. The `_ms` fields are milliseconds; the bare ones are
-// seconds, sometimes with a fractional tail. Reading one as the other puts the
-// event in 1970 or 30 millennia out, and both are silent.
+// _ms fields are milliseconds, bare ones seconds, sometimes fractional
 [[nodiscard]] std::uint64_t timestamp_ms(ondemand::object& obj) {
     for (const auto key : {"update_time_ms", "finish_time_ms", "create_time_ms"}) {
         if (const auto ms = whole_u64(field(obj, key)); ms != 0) {
@@ -33,22 +30,18 @@ namespace ondemand = wire::ondemand;
     if (finish_as == "filled") {
         return WireOrderState::Filled;
     }
-    // A tif that could not be met is an expiry, not a cancel: nobody asked for
-    // the order to go away, the venue could not honour its terms.
+    // an unmet tif is an expiry
     if (finish_as == "ioc" || finish_as == "poc" || finish_as == "fok") {
         return WireOrderState::Expired;
     }
-    // Spot spells "no reason given" as a bare hyphen on the socket and as
-    // "unknown" over REST; both mean the remaining size is the only evidence.
+    // spot spells no reason as "-" on the socket and "unknown" over rest
     if (finish_as.empty() || finish_as == "unknown" || finish_as == "-") {
         return left_is_zero ? WireOrderState::Filled : WireOrderState::Cancelled;
     }
     return WireOrderState::Cancelled;
 }
 
-// `_new` and `_update` are websocket-only pseudo-values that never appear on a
-// REST body: reading them as terminal reasons closes an order that is very
-// much still working.
+// _new and _update are websocket-only and not terminal
 [[nodiscard]] WireOrderState futures_state(std::string_view status,
                                            std::string_view finish_as,
                                            bool left_is_zero,
@@ -148,10 +141,7 @@ std::expected<void, WireError> read_spot_order(ondemand::object& obj, WireOrder&
         return std::unexpected{pair.error()};
     }
     out.contract = *pair;
-    // Required, and load-bearing beyond identity: /spot/open_orders wraps its
-    // orders in objects that also carry `currency_pair` but no `id`, so a
-    // reader that tolerates a missing one reads the WRAPPERS as orders and
-    // reports a set of empty ones instead of failing.
+    // required: /spot/open_orders wrappers carry currency_pair but no id
     out.order_id = field(obj, "id");
     if (out.order_id.empty()) {
         return std::unexpected{WireError::MissingField};
@@ -182,8 +172,7 @@ read_order(ondemand::object& obj, WireOrder& out, MarketType market) {
         return read_spot_order(obj, out);
     case MarketType::Future:
     case MarketType::Option:
-        // Delivery and options have their own bodies; nothing subscribes to
-        // them, so a frame arriving under one is a routing bug, not data.
+        // nothing subscribes to delivery or options, so this is a routing bug
         return std::unexpected{WireError::UnknownMessage};
     }
     return std::unexpected{WireError::UnknownMessage};

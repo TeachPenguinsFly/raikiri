@@ -115,8 +115,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
         memo.rate = *rate;
         told = true;
     }
-    // The mark is quoted finer than the tick (84274.95 on a 0.1 grid), so it is
-    // truncated onto the grid rather than refused.
+    // the mark is quoted finer than the tick, so it is truncated onto the grid
     if (const auto mark = parse_decimal_e9(wire.mark_price);
         mark.has_value() && base.tick_size.raw > 0) {
         memo.mark = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
@@ -131,9 +130,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     }
     FundingUpdate out{};
     out.instrument = base.id;
-    // `fundingRate` is the hour's running rate and is what the hour pays.
-    // predicted_rate stays UNDEF: `predictedFundingRate` is always the 0.00125%
-    // interest base, whatever the hour then pays, and is not a forecast.
+    // fundingRate is what the hour pays; predictedFundingRate is a fixed interest base, not a forecast
     out.rate = memo.rate;
     out.mark_price = memo.mark;
     out.next_funding_time = memo.next_funding;

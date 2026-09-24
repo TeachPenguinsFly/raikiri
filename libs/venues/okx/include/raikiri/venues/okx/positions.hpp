@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/wire/error.hpp>
@@ -14,9 +12,7 @@
 
 namespace raikiri::venues::okx {
 
-// One element of GET /api/v5/account/positions. `pos` is signed in net mode
-// and unsigned-per-side in long/short mode, so pos_side has to be read: a
-// short read as a long is a position error of twice the size.
+// pos is signed in net mode and per side in long/short mode
 struct WirePosition {
     std::string_view inst_id;
     std::string_view pos;

@@ -61,7 +61,6 @@ struct ObservedRequest {
 };
 
 struct ServerState {
-    // Fixed before the listener thread starts.
     int status{200};
     std::string error_body;
     std::vector<std::pair<std::string, std::string>> extra_headers;
@@ -133,8 +132,6 @@ private:
         for (const auto& [name, value] : state_.extra_headers) {
             res->insert(name, value);
         }
-        // The echo proves the body and the caller's header both crossed the
-        // wire; a status-only assertion would pass even if either was dropped.
         res->body() =
             state_.status == 200 ? req_.body() + "|" + to_std(req_["X-Custom"]) : state_.error_body;
         res->prepare_payload();
@@ -208,8 +205,6 @@ TEST(RestClient, PostEchoesBodyAndCustomHeaderOnAWarmConnection) {
     EXPECT_EQ(observed.user_agent, "raikiri/0.1");
     EXPECT_EQ(observed.content_type, "application/json");
 
-    // Second request on the pool that is already warm: this is the whole
-    // reason the class exists, so it is worth proving the socket survives.
     RestResponse second;
     bool second_done = false;
     RestRequest follow_up;
@@ -227,8 +222,6 @@ TEST(RestClient, PostEchoesBodyAndCustomHeaderOnAWarmConnection) {
     EXPECT_EQ(second.body, "|reuse");
     EXPECT_GE(second.sent.ns, got.sent.ns);
 
-    // A pool that is already connected must not be disturbed by the slow
-    // cadence call that exists to replace sockets nobody has used.
     client.keepalive(second.received);
     EXPECT_EQ(client.in_flight(), 0U);
 
@@ -261,8 +254,6 @@ TEST(RestClient, ErrorStatusIsSurfacedNotTreatedAsTransportFailure) {
     ASSERT_TRUE(poll_until(io, [&done] { return done; })) << "completion callback never fired";
 
     EXPECT_EQ(got.status, 400);
-    // The distinction the adapter keys off: a rejected order is an answer,
-    // an unreachable venue is not.
     EXPECT_FALSE(got.transport_failed());
     EXPECT_TRUE(got.error.empty()) << got.error;
     EXPECT_EQ(got.body, R"({"retCode":10001,"retMsg":"params error"})");
@@ -274,8 +265,6 @@ TEST(RestClient, ErrorStatusIsSurfacedNotTreatedAsTransportFailure) {
 
 TEST(RestClient, TheVenuesOwnMeteringIsKeptAndTheRestOfTheHeadersAreNot) {
     ServerState state;
-    // The three spellings that actually occur, plus one that must NOT be kept:
-    // a budget read off the wrong header is worse than no budget at all.
     state.extra_headers = {{"X-MBX-USED-WEIGHT-1M", "17"},
                            {"X-Bapi-Limit-Status", "48"},
                            {"x-gate-ratelimit-requests-remain", "199"},
@@ -314,8 +303,7 @@ TEST(RestClient, TheVenuesOwnMeteringIsKeptAndTheRestOfTheHeadersAreNot) {
         }
         return {};
     };
-    // Matched case-insensitively by prefix: the venues disagree on the casing
-    // of their own header names between endpoints.
+    // matched case-insensitively by prefix; venues vary header casing between endpoints
     EXPECT_EQ(value_of("X-MBX-USED-WEIGHT-1M"), "17");
     EXPECT_EQ(value_of("X-Bapi-Limit-Status"), "48");
     EXPECT_EQ(value_of("x-gate-ratelimit-requests-remain"), "199");

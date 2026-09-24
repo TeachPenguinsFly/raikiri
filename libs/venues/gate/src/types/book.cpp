@@ -12,8 +12,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is {"p":"64156.4","s":35680} on the websocket and in the REST
-// snapshot alike — same object either way, unlike okx's positional arrays.
+// a level is {p, s} on the socket and the rest snapshot
 std::expected<std::size_t, WireError>
 read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
     auto array = wire::req_array(obj, key);
@@ -40,9 +39,7 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// The spot book spells a level as a two-element ARRAY, ["79520","0.054448"],
-// where the futures deltas spell it as an object {"p":...,"s":...}. Same
-// numbers, same order, no shared reader.
+// spot levels are [price, qty] arrays; futures levels are {p, s} objects
 std::expected<std::size_t, WireError>
 read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLevel> into) {
     auto array = wire::req_array(obj, key);
@@ -79,7 +76,7 @@ read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<Wi
     return count;
 }
 
-// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+// the exact-or-refuse rule is book::exact_steps
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -206,8 +203,7 @@ std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view fr
                     return std::unexpected(WireError::MissingField);
                 }
                 out.ts_ms = *ts;
-                // Both ids are the same number on purpose: a snapshot IS its
-                // own first and last update, and there is no chain to join.
+                // a snapshot is its own first and last update
                 out.first_update_id = *last;
                 out.last_update_id = *last;
                 out.contract = *contract;
@@ -240,8 +236,7 @@ std::expected<WireOrderBook, WireError> parse_order_book(std::string_view body,
             return std::unexpected(WireError::WrongType);
         }
         if (*id == 0) {
-            // The request went out without with_id=true. Levels with no place
-            // in the update chain cannot seed anything.
+            // requested without with_id=true
             return std::unexpected(WireError::MissingField);
         }
         out.update_id = *id;
@@ -288,8 +283,7 @@ std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const 
 
 void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
-        // Size zero is Gate's delete, and it is also how a level leaving the
-        // subscribed window is retired — half the frames carry nothing else.
+        // size zero deletes, including levels leaving the window
         side.remove(level.price);
         return;
     }
@@ -356,8 +350,7 @@ BookResult DepthBook::bridge(const WireBookUpdate& delta) {
         return BookResult::Stale; // every id here is already in the seed
     }
     if (delta.first_update_id > wanted) {
-        // The stream has run past the seed and the chain is contiguous, so
-        // nothing will ever fill what is now missing between them.
+        // the stream has passed the seed and nothing can fill the gap
         discard_held();
         return BookResult::Reseed;
     }
@@ -416,8 +409,7 @@ BookResult DepthBook::replay() {
     }
 
     install_held();
-    // buffer() already enforced contiguity across pending_, so the replay only
-    // has to find where the seed sits inside it.
+    // buffer() already enforced contiguity, so replay only locates the seed
     for (; i < pending_.size(); ++i) {
         apply_levels(pending_[i].bids, ladders_.bids());
         apply_levels(pending_[i].asks, ladders_.asks());
@@ -429,8 +421,7 @@ BookResult DepthBook::replay() {
 
 BookResult DepthBook::settle() {
     if (ladders_.bids().empty() || ladders_.asks().empty()) {
-        // Gate maintains the window, so a side emptying means what is held no
-        // longer describes the venue's book; a fresh read is the way back.
+        // gate maintains the window, so an emptied side needs a fresh read
         invalidate();
         return BookResult::Reseed;
     }

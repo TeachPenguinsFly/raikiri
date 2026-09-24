@@ -3,11 +3,7 @@ import { api } from '@/api/client'
 import { useQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 
-/** UTC, and said so.
- *
- *  A trading terminal that shows local time is a terminal where two people
- *  reading the same screen in two cities disagree about when a fill happened.
- *  Venues stamp in UTC and so does the journal. */
+/** utc, as venues and the journal stamp */
 function Clock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -22,15 +18,8 @@ function Clock() {
   )
 }
 
-/** Health is this bar's only claim about liveness, so it is asked again rather
- *  than frozen at whatever was true when the app loaded. */
 const k_health_refresh_ms = 5_000
 
-/** Which gateways are answering, as a dot you can open.
- *
- *  Collapsed to a count because it is right most of the time and a header full
- *  of green dots trains you to stop reading it; expanded when the count is not
- *  the whole set, because THEN which one is missing is the question. */
 function GatewayStatus() {
   const health = useQuery(() => api.health(), [], k_health_refresh_ms)
   const [open, setOpen] = useState(false)
@@ -65,8 +54,6 @@ function GatewayStatus() {
   const gateways = health.state === 'ready' ? health.data.gateways : []
   const alive = gateways.filter((g) => g.gateway.alive).length
   const all = gateways.length
-  // A call that did not arrive knows nothing about the gateways, which is not
-  // the same fact as none of them being alive — but it is trouble either way.
   const tone = failed || alive === 0 ? 'bg-down' : alive === all ? 'bg-up' : 'bg-amber'
 
   return (
@@ -137,12 +124,6 @@ function GatewayStatus() {
   )
 }
 
-/** System status, and nothing else.
- *
- *  The bar used to open with a search field that did nothing — the working
- *  filter lives in the market list, where the thing being filtered is. A
- *  disabled control in the most prominent position on the page teaches the
- *  reader to distrust the row it sits in. */
 export function TopCommandBar() {
   return (
     <header className="flex h-10 shrink-0 items-center justify-end gap-3 px-3">

@@ -11,13 +11,11 @@ namespace pb = raikiri::wire::pb;
 using wire::guarded;
 using wire::session;
 
-// Spot envelope fields, off a live capture.
 constexpr std::uint32_t k_field_channel = 1;
 constexpr std::uint32_t k_field_symbol = 3;
 constexpr std::uint32_t k_field_send_ms = 6;
 
-// Payload fields. Which one is present IS the frame's type — the channel
-// string names it too, but the number is what the decoder can act on.
+// the present payload field number is the frame type
 constexpr std::uint32_t k_field_depth = 303;
 constexpr std::uint32_t k_field_deals = 314;
 constexpr std::uint32_t k_field_book_ticker = 315;
@@ -75,11 +73,8 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
 }
 
 std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value) {
-    // raw_json() on a scalar returns the token plus whitespace up to the next
-    // one, so quotes come off after trimming. Contents stay escaped: MEXC
-    // symbols, trade ids and decimal tokens cannot contain an escape, and
-    // letting simdjson unescape would move every field into a buffer that
-    // cannot be rebased.
+    // raw_json() includes trailing whitespace; contents stay escaped
+    // since mexc tokens contain no escapes
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
@@ -194,7 +189,7 @@ std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body
         if (*code < 0) {
             return std::unexpected(WireError::MissingField);
         }
-        // Errors name the field `message`; successful bodies omit it entirely.
+        // errors carry `message`; successes omit it
         const auto msg = opt_scalar(*root, "message");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());
@@ -288,8 +283,6 @@ std::expected<StreamEvent, WireError> parse_stream_event(std::string_view frame)
         }
     }
     if (!named || out.symbol.empty()) {
-        // Every data frame names its channel and its symbol. Something that
-        // does neither is a control frame or not a message at all.
         return std::unexpected(WireError::MissingField);
     }
     return out;

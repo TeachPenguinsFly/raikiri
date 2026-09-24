@@ -1,7 +1,3 @@
-// The control surface, without a socket: make_control returns a pure function
-// of the registry, the factory, the book and the request, which is the
-// property that lets a contract test assert the JSON without binding a port.
-
 #include <raikiri/strategy/control.hpp>
 
 #include <gtest/gtest.h>
@@ -65,7 +61,6 @@ struct Harness {
         return make_control(*live, types, book, shutdown.get_token());
     }
 
-    // One filled buy, so the book holds something to report.
     void fill(std::uint16_t strategy_id, std::uint32_t symbol) {
         const auto base = linear_base(symbol);
         OrderEvent event{};
@@ -99,9 +94,6 @@ http::Request post(std::string_view path, std::string_view body = {}) {
 }
 
 TEST(StrategyControl, ItNamesNoStrategyTypeOfItsOwn) {
-    // The one rule this surface exists under: a service linking strategies
-    // this repository does not contain lists them here without a line
-    // changing, so the answer is whatever was registered and nothing else.
     Harness h;
     const auto route = h.router();
     const auto empty = route(get("/v1/strategy-types"));
@@ -118,8 +110,6 @@ TEST(StrategyControl, ItNamesNoStrategyTypeOfItsOwn) {
 }
 
 TEST(StrategyControl, ACreateAnswers201AndDoesNotStartIt) {
-    // Two instructions on purpose: creating and starting in one call means a
-    // typo in a config is discovered by the market.
     Harness h;
     const auto route = h.router();
     const auto made = route(post("/v1/strategies",
@@ -143,14 +133,10 @@ TEST(StrategyControl, StartAndStopMoveThePhaseAndSayWhatTheStopPulled) {
     const auto stopped = route(post("/v1/strategies/9/stop"));
     ASSERT_EQ(stopped.status, 200) << stopped.body;
     EXPECT_NE(stopped.body.find("\"phase\":\"stopped\""), std::string::npos) << stopped.body;
-    // Orders pulled, never lots sold: a stop does not flatten.
     EXPECT_NE(stopped.body.find("\"orders_cancelled\":4"), std::string::npos) << stopped.body;
 }
 
 TEST(StrategyControl, AnIllegalTransitionIsAConflictAndAMissingOneIsNotFound) {
-    // 404 against 409 is the distinction the two error families exist to keep:
-    // "there is no such strategy" and "there is, and it is already stopped"
-    // are answered differently by everything that automates either.
     Harness h;
     const auto route = h.router();
     EXPECT_EQ(route(post("/v1/strategies/9/start")).status, 404);
@@ -167,24 +153,20 @@ TEST(StrategyControl, AnIllegalTransitionIsAConflictAndAMissingOneIsNotFound) {
 TEST(StrategyControl, EveryRefusalOfACreateCarriesTheStatusItDeserves) {
     Harness h;
     const auto route = h.router();
-    // Not JSON at all.
     EXPECT_EQ(route(post("/v1/strategies", "not json")).status, 400);
-    // A type nobody registered: the request is wrong and will be wrong again.
     EXPECT_EQ(
         route(post("/v1/strategies", R"({"name":"x","type":"nope","strategy_id":9})")).status,
         422);
-    // The reserved ids.
     EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":0})"))
                   .status,
               422);
     EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":1})"))
                   .status,
               422);
-    // Out of range for the 16 bits a ClientOrderId carries.
+    // strategy_id is 16 bits in a ClientOrderId
     EXPECT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":70000})"))
                   .status,
               422);
-    // And an id already held is a conflict with the state, not a bad request.
     ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))
                   .status,
               201);
@@ -194,8 +176,6 @@ TEST(StrategyControl, EveryRefusalOfACreateCarriesTheStatusItDeserves) {
 }
 
 TEST(StrategyControl, ACreateNamesTheFieldItIsMissing) {
-    // Measured against a live strategyd: a body without strategy_id was told
-    // its id was "not a whole number", and so was one whose type was unknown.
     Harness h;
     const auto route = h.router();
     const auto no_id = route(post("/v1/strategies", R"({"type":"quiet"})"));
@@ -212,8 +192,6 @@ TEST(StrategyControl, ARefusalIsRfc9457) {
     const auto refused = route(post("/v1/strategies", R"({"type":"nope","strategy_id":9})"));
     EXPECT_EQ(refused.content_type, "application/problem+json");
     EXPECT_NE(refused.body.find("\"status\":422"), std::string::npos) << refused.body;
-    // The detail names the type that was asked for, so a caller that mistyped
-    // one sees which spelling arrived.
     EXPECT_NE(refused.body.find("nope"), std::string::npos) << refused.body;
 }
 
@@ -237,8 +215,7 @@ TEST(StrategyControl, PositionsAndPnlAreServedPerStrategyAndNothingElseLeaksIn) 
     EXPECT_EQ(mine.body.find(std::to_string(theirs.packed)), std::string::npos)
         << "another strategy's position was served: " << mine.body;
 
-    // AND THE ID IS DIGITS IN A STRING. It carries the venue at bit 56 and
-    // would reach a browser rounded as a JSON number.
+    // the id is a digit string; the venue sits at bit 56
     EXPECT_NE(mine.body.find("\"" + std::to_string(ours.packed) + "\""), std::string::npos)
         << mine.body;
 
@@ -246,14 +223,11 @@ TEST(StrategyControl, PositionsAndPnlAreServedPerStrategyAndNothingElseLeaksIn) 
     ASSERT_EQ(pnl.status, 200) << pnl.body;
     EXPECT_NE(pnl.body.find("realized"), std::string::npos) << pnl.body;
     EXPECT_NE(pnl.body.find("fees"), std::string::npos) << pnl.body;
-    // NO TOTAL. Realized PnL is denominated in each instrument's settlement
-    // currency, so a sum across them would be adding unlike things.
+    // no total: pnl is in each instrument's settlement currency
     EXPECT_EQ(pnl.body.find("total"), std::string::npos) << pnl.body;
 }
 
 TEST(StrategyControl, PositionsForAStrategyThisProcessDoesNotRunIsNotAnEmptyPage) {
-    // The book may hold a position under an id restored from the journal, and
-    // answering with rows would say this process runs a strategy by it.
     Harness h;
     const auto route = h.router();
     h.fill(31, 1);
@@ -276,8 +250,6 @@ TEST(StrategyControl, AListingCountsWhatEachStrategyHolds) {
 }
 
 TEST(StrategyControl, AnIdThatIsNotDigitsIsNotAStrategy) {
-    // A partial parse is a refusal: "9x" is not the id 9, it is a client that
-    // built a URL wrong.
     Harness h;
     const auto route = h.router();
     EXPECT_EQ(route(get("/v1/strategies/9x")).status, 404);
@@ -315,8 +287,6 @@ TEST(StrategyControl, HealthCountsInstancesRunningAndTypes) {
 }
 
 TEST(StrategyControl, AStrategyStartedHereIsStoppedByTheProcessStopSignal) {
-    // Without the process token a strategy started over HTTP would be one that
-    // shutting the process down never told to stop.
     Harness h;
     const auto route = h.router();
     ASSERT_EQ(route(post("/v1/strategies", R"({"name":"x","type":"quiet","strategy_id":9})"))

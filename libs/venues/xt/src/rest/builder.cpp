@@ -11,9 +11,7 @@ namespace raikiri::venues::xt {
 
 namespace {
 
-// Header names are XT's, and the prefix is load-bearing: the server rebuilds
-// the signed prefix out of the headers it received, so `xt-validate-*` on the
-// wire with `validate-*` in the digest is a signature error, not a warning.
+// the header prefix sent must match the signed one; the server rebuilds the signed string from received headers
 constexpr std::string_view k_hdr_algorithms = "validate-algorithms";
 constexpr std::string_view k_hdr_appkey = "validate-appkey";
 constexpr std::string_view k_hdr_recvwindow = "validate-recvwindow";
@@ -23,14 +21,10 @@ constexpr std::string_view k_hdr_signature = "validate-signature";
 constexpr std::string_view k_algorithm = "HmacSHA256";
 constexpr std::string_view k_recv_window = "5000";
 
-// XT refuses a request whose timestamp is more than a second AHEAD of its own
-// clock, and every one of XT's own SDKs backdates rather than risk it — the
-// futures SDK goes as far as fetching server time per request. recvWindow
-// tolerates 5 s of lateness, so spending half a second of that is free.
+// xt refuses timestamps more than 1 s ahead and recvWindow allows 5 s late, so backdate
 constexpr std::uint64_t k_clock_backdate_ms = 500;
 
-// Spot orders are SPOT or LEVER; this adapter models no margin account, and
-// LEVER borrows.
+// LEVER borrows; no margin account is modelled
 constexpr std::string_view k_biz_type = "SPOT";
 
 std::string_view method_name(net::HttpMethod method) noexcept {
@@ -49,9 +43,7 @@ std::string_view method_name(net::HttpMethod method) noexcept {
     return "GET";
 }
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long symbol yields a request XT
-// refuses with invalid_symbol instead of one that names a different contract.
+// an overflowing part is dropped whole, so xt refuses it as invalid_symbol
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -83,8 +75,6 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed payload authenticates an order that is not the one intended.
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -201,9 +191,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Perp:
         return std::nullopt;
     case MarketType::Future:
-        // XT lists dated futures (`btc_usdt_261225`, productType "futures") but
-        // the catalogue mapper refuses them and no id for one is ever loaded,
-        // so an order naming one is a routing bug rather than a stale table.
+        // dated contracts are never loaded, so this is a routing bug
         return BuildError::DatedFuturesUnsupported;
     case MarketType::Option:
         return BuildError::OptionsUnsupported;
@@ -212,9 +200,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
 }
 
 std::string_view position_side(Side side, OrderFlags flags) noexcept {
-    // The position a BUY opens is LONG and the one it closes is SHORT. Reading
-    // `orderSide` as the position side leaves a closing order opening the
-    // opposite side instead — the venue accepts it and the book doubles.
+    // a buy opens LONG and closes SHORT
     const bool reduce = has_flag(flags, OrderFlags::ReduceOnly);
     const bool is_long = (side == Side::Buy) != reduce;
     return is_long ? "LONG" : "SHORT";
@@ -235,8 +221,6 @@ std::string_view time_in_force(TimeInForce tif, OrderFlags flags) noexcept {
     return "GTC";
 }
 
-// ------------------------------------------------------------ unsigned ----
-
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_futures_server_time, .body = {}};
 }
@@ -253,8 +237,7 @@ net::RestRequest RequestBuilder::spot_symbol_list() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One funding poll at a time is the only use.
+// shares one buffer; send before building the next
 net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_funding_rate);
@@ -272,8 +255,6 @@ net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t le
     writer.put(level);
     return writer.get();
 }
-
-// -------------------------------------------------------------- signed ----
 
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
@@ -293,14 +274,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(net:
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // X is the four headers as `k=v` SORTED BY NAME; the order below is that
-    // sort, and re-ordering it silently invalidates every signature.
+    // X is the four headers sorted by name; keep this order
     Appender msg{sign_msg_};
     msg << k_hdr_algorithms << "=" << k_algorithm << "&" << k_hdr_appkey << "="
         << signer_->api_key() << "&" << k_hdr_recvwindow << "=" << k_recv_window << "&"
         << k_hdr_timestamp << "=" << ts.view();
-    // Y appends only the components that are PRESENT — an empty query does not
-    // become an empty segment, it disappears.
+    // Y appends only present components; an empty query adds no segment
     msg << "#" << method_name(method) << "#" << path;
     if (!query.empty()) {
         msg << "#" << query;
@@ -354,12 +333,11 @@ SignedRequestBuilder::sign_futures(net::HttpMethod method,
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // Two fields, not four, and NO METHOD in Y. Signing the spot way here
-    // produces a digest the futures host rejects as a bad key.
+    // futures: two headers and no method in Y
     Appender msg{sign_msg_};
     msg << k_hdr_appkey << "=" << signer_->api_key() << "&" << k_hdr_timestamp << "=" << ts.view();
     msg << "#" << path;
-    // One parameter slot: a GET's query or a POST's body, never both.
+    // one parameter slot: a GET's query or a POST's body
     if (!query.empty()) {
         msg << "#" << query;
     } else if (!body.empty()) {
@@ -417,9 +395,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
 
     switch (cmd.instrument.market()) {
     case MarketType::Perp: {
-        // origQty counts CONTRACTS and XT answers invalid_quantity_scale to a
-        // fractional one, so a size that does not land on a whole contract is
-        // refused rather than rounded to a position of a different size.
+        // origQty is whole contracts; xt refuses fractions with invalid_quantity_scale
         if (qty->raw % k_e9 != 0) {
             return std::unexpected{BuildError::FractionalContracts};
         }
@@ -434,8 +410,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             if (!price.has_value()) {
                 return std::unexpected{BuildError::BadPrice};
             }
-            // `price` is declared a JSON NUMBER on this tree; quoting it is an
-            // invalid_params refusal.
+            // price must be a json number here; quoted is refused as invalid_params
             json.decimal_raw("price", *price);
         }
         json.str("timeInForce", time_in_force(cmd.tif, cmd.flags))
@@ -450,9 +425,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     }
     case MarketType::Spot: {
         if (is_market && cmd.side == Side::Buy) {
-            // A market BUY is sized in QUOTE units here (`quoteQty`) and XT
-            // refuses `quantity` on one. OrderCmd carries a base size, so the
-            // conversion would need a price this builder would have to invent.
+            // a spot market buy needs quoteQty and OrderCmd carries a base size
             return std::unexpected{BuildError::MarketBuyNeedsQuoteQty};
         }
         net::JsonWriter json{body_};
@@ -470,8 +443,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             }
             json.decimal_raw("price", *price);
         }
-        // ReduceOnly is deliberately not forwarded: a spot balance cannot be
-        // short, so XT has no field for it.
+        // spot has no reduce-only field
         json.decimal_raw("quantity", *qty).obj_end();
         if (!json.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
@@ -502,8 +474,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     switch (cmd.instrument.market()) {
     case MarketType::Perp: {
         net::JsonWriter json{body_};
-        // `orderId` is declared an integer, and XT's own ids are digit runs,
-        // so it goes in UNQUOTED.
+        // orderId is declared an integer, so it is sent unquoted
         json.obj_begin().raw("orderId", venue_id).obj_end();
         if (!json.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
@@ -512,8 +483,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
             net::HttpMethod::Post, ep::k_futures_order_cancel, {}, json.view(), now);
     }
     case MarketType::Spot: {
-        // The order id is a PATH SEGMENT here, so it is inside the signature's
-        // path term rather than beside it. The body is empty.
+        // the order id is a path segment and so part of the signed path; empty body
         Appender path{path_};
         path << ep::k_spot_order << "/" << venue_id;
         if (!path.ok()) {
@@ -543,9 +513,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (!all_digits(venue_id)) {
         return std::unexpected{BuildError::NoOrderTarget};
     }
-    // Both amend endpoints take price AND quantity together, so an amend that
-    // moves one still has to restate the other; a zero in either field would
-    // be read as the new value.
+    // both amends take price and quantity together; a zero would be read as the new value
     const auto price = order_price(cmd, base);
     const auto qty = order_qty(cmd, base);
     if (!price.has_value()) {
@@ -612,8 +580,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
         return sign_futures(net::HttpMethod::Post, ep::k_futures_open_orders, {}, json.view(), now);
     }
     case MarketType::Spot: {
-        // Query parameters go into the digest SORTED BY NAME, which is what
-        // the order below is; `bizType` precedes `symbol`.
+        // query params are signed sorted by name; keep bizType before symbol
         Appender query{query_};
         query << "bizType=" << k_biz_type;
         if (!symbol.empty()) {
@@ -648,9 +615,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
         return sign_spot(net::HttpMethod::Get, ep::k_spot_order, query.view(), {}, now);
     }
     case MarketType::Perp:
-        // /future/trade/v1/order/detail is keyed by the VENUE order id and XT
-        // publishes no by-client-id read, so this question is answered from the
-        // open-order sweep instead of by an endpoint that cannot hear it.
         return std::unexpected{BuildError::NoOrderTarget};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -700,8 +664,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     case MarketType::Perp:
         return sign_futures(net::HttpMethod::Get, ep::k_futures_positions, {}, {}, now);
     case MarketType::Spot:
-        // A spot balance is not a position. Answering "flat" would be a claim
-        // about a concept this API does not have.
         return std::unexpected{BuildError::SpotPositionsUnsupported};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -718,9 +680,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::futures_balanc
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::bills(UnixNanos since,
                                                                         UnixNanos now) {
     Appender query{body_};
-    // Newest first, one page. A ledger this process has fallen far behind on
-    // is a reconciliation problem and not something to paper over by walking
-    // pages inside a call the poller makes on a timer.
+    // one page, newest first; falling far behind is for reconciliation
     query << "direction=NEXT&limit=100";
     if (since.ns != 0) {
         query << "&startTime=" << static_cast<std::int64_t>(since.ns / 1'000'000ULL);

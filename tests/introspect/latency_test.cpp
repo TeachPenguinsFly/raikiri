@@ -19,7 +19,7 @@ constexpr std::uint64_t k_s = 1'000'000'000;
 TEST(OffsetEstimator, KeepsTheShortestRoundTrip) {
     OffsetEstimator est;
     EXPECT_EQ(est.estimate().method, ClockMethod::None);
-    // Server 5 ms ahead; the slow probe's asymmetric queueing skews it.
+    // server 5 ms ahead; the slow probe's asymmetric queueing skews it
     EXPECT_TRUE(est.add({.sent_ns = 1000 * k_ms,
                          .received_ns = 1100 * k_ms,
                          .server_ns = 1090 * k_ms,

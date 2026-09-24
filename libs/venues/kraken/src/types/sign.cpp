@@ -14,9 +14,7 @@ namespace {
 constexpr std::size_t k_sha256_bytes = 32;
 constexpr std::size_t k_sha512_bytes = 64;
 
-// config::Secret caps a credential at 512 bytes; the decoded form is never
-// longer than the printable one, so this cannot be overflowed by a re-keyed
-// account. A live Kraken secret decodes to 64.
+// config::Secret caps a credential at 512 bytes, and decoding never grows it
 constexpr std::size_t k_max_secret_bytes = 512;
 
 constexpr std::string_view k_b64_digits =
@@ -41,9 +39,7 @@ constexpr std::string_view k_b64_digits =
     return -1;
 }
 
-// Strict standard base64: padded, no whitespace, no URL alphabet. A secret
-// that needs a lenient decoder is a secret that was mangled in transit, and
-// guessing at it produces a key that authenticates as nothing.
+// strict padded base64 only
 [[nodiscard]] bool
 b64_decode(std::string_view text, std::span<std::uint8_t> out, std::size_t& written) noexcept {
     written = 0;
@@ -54,8 +50,7 @@ b64_decode(std::string_view text, std::span<std::uint8_t> out, std::size_t& writ
     while (pad < 2 && text[text.size() - 1 - pad] == '=') {
         ++pad;
     }
-    // Padding only ever occupies the final one or two slots; an '=' anywhere
-    // else is a mangled secret, not a shorter one.
+    // padding only occupies the final one or two slots
     for (std::size_t i = 0; i + pad < text.size(); ++i) {
         if (text[i] == '=') {
             return false;
@@ -86,7 +81,7 @@ b64_decode(std::string_view text, std::span<std::uint8_t> out, std::size_t& writ
     return written == bytes;
 }
 
-// Writes ceil(n/3)*4 characters. `out` is checked by the caller.
+// writes ceil(n/3)*4 characters; the caller checks out
 void b64_encode(std::span<const std::uint8_t> bytes, std::span<char> out) noexcept {
     std::size_t o = 0;
     std::size_t i = 0;
@@ -127,8 +122,7 @@ authent(std::string_view secret_base64, std::string_view message, std::span<char
 
     std::array<std::uint8_t, k_sha256_bytes> inner{};
     unsigned int inner_len = 0;
-    // An empty message still hashes: a GET with no parameters signs
-    // SHA256("" + nonce + path), so a null data pointer must not short-circuit.
+    // an empty message still hashes, so a null data pointer must not short-circuit
     const bool hashed =
         ::EVP_Digest(
             message.data(), message.size(), inner.data(), &inner_len, EVP_sha256(), nullptr) == 1 &&

@@ -18,10 +18,10 @@ inline constexpr std::string_view k_instruments = "/api/v1/market/instruments";
 inline constexpr std::string_view k_funding_rate = "/api/v1/market/funding-rate";
 inline constexpr std::string_view k_mark_price = "/api/v1/market/mark-price";
 
-// Per IP and unweighted; no header states what is left, so nothing can be read back.
+// per ip and unweighted; no header reports what is left
 inline constexpr std::uint32_t k_rest_requests_per_minute = 500;
 inline constexpr std::uint32_t k_rest_requests_per_5_minutes = 1500;
-// Tripping the minute suspends the IP for five minutes, the five-minute window for an hour.
+// tripping the minute suspends the ip for five minutes, the five-minute window for an hour
 inline constexpr std::uint64_t k_rest_suspension_ns = 5ULL * 60 * 1'000'000'000ULL;
 
 } // namespace raikiri::venues::blofin::ep

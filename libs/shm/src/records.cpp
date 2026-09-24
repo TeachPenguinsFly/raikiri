@@ -27,7 +27,7 @@ std::expected<GatewayChannels, SegError> create_gateway_channels(SegmentOwner& o
         ch.greeks == nullptr ||
         ch.ticker_stats == nullptr || ch.positions == nullptr || ch.balances == nullptr ||
         ch.cmd_create == nullptr || ch.cmd_cancel == nullptr || ch.order_intents == nullptr) {
-        return std::unexpected{SegError::TooSmall}; // segment sized too small: misconfiguration
+        return std::unexpected{SegError::TooSmall}; // segment sized too small
     }
     return ch;
 }
@@ -97,9 +97,7 @@ std::expected<GatewayChannels, SegError> open_gateway_channels(SegmentClient& cl
     if (!intents) {
         return std::unexpected{intents.error()};
     }
-    // NAMED, not positional. This list once matched GatewayChannels by order
-    // alone, so a field added in the middle of that struct would have shifted
-    // every channel after it onto the wrong pointer, silently and at runtime.
+    // named so a field added to GatewayChannels cannot shift the others
     return GatewayChannels{.catalogue = *catalogue,
                            .bbo = *bbo,
                            .depth = *depth,

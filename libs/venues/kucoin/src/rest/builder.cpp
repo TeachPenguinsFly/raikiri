@@ -10,7 +10,7 @@ namespace raikiri::venues::kucoin {
 
 namespace {
 
-// Header names are KuCoin's, capitalisation and all.
+// kucoin's header names
 constexpr std::string_view k_hdr_key = "KC-API-KEY";
 constexpr std::string_view k_hdr_sign = "KC-API-SIGN";
 constexpr std::string_view k_hdr_ts = "KC-API-TIMESTAMP";
@@ -18,9 +18,7 @@ constexpr std::string_view k_hdr_passphrase = "KC-API-PASSPHRASE";
 constexpr std::string_view k_hdr_key_version = "KC-API-KEY-VERSION";
 constexpr std::string_view k_key_version = "2";
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long symbol yields a request
-// KuCoin refuses with 404000 instead of one that names a different contract.
+// drops an overflowing part whole, so a long symbol gets 404000 instead of naming another contract
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -44,8 +42,7 @@ private:
     std::size_t len_{0};
 };
 
-// The signed path cannot use TargetWriter: a truncated path is signed as, and
-// sent as, a request we did not mean to make. Overflow is sticky and reported.
+// signed paths overflow stickily; a truncated path would be signed as sent
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -113,9 +110,7 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
     return "GTC";
 }
 
-// KuCoin's clientOid alphabet is letters, digits, '_' and '-'. A value outside
-// it is accepted by the venue on some paths and silently mangled on others, so
-// it is refused here rather than sent.
+// clientOid alphabet: letters, digits, '_' and '-'
 [[nodiscard]] bool client_oid_usable(std::string_view id) noexcept {
     if (id.empty() || id.size() > k_max_client_oid) {
         return false;
@@ -164,8 +159,7 @@ std::string_view rest_host(MarketType market) noexcept {
         return ep::k_rest_spot;
     case MarketType::Perp:
     case MarketType::Future:
-        // One host serves both: the perpetuals and the dated contracts share
-        // /api/v1/contracts/active, and only `type` tells them apart.
+        // perpetuals and dated contracts share one host
         return ep::k_rest_futures;
     case MarketType::Option:
         return {}; // KuCoin lists no options on the APIs in scope
@@ -193,8 +187,7 @@ net::RestRequest RequestBuilder::spot_symbols() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_symbols, .body = {}};
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One cold read at a time is the only use.
+// shared buffer: send before building the next request
 net::RestRequest RequestBuilder::funding_rate_current(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_funding_rate);
@@ -235,10 +228,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpM
     }
     const auto ts = render_u64(now.ns / 1'000'000ULL, timestamp_);
 
-    // The signed string is the request line as it will be SENT: the method in
-    // upper case, the path with its query string attached, and the body byte
-    // for byte. Signing a sorted or re-encoded query authenticates a request
-    // the server never sees, and answers 400005.
+    // sign the request exactly as sent: upper-case method, path with query, raw body; otherwise 400005
     Appender msg{sign_msg_};
     msg << ts << method_text(method) << path << body;
     if (!msg.ok()) {
@@ -267,9 +257,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::sign(net::HttpM
 std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
     const auto market = cmd.instrument.market();
-    // Named before the table is read, as amend_order does. InstrumentId
-    // resolves by symbol index alone, so an option id whose index happens to
-    // be occupied would otherwise be refused for the wrong reason.
+    // check options before the table: ids resolve by symbol index alone
     if (market == MarketType::Option) {
         return std::unexpected{BuildError::UnsupportedMarket};
     }
@@ -289,9 +277,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     if (cmd.order_type == OrderType::Limit && cmd.price.is_undef()) {
         return std::unexpected{BuildError::BadPrice};
     }
-    // Post-only is a separate boolean on KuCoin and is legal only alongside a
-    // resting time in force. Sending it with IOC produces an order that is
-    // neither, so the combination is refused rather than silently reshaped.
+    // post-only needs a resting time in force
     const bool post_only = has_flag(cmd.flags, OrderFlags::PostOnly);
     if (post_only && cmd.tif != TimeInForce::Gtc) {
         return std::unexpected{BuildError::UnsupportedRequest};
@@ -302,8 +288,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     switch (market) {
     case MarketType::Spot: {
         if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
-            // Spot holds no position to reduce; dropping the flag would send
-            // an opening order where a closing one was asked for.
+            // spot has no position to reduce
             return std::unexpected{BuildError::UnsupportedRequest};
         }
         path = ep::k_spot_orders;
@@ -325,9 +310,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
     }
     case MarketType::Perp:
     case MarketType::Future: {
-        // Futures trade whole CONTRACTS. A quantity that is not a whole
-        // number of them is a schema disagreement, and rounding it is how an
-        // order goes to the venue at a size nobody chose.
+        // futures trade whole contracts; fractional sizes are refused
         const auto contracts = base.lots_to_qty(cmd.qty);
         if (contracts.raw <= 0 || contracts.raw % k_e9 != 0) {
             return std::unexpected{BuildError::BadQuantity};
@@ -349,9 +332,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::create_order(
         if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
             json.boolean("reduceOnly", true);
         }
-        // `leverage` is deliberately absent. It is optional on this endpoint
-        // and it SETS the position's margin under isolated mode, so inventing
-        // a value here would silently choose risk the caller never asked for.
+        // leverage omitted: it sets isolated margin
         json.obj_end();
         break;
     }
@@ -384,8 +365,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::cancel_order(
     Appender path{path_};
     switch (market) {
     case MarketType::Spot:
-        // Both spot cancel paths demand the symbol as a query parameter, and
-        // it is part of the signed string.
+        // spot cancel needs the symbol as a signed query parameter
         path << ep::k_spot_orders << "/";
         if (by_order_id) {
             path << cmd.target_exchange_order_id.view();
@@ -420,8 +400,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::amend_order(
         break;
     case MarketType::Perp:
     case MarketType::Future:
-        // The futures API has no modify at all; cancel-and-replace is a
-        // decision for the OMS, not something an adapter should fake.
+        // futures has no modify
         return std::unexpected{BuildError::UnsupportedRequest};
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
@@ -438,9 +417,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::amend_order(
     if (!by_order_id && !client_oid_usable(client_oid)) {
         return std::unexpected{BuildError::BadClientOrderId};
     }
-    // KuCoin's modify REPLACES both fields, so an amend naming only one cannot
-    // be expressed. Filling the other from remembered state would resubmit a
-    // price the venue may already have moved past.
+    // kucoin's modify replaces price and size, so both are required
     if (cmd.price.is_undef()) {
         return std::unexpected{BuildError::BadPrice};
     }
@@ -470,16 +447,14 @@ OrderRequestBuilder::open_orders(MarketType market, std::string_view symbol, Uni
     switch (market) {
     case MarketType::Spot:
         if (symbol.empty()) {
-            // KuCoin answers spot actives one symbol at a time; an empty
-            // symbol would fetch nothing and read as "no open orders".
+            // spot actives are per symbol; an empty symbol would read as no orders
             return std::unexpected{BuildError::UnsupportedRequest};
         }
         path << ep::k_spot_orders_active << "?symbol=" << symbol;
         break;
     case MarketType::Perp:
     case MarketType::Future:
-        // Without status=active KuCoin returns the DONE orders instead, which
-        // a reconciler would read as a book full of orders that are gone.
+        // without status=active kucoin returns done orders
         path << ep::k_futures_orders << "?status=active";
         if (!symbol.empty()) {
             path << "&symbol=" << symbol;
@@ -501,8 +476,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::active_symbols(
         return sign(net::HttpMethod::Get, ep::k_spot_active_symbols, {}, now);
     case MarketType::Perp:
     case MarketType::Future:
-        // The futures list is account-wide already; asking per symbol would
-        // turn one sweep into hundreds.
+        // the futures list is already account-wide
         return std::unexpected{BuildError::UnsupportedRequest};
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};
@@ -540,8 +514,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::positions(Marke
                                                                            UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
-        // Spot has balances, not positions. An empty list here would be read
-        // as "flat", which is a claim about a concept the market lacks.
+        // spot has no positions
         return std::unexpected{BuildError::UnsupportedRequest};
     case MarketType::Perp:
     case MarketType::Future:
@@ -556,8 +529,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::account_overvie
                                                                                   UnixNanos now) {
     switch (market) {
     case MarketType::Spot:
-        // The spot wallet is a per-currency list on the other host. Refused,
-        // because the futures overview describes a different account.
+        // the spot wallet is a different account on the other host
         return std::unexpected{BuildError::UnsupportedRequest};
     case MarketType::Perp:
     case MarketType::Future: {
@@ -580,8 +552,7 @@ std::expected<net::RestRequest, BuildError> OrderRequestBuilder::bullet_private(
     case MarketType::Spot:
     case MarketType::Perp:
     case MarketType::Future:
-        // Same path on both hosts; which host it reaches decides which
-        // account's stream the token opens.
+        // the host decides which account's stream the token opens
         return sign(net::HttpMethod::Post, ep::k_bullet_private, {}, now);
     case MarketType::Option:
         return std::unexpected{BuildError::UnsupportedMarket};

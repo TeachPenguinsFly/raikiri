@@ -10,8 +10,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is ["64043.6","1282.19","0","57"]: price, size, a deprecated field
-// pinned to "0", and the order count. Only the first two are read.
+// a level is price, size, a deprecated 0 and the order count; only the first two are read
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
@@ -64,8 +63,7 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// Top of book only. An empty side is a real state on an illiquid contract, so
-// it yields empty views rather than an error; the mapper drops those.
+// an empty side is real on an illiquid contract
 std::expected<void, WireError> read_top(wire::ondemand::object& obj,
                                         std::string_view key,
                                         std::string_view& price,
@@ -209,7 +207,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
         const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)};
 
         if (level.qty.raw == 0) {
-            // Quantity zero is OKX's delete.
+            // quantity zero is okx's delete
             side.remove(level.price);
             continue;
         }
@@ -234,7 +232,6 @@ BookResult Book::apply(const WireBooks& update) {
     }
 
     if (!synced_) {
-        // A delta before any snapshot has no book to chain onto.
         return BookResult::Ignored;
     }
     if (update.prev_seq_id != last_seq_id_) {

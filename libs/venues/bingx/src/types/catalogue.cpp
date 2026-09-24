@@ -47,10 +47,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.price_precision = *price_precision;
             out.quantity_precision = *quantity_precision;
             out.status = *status;
-            // ABSENT READS AS OPEN. BingX spells these as the STRINGS "true"
-            // and "false" on this tree — opt_bool would refuse them — so they
-            // are read as text, and a row that states neither is left tradable
-            // rather than silently locked out by a field that moved.
+            // absent reads as open; the values are strings "true"/"false"
             for (const auto& [key, field] :
                  {std::pair{"apiStateOpen", &out.api_open},
                   std::pair{"apiStateClose", &out.api_close}}) {

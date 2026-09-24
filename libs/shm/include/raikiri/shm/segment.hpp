@@ -1,23 +1,7 @@
 #pragma once
 
-// Shared-memory segment lifecycle.
-//
-// Crash protocol:
-// - The owner stamps a heartbeat every ~10 ms. Peers treat the owner as dead
-//   when the pid is gone OR the heartbeat is stale (pids recycle; the
-//   heartbeat is generation-scoped truth).
-// - `generation` is the owner's start time: a re-created segment is a new
-//   generation, and an attached consumer that observes a generation change
-//   must drop cursors and reconcile (its sequence numbers belong to a dead
-//   world).
-// - Creation over a corpse: if the file exists but its owner is dead/stale,
-//   the creator unlinks and recreates. If the owner looks alive, creation
-//   fails loudly — two writers is the one unrecoverable configuration.
-//
-// Validation on attach: magic, ABI version, a layout hash over the channel
-// directory, and per-channel byte sizes re-checked against the caller's
-// compiled channel types. Struct drift between builds -> refuse to attach,
-// never reinterpret garbage.
+// the owner is dead when its pid is gone or its heartbeat is stale
+// a generation change means drop cursors and reconcile
 
 #include <raikiri/common/time.hpp>
 
@@ -33,9 +17,7 @@ namespace raikiri::shm {
 
 inline constexpr std::uint64_t k_magic = 0x5241494B53484D31ULL; // "RAIKSHM1"
 inline constexpr std::uint32_t k_abi_version = 12; // 12: InstrumentBase::asset_class, underlying
-// Sized past today's nine so the next channel is a directory entry rather than
-// another header-layout change: every slot costs 32 bytes of segment header,
-// and the ABI bump that a resize forces costs every process a rebuild.
+// spare slots so a new channel needs no header-layout change
 inline constexpr std::size_t k_max_channels = 16;
 inline constexpr std::size_t k_max_readers = 4;
 inline constexpr std::uint64_t k_owner_stale_ns = 200'000'000; // 200 ms
@@ -78,22 +60,13 @@ struct SegmentHeader {
     std::atomic<std::uint32_t> state{0};
     std::uint32_t pad2_{0};
     alignas(64) std::atomic<std::uint64_t> heartbeat_ns{0};
-    // SUBSCRIPTIONS THE VENUE ANSWERED WITH NO. Six adapters have counted these
-    // since they were written and nothing could read the count — a reader saw
-    // a live heartbeat and a full catalogue while a third of the venue was
-    // never arriving.
-    //
-    // On the heartbeat's cache line on purpose: both are the owner's own
-    // liveness, both are written by it and read by everyone, and the line has
-    // 56 bytes going spare.
+    // subscriptions the venue refused; shares the heartbeat's cache line
     std::atomic<std::uint64_t> subscribe_refusals{0};
     alignas(64) ChannelDesc channels[k_max_channels]{};
     ReaderSlot readers[k_max_readers]{};
 };
 
-// C++23 gives std::start_lifetime_as for exactly this "the bytes are the
-// object" situation; until libc++/libstdc++ ship it, a laundered cast is the
-// universally-deployed fallback.
+// a laundered cast until std::start_lifetime_as ships
 template <typename T> [[nodiscard]] T* channel_cast(void* p) noexcept {
 #if defined(__cpp_lib_start_lifetime_as)
     return std::start_lifetime_as<T>(p);
@@ -125,9 +98,7 @@ public:
 
     void beat(std::uint64_t now_ns) noexcept;
 
-    // How many subscriptions this gateway's venue has refused. Published
-    // beside the heartbeat because it answers the other half of "is this
-    // gateway well" — the half `alive` cannot.
+    // subscriptions refused by the venue, published beside the heartbeat
     void publish_refusals(std::uint64_t count) noexcept;
 
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
@@ -169,10 +140,7 @@ public:
 
     [[nodiscard]] std::uint64_t generation() const noexcept { return header_->generation; }
 
-    // The owner's last stamp, on the MONOTONIC clock it stamps with. Useful
-    // to report how stale a gateway is; owner_alive() is what decides whether
-    // it counts as alive, because staleness alone cannot tell a dead process
-    // from a slow one.
+    // the owner's last monotonic stamp; owner_alive() decides liveness
     [[nodiscard]] std::uint64_t last_heartbeat() const noexcept {
         return header_->heartbeat_ns.load(std::memory_order_acquire);
     }

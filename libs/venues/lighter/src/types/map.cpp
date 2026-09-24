@@ -133,7 +133,7 @@ std::optional<FundingUpdate> map_funding(const WireMarketStats& wire,
     FundingUpdate out{};
     out.instrument = base.id;
     out.rate = *rate;
-    // funding_rate is the hour already paid, not a forecast: predicted_rate stays UNDEF.
+    // funding_rate is the hour already paid, so predicted_rate stays undef
     if (const auto mark = steps_of(wire.mark_price, base.tick_size); mark.has_value()) {
         out.mark_price = PriceTicks::from_raw(*mark);
     }

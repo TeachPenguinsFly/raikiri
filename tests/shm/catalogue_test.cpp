@@ -16,7 +16,7 @@ Instrument perp(VenueId venue, std::uint32_t slot, std::string_view symbol) {
     return p;
 }
 
-// 600 KiB of table is too much for a test stack frame.
+// 600 KiB is too large for the stack
 std::unique_ptr<CatalogueTable> make_table() {
     return std::make_unique<CatalogueTable>();
 }
@@ -32,9 +32,6 @@ TEST(Catalogue, PublishesInSlotOrder) {
 }
 
 TEST(Catalogue, RefusesAnInstrumentThatDisagreesWithItsSlot) {
-    // Slot order IS the numbering. Accepting this would hand the consumer a
-    // table where index and SymbolId disagree, which is exactly the silent
-    // wrong-instrument bug the channel exists to prevent.
     const auto table = make_table();
     const auto pushed = table->push(perp(VenueId::Bybit, 7, "BTCUSDT"));
     ASSERT_FALSE(pushed.has_value());
@@ -50,8 +47,6 @@ TEST(Catalogue, FindMatchesTheWholePackedId) {
     ASSERT_NE(table->find(id), nullptr);
     EXPECT_EQ(base_of(*table->find(id)).exchange_symbol.view(), "BTCUSDT");
 
-    // Same slot, different market and different venue: both are ids minted
-    // against some other gateway's numbering, so neither resolves here.
     EXPECT_EQ(table->find(InstrumentId::make(VenueId::Bybit, MarketType::Spot, SymbolId{0})),
               nullptr);
     EXPECT_EQ(table->find(InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0})),

@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what the account is long. None of them belongs to the order path — they run
-// on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/errors.hpp>
@@ -23,25 +17,16 @@
 
 namespace raikiri::venues::kraken::internal {
 
-// /fills answers at most 100 rows and pages BACKWARDS from `lastFillTime`, so
-// a `since` older than this many pages is answered with what we could reach
-// rather than with an unbounded sweep of the account's history.
+// /fills pages backwards 100 rows at a time; this caps the sweep
 constexpr std::size_t k_max_fill_pages = 8;
 
-// What /fills answers in one call; a shorter page is the end of the history.
 constexpr std::size_t k_fills_per_page = 100;
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. Named BEFORE the instrument table is read: InstrumentTable::find
-// compares the whole id, so an id for a market we never loaded resolves to
-// nothing and would otherwise be reported as an unknown instrument.
+// exhaustive so Option needs a decision; checked before the table lookup
 exec::VenueError refuse_market_error(BuildError err) noexcept {
     switch (err) {
     case BuildError::SpotUnsupported:
-        // Kraken Spot is api.kraken.com: another host, another symbology and
-        // another signature. This adapter never loaded it and cannot sign for
-        // it, so it says so instead of blaming a stale catalogue.
+        // kraken spot is a separate api this adapter cannot sign for
         return exec::not_implemented("kraken spot order entry");
     case BuildError::DatedFuturesUnsupported:
         return exec::not_implemented("kraken dated futures order entry");
@@ -63,9 +48,7 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     return refusal.has_value() ? std::optional{refuse_market_error(*refusal)} : std::nullopt;
 }
 
-// A refusal to build is terminal by construction: the same command built again
-// produces the same refusal. Missing credentials are the exception the
-// reconciler acts on differently, which is why they keep their own class.
+// build refusals are terminal; missing credentials keep their own class
 exec::VenueError build_failure(BuildError err) noexcept {
     if (err == BuildError::NotSigned) {
         return exec::VenueError::make(exec::ErrorClass::AuthFailure, 0, to_string(err));
@@ -97,8 +80,6 @@ public:
 
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -133,9 +114,7 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) {
-        // There is no single-order read in this API: /openorders is the whole
-        // working set, filtered here. An order that has finished is therefore
-        // not findable, and saying so beats reporting it as unknown.
+        // no single-order read: /openorders is filtered, so a finished order is not findable
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -172,8 +151,7 @@ public:
             if (fills->empty()) {
                 break;
             }
-            // Rows come back newest first, so the last one carries the cursor
-            // for the page before this one.
+            // rows are newest first, so the last one carries the next cursor
             std::uint64_t oldest_ms = 0;
             std::string_view oldest_text;
             bool reached_since = false;
@@ -190,9 +168,7 @@ public:
                     reports.push_back(*report);
                 }
             }
-            // A short page is the beginning of the account's history: the
-            // endpoint answers "the 100 entries before lastFillTime", so fewer
-            // than that means there is nothing older to ask for.
+            // a short page means nothing older remains
             if (reached_since || oldest_text.empty() || fills->size() < k_fills_per_page) {
                 break;
             }
@@ -238,8 +214,7 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
-        // HTTP status is no substitute for the body: an unauthenticated read
-        // answers HTTP 200 with "authenticationError".
+        // an unauthenticated read answers http 200 with authenticationError
         const auto envelope = parse_rest_envelope(response->body);
         if (!envelope.has_value() || !envelope->ok) {
             return std::unexpected{rest_failure(response->body)};

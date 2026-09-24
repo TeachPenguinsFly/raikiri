@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// `internal` because an anonymous namespace in a header makes a distinct type per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -28,14 +27,12 @@
 
 namespace raikiri::venues::hyperliquid::internal {
 
-// Owned as strings: the instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string channel;
     std::string coin;
 };
 
-// State one gateway process shares. Single threaded by contract: the gateway
-// loop is the only caller, which is why nothing here synchronises.
+// single threaded; only the gateway loop calls in
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -50,29 +47,18 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
 
-    // The wallet the account reads name. Owned as a string because the request
-    // builders take views into it, and it is NOT a secret: it travels in a
-    // plain unsigned /info body, which is the whole reason those reads work
-    // with no key material at all.
+    // the account address; public, sent in unsigned /info bodies
     std::string address;
 
-    // InstrumentId -> the asset id an /exchange action names. Built at
-    // catalogue load because it is the one number an instrument cannot yield:
-    // SymbolId counts the rows this adapter KEPT, and the venue counts the rows
-    // it PUBLISHED, delisted ones included.
+    // instrument id to /exchange asset id; the venue counts delisted rows too
     std::unordered_map<std::uint64_t, std::int64_t> asset_ids;
 
-    // The HIP-3 dexes whose perps load beside the main dex's; "all" takes
-    // every one perpDexs lists. Empty by default.
+    // hip-3 dexes loaded beside the main dex; "all" takes every one perpDexs lists
     std::vector<std::string> dexes;
 
-    // The secp256k1 key orders are signed with, and the only place raw key
-    // material lives in this adapter. Absent for a market-data-only gateway,
-    // which is why every build path checks before it signs.
+    // absent on a market-data-only gateway
     Wallet wallet;
 
-    // Strictly increasing across the process, because the venue rejects a
-    // nonce at or below the smallest of the hundred highest it has seen.
     NonceSource nonces;
 
     std::vector<OwnedSubscription> desired;
@@ -81,10 +67,7 @@ struct VenueState {
 
     std::uint64_t subscribe_refusals{0};
 
-    // False when the pair was already asked for, so a caller does not place a
-    // second pool key for it: Funding and MarkPrice both name activeAssetCtx,
-    // and a set that answered the same to both would spend two of a
-    // connection's thousand on one subscription.
+    // false when already asked, since funding and mark price share activeAssetCtx
     [[nodiscard]] bool add_subscription(std::string_view channel, std::string_view coin) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.coin == coin) {
@@ -96,7 +79,7 @@ struct VenueState {
     }
 };
 
-// Cold paths only: catalogue loads and reconciliation pulls, never an order.
+// cold paths only, never an order
 inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
                                                        const net::RestRequest& request,
@@ -104,16 +87,13 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// A query this venue cannot satisfy comes back HTTP 200 with a body of the bare
-// literal `null`, so the status alone cannot tell a refusal from a real read —
-// and a caller that trusted it would parse an empty account.
+// a 200 with a `null` body is a refusal
 inline std::expected<std::string, exec::VenueError> read_info(VenueState& state,
                                                               net::RestClient& rest,
                                                               const net::RestRequest& request,
                                                               std::uint64_t timeout_ms = 10'000) {
     if (request.body.empty()) {
-        // The builder reports overflow by emitting nothing: a truncated body
-        // would be a DIFFERENT query, answered rather than refused.
+        // an empty body means the builder overflowed
         return std::unexpected{exec::VenueError::make(
             exec::ErrorClass::Terminal, 0, "hyperliquid: request body did not fit")};
     }

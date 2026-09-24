@@ -17,8 +17,7 @@
 namespace raikiri::venues::binance {
 namespace {
 
-// Only the wire target carries RAIKIRI_BINANCE_FIXTURES, so the book tests
-// locate the directory from this file the way the gate target does.
+// only the wire target defines RAIKIRI_BINANCE_FIXTURES, so locate the directory from this file
 std::string fixture(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
     std::ifstream in{path};
@@ -40,10 +39,7 @@ exec::InstrumentTable table_with_btc() {
     wire.tick_size = "0.10";
     wire.step_size = "0.001";
     wire.min_notional = "5";
-    // BTCUSDT's own schedule, stamped the way the catalogue loader stamps it
-    // from fundingInfo. It has to be said here: the funding memo carries the
-    // interval down from the interned perp, so a table built without one
-    // describes an instrument whose schedule binance never stated.
+    // stamped as the catalogue loader does from fundingInfo
     wire.funding_interval_s = 28'800;
     const auto instrument = map_instrument(wire, MarketType::Perp);
     EXPECT_TRUE(instrument.has_value());
@@ -70,14 +66,13 @@ TEST(BinanceMap, BookTickerBecomesBbo) {
     EXPECT_EQ(bbo->ask.raw, 644'886);
     EXPECT_EQ(bbo->bid_qty.raw, 5'560); // 5.560 / 0.001
     EXPECT_EQ(bbo->ask_qty.raw, 4'245);
-    // ts_event is T, not E — the moment the book changed.
+    // ts_event is T, when the book changed
     EXPECT_EQ(bbo->ts_event.ns, 1'786'375'246'658ULL * 1'000'000ULL);
     EXPECT_EQ(bbo->ts_init.ns, k_ingest.ns);
 }
 
 TEST(BinanceMap, PriceOffTheTickIsDroppedNotRounded) {
-    // A price that does not divide by the tick means binance changed a filter
-    // under us. Rounding would put an order one tick from where it was meant.
+    // a price off the tick is dropped rather than rounded
     const auto table = table_with_btc();
     WireBookTicker wire{};
     wire.symbol = "BTCUSDT";
@@ -100,8 +95,7 @@ TEST(BinanceMap, UnknownSymbolIsDropped) {
 }
 
 TEST(BinanceMap, MakerFlagIsInvertedIntoAggressorSide) {
-    // This is the field most likely to be read backwards. m == true means the
-    // buyer was the maker, so the aggressor SOLD.
+    // m == true means the buyer was maker, so the aggressor sold
     const auto table = table_with_btc();
     WirePrint wire{};
     wire.symbol = "BTCUSDT";
@@ -131,7 +125,7 @@ TEST(BinanceMap, MissingVenueTimeFallsBackToIngest) {
     wire.trade_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // Not 1970: a zero timestamp reaching a latency histogram poisons it.
+    // a zero timestamp falls back to ingest time
     EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
 }
 
@@ -154,9 +148,7 @@ TEST(BinanceMap, MarkPriceBecomesFunding) {
 }
 
 TEST(BinanceMap, MarkPriceOffTheTickStillMaps) {
-    // Mark is an index-weighted average and is NOT rounded to the trading
-    // tick, so the exact-step rule cannot apply to it — demanding
-    // divisibility here would drop every funding frame binance sends.
+    // mark is an index average off the tick, so the exact-step rule does not apply
     const auto table = table_with_btc();
     WireMarkPrice wire{};
     wire.symbol = "BTCUSDT";
@@ -195,8 +187,7 @@ TEST(BinanceMap, NonPerpetualAndNonTradingRowsAreRefused) {
 }
 
 TEST(BinanceMap, InstrumentWithoutUsableStepsIsRefused) {
-    // Every later conversion divides by these, so a zero step must never
-    // reach the table.
+    // later conversions divide by these, so a zero step is refused
     WireInstrument wire{};
     wire.symbol = "BTCUSDT";
     wire.contract_type = "PERPETUAL";
@@ -211,8 +202,7 @@ TEST(BinanceMap, InstrumentWithoutUsableStepsIsRefused) {
 }
 
 TEST(BinanceMap, CatalogueRowsCarryTheCanonicalPair) {
-    // baseAsset and quoteAsset ride every /fapi/v1/exchangeInfo row, so the
-    // venue-neutral name costs nothing to build here.
+    // baseAsset and quoteAsset ride every exchangeInfo row
     auto storage = std::make_unique<InstrumentBuffer>();
     const auto body = fixture("rest_exchange_info.json");
     const auto rows = parse_exchange_info(body, *storage);
@@ -239,8 +229,7 @@ TEST(BinanceMap, CatalogueRowsCarryTheCanonicalPair) {
 }
 
 TEST(BinanceMap, RowWithoutAPairIsDropped) {
-    // An instrument nothing can group shows in a cross-venue view as a market
-    // of its own, which is worse than not carrying it.
+    // an ungroupable instrument is dropped
     WireInstrument wire{};
     wire.symbol = "BTCUSDT";
     wire.quote_asset = "USDT";
@@ -269,8 +258,7 @@ TEST(BinanceErrors, AuthCodesHaltTheVenue) {
 }
 
 TEST(BinanceErrors, ClockSkewIsRetryableNotTerminal) {
-    // -1021 is the single most common false terminal: the request was fine,
-    // our clock was not. Resync and resend succeeds.
+    // -1021 is a clock problem; resync and resend succeeds
     EXPECT_EQ(classify(k_invalid_timestamp), exec::ErrorClass::Retryable);
 }
 
@@ -286,8 +274,7 @@ TEST(BinanceErrors, RateLimitCodesBackOff) {
 }
 
 TEST(BinanceErrors, UnknownCodeIsTerminalByDefault) {
-    // Deliberate: an unknown refusal retried at full speed earns an IP ban,
-    // while a spuriously terminal order is recovered by reconciliation.
+    // unknown refusals are terminal so they are not retried at full speed
     EXPECT_EQ(classify(-999'999), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_bad_symbol), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_post_only_would_take), exec::ErrorClass::Terminal);
@@ -298,8 +285,6 @@ TEST(BinanceErrors, BenignCancelRacesAreRecognised) {
     EXPECT_TRUE(is_benign_cancel_failure(k_cancel_rejected));
     EXPECT_FALSE(is_benign_cancel_failure(k_balance_insufficient));
 }
-
-// --- private stream -------------------------------------------------------
 
 WireOrderUpdate order_update(std::string_view exec_type, std::string_view status) {
     WireOrderUpdate wire{};
@@ -322,9 +307,7 @@ WireOrderUpdate order_update(std::string_view exec_type, std::string_view status
 }
 
 TEST(BinanceMap, ExecutionTypeDecidesTheEventNotOrderStatus) {
-    // The double-count hazard. A TRADE frame also reports X = FILLED; if the
-    // status were turned into an event of its own, every fill would be
-    // counted twice and every position would double.
+    // a trade frame also reports X = FILLED; only x may emit, or fills double
     const auto table = table_with_btc();
 
     auto wire = order_update("TRADE", "FILLED");
@@ -337,7 +320,7 @@ TEST(BinanceMap, ExecutionTypeDecidesTheEventNotOrderStatus) {
     const auto event = map_order_event(wire, table, k_ingest);
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->type, OrderEventType::Filled);
-    // The FILL's own price and size, not the resting order's.
+    // the fill's own price and size
     EXPECT_EQ(event->price.raw, 644'886);
     EXPECT_EQ(event->qty.raw, 4);
     EXPECT_EQ(event->leaves_qty.raw, 0);
@@ -361,17 +344,13 @@ TEST(BinanceMap, LifecycleTransitionsComeFromExecutionTypeToo) {
 }
 
 TEST(BinanceMap, LiquidationBookkeepingProducesNoOrderEvent) {
-    // CALCULATED is ADL/liquidation accounting, not a transition of an order
-    // we submitted. Synthesizing one would apply a transition the FSM has no
-    // arm for and refuse it loudly for no reason.
+    // calculated is liquidation accounting, not a transition of our order
     const auto table = table_with_btc();
     EXPECT_FALSE(map_order_event(order_update("CALCULATED", "NEW"), table, k_ingest).has_value());
 }
 
 TEST(BinanceMap, OrdersWeDidNotMintAreDropped) {
-    // Binance mints its own client ids for liquidations ("autoclose-..."),
-    // longer than the field reserved for our ULIDs. The store has no such
-    // order, so the frame is not ours to apply.
+    // binance mints longer client ids for liquidations; the frame is not ours
     const auto table = table_with_btc();
     auto wire = order_update("TRADE", "FILLED");
     wire.client_order_id = "autoclose-1234567890123456789012345678901234567890";
@@ -393,7 +372,7 @@ TEST(BinanceMap, PartialFillReportsWhatIsLeft) {
 }
 
 TEST(BinanceMap, PositionAmountKeepsItsSign) {
-    // A short is a negative position. Losing the sign here inverts the book.
+    // a short is a negative position
     const auto table = table_with_btc();
     WirePositionRisk wire{};
     wire.symbol = "BTCUSDT";
@@ -425,16 +404,9 @@ TEST(BinanceMap, UserTradeBecomesAFillReport) {
     EXPECT_EQ(report->exec_id.view(), "698759");
 }
 
-// Order book -------------------------------------------------------------
-//
-// The three depth fixtures are one capture: `rest_depth_seed.json` is the
-// snapshot, `ws_depth_straddle.json` is the delta whose [U, u] contains its
-// `lastUpdateId`, and `ws_depth_straddle_next.json` is the frame after that.
-// A seed and a stream from different minutes would replay into a crossed
-// book, which is exactly the failure these tests exist to catch.
+// the three depth fixtures are one capture: seed, straddling delta, next frame
 
-// The parsed views point into the frame text and into the level buffer, so
-// both have to outlive the wire struct that came out of them.
+// the parsed views point into the frame and the level buffer, which must outlive them
 struct Frame {
     std::string text;
     std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
@@ -463,9 +435,7 @@ WireDepthSnapshot seed_of(Frame& frame) {
     return wire.value_or(WireDepthSnapshot{});
 }
 
-// Bids descend, asks ascend, the two never cross and every quantity is real.
-// A book that fails this is not a book, and publishing it would price every
-// strategy reading shared memory.
+// bids descend, asks ascend, no cross, every quantity real
 void expect_coherent(const BookSnapshot& out) {
     ASSERT_GT(out.bid_count, 0U);
     ASSERT_GT(out.ask_count, 0U);
@@ -528,8 +498,7 @@ TEST(BinanceBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
 }
 
 TEST(BinanceBook, DeltasBufferedBehindTheSeedReplayIntoTheSameBook) {
-    // Which of the REST answer and the websocket frame lands first is a race,
-    // and the book it produces must not depend on who won.
+    // rest and websocket arrival order is a race; the book must not depend on it
     const auto table = table_with_btc();
     Frame seed_frame;
     Frame first;
@@ -623,8 +592,7 @@ TEST(BinanceBook, ALevelOffTheTickIsDroppedNotRounded) {
     const auto before = book.snapshot(k_ingest, k_ingest);
     ASSERT_TRUE(before.has_value());
 
-    // 0.05 past a 0.10 tick: rounding it would invent a price binance never
-    // quoted, one tick from the one it meant.
+    // 0.05 past a 0.10 tick
     const std::array<WireLevel, 1> off{WireLevel{.price = "63122.85", .qty = "1.000"}};
     WireDepthUpdate bad{};
     bad.symbol = "BTCUSDT";
@@ -645,8 +613,7 @@ TEST(BinanceBook, ALevelOffTheTickIsDroppedNotRounded) {
 }
 
 TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
-    // The ids are not dense per symbol, so a snapshot can land in the hole
-    // between two frames. Trusting it would splice two different books.
+    // ids are not dense, so a snapshot can land between frames
     const auto table = table_with_btc();
     auto book = book_for(table);
     Frame seed_frame;
@@ -661,8 +628,6 @@ TEST(BinanceBook, ASeedNothingStraddlesIsDiscardedRatherThanTrusted) {
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
     EXPECT_TRUE(book.wants_seed());
 }
-
-// ------------------------------------------------------------ balances ----
 
 TEST(BinanceBook, SeedAnswersAreClassified) {
     constexpr std::string_view invalid = R"({"code":-1121,"msg":"Invalid symbol."})";
@@ -734,7 +699,7 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
     const auto account = parse_account(body, *storage);
     ASSERT_TRUE(account.has_value());
     ASSERT_EQ(account->assets.size(), 20U);
-    // Single-asset mode, and the rows below are readable only because of it.
+    // single-asset mode, which makes the per-asset rows readable
     EXPECT_FALSE(account->multi_assets_margin);
 
     std::vector<BalanceReport> held;
@@ -744,32 +709,25 @@ TEST(BinanceMap, BalanceKeepsOnlyTheAssetsWithMoneyInThem) {
             held.push_back(*report);
         }
     }
-    // Eighteen of the twenty rows are binance naming an asset it WOULD take as
-    // collateral. The snapshot that carries these holds 64 rows, so forwarding
-    // them costs the balances the account actually has.
+    // eighteen of the twenty rows are unheld collateral assets
     ASSERT_EQ(held.size(), 2U);
     EXPECT_EQ(held[0].asset.view(), "USDT");
     EXPECT_EQ(held[0].total.raw, 12'425'260'592'170);
-    // Published, because the account margins each asset out of itself here:
-    // 11982.40 free against 12425.26 held, the difference being the margin the
-    // open position already committed.
+    // published: in single-asset mode each asset margins itself
     EXPECT_EQ(held[0].available.raw, 11'982'402'392'170);
     EXPECT_LT(held[0].available.raw, held[0].total.raw);
     EXPECT_EQ(held[0].unrealized.raw, -18'429'100'000);
     EXPECT_EQ(held[0].ts_venue.ns, 1'787'841'486'006'000'000ULL);
-    // Flat unrealised pnl does not make a row empty: the BNB is held.
+    // flat unrealised pnl does not make a row empty
     EXPECT_EQ(held[1].asset.view(), "BNB");
     EXPECT_EQ(held[1].total.raw, 1'550'100'000);
     EXPECT_EQ(held[1].unrealized.raw, 0);
-    // And the free figure is this asset's own, not the USDT one repeated.
+    // the free figure is this asset's own
     EXPECT_EQ(held[1].available.raw, 1'550'100'000);
 }
 
 TEST(BinanceMap, BalanceWithholdsAvailableInMultiAssetsMode) {
-    // The failure this endpoint was chosen to prevent. In multi-assets mode
-    // binance repeats ONE account-wide margin on every row, so an account
-    // holding 827 USDT answers ~826 as the "available" of BTC as well —
-    // published per asset that is 826 free BTC.
+    // multi-assets mode repeats one account-wide margin on every row
     const std::string body =
         R"({"multiAssetsMargin":true,"assets":[)"
         R"({"asset":"USDT","walletBalance":"827.00000000","unrealizedProfit":"0.00000000",)"
@@ -785,19 +743,15 @@ TEST(BinanceMap, BalanceWithholdsAvailableInMultiAssetsMode) {
     for (const auto& row : account->assets) {
         const auto report = map_balance(row, account->multi_assets_margin);
         ASSERT_TRUE(report.has_value());
-        // Undef, not 826 and not zero: the venue gave no per-asset free
-        // figure, and undef is what says so.
+        // undef: the venue gave no per-asset free figure
         EXPECT_TRUE(report->available.is_undef()) << report->asset.view();
-        // The total and the pnl are per asset in either mode, so withholding
-        // the one figure must not withhold the other two.
+        // total and pnl are per asset in either mode
         EXPECT_FALSE(report->total.is_undef()) << report->asset.view();
     }
 }
 
 TEST(BinanceMap, AModeBinanceDidNotStateWithholdsTheAvailable) {
-    // v3 of this endpoint already drops `multiAssetsMargin`. A reader that
-    // took an absent flag for `false` would publish one account-wide margin as
-    // the free balance of every asset — so absence withholds instead.
+    // an absent multiAssetsMargin withholds available
     const std::string body = R"({"assets":[{"asset":"USDT","walletBalance":"827.00000000",)"
                              R"("unrealizedProfit":"0.00000000","availableBalance":"826.00000000",)"
                              R"("updateTime":1787841486006}],"positions":[]})";
@@ -817,24 +771,21 @@ TEST(BinanceMap, BalanceIsDroppedOnlyWhenTheWalletWasReportedAndIsEmpty) {
     wire.wallet_balance = "0.00000000";
     wire.available_balance = "826.00000000";
     wire.unrealized_profit = "0.00000000";
-    // Binance names every asset it would accept as collateral. An empty wallet
-    // with no pnl on it is one of those, not a holding.
+    // an empty wallet with no pnl is unheld collateral
     EXPECT_FALSE(map_balance(wire, false).has_value());
 
-    // Unrealised pnl on an empty wallet IS a holding: the position is open.
+    // unrealised pnl on an empty wallet is a holding
     wire.unrealized_profit = "-1.50000000";
     EXPECT_TRUE(map_balance(wire, false).has_value());
 
-    // A wallet figure binance did not send is not an empty wallet. Reading it
-    // as one would drop a balance nobody was told about.
+    // an unsent wallet figure is not an empty wallet
     wire.unrealized_profit = "0.00000000";
     wire.wallet_balance = {};
     EXPECT_TRUE(map_balance(wire, false).has_value());
 }
 
 TEST(BinanceMap, BalanceWithoutAnAssetIsDropped) {
-    // A wallet figure with no unit is not a balance, and a truncated ticker
-    // would attribute the money to an asset that does not exist.
+    // a balance with no asset is dropped
     WireAssetBalance wire{};
     wire.wallet_balance = "12.50000000";
     EXPECT_FALSE(map_balance(wire, false).has_value());
@@ -849,16 +800,12 @@ TEST(BinanceMap, BalanceLeavesAFieldBinanceDidNotSendUndef) {
     const auto report = map_balance(wire, false);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->total.raw, 1'200'000'000'000);
-    // Not zero, and never the total: repeating the total into `available`
-    // invites a caller to spend margin that is already committed.
     EXPECT_TRUE(report->available.is_undef());
     EXPECT_TRUE(report->unrealized.is_undef());
 }
 
 TEST(BinanceMap, BalanceReadsMorePrecisionThanItStores) {
-    // Not what binance sends today — eight fractional digits is. The exact
-    // reader refuses a number past nine outright, and one refused balance is
-    // an account reading as empty, so the wallet reader truncates instead.
+    // past nine fractional digits the wallet reader truncates
     WireAssetBalance wire{};
     wire.asset = "USDT";
     wire.wallet_balance = "1200.123456789012";

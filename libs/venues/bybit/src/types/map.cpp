@@ -8,10 +8,7 @@ namespace raikiri::venues::bybit {
 
 namespace {
 
-// Exact conversion against the instrument's own step. A venue value that
-// does not divide evenly means bybit changed a filter, so the message is
-// dropped rather than rounded — rounding here is how an order ends up at a
-// price the venue will reject, or worse, one tick away from the intended one.
+// exact against the instrument step; a remainder drops the message
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -33,8 +30,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Fees and funding rates are venue-scale decimals, not instrument-scaled, so
-// they keep their 1e9 representation rather than becoming ticks.
+// fees and rates keep 1e9 scale, not instrument ticks
 FixedE9 to_e9(std::string_view text) {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -43,15 +39,12 @@ FixedE9 to_e9(std::string_view text) {
     return value.has_value() ? *value : FixedE9::from_raw(0);
 }
 
-// A wallet figure, not a price: a balance is reported at the VENUE's
-// resolution and the exact reader refuses the whole number over a tail it
-// cannot hold, which shows as an account holding nothing.
+// balances come at the venue's resolution, which the exact reader would refuse
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// Epoch milliseconds as digits. Zero means "no usable time", which callers
-// resolve to ingest time rather than to 1970.
+// epoch ms as digits; zero means no usable time
 std::uint64_t digits_to_ms(std::string_view text) noexcept {
     if (text.empty()) {
         return 0;
@@ -74,9 +67,7 @@ bool copy_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
-// Our own ULID coming back from the venue. A value that does not fit the
-// field cannot be one of ours, so the event stays unattributed rather than
-// being matched to a truncated lookalike.
+// an id that does not fit cannot be ours; the event stays unattributed
 bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     if (text.empty()) {
         return true;
@@ -132,8 +123,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
     }
     const auto& base = base_of(*instrument);
 
-    // EACH FIELD ONLY WHERE THE FRAME STATED IT. An absent field means the
-    // venue said nothing about it on this frame, never that it became zero.
+    // each field only where the frame stated it
     bool told = false;
     if (!wire.funding_rate.empty()) {
         memo.rate = to_e9(wire.funding_rate);
@@ -168,9 +158,7 @@ std::optional<FundingUpdate> map_funding(const WireTicker& wire,
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. A delta frame carries the fields that changed; both
-    // volume columns missing means the venue said nothing this tick, and
-    // writing a zero would erase yesterday's turnover until the next snapshot.
+    // both volumes absent means unchanged
     if (wire.volume_24h.empty() && wire.turnover_24h.empty()) {
         return std::nullopt;
     }
@@ -245,13 +233,7 @@ std::optional<OrderEvent> map_order_event(const WireOrderUpdate& wire,
     return out;
 }
 
-// A funding settlement, off the same topic fills arrive on.
-//
-// The sign is FLIPPED on the way through, deliberately. bybit states this as a
-// fee — `execFee` negative means the account was credited — while the domain
-// states a charge the way the account moved, positive for received. The REST
-// ledger already uses the domain's convention, so without this flip the socket
-// and the reconciliation would disagree about direction on every settlement.
+// sign flipped from bybit's fee convention to the account's: positive received
 std::optional<LedgerEntry> map_funding_charge(const WireExecution& wire,
                                               const exec::InstrumentTable& table,
                                               UnixNanos ts_init) {
@@ -279,9 +261,7 @@ std::optional<LedgerEntry> map_funding_charge(const WireExecution& wire,
 
 std::optional<OrderEvent>
 map_execution(const WireExecution& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ONLY A TRADE IS A FILL. Funding, settlement and ADL rows ride this topic
-    // carrying a real execQty and execPrice, and booking one as a fill invents
-    // a position the account never traded into.
+    // only Trade rows are fills; funding, settlement and adl rows carry a real qty and price
     if (!wire.exec_type.empty() && wire.exec_type != "Trade") {
         return std::nullopt;
     }
@@ -396,12 +376,7 @@ std::optional<BalanceReport> map_coin_balance(const WireCoinBalance& wire, UnixN
     }
     BalanceReport out{};
     out.asset = *asset;
-    // Each field left UNDEF where bybit sent an empty string; a zero would be
-    // a claim rather than a silence. availableToWithdraw is empty on EVERY
-    // unified account — deprecated there since January 2025 — and bybit
-    // publishes no other per-coin free figure, only an account-wide total in
-    // USD that belongs to no coin. Deriving one from the margin fields would
-    // answer a question the venue liquidates on.
+    // fields stay undef where bybit sent an empty string; availableToWithdraw is empty on unified accounts
     if (const auto total = to_amount(wire.wallet_balance); total.has_value()) {
         out.total = *total;
     }
@@ -440,12 +415,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (wire.status != "Trading") {
         return std::nullopt; // delisted or pre-launch: not tradable today
     }
-    // THE LINEAR CATALOGUE IS NOT ONLY PERPETUALS. `BTCUSDT-25DEC26` and seven
-    // more dated rows sit beside `BTCUSDT`, and without this every one of them
-    // was interned as a perpetual — then canonicalised to `BTC/USDT`, so one
-    // venue's futures curve read as nine venues quoting the same market at
-    // different prices. A dated contract's identity includes its expiry; this
-    // adapter does not serve dated futures, so it refuses them.
+    // the linear catalogue includes dated futures; this adapter serves perps only
     if (market == MarketType::Perp && !wire.contract_type.empty() &&
         !wire.contract_type.ends_with("Perpetual")) {
         return std::nullopt;
@@ -453,7 +423,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     const auto tick = parse_decimal_e9(wire.tick_size);
     const auto lot = parse_decimal_e9(wire.qty_step);
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
-        // Every later price conversion divides by these.
+        // later price conversions divide by these
         return std::nullopt;
     }
     const auto symbol = SymbolText::from(wire.symbol);
@@ -464,10 +434,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Bybit, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // Bybit names both halves, so the canonical form costs nothing here. A row
-    // whose pair the venue did not state is DROPPED rather than carried with
-    // the exchange symbol standing in: an instrument nothing can group is one
-    // the cross-venue view would show as a market of its own.
+    // rows without a stated pair are dropped
     const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -482,16 +449,9 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (market == MarketType::Spot) {
         return SpotInstrument{base};
     }
-    // THE VENUE'S OWN FIGURE, in minutes. It was 28'800 unconditionally here,
-    // and that was wrong for roughly half the catalogue: bybit settles 411 of
-    // its linear perps every four hours and seven every hour. An interval is
-    // the denominator that makes two venues' rates commensurable, so a wrong
-    // one does not merely mislabel a row — it halves or doubles the edge the
-    // board ranks on. 0 stays 0: the venue declining to state it must not
-    // arrive downstream as a schedule.
+    // the venue's interval in minutes; 0 stays 0
     PerpInstrument perp{base, static_cast<std::uint32_t>(wire.funding_interval_min * 60)};
-    // UNDEF where it will not parse, never clamped: "we do not know the
-    // ceiling" and "the ceiling is zero" lead to opposite decisions.
+    // an unparsable cap stays undef
     if (const auto cap = parse_decimal_e9(wire.funding_cap); cap.has_value()) {
         perp.funding_cap = *cap;
     }

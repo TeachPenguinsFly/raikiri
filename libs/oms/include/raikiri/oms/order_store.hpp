@@ -1,15 +1,7 @@
 #pragma once
 
-// Fixed-capacity order store with the three-ID index (see identifiers.hpp for
-// why three): ClientOrderId (strategy's handle), ExchangeClientOrderId (ours,
-// journaled before send), ExchangeOrderId (the venue's, bound on first sight).
-//
-// Terminal orders are retired immediately: unindexed and their slot recycled.
-// A late event for a retired order (the documented Canceled -> Filled race)
-// therefore reports NotFound here — that is reconciliation's job, not the hot
-// path's. The pointer returned by apply_event() for a terminal order remains
-// readable until the NEXT create() reuses the slot; callers that need the
-// final state longer must copy it.
+// terminal orders are retired at once; a pointer from apply_event() stays valid until the next
+// create() reuses the slot
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -78,14 +70,7 @@ private:
     std::unordered_map<ExchangeOrderId, std::size_t> by_exchange_;
 };
 
-// Quantity still working on one instrument, split by side. Scanned rather than
-// counted incrementally: an incremental counter needs six call sites to stay in
-// step and a rebuild path for when one is missed, while a scan over at most
-// max_open_orders entries costs ~100ns and cannot drift.
-//
-// The store retires terminal orders on arrival, so everything it holds is
-// working — including Submitted orders the venue has not acknowledged, which
-// is the point: an order on the wire can still fill.
+// includes submitted orders the venue has not acknowledged, since those can still fill
 struct WorkingLots {
     QtyLots buy{QtyLots::from_raw(0)};
     QtyLots sell{QtyLots::from_raw(0)};

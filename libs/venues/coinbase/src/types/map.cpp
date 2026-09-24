@@ -11,10 +11,7 @@ namespace raikiri::venues::coinbase {
 
 namespace {
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means Coinbase changed a product's increments, so the message
-// is dropped rather than rounded — rounding is how an order ends up one tick
-// away from the intended price.
+// exact against the instrument step; a remainder drops the message
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -36,26 +33,13 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// A 24-hour aggregate is an AMOUNT, not a size on the instrument's grid: it
-// is a sum of fills at the venue's own resolution and no lot size divides it.
-// Truncation below 1e-9 errs downward rather than refusing the whole figure.
+// 24-hour aggregates are amounts, not lot multiples; truncation below 1e-9 rounds down
 std::optional<FixedE9> to_amount_e9(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// ---------------------------------------------------------------- time ----
-//
-// Coinbase stamps everything with an ISO-8601 string and never an epoch
-// number, which is unlike every other venue in this tree. /time does publish
-// an `epoch` sibling, but as a JSON floating-point number — the one
-// representation this codebase refuses to make decisions on — so the string
-// is the only usable form and a parser is unavoidable.
-//
-// Hand-rolled because the alternatives are worse: a date library is a
-// dependency added for one venue, and strptime is locale- and TZ-sensitive
-// and cannot carry sub-second digits at all. The head is fixed width, so the
-// only variable part is the fraction, whose length is 3, 6 or 9 depending on
-// which endpoint answered.
+// hand-rolled iso-8601 parser: strptime is locale-sensitive and drops sub-second digits;
+// the fraction is 3, 6 or 9 digits
 
 constexpr std::size_t k_head_len = 19; // "YYYY-MM-DDTHH:MM:SS"
 
@@ -71,9 +55,7 @@ std::optional<std::int64_t> digits_at(std::string_view text, std::size_t at, std
     return out;
 }
 
-// Howard Hinnant's civil-from-days inverse: integer arithmetic only, correct
-// for the whole proleptic Gregorian calendar, and no <chrono> calendar types
-// (C++20 ships them but libstdc++ drags a tzdb in behind them).
+// howard hinnant's days_from_civil; avoids <chrono> calendar types and libstdc++'s tzdb
 constexpr std::int64_t days_from_civil(std::int64_t y, std::int64_t m, std::int64_t d) noexcept {
     y -= static_cast<std::int64_t>(m <= 2);
     const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
@@ -83,8 +65,7 @@ constexpr std::int64_t days_from_civil(std::int64_t y, std::int64_t m, std::int6
     return era * 146'097 + doe - 719'468;
 }
 
-// UnixNanos runs out in 2554 and this multiplies by 1e9, so the guard is on
-// seconds: anything past it would wrap into a plausible-looking past date.
+// UnixNanos runs out in 2554; guard on seconds before multiplying
 constexpr std::int64_t k_max_epoch_s = 18'446'744'073LL;
 
 } // namespace
@@ -128,7 +109,7 @@ std::optional<UnixNanos> parse_iso8601(std::string_view text) noexcept {
             return std::nullopt;
         }
     }
-    // 'Z' is the only zone Coinbase sends.
+    // coinbase only sends 'Z'
     if (i != text.size() && !(text[i] == 'Z' && i + 1 == text.size())) {
         return std::nullopt;
     }
@@ -186,9 +167,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = *volume;
-    // NOT DERIVED. The channel states no turnover, and `price` times volume
-    // would be this process's own estimate standing in a column every other
-    // venue fills from what the venue itself said.
+    // the channel states no quote turnover, and it is not derived
     out.volume_24h_quote = FixedE6::from_raw(0);
     out.ts_event = iso_to_unix(wire.time, ts_init);
     out.ts_init = ts_init;
@@ -212,7 +191,7 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // THE FLIP.
+    // match side is the maker's; flip it
     out.aggressor = wire.maker_sold ? Side::Buy : Side::Sell;
     out.ts_event = iso_to_unix(wire.time, ts_init);
     out.ts_init = ts_init;
@@ -221,7 +200,7 @@ map_trade(const WireMatch& wire, const exec::InstrumentTable& table, UnixNanos t
 
 namespace {
 
-// Coinbase's own vocabulary for where an order stands.
+// coinbase's order states
 enum class OrderState : std::uint8_t { Open, Pending, Active, Rejected, Done };
 
 std::optional<OrderState> state_of(std::string_view text) noexcept {
@@ -291,9 +270,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
     case OrderState::Open:
     case OrderState::Pending:
     case OrderState::Active:
-        // `pending` is an order the matching engine has taken but not yet
-        // placed. It is an acknowledgement either way, and the FSM treats a
-        // second Accepted as idempotent.
+        // pending is still an acknowledgement; a second Accepted is idempotent
         event.type = OrderEventType::Accepted;
         break;
     case OrderState::Rejected:
@@ -301,9 +278,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
         break;
     case OrderState::Done:
         if (wire.done_reason == "filled") {
-            // Every unit is accounted for by executions this adapter cannot
-            // observe; announcing a Filled here would book a quantity at a
-            // price nothing on this path knows.
+            // fills come from executions this adapter cannot observe
             return std::nullopt;
         }
         event.type = OrderEventType::Canceled;
@@ -316,8 +291,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
     if (const auto id = ExchangeOrderId::from(wire.id); id.has_value()) {
         event.exchange_order_id = *id;
     }
-    // A market order carries no price at all, and an absent price stays undef
-    // rather than becoming a zero somebody averages.
+    // a market order carries no price; it stays undef
     if (const auto price = to_ticks(wire.price, base); price.has_value()) {
         event.price = *price;
     }
@@ -399,7 +373,7 @@ std::optional<Instrument> map_instrument(const WireProduct& wire, MarketType mar
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Coinbase, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;

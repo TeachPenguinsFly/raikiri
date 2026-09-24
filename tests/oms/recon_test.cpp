@@ -11,9 +11,6 @@ constexpr InstrumentId k_btc = InstrumentId::make(VenueId::Bybit, MarketType::Pe
 constexpr InstrumentId k_eth = InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{2});
 
 TEST(BookAsOf, AFillTheVenueHadNotSeenIsRewoundBackOut) {
-    // The whole reason this exists: the venue answered at 1000 and our book
-    // moved at 1500. Comparing the two as they stand reports a break on every
-    // instrument that traded in the round trip.
     const std::vector<BookedFill> booked{{.ts_ns = 1'500, .lots = 3}};
     EXPECT_EQ(book_as_of(10, booked, 1'000), 7);
 }
@@ -24,7 +21,6 @@ TEST(BookAsOf, AFillTheVenueHADSeenIsLeftAlone) {
 }
 
 TEST(BookAsOf, AFillStampedExactlyAtTheBoundaryCountsAsSeen) {
-    // Rewinding it would invent a break out of an equality.
     const std::vector<BookedFill> booked{{.ts_ns = 1'000, .lots = 3}};
     EXPECT_EQ(book_as_of(10, booked, 1'000), 10);
 }
@@ -64,9 +60,6 @@ TEST(PruneFills, AClockBeforeTheWindowDropsNothing) {
 }
 
 TEST(ReconGate, OneDisagreementIsNotABreak) {
-    // A fill landing inside the round trip falls on the wrong side of the
-    // boundary by a hair and disagrees exactly once. Halting on that freezes a
-    // busy instrument on network jitter.
     ReconGate gate;
     EXPECT_FALSE(gate.on_break(k_btc, 1'000));
     EXPECT_FALSE(gate.halted(k_btc));
@@ -80,8 +73,6 @@ TEST(ReconGate, ADisagreementAtASecondSnapshotIsOne) {
 }
 
 TEST(ReconGate, TheSameSnapshotReadTwiceConfirmsNothing) {
-    // The venue's answer has not been refreshed; reading our own copy of it
-    // again is not a second opinion.
     ReconGate gate;
     EXPECT_FALSE(gate.on_break(k_btc, 1'000));
     EXPECT_FALSE(gate.on_break(k_btc, 1'000));
@@ -92,7 +83,6 @@ TEST(ReconGate, AgreementForgetsTheFirstDisagreementButNotTheHalt) {
     ReconGate gate;
     EXPECT_FALSE(gate.on_break(k_btc, 1'000));
     gate.on_agree(k_btc);
-    // Forgotten: the next disagreement starts counting again from one.
     EXPECT_FALSE(gate.on_break(k_btc, 2'000));
 
     EXPECT_TRUE(gate.on_break(k_btc, 3'000));

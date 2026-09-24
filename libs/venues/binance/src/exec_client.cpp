@@ -16,25 +16,12 @@ namespace raikiri::venues::binance::internal {
 
 namespace {
 
-// Keepalive cadence. The key lapses at 60 minutes; 30 leaves room for one
-// missed call before anything is lost.
+// the key lapses at 60 minutes; 30 leaves room for one missed call
 constexpr std::uint64_t k_listen_key_interval_ns = 30ULL * 60 * 1'000'000'000ULL;
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the user stream, and nothing
-// on either side can tell whether the other happened. This class is the only
-// thing that knows both: it holds the table of orders handed over and not yet
-// answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
-//
-// It also owns the listen key, because the key is what the private socket
-// connects with and REST is the only place to mint one: neither half can hold
-// it alone.
+// holds orders sent over rest and not yet answered on the user stream, and owns the listen key
 class BinanceExec final : public exec::ExecutionClient {
 public:
     explicit BinanceExec(std::shared_ptr<VenueState> state)
@@ -42,9 +29,7 @@ public:
         state_->tick_hook = [this](UnixNanos now) { tick(now); };
     }
 
-    // The hook captures `this` and lives in state the DATA client also holds.
-    // Left standing past this object, the next public poll calls a lambda over
-    // a destroyed one — and the two clients are not destroyed in a fixed order.
+    // the hook lives in state shared with the data client, which may outlive this
     ~BinanceExec() override { state_->tick_hook = nullptr; }
 
     BinanceExec(const BinanceExec&) = delete;
@@ -83,18 +68,13 @@ public:
         return stream_ != nullptr && stream_->connected();
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps rest connections the venue closed, so an idle gateway does not write into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
     }
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // an unanswered order is reported as a gap; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -113,8 +93,7 @@ public:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working",
-            // and whether anything is working is exactly what is unknown.
+            // undef: whether anything is working is unknown
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -183,9 +162,7 @@ public:
         send_order(*request, cmd, OrderEventType::ModifyRejected);
     }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
+    // forwarded to the rest api; the gateway's pollers reach a venue through one handle
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -216,8 +193,7 @@ public:
         return api_.position_reports(market);
     }
 
-    // The listen key's own tick, driven by the data client's poll: the key
-    // lapses whether or not an order is working.
+    // driven by the data client's poll: the key lapses whether or not an order is working
     void tick(UnixNanos now) noexcept {
         if (!started_ || !state_->signer.has_credentials()) {
             return;
@@ -267,16 +243,12 @@ private:
                     OrderEventType on_failure) noexcept {
         const auto captured = cmd;
         const auto sent = api_.send(request, [this, captured, on_failure](net::RestResponse&& r) {
-            // Any answer settles it, including a refusal: the table tracks
-            // silence, not failure.
+            // any answer settles it; the table tracks silence
             if (!r.transport_failed()) {
                 (void)unanswered_.resolve(captured.client_order_id);
             }
             if (r.transport_failed()) {
-                // NOT A REJECTION. The request may have reached the matcher
-                // before the read failed, and calling that a refusal is how a
-                // process records a rejection opposite a live position. The
-                // order stays in the table for the sweep above.
+                // the request may have reached the matcher, so this is no rejection; the sweep handles it
                 state_->sink->on_order_error(
                     captured.client_order_id,
                     exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -299,7 +271,7 @@ private:
             }
             if (on_failure == OrderEventType::CancelRejected &&
                 is_benign_cancel_failure(err->code)) {
-                // The order already filled or was already gone.
+                // already filled or gone
                 return;
             }
             if (classify(err->code) == exec::ErrorClass::RateLimited) {
@@ -310,15 +282,13 @@ private:
                  exec::VenueError::make(classify(err->code), err->code, err->msg));
         });
         if (!sent) {
-            // Never left this process, so nothing is in doubt: a refusal here is
-            // the truth, not a guess about what the venue did.
+            // never left this process, so the refusal is certain
             emit(cmd,
                  on_failure,
                  exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
-        // because the callback is exactly what may never run.
+        // recorded here since the callback may never run
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -328,9 +298,7 @@ private:
                                .sent = state_->clock->mono()});
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
+    // OrderEvent has no room for text, so the sink gets the error
     void emit(const OrderCmd& cmd, OrderEventType type, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
@@ -353,9 +321,6 @@ private:
     RestApi api_;
     std::unique_ptr<PrivateStream> stream_;
     bool started_{false};
-    // Orders handed to the transport and not yet answered. NOT `in_flight_`:
-    // BinanceData already owns a bool by that name for its listen-key refresh,
-    // and two members a reader has to disambiguate by class is one too many.
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

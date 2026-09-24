@@ -14,7 +14,7 @@ namespace raikiri::venues::grvt {
     return ns == 0 ? fallback : UnixNanos{ns};
 }
 
-// Nullopt off the instrument's grid; never rounded.
+// nullopt off the instrument's grid; not rounded
 [[nodiscard]] std::optional<PriceTicks> to_ticks(std::string_view text, FixedE9 tick) noexcept;
 [[nodiscard]] std::optional<QtyLots> to_lots(std::string_view text, FixedE9 lot) noexcept;
 
@@ -26,7 +26,7 @@ namespace raikiri::venues::grvt {
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_event, UnixNanos ts_init);
 
-// Nullopt when the frame states no rate, never a zero rate.
+// nullopt when the frame states no rate
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireTicker& wire,
                                                        const Instrument& instrument,
                                                        UnixNanos ts_event,

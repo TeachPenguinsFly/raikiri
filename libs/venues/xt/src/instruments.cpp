@@ -47,9 +47,7 @@ public:
         case MarketType::Spot:
             return load_spot();
         case MarketType::Future:
-            // XT lists `btc_usdt_261225` with productType "futures", but the
-            // adapter serves no dated contract, so loading them would put ids
-            // in the table that every order path refuses.
+            // dated contracts (btc_usdt_261225) are not served
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "xt dated futures are not served")};
         case MarketType::Option:
@@ -110,7 +108,7 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, response->error)};
         }
-        // Spot answers a refusal at HTTP 200, so `rc` is what says it failed.
+        // spot refuses at http 200, so rc decides
         const auto envelope = parse_spot_envelope(response->body);
         if (!envelope.has_value()) {
             return std::unexpected{
@@ -144,9 +142,7 @@ private:
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                // XT spells a spot pair and a perpetual IDENTICALLY, so one
-                // table holds whichever market loaded first. Reported by count
-                // rather than by throw, as a duplicate or a full table is.
+                // spot pairs and perpetuals share a symbol, so the table holds whichever loaded first
                 continue;
             }
             loaded.push_back(*state_->instruments.find(*id));

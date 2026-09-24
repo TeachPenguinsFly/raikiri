@@ -2,33 +2,23 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrandMark } from '@/components/shared/BrandMark'
 import { cn } from '@/lib/utils'
 
-/** The shader lives behind a split point: it is used on exactly one screen,
- *  and nobody trading should carry it in the terminal's bundle. */
+/** lazy so the shader stays out of the main bundle */
 const Lightning = lazy(() => import('@/components/backdrop/Lightning'))
 
-/** The brand cyan #38bdf8 as a hue angle. Sampling the mark rather than
- *  picking a blue that looks close keeps one accent on the whole product. */
+/** hue of the brand cyan #38bdf8 */
 const k_accent_hue = 199
 
-/** ONE WAY IN.
- *
- *  The magic-link form and the bypass link are gone. A second route into a
- *  terminal is a second thing to get right — a link that mails a session and a
- *  door with nothing behind it — and the screen's job is to say who you are
- *  before anything places an order in your name. */
 export function Login() {
   const [pending, setPending] = useState(false)
 
-  // A provider tab that never comes back would leave the button spinning for
-  // the rest of the session. Regaining focus is the signal that it did.
+  // regaining focus means the provider tab came back
   useEffect(() => {
     const onFocus = () => setPending(false)
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  // Nothing is wired behind this yet. The button reports its own state and
-  // stops there rather than explaining the backend on a sign-in screen.
+  // not wired to a backend yet
   const startGoogle = () => {
     setPending(true)
     window.setTimeout(() => setPending(false), 900)
@@ -38,11 +28,6 @@ export function Login() {
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-6 py-12">
       <Backdrop />
 
-      {/* A pool of ground under the content, not a dimmer over the whole
-          backdrop. The bolt wanders and will cross the wordmark, which sits
-          straight on the background with nothing behind it; the card does not
-          need this because it is opaque. Local, so the effect keeps its full
-          strength everywhere it is not in the way. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -119,23 +104,9 @@ function Spinner() {
 function Backdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      {/* Nothing renders in its place while it loads: a fallback that flashes
-          a different background and then swaps is worse than a beat of the
-          page's own colour. */}
       <Suspense fallback={null}>
-        {/* Full strength, and nothing stacked on top of it.
-            The first pass dimmed this four separate ways at once — intensity,
-            speed, size, a layer opacity and a mask cutting the middle out — and
-            the halo died first. That soft glow IS the effect: the core is a
-            thin line, and everything that makes it read as lightning is the
-            falloff around it, which is the part a chain of multipliers removes.
-            The card sits on an opaque surface, so it does not need the backdrop
-            held back to stay legible. */}
         <div className="absolute inset-0">
-          {/* Intensity past 1 on purpose. The core then exceeds full white and
-              clamps there, which is what gives a bolt its hot centre — held at
-              1.0 it stays the accent colour all the way through and reads as a
-              drawn line rather than as something burning. */}
+          {/* intensity above 1 clamps the core to white */}
           <Lightning
             hue={k_accent_hue}
             xOffset={0}

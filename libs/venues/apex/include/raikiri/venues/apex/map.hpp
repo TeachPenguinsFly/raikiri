@@ -10,7 +10,7 @@
 
 namespace raikiri::venues::apex {
 
-// No row or frame states the period; the funding history pays on every UTC hour.
+// no frame states the period; funding pays every utc hour
 inline constexpr std::uint32_t k_funding_interval_s = 3600;
 
 [[nodiscard]] UnixNanos us_to_unix(std::uint64_t us, UnixNanos fallback) noexcept;
@@ -18,14 +18,13 @@ inline constexpr std::uint32_t k_funding_interval_s = 3600;
 // "2026-09-25T06:00:00Z", whole seconds in UTC and nothing else.
 [[nodiscard]] std::optional<UnixNanos> parse_utc(std::string_view text) noexcept;
 
-// Nullopt for a contract not enabled for trading: a disabled one still
-// subscribes and streams a stale price.
+// nullopt for a contract not enabled for trading; a disabled one still streams a stale price
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
 
-// Ticker deltas are partial, so each field is merged into what was said before.
+// ticker deltas are partial, so each field merges into the previous value
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};

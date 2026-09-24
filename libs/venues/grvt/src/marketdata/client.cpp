@@ -31,7 +31,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// Quote first: with paced sends, the last stream is what a half-subscribed socket misses.
+// quote first: with paced sends the last stream is the one a half-subscribed socket misses
 constexpr std::array<std::string_view, 4> k_stream_order{
     ep::k_quote_stream, ep::k_trade_stream, ep::k_book_stream, ep::k_ticker_stream};
 
@@ -50,7 +50,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     PublicHandler(VenueState& state, GrvtData& owner) : state_{&state}, owner_{&owner} {}
 
-    // Each pooled socket re-asks for its own keys when it opens.
+    // each pooled socket re-asks for its own keys when it opens
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -214,7 +214,7 @@ private:
             on_book(feed, *base, ts_event, received);
             break;
         case FeedKind::Trade:
-            // The snapshot replays the last 50 prints on every subscribe: history.
+            // the snapshot replays the last 50 prints on every subscribe
             if (feed.sequence == 0) {
                 return;
             }

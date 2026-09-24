@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -24,17 +23,13 @@
 
 namespace raikiri::venues::deribit::internal {
 
-// Deribit's floor is 10 s; near it keeps a quiet option contract's socket
-// demonstrably alive rather than merely un-torn-down.
 constexpr std::uint32_t k_heartbeat_interval_s = 15;
 
-// Owned as a string: the instrument table's views outlive nothing here.
 struct OwnedSubscription {
     std::string channel;
 };
 
-// State every deribit connection shares within one gateway process. Single
-// threaded by contract, which is why nothing here synchronises.
+// single threaded by contract
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -48,7 +43,7 @@ struct VenueState {
     net::IoContext io;
     exec::InstrumentTable instruments;
     Protocol protocol;
-    Protocol private_protocol; // its own id sequence: two sockets, two streams
+    Protocol private_protocol; // its own id sequence
     RequestBuilder builder;
     net::Signer signer;
 
@@ -61,8 +56,6 @@ struct VenueState {
     std::uint64_t channels_accepted{0};
     std::int64_t last_error_code{0};
 
-    // Deribit rejects a signature more than 60 seconds old, so every signed
-    // request is stamped with the venue's clock rather than this host's.
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = static_cast<std::int64_t>(clock->wall().ns);
         return UnixNanos{static_cast<std::uint64_t>(local + clock_offset_ns)};
@@ -71,7 +64,7 @@ struct VenueState {
     void add_subscription(std::string_view channel) {
         for (const auto& existing : desired) {
             if (existing.channel == channel) {
-                return; // refcounting lives in the gateway core; this is a set
+                return; // refcounting lives in the gateway core
             }
         }
         desired.emplace_back(std::string{channel});
@@ -90,17 +83,9 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
-// ONE dialect for both sockets. Deribit speaks JSON-RPC on the public and the
-// private connection alike, so the parser belongs to neither client and lives
-// in its own unit rather than being copied into both.
-//
-// True when the frame was a test_request. The answer must go back on the
-// SOCKET that asked and this reader is not told which one that was, so the
-// caller sends it: the private stream has one, the market-data pool several.
+// true for a test_request; the caller answers on the socket that asked
 [[nodiscard]] bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received);
 
 } // namespace raikiri::venues::deribit::internal

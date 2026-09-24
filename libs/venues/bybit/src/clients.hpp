@@ -1,11 +1,5 @@
 #pragma once
 
-// Each client is defined privately in its own translation unit; only these
-// three functions cross the boundary. That is the point of the split: the
-// public socket, the private socket and the catalogue are separate concerns
-// that happen to share a state, and a reader looking for one of them should
-// not have to scroll past the other two.
-
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_source.hpp>

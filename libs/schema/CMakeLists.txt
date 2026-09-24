@@ -1,5 +1,4 @@
-# Generated code lands in the build tree only, never checked in — that is
-# what keeps schema/journal.xml and the codecs from drifting apart.
+# generated code lands in the build tree only
 find_program(SBEPPC_EXECUTABLE sbeppc REQUIRED)
 
 set(RAIKIRI_SBE_SCHEMA ${PROJECT_SOURCE_DIR}/schema/journal.xml)

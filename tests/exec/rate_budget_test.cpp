@@ -25,9 +25,6 @@ TEST(RateBudget, NoLimitsAllowsEverything) {
     }
 }
 
-// Every window of length W, wherever it starts, holds at most `max` — so a
-// burst at the end of one fixed window and another at the start of the next
-// cannot together exceed it.
 TEST(SlidingLog, NoWindowAnywhereHoldsMoreThanMax) {
     constexpr std::uint32_t k_max = 10;
     constexpr std::uint64_t k_window = 1000;
@@ -55,7 +52,7 @@ TEST(SlidingLog, NoWindowAnywhereHoldsMoreThanMax) {
 TEST(SlidingLog, AFullLogAcrossAFixedWindowBoundaryWaitsForTheOldestToAge) {
     SlidingLog log{10, 1000};
     for (int i = 0; i < 10; ++i) {
-        log.spend(1, 990); // the end of fixed window [0, 1000)
+        log.spend(1, 990);
     }
     EXPECT_EQ(log.wait_ns(1, 1000), 990U) << "the next fixed window is not a fresh allowance";
     EXPECT_EQ(log.wait_ns(1, 1990), 0U);

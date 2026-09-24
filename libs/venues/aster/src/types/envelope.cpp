@@ -12,11 +12,7 @@ EventKind kind_from_event(std::string_view e) noexcept {
     if (e == "bookTicker") {
         return EventKind::BookTicker;
     }
-    // Both spellings, one shape. The adapter asks for @trade — the aggregate
-    // stream is acknowledged on this venue and then never sends a frame, while
-    // @trade floods — but a frame from either is readable here, and @trade is
-    // strictly the finer of the two: one print per fill instead of one per
-    // run of fills at a price.
+    // reads both; the adapter subscribes @trade because @aggTrade never sends here
     if (e == "trade" || e == "aggTrade") {
         return EventKind::Trade;
     }
@@ -50,7 +46,7 @@ std::expected<std::string_view, WireError> unwrap(std::string_view frame) {
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        // No wrapper: a single-stream socket delivers the payload bare.
+        // no wrapper: a single-stream socket delivers the payload bare
         return data->empty() ? frame : *data;
     });
 }

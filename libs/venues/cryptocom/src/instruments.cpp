@@ -19,7 +19,7 @@ class CryptoComInstruments final : public exec::InstrumentSource {
 public:
     explicit CryptoComInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
-          // Both legs of max_wait_ms must fit inside the 20 s await below.
+          // both legs of max_wait_ms must fit inside the 20 s await below
           rest_{state_->io,
                 net::RestConfig{.host = std::string{ep::rest_host(state_->testnet)},
                                 .port = "443",

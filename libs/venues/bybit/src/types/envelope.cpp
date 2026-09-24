@@ -10,9 +10,7 @@ namespace ondemand = wire::ondemand;
 
 } // namespace
 
-// Bybit topics are "kind.arg[.arg]" — the symbol is always the last segment.
-// Resolving the kind once here turns the per-message dispatch that follows
-// into an integer compare instead of a chain of string compares at line rate.
+// topics are kind.arg[.arg]; the symbol is the last segment
 TopicInfo classify_topic(std::string_view topic) noexcept {
     TopicInfo info{};
     const auto last_dot = topic.rfind('.');

@@ -10,7 +10,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// Reads one filter object's field, e.g. PRICE_FILTER -> tickSize.
+// reads one filter object's field, e.g. PRICE_FILTER -> tickSize
 struct FilterWanted {
     std::string_view type;
     std::string_view field;
@@ -123,15 +123,10 @@ parse_funding_info(std::string_view body, FundingInfoBuffer& storage) {
                 return std::unexpected(WireError::MissingField);
             }
             out.symbol = *symbol;
-            // A JSON NUMBER, unlike every size on an instrument row. A row
-            // that omits it leaves 0, and the caller stamps nothing — a
-            // schedule guessed here would be indistinguishable downstream from
-            // one aster published.
+            // a json number; a missing value leaves 0
             out.interval_hours =
                 static_cast<std::uint32_t>(wire::opt_u64(obj, "fundingIntervalHours").value_or(0));
-            // Absent on a row aster has not adjusted, which is why these are
-            // optional and land UNDEF rather than zero: a floor of zero is a
-            // claim that the venue never pays.
+            // absent when unadjusted; lands undef
             out.cap = wire::opt_str(obj, "adjustedFundingRateCap").value_or(std::string_view{});
             out.floor = wire::opt_str(obj, "adjustedFundingRateFloor").value_or(std::string_view{});
             storage.rows[count] = out;

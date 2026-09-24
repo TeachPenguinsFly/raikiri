@@ -15,8 +15,6 @@ namespace {
     return QtyLots::from_raw(v);
 }
 
-// The sim invariant: after any operation best_bid < best_ask. Asserted here,
-// in tests, not in production code.
 void expect_uncrossed(const Book& book) {
     const auto snap = book.bbo();
     if (snap.has_value() && !snap->bid.is_undef() && !snap->ask.is_undef()) {
@@ -24,7 +22,6 @@ void expect_uncrossed(const Book& book) {
     }
 }
 
-// Rests a GTC limit order and asserts it actually rested.
 void rest(
     Book& book, std::uint64_t id, std::uint32_t owner, Side side, PriceTicks price, QtyLots qty) {
     const auto r = book.submit_limit(id, owner, side, price, qty, /*post_only=*/false);
@@ -69,7 +66,6 @@ TEST(Book, PriceTimePriorityFifoWithinLevel) {
     Book book;
     rest(book, 1, 1, Side::Buy, px(100), lots(5));
     rest(book, 2, 2, Side::Buy, px(100), lots(7));
-    // Taker sell 8: first maker fills fully, second partially, in arrival order.
     const auto r = book.submit_limit(3, 3, Side::Sell, px(100), lots(8), false);
     ASSERT_EQ(r.fills.size(), 2U);
     EXPECT_EQ(r.fills[0].maker_id, 1U);
@@ -94,7 +90,6 @@ TEST(Book, TakerFillsAtRestingPricesAcrossLevels) {
     Book book;
     rest(book, 1, 1, Side::Sell, px(101), lots(5));
     rest(book, 2, 1, Side::Sell, px(102), lots(5));
-    // Aggressive limit at 103 still pays the resting prices, level by level.
     const auto r = book.submit_limit(3, 2, Side::Buy, px(103), lots(8), false);
     ASSERT_EQ(r.fills.size(), 2U);
     EXPECT_EQ(r.fills[0].price, px(101));
@@ -118,7 +113,6 @@ TEST(Book, PartialFillLeavesCorrectRemainders) {
     EXPECT_EQ(r.fills[0].maker_leaves, lots(0));
     EXPECT_EQ(r.disposition, Disposition::Rested);
     EXPECT_EQ(r.remainder, lots(6));
-    // Maker is gone; taker remainder now IS the bid.
     EXPECT_FALSE(book.contains(1));
     const auto* taker = book.find(2);
     ASSERT_NE(taker, nullptr);
@@ -168,14 +162,12 @@ TEST(Book, IocRemainderExpiresNeverRests) {
 TEST(Book, FokFillsAllOrNothing) {
     Book book;
     rest(book, 1, 1, Side::Sell, px(101), lots(4));
-    // Insufficient liquidity: nothing trades at all.
     const auto fail = book.submit_limit(2, 2, Side::Buy, px(101), lots(5), false, TimeInForce::Fok);
     EXPECT_EQ(fail.disposition, Disposition::Expired);
     EXPECT_TRUE(fail.fills.empty());
     EXPECT_EQ(fail.remainder, lots(5));
     ASSERT_TRUE(book.bbo().has_value());
     EXPECT_EQ(book.bbo()->ask_qty, lots(4)); // untouched
-    // Exact coverage: full fill.
     const auto ok = book.submit_limit(3, 2, Side::Buy, px(101), lots(4), false, TimeInForce::Fok);
     EXPECT_EQ(ok.disposition, Disposition::Filled);
     ASSERT_EQ(ok.fills.size(), 1U);
@@ -239,7 +231,6 @@ TEST(Book, AmendPriceChangeLosesTimePriority) {
     Book book;
     rest(book, 1, 1, Side::Buy, px(100), lots(5));
     rest(book, 2, 2, Side::Buy, px(100), lots(5));
-    // Move order 1 away and back: it re-enters as a fresh arrival both times.
     const auto away = book.amend(1, px(99), lots(5));
     ASSERT_TRUE(away.has_value());
     EXPECT_EQ(away->disposition, Disposition::Rested);
@@ -265,8 +256,7 @@ TEST(Book, AmendQtyDecreaseKeepsPriority) {
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->disposition, Disposition::Rested);
     EXPECT_EQ(r->remainder, lots(3));
-    // Same seq, same queue position: a size-down cannot disadvantage anyone
-    // behind you, so priority is preserved (venue-real behavior).
+    // a size-down keeps queue priority, as on real venues
     EXPECT_EQ(book.find(1)->seq, seq_before);
     EXPECT_EQ(book.find(1)->leaves, lots(3));
     const auto taker = book.submit_limit(3, 3, Side::Sell, px(100), lots(3), false);
@@ -290,7 +280,6 @@ TEST(Book, AmendToCrossingPriceExecutes) {
     Book book;
     rest(book, 1, 1, Side::Sell, px(101), lots(3));
     rest(book, 2, 2, Side::Buy, px(99), lots(5));
-    // Aggressive amend: the re-priced order crosses and trades immediately.
     const auto r = book.amend(2, px(102), lots(5));
     ASSERT_TRUE(r.has_value());
     ASSERT_EQ(r->fills.size(), 1U);
@@ -313,7 +302,6 @@ TEST(Book, AmendErrors) {
     rest(book, 1, 1, Side::Buy, px(100), lots(5));
     EXPECT_EQ(book.amend(1, px(100), lots(0)).error(), BookError::BadQty);
     EXPECT_EQ(book.amend(1, px(0), lots(5)).error(), BookError::BadQty);
-    // Failed amends leave the order untouched.
     EXPECT_EQ(book.find(1)->leaves, lots(5));
 }
 

@@ -1,19 +1,4 @@
-// persisterd — tails journals into Postgres.
-//
-//   persisterd --dir <journal-dir> [--prefix journal] [--name <cursor-key>]
-//              [--dsn <postgres-dsn>] [--flush-ms 50] [--batch-rows 5000]
-//              [--migrate <sql-file>] [--once]
-//
-// DSN falls back to $RAIKIRI_PG_DSN. --once drains everything committed and
-// exits (golden-replay tests, backfills); without it the process follows the
-// journal tail. All writes are idempotent; the cursor advances in the same
-// transaction as each batch.
-//
-// ONE PER JOURNAL, and every process writes its own. The split is not
-// arbitrary: order events and connectivity come from the gateway's journal,
-// while the PnL ledger and reconciliation breaks come from strategyd's,
-// because those are written by the process that did the arithmetic. Pointing
-// this at only one directory persists half the record.
+// persisterd: tails one journal directory into postgres; run one per journal
 
 #include <raikiri/journal/reader.hpp>
 #include <raikiri/log/log.hpp>
@@ -156,7 +141,6 @@ int main(int argc, char** argv) {
                 flush();
                 return 3;
             }
-            // Empty: flush on cadence, then either exit (--once) or sleep.
             const auto elapsed = std::chrono::steady_clock::now() - last_flush;
             if (elapsed >= std::chrono::milliseconds(flush_ms)) {
                 flush();

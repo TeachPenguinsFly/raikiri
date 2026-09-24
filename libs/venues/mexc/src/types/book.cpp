@@ -12,8 +12,7 @@ namespace pb = raikiri::wire::pb;
 using wire::guarded;
 using wire::session;
 
-// A level is [64150.5,65907,7]: price, size in CONTRACTS, and the resting
-// order count. Only the first two are read.
+// [price, size in contracts, order count]; the count is ignored
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     wire::ondemand::array triple;
     if (const auto ec = entry.get_array().get(triple); ec != simdjson::SUCCESS) {
@@ -74,8 +73,7 @@ std::expected<std::uint64_t, WireError> ms_of(wire::ondemand::value value) {
     return wire::digits_to_u64(*text);
 }
 
-// One forward walk over `data`: begin and end are absent on a snapshot, and
-// looking each key up by name would skip both ladders once per miss.
+// one forward walk since begin and end are absent on a snapshot
 std::expected<void, WireError>
 read_depth_data(wire::ondemand::object& data, LevelBuffer& storage, WireDepth& out) {
     std::optional<std::size_t> bids;

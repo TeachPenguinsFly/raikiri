@@ -200,9 +200,7 @@ map_funding(const WireMarket& wire, const InstrumentBase& base, UnixNanos ts_ini
     }
     FundingUpdate out{};
     out.instrument = base.id;
-    // nextFundingRate is the hour now accruing, paid at next_funding_time — what
-    // `rate` means on every venue here. It omits default funding and the clamp the
-    // settlement adds, and nothing forecasts the hour after, so predicted_rate stays UNDEF.
+    // nextFundingRate is the hour now accruing; nothing forecasts the next, so predicted_rate stays undef
     out.rate = *rate;
     if (const auto mark = oracle_ticks(wire.oracle_price, base.tick_size); mark.has_value()) {
         out.mark_price = *mark;

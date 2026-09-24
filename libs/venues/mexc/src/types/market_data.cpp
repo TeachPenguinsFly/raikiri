@@ -51,9 +51,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.funding_rate = *funding;
         out.ts_ms = *ts;
-        // OPTIONAL, unlike the prices above: a frame that omits the turnover
-        // must still yield its funding rate, and this channel is the only
-        // place MEXC states one.
+        // optional so a frame without turnover still yields its funding rate
         out.volume_24h_quote = opt_scalar(*data, "amount24").value_or(std::string_view{});
         out.volume_24h_contracts = opt_scalar(*data, "volume24").value_or(std::string_view{});
         return out;
@@ -130,7 +128,6 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             if (!side.has_value() || !ts.has_value() || !id.has_value()) {
                 return std::unexpected(WireError::WrongType);
             }
-            // 1 buy, 2 sell.
             if (*side != 1 && *side != 2) {
                 return std::unexpected(WireError::WrongType);
             }
@@ -170,9 +167,7 @@ parse_funding_rates(std::string_view body, FundingRateBuffer& storage) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            // A row that states no cycle is kept with 0 rather than dropped:
-            // "this contract's interval is unknown" is a fact the catalogue
-            // must carry, and the mapper is what refuses to guess one.
+            // a row with no cycle keeps 0, meaning unknown
             const auto cycle = opt_int(obj, "collectCycle", 0);
             const auto max_rate = opt_scalar(obj, "maxFundingRate");
             const auto min_rate = opt_scalar(obj, "minFundingRate");

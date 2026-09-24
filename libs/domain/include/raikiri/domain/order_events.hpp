@@ -1,13 +1,6 @@
 #pragma once
 
-// Order lifecycle events and the status transition table.
-//
-// Every change to an order is an event; an order's state is reconstructable
-// by replaying its events from Initialized (the journal makes that replay
-// real, not theoretical). Adapters never invent status changes — they emit
-// events, and `transition()` is the single arbiter of what an event does to
-// a status. Any (status, event) pair not listed is a venue-protocol violation
-// we want to hear about loudly, not paper over.
+// transition() is the only arbiter of what an event does to a status
 
 #include <raikiri/domain/error_class.hpp>
 #include <raikiri/common/fixed_point.hpp>
@@ -26,8 +19,7 @@ enum class OrderEventType : std::uint8_t {
     Denied,    // risk gate refusal (never reached the wire)
     Submitted, // OMS handed the order to a gateway
     Accepted,  // venue ack (WS or REST)
-    Rejected,  // venue reject; ALSO synthesized locally on REST error —
-               // venues do not push WS notifications for REST-level rejects
+    Rejected, // venue reject, also synthesized on a rest error
     Triggered, // conditional order armed
     PendingUpdate,
     Updated,        // modify confirmed
@@ -43,8 +35,7 @@ enum class OrderEventType : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(OrderEventType type) noexcept;
 
-// Which side of the trade we were on. Fee tiers differ by it, and for a maker
-// strategy it is the metric: a fill tagged Taker is a quote that got lifted.
+// which side of the trade we were on
 enum class Liquidity : std::uint8_t {
     Unknown = 0, // the venue did not say
     Maker,
@@ -58,22 +49,15 @@ struct TransitionError {
     OrderEventType event{};
 };
 
-// Pure transition function; the only writer of OrderStatus anywhere.
-//
-// `full_fill` matters only for Filled events: true when leaves_qty reaches
-// zero. `resume` is the working status to return to when a pending
-// modify/cancel resolves without effect (Updated, ModifyRejected,
-// CancelRejected): the order object passes the status it remembered before
-// entering the pending state (Accepted, PartiallyFilled or Triggered).
-// ReconGap never changes status (audit only); ReconClosed force-closes.
+// the only writer of OrderStatus; `resume` is the working status a no-effect modify or cancel
+// returns to
 [[nodiscard]] std::expected<OrderStatus, TransitionError>
 transition(OrderStatus status,
            OrderEventType event,
            bool full_fill = false,
            OrderStatus resume = OrderStatus::Accepted) noexcept;
 
-// The wire/journal-facing event record. POD: embedded in shm exec_events and
-// SBE journal frames. 192 bytes, layout asserted where it enters shm.
+// pod embedded in shm exec_events and journal frames; 192 bytes
 struct OrderEvent {
     OrderEventType type{OrderEventType::Initialized};
     Side side{Side::Buy};
@@ -81,19 +65,7 @@ struct OrderEvent {
     TimeInForce tif{TimeInForce::Gtc};
     OrderFlags flags{OrderFlags::None};
     Liquidity liquidity{Liquidity::Unknown};
-    // WHY THE VENUE SAID NO, on the three Rejected kinds and meaningless
-    // elsewhere. Until these rode the event, a refusal reached shm, the journal
-    // and the database carrying the FACT of a rejection and no reason for it:
-    // `/v1/orders` showed "rejected" and the only place the cause existed was a
-    // line in the gateway's log, on the machine that happened to run it.
-    //
-    // THE VENUE'S OWN CODE, not a translation. -1058 is answerable; "terminal"
-    // is not. int32 because no venue here mints a code outside it, and because
-    // the two together fit in padding this record already carried — the exec
-    // ring is 65536 slots deep and a wider event is megabytes per gateway.
-    //
-    // The venue's TEXT stays in the log: it is up to 96 bytes and there is no
-    // room for it here without making every event pay for the rare one.
+    // the venue's own reject class and code, set only on rejected kinds
     ErrorClass reject_class{ErrorClass::Terminal};
     std::uint8_t pad_[1]{};
 
@@ -104,9 +76,6 @@ struct OrderEvent {
     ExchangeOrderId exchange_order_id{}; // 41 B
     ExecId exec_id{};                    // 41 B
     std::uint8_t pad3_[2]{};
-    // Here rather than beside `reject_class`: this is where four bytes of the
-    // record's own padding already sat 4-aligned, so carrying the code costs
-    // the exec ring nothing at all.
     std::int32_t reject_code{0};
 
     PriceTicks price{};   // limit price or fill price
@@ -119,25 +88,8 @@ struct OrderEvent {
 
 static_assert(sizeof(OrderEvent) <= 192, "OrderEvent is the shm exec_events payload");
 
-// The identity of one fill, for the stores that must not book it twice.
-//
-// The venue's own execution id when it minted one. Several never do — BingX's
-// perpetual push mints none at all, and gate and kucoin omit theirs on some
-// frames — and an empty id makes every fill on that venue look like the same
-// fill to anything keyed on it. Two stores here key on it: `executions`, which
-// silently drops a fill with no id, and `pnl_increments`, which does not and
-// therefore collapses every increment on such a venue into one row.
-//
-// The fallback is DERIVED FROM THE FILL, never minted. A minted id would be
-// unique, which is not the property wanted: a venue that resends a fill
-// notification must produce the SAME identity the second time, and that is the
-// whole reason an execution id is consulted. `leaves` is what distinguishes one
-// fill here for the same reason it distinguishes one everywhere else in this
-// system — it strictly decreases across an order's fills, so it is unique per
-// fill, and a resend carries the value it already carried.
-//
-// The leading '~' says the venue did not answer. No venue mints one, so a
-// stored id always states which half of this function produced it.
+// the venue's exec id, else one derived from the fill and prefixed '~', so a resend maps to the
+// same id
 [[nodiscard]] ExecId
 fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue_exec_id) noexcept;
 

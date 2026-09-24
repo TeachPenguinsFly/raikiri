@@ -1,7 +1,6 @@
 #pragma once
 
-// Nanosecond stamps leave as digit strings, the contract's rule for every
-// number a double cannot hold. One mapping for the file and the API alike.
+// nanosecond stamps leave as digit strings
 
 #include <raikiri/introspect/stats.hpp>
 

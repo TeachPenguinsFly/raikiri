@@ -9,8 +9,7 @@ namespace raikiri::venues::bitget {
 
 namespace {
 
-// A value that does not divide evenly means the venue changed an
-// instrument's precision, so the message is dropped rather than rounded.
+// a value off the step means the venue changed precision, so it is dropped
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -32,7 +31,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale, not instrument-scaled, so they stay at 1e9.
+// rates stay at 1e9 scale
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -41,25 +40,17 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
-// A 24-hour turnover is a magnitude, not a price and not a size, so it is read
-// the way a balance is: truncating below 1e-9 rather than refusing the whole
-// figure over a tail nothing divides an order by. An exact read would answer
-// nullopt for any column the venue happens to pad, and the caller writes a
-// zero for a column it cannot read — which reads as "this market did not
-// trade" on a market that traded all day.
+// turnover truncates below 1e-9 rather than refusing the figure
 std::optional<FixedE9> turnover_of(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// A settlement figure, read the same tolerant way and named apart because the
-// reason differs: an exact read refuses a whole row over a tail below 1e-9,
-// and a refused row is a charge the ledger never books at all.
+// truncates below 1e-9 so a padded figure still books
 std::optional<FixedE9> settlement_of(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// Counts. Zero is a legitimate pricePlace (one live row quotes in whole
-// units), which is why this accepts it where okx's equivalent does not.
+// zero is a valid pricePlace
 std::optional<std::int64_t> whole_number(std::string_view text) {
     const auto value = parse_decimal_e9(text);
     if (!value.has_value() || value->raw < 0 || value->raw % k_e9 != 0) {
@@ -68,19 +59,7 @@ std::optional<std::int64_t> whole_number(std::string_view text) {
     return value->raw / k_e9;
 }
 
-// Both price fields matter: `pricePlace` counts decimals and `priceEndStep`
-// counts how many of that smallest unit make one tick, so the step is
-// priceEndStep * 10^-pricePlace. A row with pricePlace 2 and priceEndStep 5
-// moves in 0.05; reading only pricePlace gives it a 0.01 tick, and every
-// price then divides exactly at five times the real resolution, so nothing is
-// ever dropped to say so. MEASURED 2026-08-11: priceEndStep is "1" on all 745
-// USDT-FUTURES rows and all 60 COIN-/USDC-FUTURES rows, which is why the
-// factor is easy to drop and impossible to notice until a row changes it.
-//
-// Integer scale, no double: the domain's fixed point is e9, so a place past
-// nine floors the unit to a zero step and is refused rather than clamped.
-// PEPEUSDT (pricePlace 10) is the live row that takes this path, and seven
-// spot rows take the same one off `pricePrecision`.
+// tick is priceEndStep * 10^-pricePlace; a place past nine gives a zero step and is refused
 std::optional<FixedE9> decimal_unit(std::string_view place_text) {
     const auto place = whole_number(place_text);
     if (!place.has_value() || *place > 9) {
@@ -106,9 +85,7 @@ std::optional<FixedE9> tick_size_of(std::string_view place_text, std::string_vie
     return FixedE9::from_raw(raw);
 }
 
-// Our own ULID coming back from the venue. A value that does not fit the
-// field cannot be one of ours, so the event stays unattributed rather than
-// matched to a truncated lookalike.
+// a value too long for the field cannot be ours, so the event stays unattributed
 bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     if (text.empty()) {
         return true; // absent is fine; wrong is not
@@ -133,8 +110,7 @@ bool copy_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
-// `tradeScope` is "T"/"M" on the orders channel and "taker"/"maker" on the
-// fills endpoints — the same field name for two vocabularies.
+// tradeScope is T/M on the orders channel and taker/maker on the fills endpoints
 Liquidity liquidity_from(std::string_view scope) noexcept {
     if (scope == "M" || scope == "maker") {
         return Liquidity::Maker;
@@ -155,8 +131,7 @@ TimeInForce tif_from(std::string_view force) noexcept {
     return TimeInForce::Gtc; // gtc and post_only both rest on the book
 }
 
-// Bitget signs a fee CHARGE negative; every consumer here subtracts fees from
-// realized PnL, so the sign is flipped once, at the edge.
+// bitget signs a fee charge negative; flipped once here
 FixedE9 charge_from(std::string_view text) {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -165,9 +140,7 @@ FixedE9 charge_from(std::string_view text) {
     return value.has_value() ? FixedE9::from_raw(-value->raw) : FixedE9::from_raw(0);
 }
 
-// The order quantity in BASE units, or nullopt where Bitget states it in the
-// quote coin instead: spot market buys size the order in quote, and no base
-// figure appears anywhere on the row.
+// nullopt where bitget states size in the quote coin (spot market buys)
 std::optional<QtyLots> order_qty(const WireOrderUpdate& wire, const InstrumentBase& base) {
     if (base.id.market() == MarketType::Spot && wire.order_type == "market" && wire.side == "buy") {
         return std::nullopt;
@@ -236,9 +209,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. Both columns missing means the venue said nothing
-    // about turnover on this frame, and writing a zero would erase the running
-    // figure the board is holding.
+    // both columns missing means no turnover update, not zero
     if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty()) {
         return std::nullopt;
     }
@@ -306,9 +277,7 @@ map_book(const WireBooks& wire, const exec::InstrumentTable& table, UnixNanos ts
             }
             const auto price = to_ticks(level.price, base);
             const auto qty = to_lots(level.qty, base);
-            // A level that does not divide by the instrument's step truncates
-            // the book here rather than being rounded into a price Bitget never
-            // quoted.
+            // an off-step level truncates the book here rather than being rounded
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -365,8 +334,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
         out.qty = *qty;
         out.liquidity = liquidity_from(wire.trade_scope);
         out.fee = charge_from(wire.fill_fee);
-        // Bitget publishes no remaining quantity anywhere; it is the original
-        // size less what has filled, and a status of `filled` settles it.
+        // bitget publishes no remaining qty; it is size less filled
         out.leaves_qty = wire.status == WireOrderStatus::Filled ? QtyLots::from_raw(0)
                          : (total.has_value() && filled.has_value())
                              ? QtyLots::from_raw(total->raw - filled->raw)
@@ -384,7 +352,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
         break;
     case WireOrderStatus::PartiallyFilled:
     case WireOrderStatus::Filled:
-        // The trade that produced this already reported itself above.
+        // the trade reported itself above
         return std::nullopt;
     case WireOrderStatus::Unknown:
         return std::nullopt;
@@ -489,7 +457,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
 
     exec::PositionReport out{};
     out.instrument = base.id;
-    // `total` is unsigned; holdSide is the only thing that says which way.
+    // total is unsigned; holdSide gives the direction
     out.net_qty = wire.hold_side == "short" ? QtyLots::from_raw(-size->raw) : *size;
     if (const auto avg = to_ticks(wire.open_price_avg, base); avg.has_value()) {
         out.avg_entry = *avg;
@@ -515,9 +483,7 @@ std::optional<Instrument> map_instrument(const WireSpotSymbol& wire) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Bitget, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // A row whose pair Bitget did not state is DROPPED rather than carried
-    // under the exchange symbol: an instrument nothing can group shows in a
-    // cross-venue view as a market of its own.
+    // a row without a stated pair is dropped so cross-venue grouping stays correct
     const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -534,7 +500,6 @@ std::optional<Instrument> map_instrument(const WireSpotSymbol& wire) {
 }
 
 std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market) {
-    // Spot lives behind a different endpoint with a different row shape.
     if (market != MarketType::Perp) {
         return std::nullopt;
     }
@@ -556,10 +521,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Bitget, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // Dropped rather than carried under the exchange symbol, as on spot above.
+    // dropped when the pair is not stated
     const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -582,16 +547,14 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
 std::optional<LedgerEntry>
 map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
     if (wire.business_type != "contract_settle_fee") {
-        // Every other row is a trade, a transfer or a margin move: money this
-        // process already booked from the fill, or not trading money at all.
+        // other rows are trades, transfers or margin moves, already booked or not trading money
         return std::nullopt;
     }
     const auto* instrument = table.find(wire.symbol);
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // VERBATIM. Bitget signs the settlement itself; taking a magnitude here
-    // would report every payment as income.
+    // taken as signed; bitget signs the settlement
     const auto amount = settlement_of(wire.amount);
     if (!amount.has_value()) {
         return std::nullopt; // an unreadable figure is not a zero charge
@@ -602,8 +565,7 @@ map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_
     charge.amount = *amount;
     charge.kind = LedgerKind::Funding;
     charge.settled_at = ms_to_unix(wire.c_time_ms, UnixNanos{});
-    // Bitget mints an id per row, which is what tells two settlements on one
-    // contract apart when the stamps collide.
+    // bitget's per-row id separates settlements with equal stamps
     if (const auto id = ExecId::from(wire.bill_id); id.has_value()) {
         charge.reference = *id;
     }

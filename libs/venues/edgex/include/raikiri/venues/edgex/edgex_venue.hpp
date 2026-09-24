@@ -4,8 +4,7 @@
 
 namespace raikiri::venues::edgex {
 
-// Called from gatewayd's main: a static-init registration object in a static
-// library is dropped by the linker without a diagnostic.
+// call from gatewayd's main; the linker drops unreferenced static registration objects
 void register_adapter();
 
 } // namespace raikiri::venues::edgex

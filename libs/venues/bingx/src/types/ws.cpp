@@ -48,16 +48,12 @@ std::string_view data_type_suffix(exec::SubKind kind, MarketType market) noexcep
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        // The swap acks {sym}@bookTicker and then sends nothing (2026-09-25),
-        // so a perp's touch is read off the ladder it already streams.
+        // the swap acks bookTicker but sends nothing, so the perp touch comes from the ladder
         return spot ? "bookTicker" : "depth100@100ms";
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        // 100 is BingX's deepest tier on both trees: depth200 is refused
-        // outright with 80015 "dataType not support" rather than downgraded.
-        // Spot takes no interval — "depth100@100ms" there is rejected as
-        // 100400 "dataType is error".
+        // 100 is the deepest tier; spot takes no interval suffix
         return spot ? "depth100" : "depth100@100ms";
     case exec::SubKind::MarkPrice:
         return spot ? std::string_view{} : "markPrice"; // no mark on a spot pair
@@ -108,8 +104,7 @@ Protocol::request(std::string_view req_type, std::string_view symbol, std::strin
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::subscribe_frame(std::string_view symbol,
                                                                        std::string_view suffix) {
-    // A kind with no channel behind it (Funding, Kline) has no frame to build,
-    // and a dataType of "BTC-USDT@" is one BingX refuses with 80015.
+    // kinds with no channel build no frame; an empty suffix is refused with 80015
     if (suffix.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -124,7 +119,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::unsubscribe_frame(std::st
     return request("unsub", symbol, suffix);
 }
 
-// No '@' and no symbol: "spot.executionReport" is the whole dataType.
+// no symbol: "spot.executionReport" is the whole dataType
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::subscribe_channel(std::string_view data_type) {
     return request("sub", data_type, {});

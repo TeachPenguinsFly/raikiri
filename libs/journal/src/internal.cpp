@@ -46,8 +46,7 @@ bool segment_is_blank(const std::string& path) noexcept {
     const auto got = ::pread(fd, head.data(), head.size(), 0);
     ::close(fd);
     if (got != static_cast<ssize_t>(head.size())) {
-        // Shorter than a header is also an interrupted creation: the
-        // preallocation is what sizes the file and it had not finished.
+        // a file shorter than a header is also an interrupted creation
         return got >= 0;
     }
     return std::ranges::all_of(head, [](std::byte b) { return b == std::byte{0}; });

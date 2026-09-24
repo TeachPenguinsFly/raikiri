@@ -107,7 +107,7 @@ std::expected<WireOrderbook, WireError> parse_orderbook(std::string_view frame,
 
 namespace {
 
-// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+// the exact-or-refuse rule is book::exact_steps
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -135,7 +135,7 @@ bool BookSync::apply_side(std::span<const WireLevel> levels, book::Ladder& side)
         const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*size)};
 
         if (level.qty.raw == 0) {
-            // Size zero is bybit's delete.
+            // size zero deletes the level
             side.remove(level.price);
             continue;
         }
@@ -159,7 +159,6 @@ SyncResult BookSync::apply(const WireOrderbook& update) {
     }
 
     if (!synced_) {
-        // A delta before any snapshot cannot be applied to anything.
         return SyncResult::Ignored;
     }
     if (update.update_id <= last_update_id_) {

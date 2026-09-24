@@ -9,9 +9,6 @@
 namespace raikiri::admin {
 namespace {
 
-// How many idempotency keys to remember. A key is only useful for as long as a
-// client might retry, which is seconds; a thousand covers a burst and bounds
-// the memory a caller can make this process hold.
 constexpr std::size_t k_keys_remembered = 1024;
 
 } // namespace
@@ -40,13 +37,7 @@ std::string_view describe(DeskError error) noexcept {
 
 ManualDesk::ManualDesk(const Registry& registry) noexcept
     : registry_{&registry},
-      // SEEDED FROM THE CLOCK, not from zero.
-      //
-      // The sequence is 48 bits and the id is only unique if it never repeats.
-      // Starting at zero every launch would hand the second run of the day the
-      // same ids as the first, and those ids are the key the order store, the
-      // journal and the ledger all join on. Milliseconds since the epoch fit
-      // in 48 bits until the year 10889 and rise across restarts.
+      // seeded from epoch milliseconds so ids do not repeat across restarts
       seq_{static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::system_clock::now().time_since_epoch())
                                           .count()) &
@@ -60,8 +51,7 @@ std::expected<ClientOrderId, DeskError>
 ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
     if (!key.empty()) {
         if (const auto found = seen_.find(std::string{key}); found != seen_.end()) {
-            // The same intent, asked again. Answer with the id it already has
-            // and place nothing: this is the whole reason the key exists.
+            // same key: answer with the existing id and place nothing
             return ClientOrderId{found->second};
         }
     }
@@ -96,9 +86,7 @@ ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
         if (!parsed.has_value()) {
             return std::unexpected{DeskError::BadPrice};
         }
-        // EXACT OR REFUSED. Rounding a price to the tick silently sends an
-        // order at a level nobody asked for, and the caller finds out from the
-        // fill.
+        // exact or refused; never round to the tick
         const auto ticks = base.price_to_ticks(*parsed);
         if (!ticks.has_value()) {
             return std::unexpected{DeskError::BadPrice};
@@ -136,15 +124,10 @@ ManualDesk::place(const DeskOrder& order, std::string_view key, UnixNanos now) {
 
 std::expected<void, DeskError> ManualDesk::cancel(ClientOrderId id, UnixNanos now) {
     if (id.strategy_id() != k_manual_strategy_id) {
-        // Not this desk's order. Refused rather than forwarded: a strategy
-        // whose order is cancelled from outside goes on quoting against a
-        // book it believes it still has an order in.
+        // not this desk's order
         return std::unexpected{DeskError::NoSuchOrder};
     }
-    // The instrument is not in the id, so the cancel is offered to every
-    // attached gateway's intent ring and strategyd — which holds the order
-    // store — decides. Broadcasting is sound here because a cancel for an id
-    // strategyd does not know is a no-op there.
+    // the id does not carry the instrument, so every gateway gets the cancel and strategyd decides
     OrderCmd cmd{};
     cmd.kind = CmdKind::Cancel;
     cmd.client_order_id = id;

@@ -6,9 +6,7 @@ namespace raikiri::venues::hyperliquid {
 
 namespace {
 
-// keccak-f[1600]. The permutation is public and fixed; the only thing an
-// implementation can get wrong is a table, and a wrong table still produces a
-// well-formed 32-byte hash — hence the published vectors in the tests.
+// wrong round constants still yield a well-formed hash; the tests pin published vectors
 constexpr std::array<std::uint64_t, 24> k_round_constants = {
     0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL,
     0x000000000000808bULL, 0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL,
@@ -17,13 +15,13 @@ constexpr std::array<std::uint64_t, 24> k_round_constants = {
     0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
     0x8000000080008081ULL, 0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
 
-// Rho offsets and the pi lane permutation, walked together as one chain.
+// rho offsets and the pi lane permutation, walked as one chain
 constexpr std::array<unsigned, 24> k_rho = {1,  3,  6,  10, 15, 21, 28, 36, 45, 55, 2,  14,
                                             27, 41, 56, 8,  25, 43, 62, 18, 39, 61, 20, 44};
 constexpr std::array<std::size_t, 24> k_pi = {10, 7,  11, 17, 18, 3, 5,  16, 8,  21, 24, 4,
                                               15, 23, 19, 13, 12, 2, 20, 14, 22, 9,  6,  1};
 
-// Keccak-256 absorbs 1088 bits at a time; the remaining 512 are the capacity.
+// rate is 1088 bits; the remaining 512 are capacity
 constexpr std::size_t k_rate = 136;
 
 [[nodiscard]] constexpr std::uint64_t rotl(std::uint64_t v, unsigned n) noexcept {
@@ -65,8 +63,7 @@ void permute(std::array<std::uint64_t, 25>& a) noexcept {
 void absorb_block(std::array<std::uint64_t, 25>& state,
                   std::span<const std::uint8_t> block) noexcept {
     for (std::size_t i = 0; i < k_rate; ++i) {
-        // Lanes are LITTLE-endian, on every architecture: this is a property of
-        // the specification, not of the host.
+        // lanes are little-endian per the spec, independent of the host
         state[i / 8] ^= static_cast<std::uint64_t>(block[i]) << (8U * (i % 8));
     }
     permute(state);
@@ -82,9 +79,7 @@ Hash keccak256(std::span<const std::uint8_t> data) noexcept {
         absorb_block(state, data.subspan(at, k_rate));
     }
 
-    // The padding byte is 0x01, and it is the ONLY difference from NIST
-    // SHA3-256, which pads 0x06. Everything else about the two is identical,
-    // which is why substituting one for the other fails silently.
+    // padding byte 0x01; nist sha3-256 pads 0x06
     std::array<std::uint8_t, k_rate> tail{};
     const auto remaining = data.size() - at;
     std::memcpy(tail.data(), data.data() + at, remaining);

@@ -42,8 +42,7 @@ bool OffsetEstimator::add(const OffsetSample& sample) noexcept {
     }
     const auto rtt = sample.received_ns - sample.sent_ns;
     const auto midpoint = sample.sent_ns + rtt / 2;
-    // A server stamp truncated to its resolution sits, on average, half a
-    // tick before the instant it names.
+    // a truncated server stamp sits half a tick before the instant it names
     const auto server = sample.server_ns + sample.resolution_ns / 2;
     ring_[next_] = Kept{.offset_ns = static_cast<std::int64_t>(server) -
                                      static_cast<std::int64_t>(midpoint),

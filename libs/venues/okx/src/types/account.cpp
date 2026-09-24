@@ -12,9 +12,7 @@ using wire::guarded;
 using wire::session;
 
 std::expected<void, WireError> read_bill(wire::ondemand::object& obj, WireBill& out) {
-    // instId is OPTIONAL here and on purpose: a transfer or an interest row
-    // names no instrument, and refusing the whole book over one would lose
-    // every funding charge beside it.
+    // instId is optional: transfer and interest rows name no instrument
     if (const auto ok = read_strings(obj,
                                      {{"billId", &out.bill_id},
                                       {"instId", &out.inst_id},
@@ -48,10 +46,7 @@ std::expected<AccountMode, WireError> parse_account_mode(std::string_view body) 
         }
         return with_first_data(*root, [](wire::ondemand::object& obj) {
             return wire::req_str(obj, "acctLv").transform([](std::string_view level) {
-                // A level this does not know reads as Unknown rather than as
-                // the nearest one: OKX has added modes before, and guessing
-                // which side of the per-currency line a new one falls on is
-                // how a wrong available gets published.
+                // an unknown level stays Unknown rather than guessing the nearest mode
                 if (level == "1") {
                     return AccountMode::Spot;
                 }
@@ -116,9 +111,7 @@ parse_balances(std::string_view body, BalanceBuffer& storage) {
                 storage.currencies[count] = out;
                 ++count;
             }
-            // ONE TRADING ACCOUNT: OKX answers with a single element and a
-            // second would be a second account naming the same currencies,
-            // which concatenated reads as one account holding both.
+            // okx answers one element for the one trading account
             break;
         }
         return std::span<const WireCurrencyBalance>{storage.currencies.data(), count};

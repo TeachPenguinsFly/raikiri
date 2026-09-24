@@ -13,10 +13,6 @@
 namespace raikiri::net {
 namespace {
 
-// The pool never connects in these tests — no venue, no socket. What is under
-// test is the PLACEMENT and the pacing, which is where every defect this class
-// exists for actually lives; the transport is WsClient's own business and has
-// its own tests.
 class Silent final : public WsHandler {
 public:
     void on_open() override { ++opens; }
@@ -29,7 +25,6 @@ public:
     int closes{0};
 };
 
-// One frame per key, so a test can count frames and mean keys.
 std::vector<std::string> one_each(std::span<const std::string> keys) {
     return {keys.begin(), keys.end()};
 }
@@ -48,8 +43,7 @@ WsPool make(IoContext& io, Silent& handler, WsPoolConfig cfg) {
 }
 
 TEST(WsPool, AKeySetLargerThanOneConnectionOpensAnother) {
-    // THE WHOLE POINT. One socket carried 256 of gate's 979 listings because
-    // the venue caps a connection, not an account.
+    // gate caps subscriptions per connection
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 50});
@@ -61,7 +55,6 @@ TEST(WsPool, AKeySetLargerThanOneConnectionOpensAnother) {
 }
 
 TEST(WsPool, NothingConnectsUntilSomethingIsSubscribed) {
-    // An idle socket is one a venue may kick, and a reconnect storm at start.
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 50});
@@ -79,8 +72,6 @@ TEST(WsPool, RoomIsFilledBeforeASocketIsOpened) {
 
     ASSERT_TRUE(pool.subscribe(names(4, "a")));
     EXPECT_EQ(pool.connection_count(), 1U);
-    // Six more fit beside the four: a second socket here would be one the
-    // venue counts against us for nothing.
     ASSERT_TRUE(pool.subscribe(names(6, "b")));
     EXPECT_EQ(pool.connection_count(), 1U);
     EXPECT_EQ(pool.key_count(), 10U);
@@ -90,9 +81,6 @@ TEST(WsPool, RoomIsFilledBeforeASocketIsOpened) {
 }
 
 TEST(WsPool, TheCeilingIsRefusedRatherThanSilentlyDropped) {
-    // A venue that caps connections per IP is worse to trip than one that caps
-    // streams, so the pool stops — and says so, which is the half that the
-    // gateway used to get wrong about subscriptions.
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 10, .max_connections = 2});
@@ -103,8 +91,6 @@ TEST(WsPool, TheCeilingIsRefusedRatherThanSilentlyDropped) {
 }
 
 TEST(WsPool, EverySubscribeIsQueuedRatherThanSent) {
-    // The flood this class exists to prevent: binance answered a catalogue
-    // sent in a loop with zero books, zero trades and zero depth.
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 50});
@@ -114,9 +100,6 @@ TEST(WsPool, EverySubscribeIsQueuedRatherThanSent) {
 }
 
 TEST(WsPool, PollSendsNothingWhileTheSocketsAreDown) {
-    // Nothing here is connected, so the queue must not drain — a frame
-    // "sent" into a closed socket is a subscription the venue never got and
-    // the pool would never ask for again.
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 50});
@@ -138,16 +121,10 @@ TEST(WsPool, KeysAreSpreadSoOneSocketDoesNotHoldTheWholeCatalogue) {
     ASSERT_TRUE(pool.subscribe(names(800)));
     EXPECT_EQ(pool.connection_count(), 16U);
     EXPECT_EQ(pool.key_count(), 800U);
-    // And the pending set is the same 800: a reconnect asks per connection,
-    // never the whole catalogue on each.
     EXPECT_EQ(pool.pending_sends(), 800U);
 }
 
 TEST(WsPool, TheOpenHookNamesOnlyTheKeysOfTheSocketThatOpened) {
-    // A book is fed by one socket, so a reopen breaks that socket's chains and
-    // nobody else's. Handed every key instead, an adapter can only resync
-    // everything — a request burst on a venue that reseeds over REST, and lost
-    // books on one that does not.
     IoContext io;
     Silent handler;
     std::vector<std::vector<std::string>> announced;
@@ -162,22 +139,11 @@ TEST(WsPool, TheOpenHookNamesOnlyTheKeysOfTheSocketThatOpened) {
 
     ASSERT_TRUE(pool.subscribe(names(25)));
     EXPECT_EQ(pool.connection_count(), 3U);
-    // PLACING keys is not OPENING a socket. Nothing has connected here, so the
-    // hook has said nothing — firing it on subscribe would invalidate a book
-    // every time an instrument is added.
     EXPECT_TRUE(announced.empty());
 }
 
 TEST(WsPool, AnAnswerOutsideAHandlerIsRefusedRatherThanSentToAGuessedSocket) {
-    // reply() exists for a venue that PINGS US and wants its own value echoed:
-    // the answer belongs to one socket and to no other. Outside a dispatch
-    // there is no such socket, and picking one — the first, the last, all of
-    // them — would answer a ping on a connection that never sent it while the
-    // one that did goes unanswered and is closed for silence.
-    //
-    // The dispatching case needs a live socket, which these tests deliberately
-    // do not have; what is asserted here is that the ambiguous case fails
-    // CLOSED. See the htx adapter for the shape being served.
+    // reply() outside a dispatch has no socket to answer on, so it fails closed
     IoContext io;
     Silent handler;
     auto pool = make(io, handler, {.max_keys_per_connection = 50});
@@ -225,8 +191,6 @@ TEST(WsPoolLimits, AnIpChannelCapIsSharedByEveryPoolOfTheProcess) {
     EXPECT_EQ(first.key_count() + second.key_count(), 100U);
 }
 
-// The per-IP log belongs to the process, so a socket that reopens — or a second
-// pool — spends the same allowance rather than starting a fresh one.
 TEST(WsPoolLimits, PacingNeverExceedsTheIpLimitAcrossAReconnect) {
     const WsLimits table{.configured = true,
                          .ip_messages = {{.max = 6, .window_ns = 2'000'000'000ULL},

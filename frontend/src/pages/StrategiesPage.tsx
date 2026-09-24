@@ -1,8 +1,3 @@
-/** The strategy list, and why it is empty.
- *
- *  admind knows a strategy only as an integer that rides on other rows. There
- *  is no registry to list, so this screen says that instead of listing
- *  fixtures. */
 export function StrategiesPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">

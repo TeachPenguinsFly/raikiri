@@ -1,13 +1,3 @@
-"""An order placed at the API, followed until the venue answers.
-
-THE CHAIN NO SINGLE PROCESS CAN TEST. The desk mints an id and writes it into a
-ring; strategyd reads it, checks it against risk, writes it into another ring;
-gatewayd reads that, sends it to the venue and publishes what comes back;
-strategyd attributes the answer and journals it. Every link has unit tests. That
-they line up has none, and a command that is dropped between two of them leaves
-a strategy waiting on a verdict that is never coming.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -22,9 +12,7 @@ import pytest
 
 from conftest import BIN
 
-# The manual desk owns a reserved strategy id so an order a person placed is
-# distinguishable from a strategy's in the book, the journal and the ledger.
-# Every client order id packs {strategy_id:16 | seq:48}.
+# client order ids pack {strategy_id:16 | seq:48}; the manual desk has a reserved id
 K_MANUAL_STRATEGY_ID = 1
 
 
@@ -43,9 +31,7 @@ def order_body(instrument: dict, **over) -> dict:
         "qty": "1",
     }
     body.update(over)
-    # A market order carrying a price is an instruction with two meanings, and
-    # the contract refuses it — so removing the price is how a caller asks for
-    # one, not an omission.
+    # the contract refuses a market order that carries a price
     return {k: v for k, v in body.items() if v is not None}
 
 
@@ -54,12 +40,7 @@ def idem() -> dict:
 
 
 def post_order(stack, instrument, **over):
-    """POST with a fresh idempotency key.
-
-    Required by the contract because a request that times out is the one case
-    where a client cannot tell "never arrived" from "arrived and I lost the
-    answer", and retrying without a key is how one intent becomes two orders.
-    """
+    """post with a fresh idempotency key"""
     import urllib.error
     import urllib.request
 
@@ -81,9 +62,6 @@ def test_an_order_is_accepted_and_carries_the_desk_own_identity(stack, sim_instr
     code, accepted = post_order(stack, sim_instrument)
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
-    # MINTED HERE, NOT SUPPLIED. Letting a caller choose one would let two
-    # clients collide on the key the whole ledger is built around, and would
-    # let a caller impersonate a strategy.
     assert strategy_of(coid) == K_MANUAL_STRATEGY_ID, (
         f"client_order_id {coid} packs strategy {strategy_of(coid)}, not the manual desk"
     )
@@ -108,8 +86,6 @@ def test_a_retry_without_a_key_is_refused_rather_than_duplicated(stack, sim_inst
 
 
 def test_a_market_order_carrying_a_price_is_refused(stack, sim_instrument) -> None:
-    """Two meanings in one instruction. The contract refuses it rather than
-    picking one, because either choice is a guess about intent."""
     code, body = post_order(stack, sim_instrument, order_type="market", price="100")
     assert code >= 400, f"accepted a market order with a price: {body}"
     assert body["title"], body
@@ -122,14 +98,7 @@ def test_an_unknown_instrument_is_refused_before_anything_is_sent(stack, sim_ins
 
 
 def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrument) -> None:
-    """THE LINK THAT MATTERS. A command that vanishes between two processes
-    leaves a strategy waiting forever, which is indistinguishable from a venue
-    still thinking about it.
-
-    Watched on the live stream rather than through Postgres, so the default run
-    needs no database — and because the stream is the path the terminal itself
-    uses to learn what happened to an order.
-    """
+    """watched on the live stream so the default run needs no database"""
     host, port = stack.api.removeprefix("http://").split(":")
     stream_port = _stream_port(stack)
 
@@ -144,14 +113,10 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
     )
     time.sleep(0.5)
     assert b"101" in sock.recv(65536).split(b"\r\n")[0], "the stream refused the upgrade"
-    # `events`, not a bare `orders` key: the contract names the sequenced feeds
-    # in one array so a client asks for them the same way it asks for anything.
     sock.send(_frame(json.dumps({"op": "subscribe", "id": "desk", "events": ["orders"]})))
     time.sleep(0.3)
 
-    # A MARKET ORDER, because a limit needs a price and this test is not about
-    # pricing: a limit far from the market is refused by the risk gate's band,
-    # which is that gate working and not this chain failing.
+    # market order so the risk gate's price band cannot refuse it
     code, accepted = post_order(stack, sim_instrument, order_type="market", price=None)
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
@@ -159,8 +124,6 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
     sock.settimeout(15)
     seen = b""
     deadline = time.time() + 15
-    # Terminal means the order is finished with: nothing further is coming, so
-    # a book that still holds it is wrong.
     terminal = ("filled", "canceled", "rejected", "expired")
     while time.time() < deadline:
         try:
@@ -183,19 +146,7 @@ def test_every_order_reaches_a_terminal_state_on_the_stream(stack, sim_instrumen
 def test_a_resting_order_survives_reconciliation_rather_than_being_closed_under_it(
     stack, sim_instrument
 ) -> None:
-    """The venue still holds it, so the book must too.
-
-    strategyd sweeps every five seconds: it reads the ids the gateway pulled
-    out of shm, and closes anything open here that is missing from that list.
-    The read built its set out of `string_view`s pointing into a stack cell
-    that the loop rebuilt on every turn, so the set held dangling views, matched
-    nothing, and every working order looked gone. A live order on weex was
-    listed by the venue and closed here three seconds later — the book reporting
-    flat while money rested at the exchange.
-
-    Nothing about that is venue-specific, and it is invisible to a unit test:
-    one process writes the table and another reads it.
-    """
+    """strategyd's five-second sweep must not close an order the venue still lists"""
     code, accepted = post_order(stack, sim_instrument, side="buy", price="1", qty="1")
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
@@ -203,13 +154,7 @@ def test_a_resting_order_survives_reconciliation_rather_than_being_closed_under_
         f"the order never rested, so nothing was reconciled:\n{stack.refusals('strategyd')}"
     )
 
-    # A BUY AT 1 RESTS. It is far under any mid the sim venue quotes, so it
-    # joins the book instead of crossing it — and a resting order is the only
-    # kind this sweep can wrongly close.
-    #
-    # Three sweeps' worth at five seconds each. One was enough for the bug,
-    # which fired on the first pass after the venue listed the order; three says
-    # the order is still there after the table has been rewritten several times.
+    # a buy at 1 rests below any sim mid; wait out three five-second sweeps
     time.sleep(18)
 
     closed = [
@@ -224,8 +169,7 @@ def test_a_resting_order_survives_reconciliation_rather_than_being_closed_under_
 
 
 def _stream_port(stack) -> int:
-    """The stream port the fixture chose, recovered from the process argv so
-    the test does not keep a second copy of it."""
+    """the stream port, read from admind's argv"""
     argv = stack.procs["admind"].args
     return int(argv[argv.index("--stream-port") + 1])
 
@@ -245,22 +189,9 @@ def _frame(text: str) -> bytes:
 
 
 def test_a_refused_desk_order_is_recorded_rather_than_only_logged(stack, sim_instrument) -> None:
-    """A REFUSAL THE PERSON WHO ASKED CAN FIND.
-
-    The desk answers 202 with a client order id and hands the intent on. When
-    the risk gate refuses it, nothing used to be written anywhere: the caller
-    held an id for an order that existed in no store, no journal and no
-    database, and the reason went to a log they do not read. strategyd's own
-    comment on that branch said a desk refusing in silence is one nobody can
-    debug — and then it only logged.
-
-    Read out of the journal rather than out of Postgres, because the journal is
-    where durability begins: what is not there cannot reach the database on any
-    replay, and the default run has no database at all.
-    """
+    """a risk-gate refusal must reach the strategyd journal"""
     import subprocess
 
-    # Far outside the band the risk gate allows, which is what provokes it.
     code, accepted = post_order(stack, sim_instrument, price="1")
     assert code in (200, 202), accepted
     coid = accepted["client_order_id"]
@@ -270,23 +201,17 @@ def test_a_refused_desk_order_is_recorded_rather_than_only_logged(stack, sim_ins
 
     deadline = time.time() + 15
     while time.time() < deadline:
-        # The writer group-commits, so an immediate read can legitimately miss
-        # the line; the loop is that, not a hope.
+        # the writer group-commits, so poll until the line appears
         out = subprocess.run(
             [replay, str(journal), "--prefix", "journal"],
             capture_output=True,
             text=True,
             timeout=30,
         ).stdout
-        # replay prints the id in hex and the event type as its enumerator.
-        # DENIED (1), not REJECTED (4): the domain separates the risk gate's
-        # refusal from the venue's, and the venue never saw this order.
+        # replay prints the id in hex; denied (1) is the risk gate's refusal, rejected (4) the venue's
         needle = f"coid={int(coid):x}"
         for line in out.splitlines():
             if "OEVT" in line and needle in line and "type=1" in line:
-                # NOTHING WORKING. An order refused before the wire leaves no
-                # quantity behind, and a non-zero leaves here would put a
-                # phantom into every book that replays this journal.
                 assert "leaves=0" in line, line
                 return
         time.sleep(0.5)

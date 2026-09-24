@@ -37,8 +37,7 @@ parse_instruments(std::string_view body, InstrumentBuffer& storage) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            // Optional so a row that names no pair costs that row, not the
-            // catalogue; the mapper is what refuses it.
+            // optional so a row without a pair is dropped by the mapper alone
             const auto base_coin = opt_scalar(obj, "baseCoin");
             const auto quote_coin = opt_scalar(obj, "quoteCoin");
             if (!base_coin.has_value() || !quote_coin.has_value()) {
@@ -108,11 +107,10 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                 return std::unexpected(WireError::MissingField);
             }
             out.symbol = symbol;
-            // `BTCUSDT` runs the two halves together, so these fields are the
-            // only place the pair is stated.
+            // `BTCUSDT` has no separator, so these fields state the pair
             out.base_asset = field(obj, "baseAsset");
             out.quote_asset = field(obj, "quoteAsset");
-            // `status` is the STRING "1", not the number 1.
+            // `status` is the string "1"
             out.status = field(obj, "status");
             out.base_size_step = field(obj, "baseSizePrecision");
             out.quote_precision = int_field(obj, "quotePrecision");

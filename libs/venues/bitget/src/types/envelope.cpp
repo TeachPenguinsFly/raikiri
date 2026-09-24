@@ -15,7 +15,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "trade") {
         return EventKind::Trade;
     }
-    // Capped snapshots and the incremental 500-level feed ship one element.
     if (channel == "books5" || channel == "books15" || channel == "books") {
         return EventKind::Books;
     }
@@ -47,9 +46,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (!event->empty()) {
-            // The login answer must not be read as a subscribe ack: it is the
-            // one control frame whose absence means the private socket is
-            // connected and deaf.
+            // the login answer is not a subscribe ack
             info.kind = *event == "error"   ? EventKind::Error
                         : *event == "login" ? EventKind::LoginAck
                                             : EventKind::SubscribeAck;

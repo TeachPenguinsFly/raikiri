@@ -1,7 +1,5 @@
 #pragma once
 
-// Order vocabulary shared by the OMS, gateways, and journal.
-
 #include <cstdint>
 #include <string_view>
 

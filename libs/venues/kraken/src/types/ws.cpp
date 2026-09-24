@@ -9,9 +9,7 @@ namespace raikiri::venues::kraken {
 
 namespace {
 
-// Appends into the protocol's frame buffer, reporting overflow rather than
-// truncating: half a subscribe frame is still valid JSON often enough to be
-// accepted as a subscription to something else.
+// reports overflow rather than truncating a frame
 class Writer {
 public:
     explicit Writer(std::span<char> into) noexcept : into_{into} {}
@@ -161,9 +159,7 @@ Protocol::private_subscribe_frame(std::string_view feed,
                                   std::string_view api_key,
                                   std::string_view original_challenge,
                                   std::string_view signed_challenge) {
-    // An empty credential would subscribe to the public form of a private
-    // feed, which Kraken answers with an alert rather than a stream — the one
-    // failure that looks like a quiet market.
+    // an empty credential would subscribe the public form, which kraken answers with an alert
     if (feed.empty() || api_key.empty() || original_challenge.empty() || signed_challenge.empty()) {
         return std::unexpected{WsBuildError::NothingToSend};
     }

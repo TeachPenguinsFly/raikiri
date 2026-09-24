@@ -1,19 +1,9 @@
-# One gateway, one account. `systemctl start raikiri-gatewayd@okx-spot`.
-#
-# TEMPLATED ON THE ACCOUNT NAME, not the venue: one adapter serves several
-# markets and the account name is what tells two processes apart, in the segment
-# they own and in the journal they write. deploy/venue_args.sh turns the name
-# back into arguments, so the channel decisions live in one file rather than in
-# every unit.
 [Unit]
 Description=raikiri gateway — %i
 After=network-online.target
 Wants=network-online.target
 
-# IN [Unit] AND NOT [Service], which is where these sat and were ignored —
-# systemd says so on every reload and the restart ceiling simply never applied.
-# Long enough that a venue rejecting our key does not become a restart loop
-# hammering it: a burst of 5 in 60 s stops the unit and says so.
+# these belong in [Unit]; systemd ignores them in [Service]
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
@@ -22,69 +12,22 @@ Type=simple
 User=raikiri
 WorkingDirectory=/opt/raikiri
 
-# RESTARTED, ALWAYS. Six of eighteen gateways died in one five-minute window on
-# 2026-09-10 and nothing brought them back: the terminal kept serving their last
-# prices for 200 ms and then called them dead, and the boards simply lost those
-# venues until a person noticed. A gateway is a process that must be up, and
-# supervision is the only thing that makes that true.
 Restart=always
 RestartSec=5s
-# NO LimitSTACK HERE, and the reason is worth keeping because it was once
-# needed. glibc puts a thread's static TLS in the SAME allocation as its stack,
-# so usable stack is the limit minus that block. The venue adapters held 153
-# `static thread_local` wire buffers between them, 14.5 MiB of static TLS, and
-# at the default 8 MiB there was nothing left: the first thread to need real
-# stack was asio's resolver, which died on its guard page inside getaddrinfo
-# with a backtrace entirely in libc, naming nothing of ours. LimitSTACK=64M
-# held that open until the buffers themselves were fixed.
-#
-# 106 of the 153 — every REST, catalogue, user-stream and order buffer, all of
-# them touched once at startup or once per account poll — now hold their
-# storage on the heap behind a thread_local pointer, so a thread that never
-# takes those paths pays nothing. The block is 2.7 MiB and the default stack
-# is comfortable again. Measured: 688 MB resident across four gateways before,
-# 463 after.
-#
-# THE INVARIANT TO KEEP: static TLS must stay well under the 8 MiB default.
-# `readelf -lW gatewayd | grep TLS` prints it — MemSiz is the per-thread bill,
-# and FileSiz above zero means some buffer carries an initializer glibc has to
-# copy into every thread it creates.
+# keep static tls well under the 8 MiB default stack (readelf -lW gatewayd | grep TLS)
 
-# SHARED MEMORY BELONGS ON A tmpfs. Eighteen segments of 64 MiB, rewritten
-# continuously, are pointless writes on a network disk and will eat an IOPS
-# budget for nothing. RuntimeDirectory gives /run/raikiri, which is tmpfs.
 RuntimeDirectory=raikiri
 RuntimeDirectoryPreserve=yes
 Environment=RAIKIRI_RUNTIME_DIR=/run/raikiri
 Environment=RAIKIRI_DATA_DIR=/var/lib/raikiri
 
-# WITHOUT THIS THE GATEWAY RUNS UNLIMITED, and unlimited is how a box gets
-# banned. config/venues.yaml is where each venue's published allowance lives;
-# with no budget the rate-refusal handler has nothing to penalize, so a burst
-# of REST — depth seeds re-asking on every delta — keeps going through the
-# venue's 429s until it answers 418 and blocks the IP outright. That happened
-# here on the first deployment: binance banned this address for 24 minutes and
-# every channel it serves went quiet, market data included.
-#
-# The file is an operations file rather than a build artifact, so it is
-# installed beside the unit and not carried in the binary.
+# without the budget file the gateway runs unlimited and venues ban the ip
 Environment=RAIKIRI_CONFIG_DIR=/etc/raikiri/config
 
-# WHAT THE SECRET FETCH NEEDS, and it is two lines because the alternative was
-# a gateway that silently ran on public data. gateway-run asks gcloud for the
-# venue's key; gcloud wants somewhere to write, and this account has no home —
-# without these it fails, the fetch reads as "no secret for this venue", and
-# the venue comes up unauthenticated with the key sitting in Secret Manager.
-#
-# INSTALL THE APT gcloud, NOT THE SNAP. snap-confine is setuid and needs
-# cap_dac_override, which NoNewPrivileges below takes away — the snap cannot
-# run here at all, and says so in terms that mention nothing about secrets.
+# gcloud needs a writable HOME; use the apt gcloud, the snap cannot run under NoNewPrivileges
 Environment=HOME=/var/lib/raikiri-home
 Environment=CLOUDSDK_CONFIG=/var/lib/raikiri-home/.gcloud
 
-# Credentials are REFERENCES on the command line and values only in this file,
-# which is 0600 and owned by root: a secret in argv is a secret in `ps` for
-# every account on the box.
 EnvironmentFile=-/etc/raikiri/credentials.env
 EnvironmentFile=-/etc/raikiri/raikiri.env
 

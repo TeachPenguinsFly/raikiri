@@ -1,14 +1,6 @@
 #pragma once
 
-// What every bybit connection in one process shares.
-//
-// INTERNAL TO THE ADAPTER — it is under src/ rather than include/ because
-// nothing outside these translation units may depend on it. The public surface
-// of a venue is the three exec:: interfaces and nothing else.
-//
-// The data client and the execution client hold the SAME state, because they
-// speak to one host with one key: two copies would mean two connections, two
-// signatures and two instrument tables that drift apart.
+// shared by the data and execution clients: one host, one key, one instrument table
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/exec/events.hpp>
@@ -30,14 +22,10 @@
 
 namespace raikiri::venues::bybit::internal {
 
-// Bybit's own ping cadence. Its documented idle timeout is 20 s and it drops
-// connections that answer only the websocket control frame, so the interval
-// is comfortably inside that rather than at it.
+// bybit's idle timeout is 20 s and it drops connections that answer only control frames
 constexpr std::uint64_t k_app_ping_interval_ns = 15'000'000'000ULL;
 
-// State every bybit connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single-threaded: the gateway loop is the only caller
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -45,16 +33,13 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
-    // Shared with the account poller, because bybit counts both against one IP.
-    // Null means unmeasured, which reads as unlimited rather than as closed.
+    // shared with the account poller; null means unlimited
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
-    // One of k_book_tiers. Set once at construction and read on every
-    // subscribe, because bybit names the tier inside the topic string.
+    // one of k_book_tiers; bybit names the tier in the topic
     std::uint32_t book_depth{k_book_depth};
 
-    // What each instrument's ticker frames have said so far. A frame is a
-    // partial and `FundingUpdate` is written whole — see market_data.hpp.
+    // what each instrument's ticker frames have said so far
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
 
     net::IoContext io;
@@ -96,16 +81,9 @@ struct VenueState {
     }
 };
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Cold-path request/response. Every caller of this is a startup or
-// reconciliation path, never the hot loop, so pumping the reactor until the
-// answer arrives is exactly right: the alternative — an asynchronous
-// catalogue load — would force every venue to invent its own half-started
-// state, and a gateway that trades before it knows its tick sizes is worse
-// than one that takes an extra second to boot.
+// cold path: pumps the reactor until the answer arrives
 inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
                                                        const net::RestRequest& request,
@@ -113,7 +91,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Defined beside the catalogue loader it shares a transport with.
+// defined beside the catalogue loader
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::bybit::internal

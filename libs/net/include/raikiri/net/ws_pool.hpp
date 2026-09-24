@@ -1,34 +1,7 @@
 #pragma once
 
-// Several sockets to one venue, so its per-connection ceiling stops being the
-// number of instruments this process can watch.
-//
-// A venue caps what ONE connection may carry, and a gateway asks for several
-// topics per instrument, so the ceiling divides before it reaches an
-// instrument count: measured against live venues, gate carried 256 of its 979
-// listings and deribit 256 of 1812. Everything past the cut is not subscribed
-// at all, and its row on the board is blank for as long as the process runs.
-//
-// The pool holds N connections, each with its own subscription set and its own
-// room. Asking for keys places them on a connection with capacity or opens
-// another. Every connection reports to ONE handler, so nothing above the pool
-// knows there is more than one socket.
-//
-// THREE THINGS IT MUST NOT GET WRONG, each of them a defect this codebase has
-// already paid for:
-//
-//   Pacing is PER CONNECTION. Venues drop a client that floods them, and the
-//   allowance they state is per socket. Sending a catalogue's worth of
-//   SUBSCRIBE frames in a loop is how binance answered a full subscription
-//   with zero books, zero trades and zero depth while the gateway announced
-//   342 instruments.
-//
-//   A reconnect re-sends only ITS OWN keys. A socket that drops must not
-//   resubscribe the whole catalogue — that is the flood above, arriving
-//   exactly when the venue is least pleased with us.
-//
-//   Opening is LAZY. A connection nobody has subscribed anything to is an idle
-//   socket the venue may kick, and a reconnect storm at startup.
+// several sockets to one venue so the per-connection cap does not limit the instruments watched
+// sends are paced per connection and a reconnect resends only that connection's keys
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/net/ws_client.hpp>
@@ -46,17 +19,13 @@ namespace raikiri::net {
 class IoContext;
 
 struct WsPoolConfig {
-    // What one connection may carry. The venue's number, not a guess: too high
-    // and it silently drops subscriptions, too low and it opens sockets it did
-    // not need.
+    // the venue's per-connection key limit
     std::size_t max_keys_per_connection{50};
 
-    // How long between two sends on ONE connection. Venues state an allowance
-    // in messages per second; this is the other side of it.
+    // minimum spacing between sends on one connection
     std::uint64_t send_spacing_ns{150ULL * 1'000'000ULL};
 
-    // A ceiling on sockets, because a venue that caps connections per IP is
-    // worse to trip than one that caps streams.
+    // a ceiling on sockets; per-ip connection caps are worse to trip
     std::size_t max_connections{16};
 };
 
@@ -75,23 +44,10 @@ struct WsPoolStats {
 
 class WsPool {
 public:
-    // Builds the frames that ask for `keys`, for one connection. Called when
-    // the caller subscribes and again on every reconnect of that connection —
-    // which is why it takes the keys rather than closing over them.
+    // builds the frames for `keys` on one connection; called again on every reconnect
     using BuildFrames = std::function<std::vector<std::string>(std::span<const std::string> keys)>;
 
-    // Told when ONE connection opens, and told WHICH KEYS it carries.
-    //
-    // A depth book is fed by exactly one socket, so a socket that reopens has
-    // broken the delta chain of its own books and of nobody else's. Without
-    // the keys an adapter can only invalidate every book it holds: on a pool
-    // of eight, one socket blinking would resynchronise all of them, and on a
-    // venue that reseeds over REST that is precisely the request burst that
-    // has already earned this process an IP ban. On a venue with no REST
-    // reseed it is worse — the books that were fine are simply lost.
-    //
-    // Called on the first open and on every reopen, after the connection's own
-    // subscriptions have been queued.
+    // called on each open and reopen with that connection's keys, so only its books resync
     using OnConnectionOpen = std::function<void(std::span<const std::string> keys)>;
 
     WsPool(IoContext& io,
@@ -106,54 +62,37 @@ public:
     WsPool(WsPool&&) = delete;
     WsPool& operator=(WsPool&&) = delete;
 
-    // Nothing connects here. The first subscribe opens the first socket.
+    // nothing connects here; the first subscribe opens the first socket
     void start();
     void stop();
 
-    // Places the keys and asks for them. False only when the pool is at its
-    // connection ceiling with no room left — which is a configuration problem
-    // and is reported rather than silently dropped.
+    // false only at the connection ceiling with no room
     [[nodiscard]] bool subscribe(std::span<const std::string> keys);
 
-    // Sends one frame on EVERY connection. For the keepalive a venue expects
-    // per socket: a ping on one of four sockets leaves the other three looking
-    // idle, and an idle socket is one the venue closes.
+    // sends one frame on every connection, for per-socket keepalives
     void broadcast(std::string_view text) noexcept;
 
-    // Answers on the ONE connection whose message is being handled, and only
-    // from inside the handler's on_message — it returns false anywhere else.
-    //
-    // For the other shape of keepalive: broadcast() fits a venue the CLIENT
-    // pings, where one frame suits every socket. A venue that pings US and
-    // wants its own value echoed cannot be answered that way — each socket
-    // sends a different value, and broadcasting one socket's answer to the rest
-    // replies to three pings with a fourth's timestamp while their own goes
-    // unanswered, which is how a venue decides a socket has gone quiet.
+    // answers on the connection whose message is being handled; false outside on_message
+    // for venues that ping us and expect their own value echoed
     [[nodiscard]] bool reply(std::string_view text) noexcept;
 
-    // Asked before every frame the pool sends, paced, broadcast or replied. A
-    // venue that meters the IP rather than the socket answers false to hold the
-    // frame; a paced one stays queued, a reply or broadcast is not sent.
+    // asked before every frame; false holds a paced frame and drops a reply or broadcast
     using Admit = std::function<bool(std::string_view frame)>;
     void set_admit(Admit admit);
 
-    // Puts frames at the head of the queue of the connection carrying `key`,
-    // for a venue that refused or broke one subscription. False if none does.
+    // puts frames at the head of the queue of the connection carrying `key`; false if none does
     [[nodiscard]] bool requeue(std::string_view key, std::vector<std::string> frames);
 
-    // Drains one paced send per connection. Call it from the adapter's poll,
-    // beside the io context.
+    // drains one paced send per connection
     void poll(UnixNanos now) noexcept;
 
-    // True once at least one connection is up. A pool with nothing subscribed
-    // is not connected, and that is the honest answer rather than an error.
+    // true once at least one connection is up
     [[nodiscard]] bool connected() const noexcept;
 
     [[nodiscard]] std::size_t connection_count() const noexcept;
     [[nodiscard]] std::size_t key_count() const noexcept;
 
-    // What is still queued across every connection. Zero means the venue has
-    // been asked for everything it was given.
+    // frames still queued across every connection
     [[nodiscard]] std::size_t pending_sends() const noexcept;
 
     [[nodiscard]] WsPoolStats stats() const;
@@ -163,8 +102,7 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Every live pool in the process that carries at least one key. Read it from
-// the thread that polls the pools.
+// every live pool carrying a key; read from the polling thread
 [[nodiscard]] std::vector<WsPoolStats> process_ws_pool_stats();
 
 } // namespace raikiri::net

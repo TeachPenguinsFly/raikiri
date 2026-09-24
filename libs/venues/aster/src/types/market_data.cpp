@@ -26,9 +26,7 @@ std::expected<WirePrint, WireError> parse_trade(std::string_view data) {
         out.symbol = *symbol;
         out.price = *price;
         out.qty = *qty;
-        // The id is "a" on the aggregate stream and "t" on the per-trade one.
-        // opt_u64 answers 0 for whichever is absent, so this takes the one
-        // that arrived without needing to know which channel it came from.
+        // id is "a" on aggTrade and "t" on trade; opt_u64 gives 0 for the absent one
         const auto aggregate_id = wire::opt_u64(*root, "a");
         const auto single_id = wire::opt_u64(*root, "t");
         const auto trade_ms = wire::opt_u64(*root, "T");

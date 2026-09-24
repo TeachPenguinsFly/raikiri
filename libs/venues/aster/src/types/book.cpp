@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is a two-element array of strings, ["64488.50","5.560"], on the
-// depth stream and in the REST snapshot alike.
+// a level is ["price","size"] on the stream and in the snapshot
 std::expected<std::size_t, WireError>
 read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
     auto array = wire::req_array(root, key);
@@ -55,8 +54,7 @@ read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLe
     return count;
 }
 
-// The venue's own reader: aster writes plain decimals. The exact-or-refuse
-// rule itself is book::exact_steps.
+// aster writes plain decimals; exact-or-refuse lives in book::exact_steps
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -206,7 +204,7 @@ std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const 
 
 void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
-        // Size zero is aster's delete, on the seed and on the deltas alike.
+        // size zero deletes the level
         side.remove(level.price);
         return;
     }
@@ -272,8 +270,6 @@ BookResult DepthBook::bridge(const WireDepthUpdate& delta) {
         return BookResult::Stale;
     }
     if (delta.first_id > held_id_) {
-        // The stream has moved past the photograph, and no delta will ever
-        // carry the one into the other.
         discard_held();
         return BookResult::Reseed;
     }
@@ -333,8 +329,7 @@ BookResult DepthBook::replay() {
     }
 
     install_held();
-    // buffer() already enforced the pu chain across pending_, so the replay
-    // only has to find where the seed sits inside it.
+    // buffer() already enforced the pu chain across pending_
     for (; i < pending_.size(); ++i) {
         apply_levels(pending_[i].bids, ladders_.bids());
         apply_levels(pending_[i].asks, ladders_.asks());
@@ -345,14 +340,11 @@ BookResult DepthBook::replay() {
 }
 
 BookResult DepthBook::settle() {
-    // Past the band the seed vouched for, a level is one no snapshot ever
-    // confirmed; carrying it would make the book look deeper than it is known
-    // to be.
+    // drop levels outside the band the seed covers
     ladders_.bids().drop_beyond(band_low_);
     ladders_.asks().drop_beyond(band_high_);
     if (ladders_.bids().empty() || ladders_.asks().empty()) {
-        // The price walked clean out of the band, so what is left is no longer
-        // the top of the venue's book.
+        // the price left the band, so the top is no longer known
         invalidate();
         return BookResult::Reseed;
     }

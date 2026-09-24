@@ -32,7 +32,7 @@ std::string load(std::string_view venue, std::string_view name) {
     return text;
 }
 
-// Exactly as long as the frame, so a read past its end is ASan's to report.
+// exactly as long as the frame so asan catches overreads
 void feed(Parse parse, std::string_view frame) {
     if (frame.empty()) {
         parse({});

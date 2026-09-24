@@ -29,8 +29,6 @@ TEST(JsonWriter, BuildsAnOrderPayload) {
 }
 
 TEST(JsonWriter, PricesRenderExactlyFromFixedPoint) {
-    // The property that matters: no floating point anywhere, so values that
-    // a double would mangle survive verbatim.
     const std::string_view cases[] = {"0.000000001", "0.1", "12345678.123456789", "-0.5", "0"};
     for (const auto text : cases) {
         std::array<char, 128> buf{};
@@ -79,8 +77,6 @@ TEST(JsonWriter, OverflowIsStickyAndViewIsEmpty) {
 }
 
 TEST(JsonWriter, UndefinedDecimalIsRefused) {
-    // An undefined price reaching the wire is a bug; fail the payload
-    // rather than emit something the venue will interpret.
     std::array<char, 64> buf{};
     JsonWriter w{buf};
     w.obj_begin().decimal("price", FixedE9::undef()).obj_end();

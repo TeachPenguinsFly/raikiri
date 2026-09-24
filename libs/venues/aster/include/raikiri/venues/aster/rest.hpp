@@ -1,14 +1,7 @@
 #pragma once
 
-// Aster USD-M futures REST request building.
-//
-// Signing rule, and it is the one that quietly breaks adapters: aster signs
-// the QUERY STRING for every method, including POST and DELETE. There is no
-// signed body — order parameters travel in the query even on a POST — and the
-// signature covers the query EXACTLY as sent, in the exact order the
-// parameters appear. Re-serialising the parameters after signing, or letting a
-// map reorder them, produces a signature aster rejects as -1022, which reads
-// like a bad key rather than a bad ordering.
+// aster signs the query string exactly as sent for every method, post and delete included;
+// reordering parameters after signing gets -1022
 
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/order_cmd.hpp>
@@ -34,19 +27,15 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view rest_host(bool testnet) noexcept;
 
-// Aster rejects a request whose timestamp is outside recvWindow of ITS
-// clock. Five seconds is its own default and leaves room for a laptop that
-// drifts; the venue-corrected clock is what should be passed in as `now`.
+// recvWindow is checked against the venue clock; pass the venue-corrected time as now
 inline constexpr std::uint32_t k_recv_window_ms = 5'000;
 
 class RequestBuilder {
 public:
     explicit RequestBuilder(const net::Signer& signer) noexcept : signer_{&signer} {}
 
-    // --- unauthenticated ---
     [[nodiscard]] net::RestRequest instruments() noexcept;
-    // Asked once beside instruments(): the settlement schedule lives nowhere
-    // else on this venue.
+    // the funding interval lives only in fundingInfo
     [[nodiscard]] net::RestRequest funding_info() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest ticker_24h() noexcept;
@@ -54,13 +43,11 @@ public:
     [[nodiscard]] net::RestRequest depth_snapshot(std::string_view symbol,
                                                   std::uint32_t limit) noexcept;
 
-    // --- signed ---
-
-    // Exposed for tests: the exact bytes the last signed request signed.
+    // exposed for tests: the exact bytes the last signed request signed
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
-    // Query is built into `query_`, signed, then joined with the path into `target_`.
+    // the query is built into `query_`, signed, then joined with the path into `target_`
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     finish(net::HttpMethod method, std::string_view path, std::size_t query_len);
 

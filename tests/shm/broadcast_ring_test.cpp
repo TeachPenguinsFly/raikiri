@@ -43,7 +43,6 @@ TEST(BroadcastRing, IndependentReadersIndependentCursors) {
     ASSERT_EQ(fast.poll(out), PollResult::Item);
     EXPECT_EQ(fast.poll(out), PollResult::Empty);
 
-    // The slow reader still sees everything from its own cursor.
     ASSERT_EQ(slow.poll(out), PollResult::Item);
     EXPECT_EQ(out.payload, 10U);
 }
@@ -66,7 +65,6 @@ TEST(BroadcastRing, OverrunDetectedWithGapCount) {
     auto ring = std::make_unique<BroadcastRing<Event, 8>>();
     BroadcastReader reader{ring.get()};
 
-    // Fill well past capacity while the reader sleeps.
     for (std::uint64_t i = 1; i <= 20; ++i) {
         ring->publish({i, i});
     }
@@ -80,9 +78,6 @@ TEST(BroadcastRing, OverrunDetectedWithGapCount) {
     EXPECT_EQ(out.payload, 21U); // clean resume after resync
 }
 
-// TSan + torn-read target: producer laps the ring while readers poll at full
-// speed. Every delivered item must be internally coherent and sequences must
-// advance monotonically through overruns.
 TEST(BroadcastRingStress, LappedReadersSeeCoherentItemsOnly) {
     auto ring = std::make_unique<BroadcastRing<Event, 64>>();
     constexpr std::uint64_t k_publishes = 500'000;

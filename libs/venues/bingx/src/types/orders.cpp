@@ -21,8 +21,7 @@ std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
         return std::unexpected(order_id.error());
     }
     out.order_id = *order_id;
-    // Three spellings across the two trees and their own worked examples, so
-    // the reader takes whichever arrived rather than assuming the endpoint.
+    // three spellings across the trees; take whichever arrived
     for (const auto key : {"clientOrderId", "clientOrderID", "origClientOrderId"}) {
         const auto value = opt_scalar(obj, key);
         if (!value.has_value()) {
@@ -59,8 +58,7 @@ std::expected<WireOrder, WireError> read_order(wire::ondemand::object& obj) {
     return out;
 }
 
-// Case-insensitive because BingX's coin-M push spells the same statuses
-// "Pending" and "Filled" where the linear tree shouts them.
+// coin-m spells statuses in mixed case
 bool same_word(std::string_view text, std::string_view word) noexcept {
     if (text.size() != word.size()) {
         return false;
@@ -86,8 +84,7 @@ WireOrderStatus order_status_of(std::string_view text) noexcept {
     if (same_word(text, "FILLED")) {
         return WireOrderStatus::Filled;
     }
-    // Both spellings are BingX's own: the cancel answer says CANCELLED and the
-    // documented status list says CANCELED.
+    // the cancel answer says cancelled, the status list canceled
     if (same_word(text, "CANCELED") || same_word(text, "CANCELLED")) {
         return WireOrderStatus::Canceled;
     }
@@ -145,7 +142,7 @@ std::expected<WireOrder, WireError> parse_order_ack(std::string_view body) {
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        // The perpetual tree nests the order one level deeper than spot does.
+        // perp nests the order one level deeper
         wire::ondemand::object nested;
         if (wire::find(*data, "order").get_object().get(nested) == simdjson::SUCCESS) {
             return read_order(nested);
@@ -160,8 +157,7 @@ std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view fr
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // The perpetual push puts the order under `o` and the spot push wraps
-        // the whole record in `data`.
+        // perp puts the order under o; spot wraps it in data
         wire::ondemand::object obj;
         if (wire::find(*root, "o").get_object().get(obj) != simdjson::SUCCESS) {
             auto data = wire::req_object(*root, "data");

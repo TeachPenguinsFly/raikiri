@@ -53,9 +53,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return out;
         }
 
-        // No "e": a control frame. The verdict comes first because it is the
-        // one whose misreading is silent — a refusal read as an acknowledgement
-        // looks exactly like a channel with nothing to say.
+        // no "e": a control frame; check the verdict first
         obj.reset();
         if (wire::has_field(obj, "result")) {
             obj.reset();
@@ -109,9 +107,7 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
     return guarded([&]() -> std::expected<RestError, WireError> {
         auto root = session().open_object(body);
         if (!root.has_value()) {
-            // A body that is not an object is premiumIndex or bookTicker, both
-            // of which answer with a bare array. Not an error, and not this
-            // reader's business.
+            // premiumIndex and bookTicker answer with a bare array
             return RestError{};
         }
         auto obj = *root;
@@ -119,8 +115,7 @@ std::expected<RestError, WireError> parse_rest_error(std::string_view body) {
         if (!code.has_value()) {
             return std::unexpected(code.error());
         }
-        // THE SIGN, not the key. `code` is a legitimate field name inside a
-        // success payload, and only a negative one is a refusal.
+        // only a negative code is a refusal; code can be a payload field
         if (*code >= 0) {
             return RestError{};
         }

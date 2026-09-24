@@ -22,17 +22,12 @@ public:
     explicit WeexInstruments(std::shared_ptr<VenueState> state)
         : state_{std::move(state)},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
-        // One call, weight 1, against a bucket still at capacity — and it is
-        // the one caller with no next tick, so a refusal here surfaces as a
-        // gateway that will not start rather than a retry.
+        // the one caller with no next tick, so a refusal fails startup
         meter_market_data(*state_, rest_);
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        // ANSWERED BEFORE THE CALL. WEEX's contract tree lists perpetuals and
-        // nothing else, and an empty catalogue reads as "this venue lists
-        // nothing" — a very different claim from "this adapter does not load
-        // that market".
+        // the contract tree lists only perpetuals
         switch (market) {
         case MarketType::Perp:
             break;
@@ -45,8 +40,7 @@ public:
         }
 
         rest_.start();
-        // 685 KiB on 2026-09-07, so the deadline is the body's rather than the
-        // round trip's.
+        // large body, so the deadline is generous
         const auto response = await_response(*state_, rest_, state_->builder.instruments(), 20'000);
         if (!response.has_value()) {
             return std::unexpected{exec::VenueError::make(
@@ -71,10 +65,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
-        // WHICH OF THEM MAY BE ORDERED, which is a different and much smaller
-        // question than which of them exist. A failure here leaves the set
-        // empty, and an empty set refuses nothing: the venue would still answer
-        // -1058 for a contract outside it, which is where this started.
+        // the api-tradable set; on failure it stays empty and refuses nothing
         {
             const auto listed =
                 await_response(*state_, rest_, state_->builder.api_trading_symbols(), 20'000);

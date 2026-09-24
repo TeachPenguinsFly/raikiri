@@ -64,7 +64,7 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        // An empty catalogue under "SUCCESS" is how the dead V1 host answers.
+        // the dead v1 host answers SUCCESS with an empty catalogue
         if (wire->empty()) {
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "catalogue: empty")};

@@ -27,10 +27,6 @@ namespace raikiri::venues::deribit::internal {
 
 namespace {
 
-// A pool key is one channel. Deribit names the instrument INSIDE it —
-// book.BTC-PERPETUAL.none.1.100ms — so unlike venues that carry the symbol in
-// a field beside the channel there is nothing to join, and the pool's opaque
-// string is the channel itself.
 [[nodiscard]] std::string key_of(std::string_view channel) {
     return std::string{channel};
 }
@@ -39,15 +35,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
-    // own keys when it opens; replaying the whole desired set on every one of
-    // them is the flood the pool exists to avoid.
-    //
-    // AND NO BOOK IS INVALIDATED. Deribit seeds a book from its own `snapshot`
-    // on the channel and from nothing else, so a channel asked for again
-    // resets itself in Book::apply — while this hook fires per socket and
-    // knows none of them apart, so blanking every book here would silence the
-    // ones the other sockets are feeding until they happen to reconnect.
+    // each socket resubscribes its own keys on open; a book resets on its own snapshot
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -55,8 +43,7 @@ public:
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
         if (handle_frame(*state_, payload, received)) {
-            // Answered on the asking socket alone: a broadcast spends the
-            // shared request bucket once per socket per socket.
+            // reply on the asking socket only
             (void)pool_->reply(state_->protocol.test_frame().text);
         }
     }
@@ -82,9 +69,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path()}},
                 handler_,
-                // Deribit caps a CONNECTION at 1024 channels; the pool turns
-                // that into a per-socket number instead of the process's, which
-                // is what left 256 of 1812 listings watched.
+                // deribit caps a connection at 1024 channels
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
         handler_.attach(pool_);
@@ -120,15 +105,11 @@ public:
         if (state_->desired.size() == before) {
             return {}; // Funding and MarkPrice name one ticker channel
         }
-        // THE POOL PLACES IT. A key that does not fit on any existing socket
-        // opens another, and only the pool's own ceiling refuses — which is
-        // said out loud rather than leaving the instrument silently unwatched.
         const std::array<std::string, 1> one{key_of(channel)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "deribit: connection pool is full")};
         }
-        // Asked, not accepted: frames.cpp counts the other half off the replies.
         state_->channels_requested = pool_.key_count();
         return {};
     }
@@ -149,26 +130,18 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered first here rather than at subscribe time: on a reconnect the
-    // order that matters is the order the venue is asked in.
+    // called on every open, so quote channels go first
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
         views.reserve(keys.size());
         for (const auto& key : keys) {
             views.push_back({.channel = key});
         }
-        // book.<name>.none.1.<interval> is the grouped book one level deep —
-        // the Bid/Ask column every screen shows, and the same five segments
-        // envelope.cpp reads a Bbo from.
         std::ranges::stable_partition(views, [](const Subscription& one) {
             return one.channel.find(".none.1.") != std::string_view::npos;
         });
 
-        // set_heartbeat is a SESSION property and this builder is the only hook
-        // a socket that just opened has. A refill sends it again, which re-arms
-        // the same interval and asks for nothing new.
+        // set_heartbeat is per session, so every opened socket sends it
         std::vector<std::string> frames;
         frames.emplace_back(state_->protocol.set_heartbeat_frame(k_heartbeat_interval_s).text);
         std::size_t built = 0;

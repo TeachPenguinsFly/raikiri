@@ -1,8 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short — twice, because the
-// stream and the REST read state it in different shapes.
-
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -31,8 +28,7 @@ struct PositionBuffer {
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
 parse_account_update(std::string_view data, PositionBuffer& storage);
 
-// One row of GET /fapi/v2/positionRisk, which is what reconciliation reads:
-// the same holding under the endpoint's own field names.
+// one row of /fapi/v2/positionRisk, read by reconciliation
 struct WirePositionRisk {
     std::string_view symbol;
     std::string_view position_amt;

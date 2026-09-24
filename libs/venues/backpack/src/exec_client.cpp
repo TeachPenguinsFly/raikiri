@@ -18,8 +18,7 @@ constexpr std::string_view k_why =
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, k_why);
 }
 
-// Must exist, since gatewayd starts it unconditionally. Refusals are terminal:
-// a caller retrying a missing signer retries forever.
+// gatewayd starts it unconditionally; refusals are terminal
 class BackpackExecution final : public exec::ExecutionClient {
 public:
     explicit BackpackExecution(std::shared_ptr<VenueState> state) : state_{std::move(state)} {}

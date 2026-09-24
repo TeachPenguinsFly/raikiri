@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/bitget/errors.hpp>
 
 #include <array>
@@ -12,7 +10,7 @@
 
 namespace raikiri::venues::bitget {
 
-// `holdSide` names the direction; there is no signed size anywhere.
+// holdSide names the direction; no signed size
 struct WirePosition {
     std::string_view symbol; // `instId` on the socket, `symbol` over REST
     std::string_view hold_side;
@@ -21,8 +19,6 @@ struct WirePosition {
     std::uint64_t update_ms{0};
 };
 
-// Its own, though it happens to match the order buffer's: positions used to
-// borrow k_max_updates, which made a change to one silently resize the other.
 inline constexpr std::size_t k_max_positions = 128;
 
 struct PositionBuffer {

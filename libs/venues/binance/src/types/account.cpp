@@ -24,11 +24,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
         }
         auto obj = *root;
 
-        // READ BEFORE THE ROWS, and not through opt_bool: that reader answers
-        // `false` for a field that is absent, and false is the mode in which
-        // the per-asset available figure IS published. A binance that stops
-        // sending this — v3 of this path already has — would silently turn
-        // one account-wide number into a free balance of every asset.
+        // read before the rows and not through opt_bool, which answers false for an absent field
         WireAccount account{};
         wire::ondemand::value flag;
         const auto found = wire::find(obj, "multiAssetsMargin").get(flag);
@@ -41,9 +37,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
         } else if (found != simdjson::NO_SUCH_FIELD) {
             return std::unexpected(wire::map_error(found));
         }
-        // An absent flag keeps the default. It is NOT a parse failure: the
-        // mode qualifies one of three figures, and refusing the body over it
-        // would lose the totals and the pnl beside it as well.
+        // an absent flag keeps the default and does not fail the parse
 
         auto assets = wire::req_array(obj, "assets");
         if (!assets.has_value()) {
@@ -58,9 +52,7 @@ std::expected<WireAccount, WireError> parse_account(std::string_view body, Balan
             if (const auto ec = entry.get_object().get(row); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            // The asset is read as optional, not required: one nameless row
-            // must not cost the account every other balance in the body. The
-            // mapper drops it.
+            // optional so one nameless row does not lose the rest; the mapper drops it
             WireAssetBalance out{};
             const std::array<Wanted, 4> wanted{{{"asset", &out.asset},
                                                 {"walletBalance", &out.wallet_balance},
@@ -107,16 +99,7 @@ std::expected<std::span<const WireIncome>, WireError> parse_income(std::string_v
                 return std::unexpected(ok.error());
             }
             out.tran_id = wire::opt_u64(obj, "tranId").value_or(0);
-            // A STRING, AND ON EVERY ROW — "220574436" on a commission and ""
-            // on a funding row, beside a `tranId` that is a bare number in the
-            // same object. This was read with opt_u64, which wants a number,
-            // so it was 0 on every row binance has ever sent: the fee ledger
-            // then keyed each charge by `tranId` instead, which no execution
-            // quotes, and not one commission has ever joined its fill.
-            //
-            // libs/wire says binance's ids are numbers rather than digit
-            // strings, and that is true of every other id it sends. This is
-            // the exception, and the generalisation is what hid it.
+            // a digit string on commission rows and empty on funding rows, unlike the numeric tranId
             obj.reset();
             out.trade_id =
                 wire::digits_to_u64(wire::opt_str(obj, "tradeId").value_or(std::string_view{}));

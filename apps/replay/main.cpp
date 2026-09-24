@@ -1,10 +1,4 @@
-// replay — decode a journal directory into a human-readable stream.
-//
-//   replay <dir> [--prefix <name>] [--stats]
-//
-// Batch decoder: walks everything committed and exits (it does not tail).
-// Doubles as the verification tool behind golden-replay tests: identical
-// journals must produce byte-identical replay output.
+// replay: decode a journal directory to text; golden-replay tests compare its output
 
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/journal/reader.hpp>
@@ -70,8 +64,7 @@ void print_frame(const FrameView& frame) {
                    m.qty().value());
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::PnlIncrementMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::PnlIncrementMsg>(frame.payload);
-        // Fixed SBE char fields are NUL- or space-padded; trimming only one of
-        // the two leaves the other in the stream and the output stops being text.
+        // sbe char fields may be padded with nul or space
         const std::string_view raw{m.symbol().data(), m.symbol().size()};
         const auto end = raw.find_last_not_of(std::string_view{"\0 ", 2});
         fmt::print("{}PNL   {} kind={} strat={} amount={} settle={}\n",
@@ -83,9 +76,6 @@ void print_frame(const FrameView& frame) {
                    static_cast<int>(sbepp::to_underlying(m.settleSide())));
     } else if (frame.schema_id == raikiri::schema::message_id<msgs::FundingMsg>()) {
         const auto m = raikiri::schema::view_msg<msgs::FundingMsg>(frame.payload);
-        // The mark is printed because it is the field that goes missing: a
-        // venue splitting the rate and the mark across two frames publishes
-        // half a record, and nothing downstream says so.
         fmt::print("{}FUND  {} rate={} pred={} mark={} next={}\n",
                    head,
                    instrument_str(m.instrument().value()),
@@ -119,8 +109,6 @@ void print_frame(const FrameView& frame) {
 } // namespace
 
 int main(int argc, char** argv) {
-    // The decoded stream stays on stdout, where golden-replay tests compare it
-    // byte for byte; the logger writes to stderr and cannot reach it.
     const raikiri::log::Scope logging{"replay"};
     if (argc < 2) {
         fmt::print(stderr, "usage: replay <dir> [--prefix <name>] [--stats]\n");

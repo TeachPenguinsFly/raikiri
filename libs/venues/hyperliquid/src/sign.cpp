@@ -38,9 +38,7 @@ using CtxPtr = std::unique_ptr<BN_CTX, CtxDelete>;
 using GroupPtr = std::unique_ptr<EC_GROUP, GroupDelete>;
 using PointPtr = std::unique_ptr<EC_POINT, PointDelete>;
 
-// Overwrites through a volatile pointer the optimiser may not elide. The nonce
-// k is exactly as sensitive as the key — anyone holding k and a signature can
-// solve for d in one step — so neither is left on the stack after signing.
+// the signing nonce k is as sensitive as the key, so both are wiped
 void wipe(std::span<std::uint8_t> bytes) noexcept {
     auto* volatile at = bytes.data();
     for (std::size_t i = 0; i < bytes.size(); ++i) {
@@ -61,7 +59,6 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     return -1;
 }
 
-// Reads an even-length hex string, with or without a "0x" prefix, into `out`.
 [[nodiscard]] bool from_hex(std::string_view text, std::span<std::uint8_t> out) noexcept {
     if (text.starts_with("0x") || text.starts_with("0X")) {
         text.remove_prefix(2);
@@ -80,8 +77,7 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     return true;
 }
 
-// "0x" + hex, LEADING ZEROES STRIPPED. That is what the reference SDK emits
-// and what the venue's own published vectors show — several are 63 nibbles.
+// leading zeroes stripped, as the reference sdk emits
 [[nodiscard]] FixedString<66> minimal_hex(std::span<const std::uint8_t> bytes) noexcept {
     std::array<char, 66> buf{};
     buf[0] = '0';
@@ -105,7 +101,6 @@ void wipe(std::span<std::uint8_t> bytes) noexcept {
     return text.has_value() ? *text : FixedString<66>{};
 }
 
-// EIP-712 encodes every atomic value as one 32-byte big-endian word.
 void push_word(std::vector<std::uint8_t>& out, std::span<const std::uint8_t> value) noexcept {
     const auto pad = k_hash_bytes - value.size();
     out.insert(out.end(), pad, 0);
@@ -124,9 +119,7 @@ void push_u64_word(std::vector<std::uint8_t>& out, std::uint64_t value) noexcept
     return keccak256({reinterpret_cast<const std::uint8_t*>(text.data()), text.size()}); // NOLINT
 }
 
-// Constant for every L1 action: chainId 1337 and a zero verifying contract,
-// neither of which is a chain this venue settles on. Computed once rather than
-// hardcoded so the keccak the tests pin is the same one that builds it.
+// chainId 1337 and a zero verifying contract; computed with the same keccak the tests pin
 const Hash& domain_separator() noexcept {
     static const Hash separator = [] {
         std::vector<std::uint8_t> encoded;
@@ -143,9 +136,7 @@ const Hash& domain_separator() noexcept {
     return separator;
 }
 
-// RFC 6979 with SHA-256, the deterministic nonce every Ethereum signer uses.
-// Deterministic is the point: it makes the venue's published (r, s, v) vectors
-// a test of this code rather than a smoke check of it.
+// rfc 6979 deterministic nonce, which makes the published vectors a real test
 class Rfc6979 {
 public:
     Rfc6979(std::span<const std::uint8_t> key, std::span<const std::uint8_t> msg) noexcept {
@@ -184,9 +175,7 @@ public:
     }
 
 private:
-    // K = HMAC_K(extra); V = HMAC_K(V). Written through a scratch buffer rather
-    // than in place: the one-shot HMAC happens to tolerate its output aliasing
-    // its key and message, and nothing should have to know that.
+    // written through scratch so nothing relies on the hmac tolerating aliasing
     void rekey(std::string_view extra) noexcept {
         std::array<std::uint8_t, 32> next_key{};
         (void)net::hmac_sha256(key_view(), extra, next_key);
@@ -253,7 +242,7 @@ Hash action_hash(std::span<const std::uint8_t> action,
         preimage.push_back(0x00);
     }
     if (expires_after != 0) {
-        // 0x00, NOT the 0x01 that symmetry with the vault marker suggests.
+        // the expiry marker is 0x00, unlike the vault marker
         preimage.push_back(0x00);
         for (std::size_t i = 0; i < 8; ++i) {
             preimage.push_back(static_cast<std::uint8_t>(expires_after >> (8U * (7 - i))));
@@ -266,8 +255,7 @@ Hash agent_digest(const Hash& action, bool mainnet) noexcept {
     std::vector<std::uint8_t> encoded;
     encoded.reserve(3 * k_hash_bytes);
     push_word(encoded, hash_text("Agent(string source,bytes32 connectionId)"));
-    // "a" mainnet, "b" testnet. This one byte is the whole of what stops a
-    // testnet order from replaying against production.
+    // "a" mainnet, "b" testnet; keeps testnet orders off production
     push_word(encoded, hash_text(mainnet ? "a" : "b"));
     push_word(encoded, action);
     const auto struct_hash = keccak256(encoded);
@@ -298,8 +286,7 @@ bool Wallet::load(std::string_view hex_key) noexcept {
     if (secret == nullptr) {
         return false;
     }
-    // Zero and anything at or above the group order are not keys: both sign to
-    // something well-formed, and a key >= n silently signs as k mod n instead.
+    // zero and keys >= n are invalid but still sign
     const BIGNUM* order = EC_GROUP_get0_order(group.get());
     if (BN_is_zero(secret.get()) || BN_cmp(secret.get(), order) >= 0) {
         return false;
@@ -317,9 +304,7 @@ bool Wallet::load(std::string_view hex_key) noexcept {
                            ctx.get()) != uncompressed.size()) {
         return false;
     }
-    // The address is the last 20 bytes of keccak over the 64-byte public key
-    // WITHOUT its 0x04 uncompressed marker. Including the marker yields a
-    // perfectly valid-looking address that owns nothing.
+    // last 20 bytes of keccak over the public key without its 0x04 prefix
     const auto hashed = keccak256(std::span{uncompressed}.subspan(1));
     address_[0] = '0';
     address_[1] = 'x';
@@ -362,8 +347,7 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
                                                   key.size()}; // NOLINT
     const BnPtr secret{BN_bin2bn(key_bytes.data(), static_cast<int>(key_bytes.size()), nullptr)};
 
-    // z is the digest reduced mod n. RFC 6979 hashes the REDUCED form, so the
-    // reduction happens before the nonce derivation, not after.
+    // rfc 6979 hashes the reduced digest, so reduce first
     const BnPtr z{BN_new()};
     const BnPtr z_raw{BN_bin2bn(digest.data(), static_cast<int>(digest.size()), nullptr)};
     if (secret == nullptr || z == nullptr || z_raw == nullptr ||
@@ -388,8 +372,7 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
         return false;
     }
 
-    // The retry arms exist because RFC 6979 says so; a nonce out of range or an
-    // r of zero is a once-in-2^128 event, not a path anyone has walked.
+    // retries required by rfc 6979; practically never taken
     for (int attempt = 0; attempt < 8; ++attempt) {
         auto candidate = nonces.next();
         const BnPtr k{BN_bin2bn(candidate.data(), static_cast<int>(candidate.size()), nullptr)};
@@ -406,9 +389,7 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
         if (BN_is_zero(r.get())) {
             continue;
         }
-        // The recovery id: bit 0 is the parity of R's y, bit 1 says R's x
-        // wrapped past the group order. Dropping bit 1 recovers the wrong key
-        // for one signature in roughly 2^128.
+        // bit 0 is the parity of R.y, bit 1 marks R.x past the group order
         std::uint8_t recid = BN_is_odd(y.get()) ? 1U : 0U;
         if (BN_cmp(x.get(), order) >= 0) {
             recid |= 2U;
@@ -422,9 +403,7 @@ bool Wallet::sign(const Hash& digest, Signature& out) const noexcept {
         if (BN_is_zero(s.get())) {
             continue;
         }
-        // Low-s normalisation. Both s and n-s verify, but the venue accepts
-        // only the lower one — without this roughly half of all orders are
-        // refused, and the refusal does not say why.
+        // low-s normalisation; the venue accepts only the lower s
         if (BN_cmp(s.get(), half.get()) > 0) {
             if (BN_sub(s.get(), order, s.get()) != 1) {
                 return false;

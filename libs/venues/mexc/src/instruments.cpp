@@ -87,8 +87,7 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        // BEFORE INTERNING, not after: the table owns the instrument once it
-        // is added, and the schedule belongs in it from the first read.
+        // before interning, so the schedule is in the instrument from the first read
         const auto schedule = load_schedule();
         return intern(*wire, [&](const WireInstrument& row) {
             auto instrument = map_instrument(row, MarketType::Perp);
@@ -113,16 +112,8 @@ private:
         FixedE9 floor{};
     };
 
-    // THE SETTLEMENT SCHEDULE, from the one endpoint that states it. A failed
-    // read yields an empty map and every interval stays 0 — unstated — rather
-    // than failing the catalogue: quotes and books are worth having without it,
-    // and a reader that needs the interval refuses a 0 instead of assuming one.
-    //
-    // KEYED BY OWNING STRINGS. The parsed rows live in a thread-local buffer,
-    // but their string_views point into the HTTP response body, which dies when
-    // this function returns — keying on those views was a use-after-free that
-    // AddressSanitizer caught on the first lookup. Twelve hundred short strings
-    // once per catalogue load is not a cost worth a lifetime puzzle.
+    // a failed read leaves every interval 0; keys own their strings
+    // since the views die with the response body
     std::unordered_map<std::string, Schedule> load_schedule() {
         std::unordered_map<std::string, Schedule> out;
         const auto funding =
@@ -145,8 +136,7 @@ private:
             }
             Schedule entry{};
             entry.interval_s = static_cast<std::uint32_t>(row.collect_cycle_h) * 3600U;
-            // A cap that will not parse stays UNDEF: "the ceiling is unknown"
-            // and "the ceiling is zero" lead to opposite decisions.
+            // an unparsable cap stays undef
             if (const auto cap = parse_decimal_e9(row.max_rate); cap.has_value()) {
                 entry.cap = *cap;
             }

@@ -1,23 +1,7 @@
 #pragma once
 
-// Bounded lossless SPSC ring for shared memory.
-//
-// Two standard defences against cache-line traffic, and one consequence of
-// living in shared memory:
-//
-// - head and tail sit on separate padded lines, so the producer's store never
-//   invalidates the line the consumer is reading;
-// - each side keeps a cached copy of the other's index and only re-reads the
-//   real one when the cache says the ring is full or empty, which takes the
-//   other side's line out of the common path entirely;
-// - those caches are process-private, so they live in the Producer/Consumer
-//   handles and NOT in the shared struct. A "private" field inside a segment
-//   two processes map is not private, and one that both sides write is a
-//   correctness bug, not a slow path.
-//
-// Counters are monotonic and never wrap; the slot is (counter & mask), which
-// needs N to be a power of two and makes "full" a subtraction rather than a
-// comparison against a wrapped index.
+// head and tail on separate lines; each side's cached copy of the other's index is process-private
+// and stays out of shm
 
 #include <raikiri/common/cacheline.hpp>
 
@@ -83,11 +67,6 @@ public:
         out = ring_->slots[head & SpscRing<T, N>::k_mask];
         ring_->head.store(head + 1, std::memory_order_release);
         return true;
-    }
-
-    [[nodiscard]] std::size_t approx_size() const noexcept {
-        return static_cast<std::size_t>(ring_->tail.load(std::memory_order_acquire) -
-                                        ring_->head.load(std::memory_order_acquire));
     }
 
 private:

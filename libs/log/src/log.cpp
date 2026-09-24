@@ -34,21 +34,12 @@ void init(std::string_view process_name) {
     }
     quill::BackendOptions backend;
     backend.thread_name = "log-backend";
-    // Quill escapes every byte outside printable ASCII whenever a statement
-    // carries a string argument, and nearly every message in this codebase
-    // holds an em dash: "pull failed \xE2\x80\x94 timeout" is not a line anyone
-    // reads. High bytes pass; control characters are still escaped, so a venue
-    // string cannot break one record into two.
+    // let high bytes through so utf-8 stays readable; control characters stay escaped
     backend.check_printable_char = [](char c) {
         return static_cast<unsigned char>(c) >= 0x80 || (c >= ' ' && c <= '~') || c == '\n' ||
                c == '\t' || c == '\r';
     };
-    // Quill's backend sleeps `sleep_duration` when it finds nothing to do, and
-    // each wake walks every thread's queue. The default 100 us cost a bybit
-    // gateway a quarter of its CPU on 2026-09-18; 10 ms still cost every
-    // process ~90 wake-ups a second on 2026-09-26. 250 ms is what an idle line
-    // may wait; WARN and above wake the backend at once (RLOG_WARN and up), and
-    // shutdown drains in stop().
+    // how long an idle line may wait; warn and above wake the backend at once
     backend.sleep_duration = std::chrono::milliseconds{250};
 #if RAIKIRI_LOG_FATAL_SIGNALS
     // A crash drains the queue before the process dies. SIGINT and SIGTERM

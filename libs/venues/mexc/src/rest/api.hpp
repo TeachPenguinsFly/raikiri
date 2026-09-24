@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what the account is long. None of them belongs to the order path — they run
-// on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/mexc/account.hpp>
 #include <raikiri/venues/mexc/envelope.hpp>
@@ -25,17 +19,14 @@
 namespace raikiri::venues::mexc::internal {
 
 exec::VenueError build_failure(BuildError err) noexcept {
-    // A refusal to build is terminal by construction: the same command built
-    // again produces the same refusal.
+    // a build refusal repeats on retry, so it is terminal
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
                                   0,
                                   to_string(err));
 }
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. An empty answer here would read as "the venue holds nothing".
+// an empty answer would read as the venue holding nothing
 std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -44,8 +35,6 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     case MarketType::Future:
         return exec::not_implemented("mexc dated futures order entry");
     case MarketType::Option:
-        // MEXC lists no options on either API surface, so nothing maps an
-        // OptionInstrument onto one.
         return exec::not_implemented("mexc options order entry");
     }
     return exec::not_implemented("mexc: unknown market");
@@ -58,8 +47,7 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{private_rest_host()}, .port = "443"}},
           builder_{state.signer} {}
 
-    // The two trees check a request against their OWN clock, so the offset
-    // this adapter measures is the one for the tree it serves.
+    // each tree checks requests against its own clock
     void start() {
         rest_.start();
         if (market_ == MarketType::Perp) {
@@ -72,12 +60,9 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // the venue reaps idle sockets silently
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -90,10 +75,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // /api/v3/openOrders demands a symbol and MEXC offers no
-            // account-wide form. Sweeping the pairs we happen to have touched
-            // would answer "these are all of them" about a set that is empty
-            // on every restart.
+            // /api/v3/openOrders requires a symbol and has no account-wide form
             return std::unexpected{
                 exec::not_implemented("mexc spot open-order sweep (openOrders is per-symbol)")};
         }
@@ -131,9 +113,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Perp) {
-            // The futures single-order read is keyed by symbol AND externalOid
-            // and this call carries no symbol, so the open-order sweep answers
-            // the same question.
+            // the futures single-order read needs a symbol, so the open-order sweep answers instead
             return from_open_orders(id, market);
         }
         const auto request = builder_.query_order(id, market, {}, state_->venue_now(market));
@@ -163,8 +143,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // /api/v3/myTrades is per-symbol with no account-wide form; an
-            // empty vector here would read as "nothing traded".
+            // /api/v3/myTrades is per-symbol; an empty vector would read as nothing traded
             return std::unexpected{
                 exec::not_implemented("mexc spot fill pull (myTrades is per-symbol)")};
         }
@@ -217,9 +196,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot pair pays no funding, and this ledger is the FUTURES
-            // account's. Answering with it would book a perpetual's charges
-            // against a spot gateway.
+            // spot pays no funding; this ledger is futures-only
             return std::unexpected{exec::not_implemented("mexc spot funding charges")};
         }
         const auto request = builder_.funding_records(market, since, state_->venue_now(market));
@@ -236,8 +213,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_funding_records(*body, storage);
         if (!rows.has_value()) {
-            // A ledger we cannot read is NOT an empty one: answering "no
-            // funding" would book zero against a position that paid some.
+            // an unreadable ledger must not read as no funding
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
@@ -259,8 +235,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot balance is not a position. Answering "flat" would be a
-            // claim about a concept this API does not have.
+            // spot balances are not positions
             return std::unexpected{exec::not_implemented("mexc spot position pull")};
         }
         const auto request = builder_.positions(market, state_->venue_now(market));
@@ -301,8 +276,7 @@ private:
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body, market)};
         }
-        // Futures answers 200 with success:false, so the status alone is not
-        // the verdict on that tree.
+        // futures answers 200 with success:false
         if (market != MarketType::Spot) {
             const auto envelope = parse_rest_envelope(response->body);
             if (!envelope.has_value()) {

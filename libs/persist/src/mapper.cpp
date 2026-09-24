@@ -32,9 +32,7 @@ std::string_view event_name(std::uint8_t v) {
     return to_string(static_cast<OrderEventType>(v));
 }
 
-// The venue's verdict as a word. Spelled here rather than reached for out of
-// libs/exec: the persister must not depend on the adapter layer, and these five
-// names are the contract a query filters on.
+// spelled here so persist does not depend on libs/exec
 std::string_view reject_class_name(std::uint8_t v) {
     switch (static_cast<ErrorClass>(v)) {
     case ErrorClass::Terminal:
@@ -72,9 +70,7 @@ std::string_view pnl_kind_name(raikiri_journal::types::pnlKindEnum kind) {
     return "realized";
 }
 
-// Event → projection status. Deliberately partial: events that need FSM
-// context (Updated, ModifyRejected, CancelRejected, ReconGap) leave the
-// projection status untouched; the event log carries the full story.
+// events that need fsm context leave the projection status untouched
 std::string status_for(raikiri_journal::types::orderEventTypeEnum type, std::int64_t leaves) {
     using E = raikiri_journal::types::orderEventTypeEnum;
     switch (type) {
@@ -115,10 +111,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     const auto type_name = enum_name(m.eventType(), +[](std::uint8_t v) { return event_name(v); });
     const auto exec_id = trim_fixed(m.execIdField());
 
-    // GUARDED BY THE FRAME'S OWN VERSION. A record written before version 2 is
-    // physically shorter, and reading these two off it walks past its end —
-    // which is why the header has carried a schema_version since the first
-    // commit and why this is the first reader to consult it.
+    // records before version 2 are shorter
     const bool has_reason = frame.schema_version >= 2 &&
                             (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Rejected ||
                              m.eventType() == raikiri_journal::types::orderEventTypeEnum::CancelRejected ||
@@ -172,10 +165,7 @@ void map_order_event(const journal::FrameView& frame, RowBatch& batch) {
     });
 
     if (m.eventType() == raikiri_journal::types::orderEventTypeEnum::Filled) {
-        // Derived from the journaled fields, so this stays a pure function of
-        // the journal and a replay reproduces the same key. Dropping a fill
-        // that carried no venue id — which is what this did — lost every BingX
-        // execution silently.
+        // derived from journaled fields so a replay reproduces the same key
         const auto identity = fill_identity(ClientOrderId{m.clientOrderIdField().value()},
                                             QtyLots::from_raw(m.leavesQty().value()),
                                             exec_id);
@@ -273,8 +263,7 @@ void map_frame(const journal::FrameView& frame, RowBatch& batch) {
         const auto m = schema::view_msg<msgs::InstrumentMsg>(frame.payload);
         const InstrumentId id{m.instrument().value()};
         using K = raikiri_journal::types::contractKindEnum;
-        // The table refuses a non-positive step, and one refused row would
-        // stall every batch behind it.
+        // the table refuses a non-positive step, and a refused row stalls the batch
         if (m.tickSize().value() > 0 && m.lotSize().value() > 0) {
             std::string asset_class{"unknown"};
             std::string underlying;

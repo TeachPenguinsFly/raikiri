@@ -1,11 +1,3 @@
-"""Do the three processes agree that a venue is attached, and about what it lists.
-
-The first thing this tier can ask that no unit test can: `gatewayd` writes a
-catalogue into shared memory, `admind` maps it in another process and answers
-from it, and both are right only if they agree byte for byte about instrument
-ids that are packed from a load-order index.
-"""
-
 from __future__ import annotations
 
 
@@ -19,9 +11,7 @@ def test_admind_sees_the_gateway_and_says_it_is_alive(stack) -> None:
 
 
 def test_the_heartbeat_is_a_wall_clock_instant_a_client_can_subtract(stack) -> None:
-    """The gateway stamps its heartbeat on the MONOTONIC clock, which is right
-    for deciding liveness and meaningless outside the process. Reported raw it
-    dated a fresh gateway to 1969 and the terminal drew "496579h ago"."""
+    """last_heartbeat must be wall-clock time"""
     import time
 
     code, health = stack.get("/v1/health")
@@ -33,18 +23,11 @@ def test_the_heartbeat_is_a_wall_clock_instant_a_client_can_subtract(stack) -> N
 
 
 def test_the_catalogue_crosses_the_segment_intact(stack, sim_instrument) -> None:
-    """A listing on the board resolves as an instrument, and the two agree.
-
-    They are read from different tables by different code paths — the board
-    walks every gateway's catalogue, the detail route resolves one packed id —
-    and a mismatch means the id packing and the catalogue disagree.
-    """
+    """the board listing and the instrument route agree"""
     code, instrument = stack.get(f"/v1/instruments/{sim_instrument['instrument_id']}")
     assert code == 200, instrument
     assert instrument["instrument_id"] == sim_instrument["instrument_id"]
     assert instrument["account"] == "sim"
-    # Tick and lot are what every price and size on the wire is expressed in;
-    # a zero here would make every conversion downstream a division by nothing.
     assert float(instrument["tick_size"]) > 0
     assert float(instrument["lot_size"]) > 0
 
@@ -56,11 +39,7 @@ def test_an_unknown_instrument_is_refused_rather_than_invented(stack) -> None:
 
 
 def test_the_database_half_reports_itself_absent_rather_than_empty(stack) -> None:
-    """Started without a DSN, the cold paths must answer 503 and not [].
-
-    An empty list is a claim that nothing happened; 503 is a claim that nobody
-    asked. The two are different facts and the screens read them differently.
-    """
+    """without a dsn the cold paths answer 503"""
     code, health = stack.get("/v1/health")
     assert code == 200
     assert health["database"]["reachable"] is False
@@ -70,7 +49,5 @@ def test_the_database_half_reports_itself_absent_rather_than_empty(stack) -> Non
         assert code == 503, f"{path} answered {code} without a database: {body}"
         assert "database" in body["title"], body
 
-    # And a path that does not exist is still a 404 with no DSN, rather than
-    # everything collapsing into one answer.
     code, _ = stack.get("/v1/nonesuch")
     assert code == 404

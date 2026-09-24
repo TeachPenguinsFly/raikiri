@@ -1,10 +1,6 @@
 #pragma once
 
-// Row model for the cold plane. The journal→row mapping is pure code
-// (mapper.hpp) so it unit-tests without a database; PgSink (sink.hpp) is the
-// only thing that talks SQL. Market data (BBO/trades) deliberately never
-// reaches Postgres — the journal is its store; ClickHouse/Timescale is the
-// documented path if MD analytics are ever wanted.
+// market data never reaches postgres; the journal is its store
 
 #include <cstdint>
 #include <optional>
@@ -25,10 +21,7 @@ struct OrderEventRow {
     std::string exec_id;
     std::uint64_t ts_event{0};
     std::uint64_t ts_recorded{0};
-    // WHY, on a rejection. Empty and zero on every other kind, and on any
-    // record written before schema version 2 — which is not the same as "the
-    // venue gave no reason", and the columns are nullable so a query can tell
-    // the two apart.
+    // empty on other kinds and on records before schema version 2
     std::string reject_class;
     std::int32_t reject_code{0};
     bool has_reason{false};
@@ -49,8 +42,6 @@ struct OrderUpsert {
     std::int64_t leaves_lots{0};
     std::string status; // empty = keep existing status
     std::uint64_t ts_event{0};
-    // Kept on the order itself as well as on the event, because the question
-    // "why did this one not go through" is asked of the ORDER.
     std::string reject_class;
     std::int32_t reject_code{0};
     bool has_reason{false};
@@ -70,13 +61,8 @@ struct ExecutionRow {
     std::uint64_t ts_event{0};
 };
 
-// One increment of realized money, idempotent on source_id. This ledger is the
-// truth for PnL; the positions projection is rebuildable from it.
-//
-// venue and symbol are the durable identity. instrument_id rides along for
-// correlation with a running process, but its symbol half is a catalogue
-// load-order index and points at a different instrument once a delisting
-// shifts the list.
+// idempotent on source_id; venue and symbol are the durable identity, instrument_id only a
+// load-order index
 struct PnlIncrementRow {
     std::string source_id;   // "<kind>:<venue>:<exec_id>"
     std::string kind;        // realized | fee | funding
@@ -90,9 +76,7 @@ struct PnlIncrementRow {
     std::uint64_t ts_event{0};
 };
 
-// A break is a fact worth keeping: the record that this process and the venue
-// disagreed about a position, and by how much. Never overwritten — a later
-// agreement does not make an earlier disagreement untrue.
+// never overwritten
 struct ReconBreakRow {
     std::string venue;
     std::string exchange_symbol;
@@ -102,9 +86,7 @@ struct ReconBreakRow {
     std::string detail;
 };
 
-// The book as strategyd left it. Upserted on the natural key, because a
-// position is a CURRENT STATE and not an event log: the row for one
-// (strategy, venue, symbol) is replaced, never accumulated.
+// upserted on (strategy, venue, symbol)
 struct PositionRow {
     std::uint16_t strategy_id{0};
     std::string venue;

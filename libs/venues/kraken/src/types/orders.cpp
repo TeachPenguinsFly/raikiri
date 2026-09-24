@@ -21,9 +21,7 @@ std::string_view status_key(StatusKind kind) noexcept {
     return "sendStatus";
 }
 
-// An ISO-8601 instant that is absent or unreadable yields 0 rather than a
-// failure: a verdict is still a verdict without its timestamp, and the caller
-// substitutes ingest time.
+// absent or unreadable yields 0; the caller substitutes ingest time
 std::uint64_t iso_ms(std::string_view text) noexcept {
     if (text.empty()) {
         return 0;
@@ -32,9 +30,7 @@ std::uint64_t iso_ms(std::string_view text) noexcept {
     return ms.has_value() ? *ms : 0;
 }
 
-// sendorder answers `order_id`; editorder answers `orderId`. One venue, one
-// verdict object, two spellings — reading only the documented one loses the
-// venue id on every amend.
+// sendorder answers order_id, editorder orderId
 std::expected<std::string_view, WireError> order_id_of(wire::ondemand::object& obj) {
     const auto snake = wire::opt_str(obj, "order_id");
     if (!snake.has_value()) {
@@ -98,9 +94,7 @@ std::expected<WireWsOrder, WireError> read_ws_order(wire::ondemand::object& obj)
     }
     out.time_ms = *time_ms;
     out.last_update_ms = *last_update;
-    // `direction` is 0 for buy and 1 for sell; there is no side string here,
-    // so an absent field is not a default — it is a frame whose side we do not
-    // know, and guessing one would put the position on the wrong side.
+    // direction is 0 buy, 1 sell; absent means unknown side, not a default
     bool has_direction = false;
     const auto direction = opt_i64(obj, "direction", has_direction);
     const auto reduce_only = wire::opt_bool(obj, "reduce_only");

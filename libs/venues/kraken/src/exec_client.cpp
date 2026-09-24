@@ -16,17 +16,9 @@ namespace raikiri::venues::kraken::internal {
 
 namespace {
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the private socket, and
-// nothing on either side can tell whether the other happened. This class is
-// the only thing that knows both: it holds the table of orders handed over and
-// not yet answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
+// tracks orders sent over rest until the private socket answers; emits a gap for the unanswered
 class KrakenExec final : public exec::ExecutionClient {
 public:
     explicit KrakenExec(std::shared_ptr<VenueState> state)
@@ -38,8 +30,7 @@ public:
                 exec::ErrorClass::Terminal, 0, "kraken futures has no demo environment")};
         }
         if (!state_->signer.has_credentials()) {
-            // Every path below signs. Saying so once at start beats one
-            // AuthFailure per order for the rest of the session.
+            // every path signs, so missing credentials fail once at start
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::AuthFailure, 0, "kraken: credentials not loaded")};
         }
@@ -59,10 +50,7 @@ public:
         return started_ && stream_.connected();
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps the rest pool so an idle gateway never writes an order into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
@@ -74,9 +62,6 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -98,8 +83,6 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. The three share one path
-    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
     static StatusKind status_kind(Kind kind) noexcept {
@@ -114,9 +97,7 @@ private:
         return StatusKind::Send;
     }
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // an unanswered order is reported as a gap, not a rejection; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -135,7 +116,7 @@ private:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working".
+            // unknown, so leaves is undef rather than zero
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -161,8 +142,7 @@ private:
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED, recorded before the callback that may
-        // never run.
+        // recorded before the callback, which may never run
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -173,14 +153,12 @@ private:
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
-        // Any answer settles it, including a refusal: the table tracks silence.
+        // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed, and calling that a refusal is how a process
-            // records a rejection opposite a live position.
+            // the request may have reached the matcher, so this is not a rejection
             state_->sink->on_order_error(
                 cmd.client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -200,8 +178,7 @@ private:
             emit_reject(cmd, kind, rest_failure(response.body));
             return;
         }
-        // The envelope says "success" for a refused order as readily as for an
-        // accepted one; `status` is the verdict.
+        // the envelope says success for refused orders too; status is the verdict
         const auto verdict = parse_order_status(response.body, status_kind(kind));
         if (!verdict.has_value()) {
             emit_reject(
@@ -218,9 +195,7 @@ private:
                             exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
-            // Accepted is published by the open_orders delta, which carries the
-            // venue's own view of the resting order. Binding the id here is
-            // what lets a fill that overtakes that delta still route.
+            // accepted comes from the open_orders delta; binding the id here routes a fill that arrives first
             bind_ack(verdict->order_id, cmd);
             return;
         case Kind::Cancel:
@@ -237,9 +212,7 @@ private:
                             exec::VenueError::make(exec::ErrorClass::Terminal, 0, verdict->status));
                 return;
             }
-            // The open_orders feed has no documented `reason` for an edit, so
-            // this response is the only confirmation there is; without it an
-            // amended order stays PendingUpdate forever.
+            // open_orders has no reason for an edit, so this response is the only confirmation
             emit_updated(verdict->order_id, cmd);
             return;
         }
@@ -276,9 +249,7 @@ private:
         }
         event.price = cmd.price;
         event.qty = cmd.qty;
-        // editorder RESIZES rather than tops up: `size` is the new total, so
-        // what is left of it is the whole of it minus what already traded, and
-        // the fills feed is what walks it down from here.
+        // editorder sets a new total size; the fills feed walks it down
         event.leaves_qty = cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
@@ -292,9 +263,7 @@ private:
         }
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
+    // OrderEvent carries no text, so the sink gets the verdict here
     void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
@@ -310,8 +279,7 @@ private:
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
-        // A create that never reached the book leaves nothing behind; a refused
-        // cancel or amend leaves the order exactly as it was.
+        // a refused cancel or amend leaves the order as it was
         event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
@@ -322,7 +290,6 @@ private:
     PrivateStream stream_;
     RestApi api_;
     bool started_{false};
-    // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

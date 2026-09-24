@@ -61,19 +61,14 @@ enum class BookResult : std::uint8_t {
     Crossed, // the top crossed: book dropped until the next snapshot
 };
 
-// The venue's `sequence` is one counter across every symbol, so a gap in it
-// says nothing about this book, and there is no checksum. What keeps the copy
-// honest is the full snapshot the venue resends every 60 s, which REPLACES it,
-// and dropping a book whose top crosses.
+// sequence spans every symbol and there is no checksum; the 60 s snapshot replaces the book
 class Book {
 public:
     using Level = book::Level;
 
     explicit Book(InstrumentId instrument) : instrument_{instrument} {}
 
-    // Levels already on the instrument's grid; a zero quantity deletes.
-    // `depth` is the window the venue maintains: a level pushed out of it is
-    // never updated again, so the book is cut to it after every frame.
+    // depth is the venue's window; levels outside it are never updated, so the book is cut to it
     BookResult apply(bool snapshot,
                      std::span<const Level> bids,
                      std::span<const Level> asks,

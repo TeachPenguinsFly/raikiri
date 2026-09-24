@@ -22,10 +22,10 @@ inline constexpr std::string_view k_stream_uat = "uat-stream.3ona.co";
 inline constexpr std::string_view k_ws_market = "/exchange/v1/market";
 inline constexpr std::string_view k_instruments = "/exchange/v1/public/get-instruments";
 
-// Per method, per IP; config/venues.yaml holds half of it.
+// per method, per ip
 inline constexpr std::uint32_t k_public_rest_per_method_per_s = 100;
 
-// A larger subscribe frame is dropped whole, with no error and no data.
+// a larger subscribe frame is dropped silently
 inline constexpr std::size_t k_max_frame_bytes = 4000;
 
 } // namespace raikiri::venues::cryptocom::ep

@@ -80,7 +80,7 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        // All four required: an empty side published as zero is a price nobody offered.
+        // all four required: an empty side is not a zero price
         for (const auto& [key, field] : {std::pair{"b", &out.bid_price},
                                          std::pair{"B", &out.bid_qty},
                                          std::pair{"a", &out.ask_price},
@@ -266,7 +266,7 @@ BookResult DepthBook::buffer(const WireDepthUpdate& delta) {
     return BookResult::Buffered;
 }
 
-// A delta straddling our id is applied whole: its levels are absolute sizes as of its `u`.
+// a delta straddling our id is applied whole; its levels are absolute as of its u
 BookResult DepthBook::advance(const WireDepthUpdate& delta) {
     if (delta.last_id <= last_id_) {
         return BookResult::Stale;
@@ -280,7 +280,7 @@ BookResult DepthBook::advance(const WireDepthUpdate& delta) {
 }
 
 BookResult DepthBook::step(const WireDepthUpdate& delta) {
-    // An off-grid level drops the whole book; skipping it would diverge silently.
+    // an off-grid level drops the whole book; skipping it would diverge silently
     if (!apply_wire(delta.bids, ladders_.bids()) || !apply_wire(delta.asks, ladders_.asks())) {
         ++gaps_;
         invalidate();
@@ -292,7 +292,7 @@ BookResult DepthBook::step(const WireDepthUpdate& delta) {
 
 BookResult DepthBook::seed(const WireDepthSnapshot& wire) {
     seed_in_flight_ = false;
-    // A newer seed replaces a live book, so two racing seeds land oldest first.
+    // a newer seed replaces a live book, so racing seeds must land oldest first
     if (state_ == State::Live && wire.last_update_id <= last_id_) {
         return BookResult::Stale;
     }
@@ -308,8 +308,7 @@ BookResult DepthBook::seed(const WireDepthSnapshot& wire) {
     return replay();
 }
 
-// Live as soon as the seed lands: ids are dense, and waiting for a delta to vouch
-// for the seed left quiet books cold for a minute.
+// live as soon as the seed lands since ids are dense
 BookResult DepthBook::replay() {
     std::size_t i = 0;
     while (i < pending_.size() && pending_[i].last_id <= held_id_) {
@@ -330,7 +329,7 @@ BookResult DepthBook::replay() {
 }
 
 BookResult DepthBook::settle() {
-    // Levels past the seed's band were never confirmed by a snapshot.
+    // levels past the seed's band were never confirmed by a snapshot
     ladders_.bids().drop_beyond(band_low_);
     ladders_.asks().drop_beyond(band_high_);
     if (ladders_.bids().empty() || ladders_.asks().empty()) {

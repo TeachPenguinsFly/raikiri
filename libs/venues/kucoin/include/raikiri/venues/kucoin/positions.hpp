@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -13,8 +11,7 @@
 
 namespace raikiri::venues::kucoin {
 
-// `current_qty` is SIGNED and counted in contracts: negative is short, and
-// there is no side field to disagree with it.
+// signed contract count; negative is short
 struct WirePosition {
     std::string_view symbol;
     std::string_view current_qty;
@@ -28,7 +25,7 @@ struct PositionBuffer {
     std::array<WirePosition, k_max_positions> positions{};
 };
 
-// GET /api/v1/positions — `data` is the array itself.
+// GET /api/v1/positions: data is the array itself
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
 parse_positions(std::string_view body, PositionBuffer& storage);
 

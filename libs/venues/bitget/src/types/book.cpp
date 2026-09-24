@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is ["63923.9","19.8827"]: price then size, and nothing else. okx
-// pads its levels with two more slots; Bitget does not.
+// a level is [price, size] with no padding
 [[nodiscard]] std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
@@ -63,8 +62,7 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// Shared by the books channels and the REST orderbook, whose level arrays are
-// identical even though their envelopes are not.
+// the books channels and the rest orderbook share one level shape
 [[nodiscard]] std::expected<void, WireError>
 read_book_body(wire::ondemand::object& obj, LevelBuffer& storage, WireBooks& out) {
     const auto bids = read_levels(obj, "bids", storage.bids);
@@ -101,7 +99,7 @@ std::expected<WireBooks, WireError> parse_books(std::string_view frame, LevelBuf
         if (!inst_id.has_value()) {
             return std::unexpected(inst_id.error());
         }
-        // `action` sits beside `arg`, not inside the data element.
+        // action sits beside arg, not inside the data element
         const auto action = wire::opt_str(*root, "action");
         if (!action.has_value()) {
             return std::unexpected(action.error());

@@ -1,11 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It authenticates, subscribes and turns each frame into an event on the sink.
-// It sends no orders: an order goes out over REST and is ANSWERED here, and
-// joining those two halves is the execution client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/okx/endpoints.hpp>
 #include <raikiri/venues/okx/envelope.hpp>
@@ -28,10 +22,7 @@ void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos rec
         return;
     }
     for (const auto& wire : *orders) {
-        // The fill goes first. One message is both the last trade and the
-        // cancel that ended the order, and publishing the terminal event
-        // ahead of the money moves an order to Canceled with a fill still
-        // unaccounted for.
+        // fill first, so an order is not canceled with a fill unaccounted for
         if (const auto fill = map_order_fill(wire, state.instruments, received); fill.has_value()) {
             state.sink->on_order_event(*fill);
         }
@@ -42,7 +33,7 @@ void handle_order_frame(VenueState& state, std::string_view frame, UnixNanos rec
     }
 }
 
-// Private order socket: login first, subscribe only once OKX answers it.
+// login first, subscribe once okx answers
 class PrivateHandler final : public net::WsHandler {
 public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
@@ -56,15 +47,13 @@ public:
                                            .ts = state_->clock->wall()});
             return;
         }
-        // No subscribe here on purpose: a private channel asked for before the
-        // login answer lands is refused with 60011, and the refusal looks
-        // exactly like a channel that has nothing to say.
+        // subscribing before the login answer is refused with 60011
     }
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
         const auto event = parse_event(payload);
         if (!event.has_value()) {
-            return; // the bare "pong", and anything OKX adds later
+            return; // the bare pong, and anything okx adds later
         }
         switch (event->kind) {
         case EventKind::LoginAck: {
@@ -112,10 +101,7 @@ public:
 
 private:
     void subscribe_orders() {
-        // OKX offers a dedicated `fills` channel, but it answers 64003 below
-        // trading fee tier VIP4 and its own docs send everyone else here: the
-        // orders channel carries fillPx/fillSz/tradeId on every trade, so it
-        // is the fill feed as well as the lifecycle feed.
+        // the fills channel needs fee tier vip4 (64003); orders carries fills too
         std::array<Subscription, 2> args{};
         std::size_t count = 0;
         if (state_->spot_enabled) {
@@ -140,8 +126,6 @@ private:
     net::WsClient* client_{nullptr};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)

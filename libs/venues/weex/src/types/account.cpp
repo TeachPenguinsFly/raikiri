@@ -40,7 +40,7 @@ std::expected<void, WireError> read_bill(ondemand::object& obj, WireBill& out) {
     out.symbol = field("symbol");
     out.income = field("income");
     obj.reset();
-    // A JSON number of eighteen digits, like every other id on this venue.
+    // an 18-digit json number
     auto raw = wire::opt_raw(obj, "billId").value_or(std::string_view{});
     if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
         raw.remove_prefix(1);

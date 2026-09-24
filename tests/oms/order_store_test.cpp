@@ -117,8 +117,7 @@ TEST_F(OrderStoreTest, FullLifecycleRecyclesSlot) {
 
     const auto done = store_.apply_event(fill_event(cid, 6, 0));
     ASSERT_TRUE(done.has_value());
-    // Terminal: the slot is recycled but the returned pointer stays readable
-    // until the next create().
+    // the slot is recycled but the pointer stays readable until the next create()
     EXPECT_EQ((*done)->status(), OrderStatus::Filled);
     EXPECT_EQ((*done)->filled(), QtyLots::from_raw(10));
     EXPECT_EQ((*done)->leaves(), QtyLots::from_raw(0));
@@ -136,8 +135,6 @@ TEST_F(OrderStoreTest, FastFillBeforeAckRoutesByEcoid) {
         store_.apply_event(client_event(OrderEventType::Submitted, order->client_order_id()))
             .has_value());
 
-    // User-stream fill beats the REST ack: no ClientOrderId on the wire event,
-    // only our ULID (and the venue id it introduces).
     auto fill = ecoid_event(OrderEventType::Filled, ecoid);
     fill.qty = QtyLots::from_raw(5);
     fill.leaves_qty = QtyLots::from_raw(0);
@@ -146,7 +143,6 @@ TEST_F(OrderStoreTest, FastFillBeforeAckRoutesByEcoid) {
     ASSERT_TRUE(done.has_value());
     EXPECT_EQ((*done)->status(), OrderStatus::Filled);
     EXPECT_EQ(store_.open_count(), std::size_t{0});
-    // The bind that arrived in the closing event must not leave a stale index.
     EXPECT_EQ(store_.find_by_exchange_id(*ExchangeOrderId::from("EX-FAST")), nullptr);
 }
 
@@ -162,7 +158,6 @@ TEST_F(OrderStoreTest, CancelRejectedResumesPartiallyFilled) {
     ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::PendingCancel, cid)).has_value());
     EXPECT_EQ(order->status(), OrderStatus::PendingCancel);
 
-    // "Too late to cancel": resume the remembered working status, not Accepted.
     ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::CancelRejected, cid)).has_value());
     EXPECT_EQ(order->status(), OrderStatus::PartiallyFilled);
     EXPECT_EQ(store_.open_count(), std::size_t{1});
@@ -177,8 +172,6 @@ TEST_F(OrderStoreTest, FillDuringPendingCancelUpdatesResumeTarget) {
     ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::PendingCancel, cid)).has_value());
     EXPECT_EQ(order->prior_working(), OrderStatus::Accepted);
 
-    // Partial fill lands while the cancel is in flight: status stays
-    // PendingCancel, but the resume target must become PartiallyFilled.
     ASSERT_TRUE(store_.apply_event(fill_event(cid, 4, 6)).has_value());
     EXPECT_EQ(order->status(), OrderStatus::PendingCancel);
     EXPECT_EQ(order->prior_working(), OrderStatus::PartiallyFilled);
@@ -211,7 +204,6 @@ TEST_F(OrderStoreTest, RoutesByExchangeIdAfterBind) {
     ack.exchange_order_id = *ExchangeOrderId::from("EX-9");
     ASSERT_TRUE(store_.apply_event(ack).has_value());
 
-    // Venue-initiated cancel that carries ONLY the venue's own id.
     const auto res = store_.apply_event(exchange_event(OrderEventType::Canceled, "EX-9"));
     ASSERT_TRUE(res.has_value());
     EXPECT_EQ((*res)->status(), OrderStatus::Canceled);
@@ -253,8 +245,6 @@ TEST_F(OrderStoreTest, EventAfterTerminalReportsNotFound) {
     ASSERT_TRUE(store_.apply_event(client_event(OrderEventType::Submitted, cid)).has_value());
     ASSERT_TRUE(store_.apply_event(fill_event(cid, 5, 0)).has_value());
 
-    // The Canceled -> Filled style late event is reconciliation's problem once
-    // the store has retired the order.
     const auto late = store_.apply_event(fill_event(cid, 5, 0));
     ASSERT_FALSE(late.has_value());
     EXPECT_EQ(late.error(), ApplyError::NotFound);
@@ -263,7 +253,6 @@ TEST_F(OrderStoreTest, EventAfterTerminalReportsNotFound) {
 TEST_F(OrderStoreTest, BadTransitionLeavesOrderUntouched) {
     Order* order = mk(10);
     ASSERT_NE(order, nullptr);
-    // Accepted straight from Initialized is a protocol violation.
     const auto res =
         store_.apply_event(client_event(OrderEventType::Accepted, order->client_order_id()));
     ASSERT_FALSE(res.has_value());
@@ -297,7 +286,6 @@ TEST_F(OrderStoreTest, DuplicateAckIsIdempotent) {
     auto ack = client_event(OrderEventType::Accepted, cid);
     ack.exchange_order_id = *ExchangeOrderId::from("EX-2");
     ASSERT_TRUE(store_.apply_event(ack).has_value());
-    // REST and WS both report the ack; the second must be a no-op.
     ASSERT_TRUE(store_.apply_event(ack).has_value());
     EXPECT_EQ(order->status(), OrderStatus::Accepted);
     EXPECT_EQ(store_.find_by_exchange_id(*ExchangeOrderId::from("EX-2")), order);
@@ -339,7 +327,6 @@ TEST(OrderStoreCapacity, FullThenFreeListReuse) {
     ASSERT_FALSE(full.has_value());
     EXPECT_EQ(full.error(), StoreError::Full);
 
-    // Withdraw one before submit; its slot must come back to the free-list.
     ASSERT_TRUE(store.apply_event(client_event(OrderEventType::Canceled, cids[0])).has_value());
     EXPECT_EQ(store.open_count(), std::size_t{3});
     const auto reused =
@@ -347,9 +334,6 @@ TEST(OrderStoreCapacity, FullThenFreeListReuse) {
     ASSERT_TRUE(reused.has_value());
     EXPECT_EQ(store.open_count(), std::size_t{4});
 }
-
-// Order-level tests: FSM races that the store's retire-on-terminal policy
-// intentionally hides at the store API.
 
 TEST(OmsOrder, CanceledThenLateFillRace) {
     IdGen ids{3, 7};
@@ -362,12 +346,10 @@ TEST(OmsOrder, CanceledThenLateFillRace) {
     EXPECT_EQ(order.status(), OrderStatus::Canceled);
     EXPECT_TRUE(order.is_terminal());
 
-    // Partial fill after cancel: quantities move (money moved), status stays.
     ASSERT_TRUE(order.apply(fill_event(cid, 4, 6)).has_value());
     EXPECT_EQ(order.status(), OrderStatus::Canceled);
     EXPECT_EQ(order.filled(), QtyLots::from_raw(4));
 
-    // Full fill after cancel outranks the cancel entirely.
     ASSERT_TRUE(order.apply(fill_event(cid, 6, 0)).has_value());
     EXPECT_EQ(order.status(), OrderStatus::Filled);
     EXPECT_EQ(order.filled(), QtyLots::from_raw(10));
@@ -399,8 +381,6 @@ TEST(OmsOrder, FirstExchangeIdWinsAndTimestampsTrack) {
     EXPECT_EQ(order.exchange_order_id().view(), "FIRST");
     EXPECT_EQ(order.ts_updated(), UnixNanos{5'000});
 
-    // A later event with a different id must not rebind; a missing venue
-    // timestamp falls back to local ingest time.
     auto fill = fill_event(cid, 2, 8);
     fill.exchange_order_id = *ExchangeOrderId::from("SECOND");
     fill.ts_event = UnixNanos{0};
@@ -468,15 +448,13 @@ TEST(WorkingLots, SplitsBySideAndSkipsOtherInstruments) {
 }
 
 TEST(WorkingLots, CountsWhatIsLeftAfterAPartialFill) {
-    // The risk gate needs the quantity that can still fill, not the original.
     OrderStore store{16};
     IdGen gen{1};
     const auto cid = gen.next_client_id();
     const auto ecoid = gen.next_exchange_client_id(UnixNanos{1});
     ASSERT_TRUE(store.create(make_cmd(cid, 10), ecoid).has_value());
 
-    // Initialized has no Accepted arm: the local Submitted transition comes
-    // first, exactly as the kernel applies it when the command hits the ring.
+    // Initialized has no Accepted arm; Submitted comes first
     for (const auto type : {OrderEventType::Submitted, OrderEventType::Accepted}) {
         OrderEvent event{};
         event.type = type;

@@ -8,31 +8,22 @@ import { nanosToMillis, toNumber } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 
-/** The asset the desk is denominated in. Only this one is summed across
- *  venues: adding USDT to XRP produces a figure nobody holds. */
+/** only this asset is summed across venues */
 const k_denomination = 'USDT'
 
-/** How far back the ledger is walked. A cumulative curve is cumulative SINCE
- *  something, and the window is most of what the number means. */
 const k_window_hours = 96
 
 const k_balances_refresh_ms = 5_000
 
-/** The walk is a request per thousand increments, so it is asked for far less
- *  often than the balances are. */
 const k_pnl_refresh_ms = 60_000
 
 const usd = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const signed = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`
 
-/** The window start as the contract's `since`: nanoseconds as a string,
- *  because a millisecond count times a million is already past 2^53. */
+/** nanoseconds as a string; past 2^53 */
 const windowStart = () => (BigInt(Date.now() - k_window_hours * 3_600_000) * 1_000_000n).toString()
 
-/** A refusal, in the server's own words. `/v1/pnl` without a DSN explains
- *  itself better than any wording here would, and an empty chart in its place
- *  would say that nothing happened. */
 const trouble = (title: string, detail?: string | undefined) =>
   detail === undefined ? title : `${title} — ${detail}`
 
@@ -46,9 +37,7 @@ export function TreasuryPage() {
   const accounts = balances.state === 'ready' ? balances.data : []
   const reporting = accounts.filter((a) => a.reported_at !== null && a.reported_at !== undefined)
 
-  // A venue with a spot wallet and a perp wallet is ONE slice. Two segments
-  // labelled `kucoin` is a chart asking the reader to add them up. A venue that
-  // published no total is absent from the split rather than a zero slice.
+  // one slice per venue across its wallets; no total means no slice
   const byVenue = new Map<string, number>()
   for (const account of reporting) {
     for (const b of account.assets) {
@@ -69,8 +58,6 @@ export function TreasuryPage() {
   }))
   const total = ranked.reduce((sum, b) => sum + b.total, 0)
 
-  // The ledger is increments and never a running total, so the curve is the
-  // running sum of the ones that came back.
   const x: number[] = []
   const curve: Record<'realized' | 'fee' | 'funding' | 'net', number[]> = {
     realized: [],
@@ -104,7 +91,6 @@ export function TreasuryPage() {
       values: curve.funding,
     },
   ]
-  // Two points make a line. One increment is a fact, not a curve.
   const drawn = pnl.state === 'ready' && x.length >= 2
 
   const pnlPlaceholder =
@@ -130,10 +116,7 @@ export function TreasuryPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-2 pt-0">
       <div className="grid shrink-0 grid-cols-1 items-start gap-2 xl:grid-cols-[minmax(0,1fr)_380px]">
-        {/* NOT EQUITY. `/v1/pnl` is signed realized, fee and funding
-            increments; nothing in this system persists a balance series, so a
-            curve of what the desk was worth cannot be drawn and must not be
-            labelled as though it had been. */}
+        {/* /v1/pnl is realized, fee and funding increments; this is not equity */}
         <ChartFrame
           title={'Cumulative P&L'}
           note={`Realized, fees and funding, summed over ${k_window_hours}h. Not equity — no balance series is kept anywhere.`}

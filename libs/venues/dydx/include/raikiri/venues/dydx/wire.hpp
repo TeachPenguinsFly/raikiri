@@ -23,7 +23,7 @@ struct WireMarket {
     std::uint64_t step_base_quantums{0};
     std::uint64_t subticks_per_tick{0};
     std::string_view oracle_price;
-    std::string_view next_funding_rate; // per HOUR
+    std::string_view next_funding_rate; // per hour
     std::string_view volume_24h;        // in USD, not base
 };
 

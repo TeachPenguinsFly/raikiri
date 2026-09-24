@@ -39,7 +39,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                 out.bid_qty = *bid_qty;
                 out.ask_price = *ask;
                 out.ask_qty = *ask_qty;
-                // Optional: no funding rate must not cost the BBO with it.
+                // optional, so a missing field does not cost the bbo
                 const auto last = wire::opt_str(obj, "lastPr");
                 const auto mark = wire::opt_str(obj, "markPrice");
                 const auto index = wire::opt_str(obj, "indexPrice");
@@ -52,10 +52,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                 out.mark_price = *mark;
                 out.index_price = *index;
                 out.funding_rate = *rate;
-                // Optional for the same reason, one step further: an
-                // instrument that has not traded in the window carries no
-                // volume column, and refusing the frame over it would drop
-                // the funding rate riding beside it.
+                // optional: an untraded instrument carries no volume column
                 const auto base_volume = wire::opt_str(obj, "baseVolume");
                 const auto quote_volume = wire::opt_str(obj, "quoteVolume");
                 if (!base_volume.has_value() || !quote_volume.has_value()) {

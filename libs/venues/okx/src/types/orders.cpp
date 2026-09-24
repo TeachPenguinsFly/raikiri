@@ -84,8 +84,7 @@ std::expected<void, WireError> read_ack(wire::ondemand::object& obj, WireOrderAc
         !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    // sCode is the per-order verdict and is REQUIRED: an object that does not
-    // carry one must never be read as the "0" that means the order is live.
+    // sCode is required so a missing one is never read as 0
     const auto s_code = wire::req_str(obj, "sCode");
     if (!s_code.has_value()) {
         return std::unexpected(s_code.error());

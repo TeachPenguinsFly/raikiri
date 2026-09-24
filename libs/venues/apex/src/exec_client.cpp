@@ -1,5 +1,4 @@
-// gatewayd starts this client unconditionally, so it exists and refuses everything, Terminally:
-// an order needs a zkLink L2 signature, and the API-key HMAC is keyed with base64(secret).
+// refuses every call terminally; an order needs a zklink l2 signature
 
 #include <raikiri/exec/execution_client.hpp>
 

@@ -4,7 +4,7 @@
 
 namespace raikiri::venues::backpack {
 
-// Called from gatewayd's main: the linker drops unreferenced static registrars.
+// called from gatewayd's main; the linker drops unreferenced static registrars
 void register_adapter();
 
 } // namespace raikiri::venues::backpack

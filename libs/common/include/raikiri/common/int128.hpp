@@ -1,8 +1,5 @@
 #pragma once
 
-// __int128 is a GCC/Clang extension; -Wpedantic flags it. Both production
-// compilers support it on every target we build for (x86-64, arm64).
-
 namespace raikiri {
 
 #pragma GCC diagnostic push

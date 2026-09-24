@@ -51,21 +51,9 @@ export interface paths {
         };
         /**
          * The catalogue grouped by market, not listed by venue
-         * @description One row per canonical symbol, carrying every venue that lists it. This
-         *     is what a cross-venue view searches: a market is the thing several
-         *     venues have in common, and asking "which venues quote BTC/USDT" is a
-         *     different question from "what does bybit list".
-         *
-         *     The grouping happens here and not in the client. Two clients grouping
-         *     separately is two answers to "is this the same market", which is the
-         *     question this endpoint exists to settle.
-         *
-         *     Ordered by how many venues list a market, then by name — a search for
-         *     "BTC" answers with what eight venues quote before what one does.
-         *
-         *     SPOT AND PERPETUALS ONLY carry a canonical symbol; dated futures and
-         *     options keep the venue's own, because a dated contract's identity
-         *     includes its expiry and an option's includes its strike.
+         * @description One row per canonical symbol with every venue that lists it, ordered by
+         *     venue count, then name. Only spot and perpetuals carry a canonical symbol;
+         *     dated futures and options keep the venue's own.
          */
         get: operations["listMarkets"];
         put?: never;
@@ -121,25 +109,11 @@ export interface paths {
         put?: never;
         /**
          * Place an order by hand
-         * @description The manual path into execution.
-         *
-         *     **202, not 201.** What this returns means the desk accepted the intent
-         *     and wrote it to the command ring — NOT that a venue accepted an order.
-         *     The venue's answer arrives later as order events, and a 2xx that implied
-         *     otherwise would have callers believing they are in a market they are not
-         *     in. Follow `GET /v1/orders/{client_order_id}/events`, or the `orders`
-         *     feed on `/v1/stream`, for what actually happened.
-         *
-         *     **The id is minted here, not supplied.** A `client_order_id` packs
-         *     `{strategy_id|seq}`, and the manual desk owns a reserved strategy id —
-         *     letting a caller choose one would let two clients collide on a key the
-         *     whole ledger is built around, and would let a caller impersonate a
-         *     strategy.
-         *
-         *     **Retries need `Idempotency-Key`.** An order request that times out is
-         *     the one case where a client cannot tell "never arrived" from "arrived
-         *     and I lost the answer", and retrying without a key is how one intent
-         *     becomes two positions.
+         * @description The manual path into execution. 202 means the intent was written to the
+         *     command ring, not that a venue accepted it; follow
+         *     `GET /v1/orders/{client_order_id}/events` or the `orders` feed on
+         *     `/v1/stream`. The `client_order_id` is minted here under the desk's reserved
+         *     strategy id. Send `Idempotency-Key` to retry safely.
          */
         post: operations["placeOrder"];
         delete?: never;
@@ -160,9 +134,7 @@ export interface paths {
         post?: never;
         /**
          * Cancel a working order
-         * @description 202 for the same reason as placing one: the cancel has been queued, not
-         *     confirmed. An order can fill in the time a cancel is in flight, and a
-         *     response that said "canceled" would be a guess.
+         * @description The cancel is queued, not confirmed; the order can still fill meanwhile.
          */
         delete: operations["cancelOrder"];
         options?: never;
@@ -179,8 +151,8 @@ export interface paths {
         };
         /**
          * Every lifecycle event this order went through, oldest first
-         * @description The order row above is a projection of these. When the two disagree the
-         *     events are right: they are what the journal recorded.
+         * @description The events behind the order row. When the two disagree the events are
+         *     right.
          */
         get: operations["listOrderEvents"];
         put?: never;
@@ -217,17 +189,9 @@ export interface paths {
         };
         /**
          * What each venue says the account holds
-         * @description LIVE, read from the gateway segments — nothing persists a balance. A
-         *     balance is what the venue says right now, and a stored one could only
-         *     answer "as of when?" wrongly.
-         *
-         *     A balance is NOT a position and NOT equity. Equity is a sum over these,
-         *     and this endpoint deliberately does not compute it: a venue liquidates
-         *     on its own arithmetic, and a second answer stored beside it would
-         *     disagree at exactly the moment it mattered.
-         *
-         *     A gateway whose venue cannot report balances appears with an empty
-         *     `assets` and no `reported_at`. That is not an empty account.
+         * @description Live from the gateway segments; balances are not persisted. This is not
+         *     equity and does not compute it. A venue that cannot report balances appears
+         *     with an empty `assets` and no `reported_at`.
          */
         get: operations["listBalances"];
         put?: never;
@@ -264,9 +228,8 @@ export interface paths {
         };
         /**
          * The PnL ledger, as increments
-         * @description Increments, never a running total: the ledger is append-only and
-         *     idempotent, and a total is a question asked of it rather than a row
-         *     stored in it. Sum them yourself over whatever window you mean.
+         * @description Ledger increments, not a running total. Sum them over the window you
+         *     need.
          */
         get: operations["listPnl"];
         put?: never;
@@ -286,10 +249,7 @@ export interface paths {
         };
         /**
          * Funding rates as observed, not as charged
-         * @description These are the rates the venues published. They are NOT money: no
-         *     adapter yet reads the charge a venue actually took, so nothing here has
-         *     moved the ledger. When that lands it will arrive as a `funding` kind in
-         *     `/v1/pnl`, and this endpoint will stay what it is — observations.
+         * @description Rates the venues published, not funding charged.
          */
         get: operations["listFunding"];
         put?: never;
@@ -309,13 +269,9 @@ export interface paths {
         };
         /**
          * What every gateway on this machine is subscribed to, right now
-         * @description A debug view, read from the snapshot each gatewayd writes every five
-         *     seconds to `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. Nothing here
-         *     touches Postgres or a venue.
-         *
-         *     A snapshot older than 30 s is still listed, with `stale: true` and its
-         *     age. A gateway whose process is gone is listed as `down` and adds
-         *     nothing to the rollup's traffic.
+         * @description Debug view of the snapshot each gatewayd writes every 5 s to
+         *     `$RAIKIRI_RUNTIME_DIR/stats/<account>.json`. A snapshot older than 30 s is
+         *     listed with `stale: true`; a gateway whose process is gone is `down`.
          */
         get: operations["getCacheStats"];
         put?: never;
@@ -390,20 +346,10 @@ export interface paths {
         };
         /**
          * Forwarded to a service this API does not describe
-         * @description admind can be started with `--upstream <name>=<port>` and then forwards
-         *     `/v1/x/<name>/<path>` to that service on loopback, returning its answer
-         *     verbatim.
-         *
-         *     **The payload is deliberately not described here.** This repository is
-         *     the framework; what anyone computes on top of it is theirs, and a
-         *     contract that named the fields an upstream returns would publish their
-         *     model in a public schema. The one shape admind knows about is
-         *     `UpstreamTable`, which exists so a generic screen can render a table it
-         *     was not written for.
-         *
-         *     An upstream that was never configured is a **404** — nothing is broken.
-         *     One that does not answer is a **503**, because an empty body would say
-         *     it ran and returned nothing, which is a different fact.
+         * @description With `--upstream <name>=<port>`, admind forwards `/v1/x/<name>/<path>` to
+         *     that loopback service and returns its answer verbatim. The payload is not
+         *     described here, apart from `UpstreamTable`. An unconfigured upstream is a 404;
+         *     one that does not answer is a 503.
          */
         get: operations["getUpstream"];
         put?: never;
@@ -440,29 +386,15 @@ export interface paths {
         };
         /**
          * Everything live, over one WebSocket
-         * @description A WebSocket upgrade. OpenAPI cannot describe the protocol that follows,
-         *     so it is described here and every message shape is a schema below —
-         *     which is what makes the generated types cover the live path too.
+         * @description A WebSocket upgrade. Every message shape is a schema below.
          *
-         *     ## Two kinds of data, and the difference matters
+         *     ## State and events
          *
-         *     **State** — quotes, books, greeks, funding, positions, health. The
-         *     server SAMPLES these from the gateway's seqlock tables at a fixed
-         *     cadence and sends the current value of what changed. It does not
-         *     forward every tick. A client that falls behind therefore loses
-         *     intermediate values and never builds a backlog: there is no queue
-         *     between the venue and the browser, so a slow connection means fewer
-         *     frames, never growing lag. A quote you did not receive had already been
-         *     replaced by one you did.
-         *
-         *     **Events** — order events, fills, reconciliation breaks. These are
-         *     sequenced and must not be coalesced: every fill is money. Each carries
-         *     a `seq`, and if the server's own ring overran, a `gap` frame says so
-         *     rather than letting the loss pass as quiet.
-         *
-         *     That split is not invented for the wire. It is the same one the
-         *     shared-memory channels are built on: overwrite-newest tables for state,
-         *     a lossless ring for execution.
+         *     State (quotes, books, greeks, funding, positions, health) is sampled from
+         *     the seqlock tables at a fixed cadence and only the current value is sent,
+         *     so a slow client gets fewer frames, not lag. Events (order events, fills,
+         *     reconciliation breaks) are sequenced and never coalesced; each carries a
+         *     `seq`, and a `gap` frame reports a ring overrun.
          *
          *     ## Client messages
          *
@@ -472,8 +404,7 @@ export interface paths {
          *         {"op":"subscribe","id":"a1","events":["orders","fills","recon"]}
          *         {"op":"unsubscribe","id":"q1"}
          *
-         *     `id` is the client's own handle for the subscription and comes back on
-         *     the ack and on every frame it produced.
+         *     `id` is the client's handle and comes back on the ack and every frame.
          *
          *     ## Server messages
          *
@@ -489,10 +420,9 @@ export interface paths {
          *
          *     ## Cadence
          *
-         *     Default 10 Hz per state subscription. `hz` on the subscribe message
-         *     asks for something else and the server answers with what it will
-         *     actually do — it will not go above its own sampling rate, and asking
-         *     for more is answered with less rather than refused.
+         *     Default 10 Hz per state subscription. `hz` on the subscribe asks for
+         *     another rate; the ack states what the server will do, capped at its own
+         *     sampling rate.
          */
         get: operations["openStream"];
         put?: never;
@@ -508,24 +438,20 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * @description An exact decimal. A string because a double cannot hold one: 79418.30
-         *     parsed as a number and printed back is 79418.299999996.
+         * @description An exact decimal, as a string.
          * @example 79418.30
          * @example -0.008
          * @example 0
          */
         Decimal: string;
         /**
-         * @description Nanoseconds since the Unix epoch. A string because the value is already
-         *     1.79e18 and JavaScript holds integers exactly only to 9.0e15 — as a
-         *     number it would round to the nearest ~200 ns.
+         * @description Nanoseconds since the Unix epoch, as a string; the value exceeds 2^53.
          * @example 1787840965107000000
          */
         Nanos: string;
         /**
-         * @description The packed instrument word, `{venue|market|reserved|symbol}`, as
-         *     decimal digits. A string for the same reason as Nanos: the venue byte
-         *     sits at bit 56, so every id is far past 2^53.
+         * @description The packed instrument word, `{venue|market|reserved|symbol}`, as decimal
+         *     digits; a string because it exceeds 2^53.
          */
         InstrumentId: string;
         /** @description Packed `{strategy_id|seq}`, as decimal digits. */
@@ -674,13 +600,12 @@ export interface components {
             latency?: components["schemas"]["LatencySeries"][];
         };
         /**
-         * @description The venue's clock minus ours. A venue stamp converts to our clock as
-         *     `ts_event - offset_ns`. `rest_probe` takes the minimum-round-trip probe
-         *     of the last eight against `endpoint`, and `uncertainty_ns` is half that
-         *     round trip plus half the stamp's resolution. `feed_bound` is for a
-         *     venue with no time endpoint: the smallest `ts_init - ts_event` over the
-         *     last 30-60 s, negated, which is a LOWER bound — the true offset is this
-         *     plus the fastest one-way latency. `none` until either has a sample.
+         * @description The venue's clock minus ours; a venue stamp converts as
+         *     `ts_event - offset_ns`. `rest_probe` uses the minimum-round-trip probe of the
+         *     last eight against `endpoint`, and `uncertainty_ns` is half that round trip
+         *     plus half the stamp's resolution. `feed_bound` is for a venue with no time
+         *     endpoint: the smallest `ts_init - ts_event` over the last 30-60 s, negated,
+         *     a lower bound. `none` until either has a sample.
          */
         VenueClock: {
             venue: string;
@@ -694,17 +619,14 @@ export interface components {
             samples: number;
         };
         /**
-         * @description Quantiles over the trailing 30-60 s; `total` and `sum_ns` since the
-         *     gateway started. Stages: `feed` is ts_init - ts_event + offset per
-         *     market-data channel, `internal` is receipt to shared-memory publish,
-         *     `kernel_queue` (Linux) is the kernel's software receive stamp of a
-         *     message's last segment to our read of it, per socket host — where it
-         *     is measured, ts_init is that kernel stamp, so `feed` is the network
-         *     and `internal` includes the queueing,
-         *     `rest` is one round trip per endpoint (the channel), `ws_ping` a
-         *     keepalive round trip per socket host, `order_ack` and `order_fill` from
-         *     submit to the first acceptance and the first fill. A negative value is
-         *     clamped to zero and counted in `below_zero`.
+         * @description Quantiles over the trailing 30-60 s; `total` and `sum_ns` since start.
+         *     Stages: `feed` is ts_init - ts_event + offset per market-data channel,
+         *     `internal` is receipt to shared-memory publish, `kernel_queue` (linux) is the
+         *     kernel's receive stamp of a message's last segment to our read, per socket
+         *     host (where measured, ts_init is that stamp), `rest` one round trip per
+         *     endpoint, `ws_ping` a keepalive round trip per socket host, `order_ack` and
+         *     `order_fill` from submit to the first acceptance and first fill. Negative
+         *     values are clamped to zero and counted in `below_zero`.
          */
         LatencySeries: {
             channel: string;
@@ -720,10 +642,9 @@ export interface components {
             sum_ns: number;
             below_zero: number;
             /**
-             * @description Since start, how many values were at or below each bound: five a
-             *     decade from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10
-             *     each decade, ending at 10 s). GET /metrics exports them as the
-             *     `le` buckets of `raikiri_latency_seconds`.
+             * @description Since start, how many values were at or below each bound: five per decade
+             *     from 1 us to 10 s (1000, 1585, 2512, 3981, 6310 ns, then x10). GET /metrics
+             *     exports them as the `le` buckets of `raikiri_latency_seconds`.
              */
             buckets: number[];
         };
@@ -755,45 +676,23 @@ export interface components {
         };
         GatewayHealth: {
             /**
-             * @description The segment owner is answering. A gateway that restarted is a new
-             *     generation, and everything read from the previous one — cursors,
-             *     ids, the book — belongs to a world that no longer exists.
+             * @description The segment owner is answering. A restarted gateway is a new generation,
+             *     and cursors, ids and books from the previous one are invalid.
              */
             alive: boolean;
             generation: components["schemas"]["Nanos"];
             last_heartbeat?: components["schemas"]["Nanos"];
-            /**
-             * @description What the venue LISTS — the catalogue's size, and nothing about what
-             *     is arriving. A gateway carrying a third of it reports the same
-             *     number as one carrying all of it.
-             */
+            /** @description How many instruments the venue lists, regardless of what is arriving. */
             instruments: number;
             /**
-             * @description How many of those have actually put a quote on the wire since this
-             *     gateway started. `alive` cannot answer this: htx ran at 65 of 340
-             *     for days while every other field here said it was well.
-             *
-             *     Cumulative rather than a freshness window, because what it exists
-             *     to catch is a chunk the venue silently never sends — those cells are
-             *     never written at all, while a genuinely quiet altcoin would fail any
-             *     window short enough to be useful. Read it together with
-             *     `last_heartbeat`: it is only meaningful once the gateway has been up
-             *     long enough for a slow venue to tick.
+             * @description How many of those have put a quote on the wire since the gateway
+             *     started. Cumulative; read it with `last_heartbeat`, since it means little
+             *     until a slow venue has had time to tick.
              */
             priced: number;
-            /**
-             * @description `priced` over `instruments`, rounded down, so a screen and an alert
-             *     agree on one number instead of each deriving its own. Below 70 is
-             *     the line `tools/coverage_smoke.sh` draws between a thin tail and a
-             *     venue dropping a chunk in silence.
-             */
+            /** @description `priced` over `instruments`, rounded down. */
             coverage_pct: number;
-            /**
-             * @description Subscriptions the venue answered with NO. Distinct from the silent
-             *     kind `coverage_pct` catches — a refusal was answered — and counted
-             *     by thirteen adapters since they were written, with nothing able to
-             *     read it until now.
-             */
+            /** @description Subscriptions the venue explicitly refused. */
             subscribe_refusals: number;
         };
         Health: {
@@ -801,8 +700,8 @@ export interface components {
             database: {
                 reachable: boolean;
                 /**
-                 * @description How far persisterd is behind the journals it tails. Null when
-                 *     it cannot be determined, which is not the same as zero.
+                 * @description How far persisterd is behind the journals it tails. Null when unknown,
+                 *     which differs from zero.
                  */
                 lag_seconds?: number | null;
             };
@@ -812,10 +711,7 @@ export interface components {
             account: string;
             venue: string;
             market: components["schemas"]["MarketType"];
-            /**
-             * @description What the venue calls it. Kept beside the canonical name because it
-             *     is what a person recognises and what an order carries.
-             */
+            /** @description The venue's own name for the instrument, as orders carry it. */
             exchange_symbol: string;
         };
         Market: {
@@ -840,8 +736,7 @@ export interface components {
             contract_value: components["schemas"]["Decimal"];
             /**
              * @description Linear settles in the quote currency, inverse in the base with a
-             *     reciprocal PnL. Reading one as the other inverts every position's
-             *     profit, so it is stated rather than inferred.
+             *     reciprocal pnl.
              * @enum {string}
              */
             contract_kind: "unknown" | "linear" | "inverse";
@@ -877,11 +772,8 @@ export interface components {
             ts_event: components["schemas"]["Nanos"];
         };
         /**
-         * @description The VENUE'S analytics for an option, not ours. Computing them here
-         *     would need a vol surface, a rate curve and a dividend assumption, and
-         *     each is a number that would then have to be defended against the
-         *     venue's own. The implied vols and the underlying ride along because a
-         *     delta without them has no provenance.
+         * @description The venue's own option analytics, with the implied vols and underlying
+         *     they were computed from.
          */
         Greeks: {
             instrument_id: components["schemas"]["InstrumentId"];
@@ -906,15 +798,13 @@ export interface components {
             mark_price?: components["schemas"]["Decimal"];
             next_funding_time?: components["schemas"]["Nanos"];
             /**
-             * @description The rate's own interval. Hyperliquid quotes hourly where most
-             *     venues quote per eight hours, so annualising without this is wrong
-             *     by a factor of eight.
+             * @description The rate's own interval; hyperliquid quotes hourly, most venues per eight
+             *     hours.
              */
             interval_seconds?: number | null;
             /**
-             * @description Absent when the venue did not say. `continuous` has no payment
-             *     instant, and interval_seconds is then the rate's unit rather than a
-             *     payment cadence.
+             * @description Absent when the venue did not say. For `continuous`, interval_seconds is
+             *     the rate's unit rather than a payment cadence.
              * @enum {string}
              */
             accrual?: "discrete" | "continuous";
@@ -923,23 +813,21 @@ export interface components {
         Ticker: {
             instrument_id: components["schemas"]["InstrumentId"];
             /**
-             * @description Traded in the base asset over the venue's rolling 24 hours. Compares
-             *     between venues quoting the SAME base and between nothing else.
+             * @description Traded in the base asset over the venue's rolling 24 hours. Comparable
+             *     only between venues with the same base.
              */
             volume_24h_base: components["schemas"]["Decimal"];
             /**
-             * @description The same window in the QUOTE currency, which for a coin-margined
-             *     contract is not dollars. This is the column a cross-venue board
-             *     ranks on; a board that ranks on the base column puts an inverse
-             *     contract at the top.
+             * @description The same window in the quote currency, which for a coin-margined contract
+             *     is not dollars. Rank cross-venue boards on this column.
              */
             volume_24h_quote: components["schemas"]["Decimal"];
             ts_event: components["schemas"]["Nanos"];
         };
         NewOrder: {
             /**
-             * @description Which gateway sends it, as `format_account` writes the name —
-             *     `bybit`, `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
+             * @description Which gateway sends it, as `format_account` writes the name: `bybit`,
+             *     `bybit-spot`, `bybit-fut`. Perp is the unsuffixed default.
              */
             account: string;
             instrument_id: components["schemas"]["InstrumentId"];
@@ -951,10 +839,7 @@ export interface components {
              * @enum {string}
              */
             tif: "gtc" | "ioc" | "fok";
-            /**
-             * @description Required for `limit`, refused for `market`. A market order carrying
-             *     a price is an instruction with two meanings.
-             */
+            /** @description Required for `limit`, refused for `market`. */
             price?: components["schemas"]["Decimal"];
             qty: components["schemas"]["Decimal"];
             /**
@@ -963,9 +848,8 @@ export interface components {
              */
             post_only: boolean;
             /**
-             * @description The flag that makes a close a close. Without it an order sized to
-             *     flatten a position that has moved since you read it opens the
-             *     opposite one instead.
+             * @description Only reduces a position; an order sized to close cannot open the opposite
+             *     side.
              * @default false
              */
             reduce_only: boolean;
@@ -974,8 +858,8 @@ export interface components {
             /** @description Minted by the desk. Everything downstream keys on it. */
             client_order_id: components["schemas"]["ClientOrderId"];
             /**
-             * @description The only value this endpoint can honestly return. A venue status
-             *     appears on the order itself once the venue has answered.
+             * @description The only value this endpoint returns. The venue's status appears on the
+             *     order once it has answered.
              * @enum {string}
              */
             status: "queued";
@@ -996,27 +880,21 @@ export interface components {
             price?: components["schemas"]["Decimal"];
             qty: components["schemas"]["Decimal"];
             /**
-             * @description What is still working. The filled amount is the DROP in this
-             *     between two events, never an event's own `qty` — a venue that
-             *     resends a fill notification would otherwise book it twice.
+             * @description What is still working. The filled amount is the drop in this between two
+             *     events, not an event's own `qty`, so a resent fill is not booked twice.
              */
             leaves?: components["schemas"]["Decimal"];
             status: components["schemas"]["OrderStatus"];
             /**
-             * @description How the venue's refusal should be acted on. Present only on a
-             *     rejected order, and ABSENT — not empty — on one refused before the
-             *     journal carried a reason at all: "not recorded" and "the venue gave
-             *     no reason" are different answers.
+             * @description How to act on the venue's refusal. Present only on a rejected order, and
+             *     absent on one journalled before reasons were recorded.
              * @enum {string}
              */
             reject_class?: "terminal" | "retryable" | "rate_limited" | "auth_failure" | "connectivity";
             /**
              * Format: int32
-             * @description The venue's OWN numeric code, unchanged and untranslated. Present
-             *     beside `reject_class` on a rejection. This is the half a person can
-             *     look up in the venue's documentation — weex answers -1058 for a
-             *     contract it lists but will not trade through the API, and the class
-             *     alone would only say "terminal".
+             * @description The venue's own numeric code, untranslated, beside `reject_class` on a
+             *     rejection.
              */
             reject_code?: number;
             ts_created: components["schemas"]["Nanos"];
@@ -1039,10 +917,7 @@ export interface components {
         };
         Fill: {
             venue: string;
-            /**
-             * @description The venue's own idea of unique, and what dedup keys on together
-             *     with the venue.
-             */
+            /** @description The venue's own unique id; dedup keys on it together with the venue. */
             exec_id: string;
             client_order_id?: components["schemas"]["ClientOrderId"];
             exchange_order_id?: string;
@@ -1060,18 +935,12 @@ export interface components {
             strategy_id: number;
             /** @description Signed; positive is long. */
             qty: components["schemas"]["Decimal"];
-            /**
-             * @description Derived from this system's own cost basis, never adopted from a
-             *     venue: a venue recomputes an average by its own rules — with or
-             *     without leverage, fees inside or outside — and two queries can
-             *     disagree.
-             */
+            /** @description Derived from this system's own cost basis, not the venue's average. */
             avg_entry_price?: components["schemas"]["Decimal"];
             realized?: components["schemas"]["Decimal"];
             /**
-             * @description What the venue last said it holds, or null when it has not said
-             *     anything recently. NULL IS NOT FLAT. A venue that cannot answer, an
-             *     answer that failed and an answer of zero are three different facts.
+             * @description What the venue last said it holds, or null when it has not said anything
+             *     recently. Null does not mean flat.
              */
             venue_qty?: string | null;
             /** @description When that snapshot was taken. Null when there is none. */
@@ -1082,14 +951,13 @@ export interface components {
             /** @example USDT */
             asset: string;
             /**
-             * @description The venue's own total for this asset. ABSENT when it did not say,
-             *     which is not zero.
+             * @description The venue's own total for this asset. Absent when it did not say, which
+             *     differs from zero.
              */
             total?: components["schemas"]["Decimal"];
             /**
-             * @description What may be committed to a new order. Several venues publish only a
-             *     total; this is absent there rather than repeating it, because a
-             *     caller that read the total as free would commit margin twice.
+             * @description What may be committed to a new order. Absent where the venue publishes
+             *     only a total.
              */
             available?: components["schemas"]["Decimal"];
             /** @description On the venue's marks, reported and never recomputed here. */
@@ -1099,15 +967,13 @@ export interface components {
             account: string;
             venue: string;
             /**
-             * @description When the venue last answered, as nanoseconds. Null when it has not —
-             *     and then `assets` is empty because there is nothing to say, never
-             *     because the account is.
+             * @description When the venue last answered, in nanoseconds. Null when it has not, and
+             *     `assets` is then empty.
              */
             reported_at?: string | null;
             /**
              * @description True once the last answer is older than three of the gateway's pull
-             *     rounds. The figures are still the last ones the venue gave; what has
-             *     expired is the claim that they are current.
+             *     rounds. The figures are the last ones the venue gave.
              */
             stale: boolean;
             assets: components["schemas"]["Balance"][];
@@ -1115,10 +981,7 @@ export interface components {
         /** @enum {string} */
         PnlKind: "realized" | "fee" | "funding";
         PnlIncrement: {
-            /**
-             * @description The idempotency key the ledger dedupes on. Replaying a journal
-             *     twice must not move the money twice.
-             */
+            /** @description The idempotency key the ledger dedupes on. */
             source_id: string;
             account: string;
             kind: components["schemas"]["PnlKind"];
@@ -1131,10 +994,7 @@ export interface components {
         FundingObservation: components["schemas"]["Funding"] & {
             observed_at?: components["schemas"]["Nanos"];
         };
-        /**
-         * @description What an upstream serves, so a screen can offer a tab per table without
-         *     being told in advance what the tables are.
-         */
+        /** @description What an upstream serves, so a screen can offer a tab per table. */
         UpstreamIndex: {
             tables: {
                 /** @description Appended to the upstream's own prefix. */
@@ -1148,9 +1008,8 @@ export interface components {
             /** @description What the header says. The upstream names its own columns. */
             label: string;
             /**
-             * @description How to draw it, never what it means. `signed` is painted by sign,
-             *     `venue` is drawn as a venue mark, `duration` is a nanosecond instant
-             *     rendered as time remaining.
+             * @description How to draw it: `signed` is painted by sign, `venue` as a venue mark,
+             *     `duration` as time remaining to a nanosecond instant.
              * @default text
              * @enum {string}
              */
@@ -1162,19 +1021,13 @@ export interface components {
             align: "left" | "right";
         };
         /**
-         * @description A table an upstream describes and a generic screen draws. THE COLUMNS
-         *     COME WITH THE DATA: a screen that hardcoded them would carry the
-         *     upstream's model in this repository, which is what the proxy exists to
-         *     avoid.
+         * @description A table an upstream describes and a generic screen draws; the columns
+         *     come with the data.
          */
         UpstreamTable: {
             title?: string;
             ts?: components["schemas"]["Nanos"];
-            /**
-             * @description Said when there are no rows. An upstream that looked at nothing and
-             *     one that looked at everything and found nothing are different facts,
-             *     and only the upstream knows which happened.
-             */
+            /** @description Shown when there are no rows. */
             note?: string;
             columns: components["schemas"]["UpstreamColumn"][];
             rows: {
@@ -1182,7 +1035,7 @@ export interface components {
             }[];
         };
         /**
-         * @description `unknown` is the venue not answering, and it is NOT agreement. Agreeing
+         * @description `unknown` means the venue did not answer, not agreement. Agreeing
          *     instruments are not recorded.
          * @enum {string}
          */
@@ -1209,9 +1062,8 @@ export interface components {
             ticker?: components["schemas"]["InstrumentId"][];
             events?: ("orders" | "fills" | "recon" | "positions" | "health")[];
             /**
-             * @description Asked-for cadence for the state subscriptions in this message. The
-             *     ack states what the server will actually do; asking above its own
-             *     sampling rate is answered with less, not refused.
+             * @description Requested cadence for the state subscriptions in this message. The ack
+             *     states what the server will do, capped at its sampling rate.
              */
             hz?: number;
         };
@@ -1300,11 +1152,7 @@ export interface components {
             ts: components["schemas"]["Nanos"];
             health: components["schemas"]["Health"];
         };
-        /**
-         * @description A sequenced event. NOT coalesced, unlike every state frame above:
-         *     every fill is money, and one that was skipped is one the book never
-         *     learned about.
-         */
+        /** @description A sequenced event, never coalesced. */
         StreamEvent: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1319,9 +1167,8 @@ export interface components {
             recon_break?: components["schemas"]["ReconBreak"];
         };
         /**
-         * @description The server's own ring overran and events were lost. Said out loud
-         *     rather than swallowed: a client that silently misses a fill carries a
-         *     position it does not know about. Refetch the affected resource.
+         * @description The server's ring overran and events were lost. Refetch the affected
+         *     resource.
          */
         StreamGap: {
             /**
@@ -1362,10 +1209,7 @@ export interface components {
         ClientOrderId: components["schemas"]["ClientOrderId"];
         /** @description Lower bound on `ts_event`, inclusive. */
         Since: components["schemas"]["Nanos"];
-        /**
-         * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-         *     offsets: rows arrive continuously, and an offset walks a moving list.
-         */
+        /** @description Opaque; take it from the previous page's `next_cursor`. */
         Cursor: string;
         Limit: number;
     };
@@ -1448,14 +1292,11 @@ export interface operations {
                 /** @description Options and dated futures only, e.g. `BTC`. */
                 underlying?: string;
                 /**
-                 * @description Options and dated futures only. An exact expiry, as nanoseconds —
-                 *     the values `GET /v1/instruments` returns in `expiry`.
+                 * @description Options and dated futures only. An exact expiry in nanoseconds, as
+                 *     `GET /v1/instruments` returns it in `expiry`.
                  */
                 expiry?: components["schemas"]["Nanos"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1511,10 +1352,7 @@ export interface operations {
                 open?: boolean;
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1542,8 +1380,8 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Any opaque string, stable across retries of the SAME intent. A
-                 *     repeat returns the original 202 and places nothing.
+                 * @description Any opaque string, stable across retries of the same intent. A repeat
+                 *     returns the original 202 and places nothing.
                  */
                 "Idempotency-Key": string;
             };
@@ -1566,17 +1404,10 @@ export interface operations {
                 };
             };
             /**
-             * @description Refused by the DESK, before anything was queued: an instrument no
-             *     attached gateway lists, a price that is not a multiple of the tick,
-             *     a quantity that is not a multiple of the lot, a market order
-             *     carrying a price or a limit order without one.
-             *
-             *     THE RISK GATE DOES NOT ANSWER HERE. It lives in strategyd, past
-             *     this ring, so a fat-finger price or a size over the limit is
-             *     accepted with a 202 and refused a moment later — the refusal
-             *     arrives on the order's events, not in this response. A caller that
-             *     treats 202 as "the order is good" will be wrong about exactly the
-             *     orders it most needs to be right about.
+             * @description Refused by the desk before anything was queued: an unknown instrument, a
+             *     price off the tick, a quantity off the lot, a market order with a price or a
+             *     limit order without one. Risk checks run later in strategyd and arrive as
+             *     order events.
              */
             422: {
                 headers: {
@@ -1586,10 +1417,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /**
-             * @description No desk is attached, so there is nothing to hand the intent to.
-             *     Distinct from a refusal: this one is worth retrying.
-             */
+            /** @description No desk is attached. Worth retrying. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -1644,10 +1472,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /**
-             * @description The order is already in a state a cancel cannot reach — filled,
-             *     expired or canceled. Nothing was queued.
-             */
+            /** @description The order is already filled, expired or canceled. Nothing was queued. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1697,10 +1522,7 @@ export interface operations {
                 instrument_id?: components["schemas"]["InstrumentId"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1779,10 +1601,7 @@ export interface operations {
                 kind?: components["schemas"]["PnlKind"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1811,10 +1630,7 @@ export interface operations {
                 instrument_id?: components["schemas"]["InstrumentId"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1987,10 +1803,7 @@ export interface operations {
                 account?: components["parameters"]["Account"];
                 /** @description Lower bound on `ts_event`, inclusive. */
                 since?: components["parameters"]["Since"];
-                /**
-                 * @description Opaque; take it from the previous page's `next_cursor`. Cursors, not
-                 *     offsets: rows arrive continuously, and an offset walks a moving list.
-                 */
+                /** @description Opaque; take it from the previous page's `next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };

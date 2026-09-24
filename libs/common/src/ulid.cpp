@@ -10,7 +10,6 @@ namespace {
 // Crockford base32: no I, L, O, U.
 constexpr char k_alphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-// splitmix64 — seeds the xoshiro state from one 64-bit value.
 constexpr std::uint64_t splitmix64(std::uint64_t& x) noexcept {
     x += 0x9E3779B97F4A7C15ULL;
     std::uint64_t z = x;
@@ -73,7 +72,6 @@ Ulid UlidGen::next(UnixNanos wall) noexcept {
         t >>= 5;
     }
 
-    // 80 random bits -> 16 chars, most significant first.
     uint128_t r = (static_cast<uint128_t>(rand_hi_) << 64) | rand_lo_;
     for (int i = 25; i >= 10; --i) {
         out.data[static_cast<std::size_t>(i)] = k_alphabet[static_cast<std::uint8_t>(r & 0x1FU)];

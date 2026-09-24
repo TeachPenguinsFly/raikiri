@@ -7,9 +7,7 @@ namespace raikiri {
 
 namespace {
 
-// Venues that list equities and metals without saying so on the row. Keyed by
-// the venue's own symbol, never a bare ticker: SPX is a memecoin on several of
-// these and an index elsewhere.
+// keyed by the venue's own symbol, since a bare ticker like SPX means different things
 constexpr auto k_curated = std::to_array<CuratedRow>({
     {VenueId::Aster, "AAPLUSDT", AssetClass::Equity, "AAPL"},
     {VenueId::Aster, "AMDUSDT", AssetClass::Equity, "AMD"},
@@ -796,8 +794,7 @@ struct Alias {
     std::string_view to;
 };
 
-// One underlying spelled several ways across venues. Applied to non-crypto
-// rows only, so SPX the coin is never read as the index.
+// applied to non-crypto rows only
 constexpr auto k_aliases = std::to_array<Alias>({
     {"GOLD", AssetClass::Commodity, "XAU"},
     {"SILVER", AssetClass::Commodity, "XAG"},

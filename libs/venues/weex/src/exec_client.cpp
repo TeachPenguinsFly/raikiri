@@ -18,20 +18,7 @@ namespace raikiri::venues::weex::internal {
 
 namespace {
 
-// The order path, and everything it cannot know.
-//
-// NO CREDENTIAL HAS EVER REACHED THIS VENUE FROM THIS MACHINE. Every request
-// below is built from what WEEX documents and has been answered only by its own
-// 401. The caps row therefore claims none of it, and a reader deciding whether
-// to trust this path should read that row rather than this comment.
-//
-// THERE IS NO PRIVATE SOCKET HERE, which is the shape of everything else in
-// this file. WEEX publishes one — /v3/ws/private, authenticated by ACCESS-*
-// headers on the handshake — and this adapter does not open it, so an order's
-// only answer is its own REST response and a FILL ARRIVES AT NO EVENT AT ALL:
-// fills reach this process through the reconciliation pull and nowhere else.
-// An order accepted here is Accepted; what it then does is reconciliation's
-// question until that socket exists.
+// no private socket: an order's only answer is its rest response, and fills arrive by reconciliation
 class WeexExecution final : public exec::ExecutionClient {
 public:
     explicit WeexExecution(std::shared_ptr<VenueState> state)
@@ -48,17 +35,12 @@ public:
         started_ = false;
     }
 
-    // No socket to be up or down, so this answers from whether the REST pool is
-    // up AND a credential exists to sign with: without one there is no order
-    // path at all, and reporting a connection would be a claim about a venue
-    // this process cannot address.
+    // connected only with the rest pool up and a credential to sign with
     [[nodiscard]] bool connected() const noexcept override {
         return started_ && api_.signed_path_available();
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it, and an order written into
-    // a dead socket can still reach the matcher before the read fails.
+    // sweeps rest connections the venue closed
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
@@ -68,10 +50,7 @@ public:
 
     void cancel(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Cancel); }
 
-    // REFUSED BY THE VENUE'S OWN SHAPE, not by this adapter's scope: WEEX
-    // publishes no modify for a resting order — only a take-profit trigger can
-    // be moved — so a caller cancels and replaces. Answered locally and at once,
-    // because silence is the one answer an amend may never get.
+    // weex has no modify for a resting order; refuse at once
     void amend(const OrderCmd& cmd) noexcept override {
         emit_reject(cmd.client_order_id,
                     cmd.instrument,
@@ -82,9 +61,7 @@ public:
                         exec::ErrorClass::Terminal, 0, "weex has no amend; cancel and replace"));
     }
 
-    // Ten at a time, which is WEEX's own ceiling on one batch. Chunked here
-    // rather than refused, because the caller's batch is a desk's book and the
-    // venue's limit is an implementation detail of one request.
+    // chunked to weex's batch limit of ten
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
         for (std::size_t at = 0; at < cmds.size(); at += k_max_cancel_batch) {
             const auto count = std::min(k_max_cancel_batch, cmds.size() - at);
@@ -92,9 +69,6 @@ public:
         }
     }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's pollers
-    // reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -126,13 +100,9 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. They share one path because
-    // they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // an unanswered order is reported as a gap; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -151,8 +121,7 @@ private:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working",
-            // and whether anything is working is exactly what is unknown here.
+            // undef: whether anything is working is unknown
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -169,12 +138,7 @@ private:
             reject(cmd, kind, request.error());
             return;
         }
-        // REFUSED HERE RATHER THAN BY THE VENUE. WEEX lists a thousand
-        // contracts and accepts orders for 290 of them; the rest answer -1058,
-        // which arrives in a log looking like a defect in this adapter and
-        // costs a round trip to learn nothing. A cancel is not checked — an
-        // order already resting must always be cancellable, whatever the list
-        // says today.
+        // creates outside the api-tradable set are refused locally (-1058); cancels are never checked
         if (kind == Kind::Create &&
             !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
             emit_reject(cmd.client_order_id,
@@ -187,7 +151,7 @@ private:
                                                "weex accepts no API order for this contract"));
             return;
         }
-        // A placement costs no IP weight; weex meters it per account instead.
+        // a placement costs no ip weight; weex meters it per account
         if (const auto allowed = kind == Kind::Create
                                      ? std::expected<void, exec::VenueError>{}
                                      : api_.spend(ep::k_order, exec::RateClass::Order);
@@ -208,8 +172,7 @@ private:
                         exec::VenueError::make(exec::ErrorClass::Terminal, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
-        // because the callback is exactly what may never run.
+        // recorded before the send, since the callback may never run
         (void)in_flight_.add({.client_order_id = cmd.client_order_id,
                               .exchange_client_order_id = cmd.exchange_client_order_id,
                               .instrument = cmd.instrument,
@@ -240,8 +203,7 @@ private:
             }
             return;
         }
-        // COPIED, because the caller's span is a view over a buffer the gateway
-        // reuses on its next turn and this answer arrives on a later one.
+        // copied: the caller's span is reused before the answer arrives
         std::vector<OrderCmd> batch{cmds.begin(), cmds.end()};
         if (!api_.send(*request, [this, batch](net::RestResponse&& response) {
                 on_batch_response(std::move(response), batch);
@@ -268,14 +230,7 @@ private:
         }
     }
 
-    // The whole-request verdict, shared by the single and batch paths. Returns
-    // the venue's refusal when the body is one, and nothing when the body is a
-    // payload to read.
-    //
-    // A BENIGN CANCEL IS STILL RETURNED HERE. It arrives as a whole-request
-    // refusal — {"code":-3200} and no acknowledgement at all — so swallowing it
-    // would send the caller on to parse an ack that is not there. Whether it is
-    // benign is the caller's question, because only the caller knows the verb.
+    // whole-request verdict; a benign cancel is still returned since only the caller knows the verb
     [[nodiscard]] std::optional<exec::VenueError>
     request_failure(const net::RestResponse& response) const noexcept {
         const auto error = parse_rest_error(response.body);
@@ -286,8 +241,7 @@ private:
             return exec::VenueError::make(classify(error->code), error->code, error->msg);
         }
         if (response.status < 200 || response.status >= 300) {
-            // A path WEEX does not route answers a body with no `code` at all,
-            // which reads to the error parser as a success payload.
+            // an unrouted path answers with no code
             return exec::VenueError::make(
                 exec::ErrorClass::Terminal, response.status, "venue refused without a code");
         }
@@ -295,15 +249,11 @@ private:
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) noexcept {
-        // Any answer at all settles it, including a refusal: what the table
-        // tracks is silence, not failure.
+        // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)in_flight_.resolve(cmd.client_order_id);
         } else {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed, and calling that a refusal is how a process
-            // records a rejection opposite a live position. The order stays in
-            // the table and the sweep reports it as a gap.
+            // the request may have reached the matcher; the sweep reports it as a gap
             state_->sink->on_order_error(
                 cmd.client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -317,8 +267,7 @@ private:
         const auto failure = request_failure(response);
         if (failure.has_value()) {
             if (kind == Kind::Cancel && is_benign_cancel_failure(failure->venue_code)) {
-                // The cancel arrived late rather than failing; a CancelRejected
-                // would leave the OMS holding an order the venue has closed.
+                // the cancel arrived late; the order is already closed
                 emit(cmd, OrderEventType::Canceled, {}, QtyLots::from_raw(0));
                 return;
             }
@@ -386,10 +335,7 @@ private:
             }
             return;
         }
-        // MATCHED BY THE ID WE SENT, not by position: WEEX states no ordering
-        // for the array, and a cancel published against the wrong order closes
-        // a position the desk meant to keep. A command the answer never names
-        // is left in doubt rather than reported either way.
+        // matched by client id since weex states no ordering; an unnamed command stays in doubt
         for (const auto& cmd : batch) {
             for (const auto& ack : *acks) {
                 if (ack.client_order_id == cmd.exchange_client_order_id.view()) {
@@ -403,8 +349,7 @@ private:
     void publish(const OrderCmd& cmd, Kind kind, const WireOrderAck& ack) noexcept {
         if (!ack.success) {
             if (kind == Kind::Cancel && is_benign_cancel_error(ack.error_code)) {
-                // The cancel arrived late rather than failing; a CancelRejected
-                // would leave the OMS holding an order the venue has closed.
+                // the cancel arrived late; the order is already closed
                 emit(cmd, OrderEventType::Canceled, ack.order_id, QtyLots::from_raw(0));
                 return;
             }
@@ -421,11 +366,7 @@ private:
             emit(cmd, OrderEventType::Canceled, ack.order_id, QtyLots::from_raw(0));
             return;
         }
-        // ACCEPTED, AND ONLY ACCEPTED. WEEX's place answer says the order was
-        // taken and nothing about what it then did — an IOC that filled on
-        // arrival looks exactly like a limit resting in the book — so the
-        // leaves stated here are the whole order, and the fill that may already
-        // have happened reaches this process through the reconciliation pull.
+        // the place answer says nothing of fills, so leaves is the whole order
         emit(cmd, OrderEventType::Accepted, ack.order_id, cmd.qty);
     }
 
@@ -457,9 +398,7 @@ private:
         event.price = cmd.price;
     }
 
-    // The reason is not optional. Every refusal here reaches the sink with the
-    // verdict that caused it, because the terminal event itself has no room for
-    // one and a rejection nobody can explain costs an hour at the exchange.
+    // every refusal reaches the sink with its verdict
     void emit_reject(ClientOrderId client_order_id,
                      InstrumentId instrument,
                      Side side,
@@ -475,8 +414,7 @@ private:
         event.side = side;
         event.client_order_id = client_order_id;
         event.qty = qty;
-        // A create that never reached the book leaves nothing behind; a refused
-        // cancel or amend leaves the order exactly as it was.
+        // a rejected create leaves nothing; a refused cancel or amend leaves the order as it was
         event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
@@ -484,9 +422,7 @@ private:
     }
 
     void reject(const OrderCmd& cmd, Kind kind, BuildError why) noexcept {
-        // A request that could not be SIGNED is an authentication failure and
-        // not a bad order: the gateway must halt on it rather than reject one
-        // command and take the next.
+        // unsigned means an auth failure, which halts the gateway
         const auto cls = why == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                       : exec::ErrorClass::Terminal;
         emit_reject(cmd.client_order_id,

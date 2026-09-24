@@ -43,8 +43,7 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
 
 namespace {
 
-// The rows under `data`, read into caller storage. Balances and income rows
-// differ only in the per-row walk, and BingX puts both in a bare array.
+// rows under data; both endpoints send a bare array
 template <typename Entry, typename Read>
 std::expected<std::span<const Entry>, WireError>
 read_data(std::string_view body, std::span<Entry> into, Read&& read) {
@@ -75,9 +74,7 @@ read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     return std::span<const Entry>{into.data(), count};
 }
 
-// Every field optional, the asset included, because this endpoint IS KNOWN TO
-// SEND A ROW WITH NO ASSET: refusing the body over one would cost the account
-// every balance beside it. The mapper drops the nameless row instead.
+// every field optional: bingx can send a row without an asset, which the mapper drops
 std::expected<void, WireError> read_balance(wire::ondemand::object& obj, WireBalance& out) {
     for (const auto& [key, field] : {std::pair{"asset", &out.asset},
                                      std::pair{"balance", &out.balance},

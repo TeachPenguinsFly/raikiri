@@ -1,7 +1,4 @@
-// gatewayd calls execution->start() on every gateway, so a market-data-only
-// venue still needs a client; this one refuses every call. The signer would
-// fit (HMAC-SHA256, hex). What holds execution back is ACCESS: KYC does not
-// accept residence permits, and eligibility excludes by citizenship as well.
+// gatewayd starts execution on every gateway, so this client exists and refuses every call
 
 #include <raikiri/exec/execution_client.hpp>
 

@@ -1,19 +1,4 @@
-# The cold plane, for a working copy.
-#
-# Everything else in this repository runs with nothing installed — gateways
-# stream market data on a fresh clone, `make demo` is self-contained. Postgres
-# is the one exception, and until now the only way to get one was to read CI's
-# workflow file. That made the history and PnL screens look broken rather than
-# unconfigured.
-#
-#   docker compose up -d db
-#   make db-migrate
-#   export RAIKIRI_PG_DSN=postgresql://raikiri:raikiri@localhost:5432/raikiri
-#
-# The image is pinned to the same major CI runs against: a replay that is
-# idempotent on 16 and not on 17 is a bug about Postgres, and it should be
-# found by changing this line deliberately rather than by whatever the local
-# machine happened to pull.
+# pinned to the postgres major ci uses
 services:
   db:
     image: postgres:16
@@ -26,9 +11,6 @@ services:
       - "5432:5432"
     volumes:
       - raikiri-db:/var/lib/postgresql/data
-    # The cold plane is not on the order path, so a slow start delays a screen
-    # rather than a fill — but `make db-migrate` still needs to know when the
-    # server will answer, and "the container is running" is not that moment.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U raikiri -d raikiri"]
       interval: 2s

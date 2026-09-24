@@ -47,10 +47,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (!event->empty()) {
-            // A login answer carries a code that is 0 on success and an auth
-            // failure otherwise, so it cannot share the subscribe path: a
-            // refused login read as an ack leaves a socket that will answer
-            // every subscribe with 60011 and no explanation.
+            // a login answer needs its own path: a refused login read as an ack fails every subscribe with 60011
             info.kind = *event == "error"   ? EventKind::Error
                         : *event == "login" ? EventKind::LoginAck
                                             : EventKind::SubscribeAck;

@@ -28,14 +28,13 @@ namespace raikiri::venues::bitget::internal {
 
 namespace {
 
-// Bitget drops a connection idle for 30 s and does not count websocket
-// control frames toward that timer, so the app ping runs inside the window.
+// bitget drops a socket idle for 30 s and ignores control frames, so the app ping runs inside that
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
-        // Includes the bare "pong": unknown shapes are ignored, never fatal.
+        // unknown shapes, including the bare pong, are ignored
         return;
     }
     switch (event->kind) {
@@ -83,7 +82,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         break;
     }
     case EventKind::Error: {
-        // Terminal for the channel it names, and silence is how it would otherwise present.
+        // terminal for the channel it names
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -99,11 +98,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// A pool key is one channel on one contract, joined by a byte neither can
-// contain. The pool stores keys as opaque strings and hands them back when a
-// socket reconnects, so this is the only place that knows the shape. instType
-// is not carried: one process serves one product, so it is the same for every
-// key on every socket.
+// a pool key is channel and contract joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view channel, std::string_view inst_id) {
@@ -113,9 +108,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The inverse, and the only decode: two readers of a key that disagree about
-// where the cut is drift apart silently. Views into the key, which the pool
-// owns for as long as the connection holds it.
+// the only decode of key_of; returns views into the pool-owned key
 [[nodiscard]] std::optional<Subscription> split_key(std::string_view key, std::string_view type) {
     const auto cut = key.find(k_key_sep);
     if (cut == std::string_view::npos) {
@@ -129,15 +122,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE, AND NO BOOK IS INVALIDATED. Each socket in
-    // the pool re-asks for its own keys when it opens; replaying the whole
-    // desired set on every one of them is the flood the pool exists to avoid.
-    //
-    // The pool is given no OnConnectionOpen either, because there is nothing
-    // for it to do: books15 restates the whole ladder in every frame, map_book
-    // drops anything whose action is not `snapshot`, and this adapter keeps no
-    // book between frames. A reopened socket's first frame IS the seed, and no
-    // REST reseed is owed for the contracts it carries.
+    // each socket resubscribes its own keys on open; books15 frames are full snapshots, so no reseed
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -165,9 +150,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path()}},
                 handler_,
-                // The ceiling is a CONNECTION's, not the process's — reading
-                // it as the process's left 334 of 779 perpetuals watched, and
-                // ws.hpp has what one socket is actually served.
+                // the ceiling is per connection
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {}
 
@@ -184,8 +167,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -202,11 +183,9 @@ public:
             return DataClient::subscribe(kind, instrument);
         }
         if (!state_->add_subscription(channel, symbol)) {
-            return {}; // Bbo, Funding and MarkPrice are ONE `ticker` key, not three
+            return {}; // Bbo, Funding and MarkPrice share one ticker key
         }
-        // THE POOL PLACES IT. A key that fits on no existing socket opens
-        // another, and only the pool's own ceiling refuses — which is said out
-        // loud rather than leaving the instrument silently unwatched.
+        // the pool places it, opening another socket if none fits
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -226,18 +205,14 @@ public:
         state_->io.poll();
         pool_.poll(now);
         if (pool_.connected() && now.ns >= state_->next_app_ping_ns) {
-            // EVERY socket. The 30 s idle timer is per connection, so pinging
-            // one of the five leaves the other four to be closed on schedule.
+            // every socket: the idle timer is per connection
             pool_.broadcast(Protocol::ping_frame());
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
     }
 
 private:
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered first here rather than at subscribe time: on a reconnect the
-    // order that matters is the order the venue is asked in.
+    // runs on every open of the socket, so this order is the order the venue is asked in
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         const auto type = inst_type(state_->market, state_->testnet);
         std::vector<Subscription> views;
@@ -247,9 +222,7 @@ private:
                 views.push_back(*one);
             }
         }
-        // THE QUOTE FIRST. Once the sends are paced, whatever goes last
-        // effectively does not go at all — and `ticker` is the Bid/Ask column
-        // every screen shows, the funding rate and the day's stats in one.
+        // ticker first; with paced sends the last frames may lag
         const auto quote = channel_for(exec::SubKind::Bbo);
         std::ranges::stable_partition(
             views, [quote](const Subscription& one) { return one.channel == quote; });

@@ -369,8 +369,7 @@ std::string_view build(std::span<char> buf,
 
 } // namespace
 
-// Books batch (a 250 ms flush on the venue's side, and a third of the frames);
-// trades are rare enough to take one by one.
+// books batch; trades are rare enough to take one by one
 std::string_view Protocol::subscribe(Channel channel, std::string_view ticker) {
     return build(frame_, "subscribe", channel, ticker, channel == Channel::Book);
 }

@@ -1,9 +1,6 @@
 #pragma once
 
-// Fixed-capacity inline string for unbounded-cardinality external identifiers
-// (exchange order ids, execution ids). These must NEVER be interned: a global
-// interner keyed by values an exchange mints forever is a memory leak by
-// design. Inline storage keeps them trivially copyable and shm/journal-safe.
+// inline storage for venue-minted ids, which must not be interned
 
 #include <array>
 #include <compare>
@@ -23,7 +20,6 @@ template <std::size_t N> struct FixedString {
     std::array<char, N> data{};
     std::uint8_t len{0};
 
-    // Total-copy factory; rejects oversize input instead of truncating.
     [[nodiscard]] static std::expected<FixedString, StrError> from(std::string_view sv) noexcept {
         if (sv.size() > N) {
             return std::unexpected{StrError::TooLong};

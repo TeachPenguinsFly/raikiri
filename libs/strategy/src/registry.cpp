@@ -70,18 +70,13 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec) {
 std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec,
                                                             const Factory& types) {
     if (spec.strategy_id == 0) {
-        // ZERO IS THE SENTINEL, NOT A STRATEGY. ClientOrderId{0} is the
-        // universal "no order", and its strategy_id() is 0 — so an order event
-        // arriving with no client order id would be delivered to whoever held
-        // this id as if it were theirs.
+        // zero is the no-order sentinel
         return std::unexpected{
             CreateFailure{.error = CreateError::IdReserved,
                           .detail = "0 is the no-order sentinel, never a strategy"}};
     }
     if (spec.strategy_id == k_manual_strategy_id) {
-        // The desk's reserved id, refused here rather than in the kernel: a
-        // strategy sharing it would net its position into the manual desk's
-        // book, and the two would then be one position nobody could take apart.
+        // a strategy sharing the desk's id would net into the manual book
         return std::unexpected{CreateFailure{
             .error = CreateError::IdReserved,
             .detail = std::string{to_string(CreateError::IdReserved)}}};
@@ -96,14 +91,11 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec,
                                              .detail = std::string{to_string(CreateError::Full)}}};
     }
     if (!types.contains(spec.type)) {
-        // Named before the constructor runs, so an unknown type reads as an
-        // unknown type rather than as whatever the factory says about one.
         return std::unexpected{CreateFailure{.error = CreateError::UnknownType,
                                              .detail = "no strategy type named " + spec.type}};
     }
 
-    // The window BEFORE the strategy, because a strategy that exists with
-    // nowhere to trade is a strategy the registry would have to unwind.
+    // the context before the strategy, so a failed context needs no unwind
     Context* ctx = kernel_.context_for ? kernel_.context_for(spec.strategy_id) : nullptr;
     if (ctx == nullptr) {
         return std::unexpected{
@@ -113,8 +105,6 @@ std::expected<InstanceView, CreateFailure> Registry::create(const Spec& spec,
 
     auto built = types.make(spec.type, {.config = spec.config, .strategy_id = spec.strategy_id});
     if (!built.has_value()) {
-        // The constructor's own words, verbatim: it is the only thing here
-        // that knows which key was wrong.
         return std::unexpected{
             CreateFailure{.error = CreateError::Refused, .detail = built.error()}};
     }
@@ -137,9 +127,7 @@ std::expected<Phase, ControlError> Registry::start(std::uint16_t strategy_id,
     if (!next.has_value()) {
         return std::unexpected{as_control_error(next.error())};
     }
-    // THE REVERSE OF THE STOP BELOW, read bottom-up: phase, then the hook,
-    // then the subscription. Subscribing last is what keeps an event out of a
-    // strategy that has not finished arranging itself.
+    // subscribe last so no event reaches a strategy that is still starting
     instance->phase = *next;
     instance->since = kernel_.wall ? kernel_.wall() : UnixNanos{};
     instance->stop = std::move(stop);
@@ -158,21 +146,10 @@ std::expected<Phase, ControlError> Registry::stop(std::uint16_t strategy_id) {
         return std::unexpected{as_control_error(next.error())};
     }
 
-    // UNSUBSCRIBE FIRST. A tick polled between here and the end of on_stop
-    // would reach a strategy that is being taken apart, and the one thing a
-    // teardown may not do is act on new information.
+    // unsubscribe first so a teardown never acts on new data
     instance->subscribed = false;
     instance->strategy->on_stop(*instance->ctx);
-    // Then the orders, AFTER the hook, so that anything on_stop placed is
-    // pulled too — a teardown that swept first would leave the last order of a
-    // stopped strategy working in the market.
-    //
-    // WHAT A STOP DOES NOT DO IS FLATTEN. It cancels what is working and stops
-    // anything new; the position stays exactly the size it was. Closing a book
-    // is a separate instruction somebody gives on purpose, because a stop that
-    // also flattened would turn "pause this" into "sell all of it, now, at
-    // whatever the market happens to be" — on the keystroke people reach for
-    // when they are least sure what is going on.
+    // cancel after on_stop so orders it placed are pulled too; a stop does not flatten
     instance->cancelled_on_stop = kernel_.cancel_working ? kernel_.cancel_working(strategy_id) : 0;
     instance->phase = *next;
     instance->since = kernel_.wall ? kernel_.wall() : UnixNanos{};
@@ -185,9 +162,7 @@ std::size_t Registry::poll() {
         if (instance.phase != Phase::Running || !instance.stop.stop_requested()) {
             continue;
         }
-        // Through stop() rather than inline: one teardown, whoever asked for
-        // it. The vector is reserved to capacity, so stopping while iterating
-        // moves nothing.
+        // through stop() so there is one teardown; the reserved vector does not move
         if (stop(instance.spec.strategy_id).has_value()) {
             ++stopped;
         }
@@ -239,7 +214,7 @@ std::vector<InstanceView> Registry::list() const {
     for (const auto& instance : instances_) {
         out.push_back(view_of(instance));
     }
-    return out; // creation order, and stable: a listing that reshuffles cannot be diffed
+    return out; // creation order, stable
 }
 
 std::optional<InstanceView> Registry::find(std::uint16_t strategy_id) const {

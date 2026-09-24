@@ -48,9 +48,7 @@ std::expected<WireExecution, WireError> read_execution(wire::ondemand::value val
     out.fee = row->template at<k_exec_fee>();
     out.fee_currency = row->template at<k_exec_fee_currency>();
     out.mts = wire::digits_to_u64(row->template at<k_exec_mts>());
-    // MAKER is 1 or -1, not a boolean, and it is absent from neither frame —
-    // but a zero would be neither, so an unreadable token leaves the fill's
-    // liquidity Unknown rather than defaulting it to taker.
+    // maker is 1 or -1; an unreadable token leaves liquidity Unknown
     std::int64_t maker = 0;
     if (token_to_i64(row->template at<k_exec_maker>(), maker) && maker != 0) {
         out.maker = maker > 0;
@@ -62,9 +60,7 @@ std::expected<WireExecution, WireError> read_execution(wire::ondemand::value val
     return out;
 }
 
-// The writes whose PAYLOAD is exactly one order. `oc_multi-req` carries a list
-// instead, and descending into it as if it were a row would read a whole order
-// array where a field belongs.
+// oc_multi-req carries a list of orders
 bool names_one_order(std::string_view type) noexcept {
     return type == "on-req" || type == "ou-req" || type == "oc-req";
 }
@@ -151,9 +147,7 @@ std::expected<WireNotification, WireError> read_notification(wire::ondemand::arr
 } // namespace
 
 WireOrderStatus order_status(std::string_view text) noexcept {
-    // Prefix matching, not equality: Bitfinex glues the fill onto the status
-    // ("EXECUTED @ 63947.0(0.1)"), so == matches only ACTIVE and CANCELED and
-    // silently drops every completed order into Unknown.
+    // status has the fill appended, so match by prefix
     if (text.starts_with("ACTIVE")) {
         return WireOrderStatus::Active;
     }
@@ -163,8 +157,7 @@ WireOrderStatus order_status(std::string_view text) noexcept {
     if (text.starts_with("EXECUTED")) {
         return WireOrderStatus::Executed;
     }
-    // "POSTONLY CANCELED" does not START with CANCELED, and reading it as
-    // anything else leaves a post-only rejection sitting open forever.
+    // postonly canceled has its own prefix
     if (text.starts_with("CANCELED") || text.starts_with("POSTONLY CANCELED")) {
         return WireOrderStatus::Canceled;
     }
@@ -175,7 +168,7 @@ WireOrderStatus order_status(std::string_view text) noexcept {
 }
 
 bool notification_ok(const WireNotification& notification) noexcept {
-    // Bitfinex answers HTTP 200 to a refused order; this field is the verdict.
+    // a refused order still gets http 200; this field is the verdict
     return notification.status == "SUCCESS";
 }
 
@@ -237,9 +230,7 @@ std::expected<WireNotification, WireError> parse_notification(std::string_view b
                 if (!token.has_value()) {
                     return std::unexpected(token.error());
                 }
-                // "n" is the socket TAG, never a notification type — every
-                // type Bitfinex mints ends in "-req" or begins "ucm-" — so it
-                // is what tells a wrapped frame from a bare REST body.
+                // "n" is the socket tag; notification types end in -req or begin ucm-
                 if (*token == "n") {
                     wrapped = true;
                     ++index;

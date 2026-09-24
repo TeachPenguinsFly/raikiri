@@ -1,17 +1,6 @@
 #pragma once
 
-// What every Bitget v2 answer is wrapped in, on both transports.
-//
-// A websocket frame names its channel in `arg` and hides the rows under
-// `data`; a REST body carries `code` and hides them under the same key.
-// Neither belongs to any one domain, and both have to be read first.
-//
-// The error code is a STRING over REST and a JSON NUMBER over the websocket,
-// verified live: {"code":"40034",...} against {"event":"error","code":30001}.
-// Different types AND different code spaces, so one path per transport. The
-// REST envelope also succeeds on "00000", not "0" — five characters that any
-// integer conversion turns into the zero a missing field would produce, which
-// is why the envelope keeps the text.
+// rest codes are strings that succeed on "00000"; ws codes are json numbers in a different space
 
 #include <raikiri/venues/bitget/errors.hpp>
 #include <raikiri/wire/json.hpp>
@@ -26,12 +15,11 @@
 
 namespace raikiri::venues::bitget {
 
-// Resolved from arg.channel once, so dispatch is an integer compare.
 enum class EventKind : std::uint8_t {
     Ticker, // bid/ask, mark, index and funding on one frame
     Trade,
     Books,    // books5/books15/books share one shape
-    Orders,   // private: lifecycle AND fills on one channel
+    Orders, // private: lifecycle and fills on one channel
     LoginAck, // the private handshake's answer, distinct from a subscribe ack
     SubscribeAck,
     Error,
@@ -43,12 +31,9 @@ struct EventInfo {
     std::string_view inst_id; // empty on control frames
 };
 
-// The keepalive answer is the bare text "pong", so it lands here as NotJson
-// and is ignored — the same path as any frame Bitget adds later.
+// the keepalive answer is the bare text pong and lands here as NotJson
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
-// A refused subscription: {"event":"error","code":30001,"msg":"...",...}.
-// Note the unquoted code; the REST envelope's is quoted.
 struct StreamError {
     std::int64_t code{0};
     std::string_view msg;
@@ -58,7 +43,7 @@ struct StreamError {
 
 inline constexpr std::string_view k_ok = "00000";
 
-// Text, not an integer: "00000" and a missing code convert to the same zero.
+// text: "00000" and a missing code convert to the same zero
 struct RestEnvelope {
     std::string_view code;
     std::string_view msg;
@@ -68,20 +53,15 @@ struct RestEnvelope {
 
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
-// trade and books elements carry no instrument id at all, so `arg` is the
-// only place every channel names it.
+// trade and books elements carry no instrument id, so arg is the only source
 [[nodiscard]] std::expected<std::string_view, WireError> arg_inst_id(wire::ondemand::object& root);
 
-// Row readers reach fields out of order, and find_field_unordered only rewinds
-// from the start of the object — so this resets before looking.
+// find_field_unordered only rewinds from the object start, so reset first
 [[nodiscard]] inline std::string_view field(wire::ondemand::object& obj, std::string_view key) {
     obj.reset();
     return wire::opt_str(obj, key).value_or(std::string_view{});
 }
 
-// Both transports wrap the payload in a `data` array and every channel plus
-// every singleton REST read carries one element. The orderbook is the
-// exception and does not use this.
 template <typename Fn>
 [[nodiscard]] auto with_first_data(wire::ondemand::object& root, Fn&& fn)
     -> decltype(fn(std::declval<wire::ondemand::object&>())) {
@@ -99,12 +79,6 @@ template <typename Fn>
     return std::unexpected(WireError::MissingField);
 }
 
-// Walks either `data` or `data.<nested>` and reads every element into caller
-// storage.
-//
-// Templated because the row reader differs per domain and nothing else does:
-// the envelope, the nesting, the capacity refusal and the per-row walk are the
-// same for orders, fills, positions and batch failures alike.
 template <typename Entry, typename Read>
 std::expected<std::span<const Entry>, WireError>
 read_rows(std::string_view text, std::string_view nested, std::span<Entry> storage, Read&& read) {

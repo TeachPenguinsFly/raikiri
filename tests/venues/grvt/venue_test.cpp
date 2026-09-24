@@ -20,7 +20,7 @@
 namespace raikiri::venues::grvt {
 namespace {
 
-// Held, not returned by value: the wire types are views over these bytes.
+// held: the wire types are views over these bytes
 const std::string& fixture(std::string_view name) {
     static std::map<std::string, std::string, std::less<>> held;
     if (const auto found = held.find(name); found != held.end()) {
@@ -230,7 +230,7 @@ TEST(GrvtQuote, ADeltaChangesOnlyTheFieldsItCarries) {
     const auto snap = feed_of("ws_mini_d_snapshot.json", storage);
     ASSERT_EQ(snap.kind, FeedKind::Quote);
     const auto delta = feed_of("ws_mini_d_delta.json", storage);
-    // The ack was not captured; the first delta's prev is what it would have said.
+    // the first delta's prev stands in for the uncaptured ack
     quote.sequence.acknowledged(delta.prev_sequence);
 
     ASSERT_EQ(quote.sequence.offer(snap.sequence, snap.prev_sequence), Step::Snapshot);

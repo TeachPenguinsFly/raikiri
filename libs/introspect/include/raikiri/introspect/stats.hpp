@@ -1,7 +1,6 @@
 #pragma once
 
-// DOMAIN: what one gateway says about itself, and what a machine of them adds
-// up to. Plain values and pure functions; no clock, no file, no JSON.
+// what one gateway reports about itself and what a machine adds up to; pure values
 
 #include <raikiri/introspect/latency.hpp>
 
@@ -128,8 +127,7 @@ enum class Liveness : std::uint8_t { Up, Stale, Down };
 
 [[nodiscard]] std::string_view to_string(Liveness state) noexcept;
 
-// Down wins over stale: a snapshot left by a process that is gone says what it
-// was doing, not what it is doing.
+// down wins over stale
 [[nodiscard]] Liveness classify(std::uint64_t taken_ns,
                                 bool process_alive,
                                 std::uint64_t now_ns,
@@ -156,8 +154,7 @@ struct MachineRollup {
     Rollup total;
 };
 
-// A down gateway is counted as down and adds nothing else: its last numbers
-// are history, and summing them would report traffic nobody is receiving.
+// a down gateway counts as down and adds nothing else
 [[nodiscard]] MachineRollup rollup(std::span<const GatewayView> gateways);
 
 struct MachineStats {
@@ -166,8 +163,7 @@ struct MachineStats {
     MachineRollup rollup;
 };
 
-// Messages per channel over a trailing window, from cumulative counters
-// sampled on a timer. Fixed capacity, so a push never allocates.
+// messages per channel over a trailing window; fixed capacity
 class RateWindow {
 public:
     static constexpr std::size_t k_channels = 8;

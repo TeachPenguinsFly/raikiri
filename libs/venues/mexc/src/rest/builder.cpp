@@ -11,35 +11,27 @@ namespace raikiri::venues::mexc {
 
 namespace {
 
-// Header names are MEXC's, capitalisation and all.
 constexpr std::string_view k_hdr_spot_key = "X-MEXC-APIKEY";
 constexpr std::string_view k_hdr_fut_key = "ApiKey";
 constexpr std::string_view k_hdr_fut_time = "Request-Time";
 constexpr std::string_view k_hdr_fut_sign = "Signature";
 constexpr std::string_view k_hdr_fut_recv = "Recv-Window";
 
-// Spot v3 takes its parameters in the query string even on a POST, and the
-// body stays empty; the content type still has to be the form one, because
-// application/json on an empty body is answered as a parameter error.
+// spot v3 sends parameters in the query even on post; a json
+// content type on an empty body is a parameter error
 constexpr std::string_view k_form = "application/x-www-form-urlencoded";
 
-// MEXC refuses a signature whose timestamp is outside recvWindow of ITS clock.
-// Five seconds is the venue default and 60 s the ceiling.
+// refused outside recvWindow of the venue clock; 5 s default, 60 s max
 constexpr std::uint32_t k_recv_window_ms = 5'000;
 
-// Both list endpoints page; reconciliation wants the whole picture in one
-// round trip rather than a paginated approximation of it.
+// the largest page, so reconciliation reads in one round trip
 constexpr std::string_view k_page_size = "100";
 
-// MEXC has no margin-mode field in VenueConfig, and openType is mandatory on
-// every futures order. Cross is the one of the two that does not ALSO demand a
-// leverage value — isolated (1) is refused without one, and inventing a
-// leverage here would be a position-sizing decision made by a request builder.
+// openType is required; cross needs no leverage value, isolated (1) does
 constexpr std::string_view k_open_type_cross = "2";
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long symbol yields a request
-// MEXC refuses with 1001 instead of one that names a different contract.
+// an overflowing part is dropped whole, so a long symbol fails
+// with 1001 instead of naming another contract
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -71,8 +63,7 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed query authenticates an order that is not the one intended.
+// reports overflow rather than truncating a signed query
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -119,8 +110,7 @@ private:
     bool overflow_{false};
 };
 
-// MEXC's futures order ids are declared List<Long> where a cancel names them,
-// so a non-numeric id cannot go into that array at all.
+// cancel ids are List<Long>, so non-numeric ids cannot go in the array
 [[nodiscard]] bool all_digits(std::string_view text) noexcept {
     if (text.empty()) {
         return false;
@@ -205,7 +195,6 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Perp:
         return std::nullopt;
     case MarketType::Future:
-        // /api/v1/contract serves perpetuals only; MEXC lists no dated futures.
         return BuildError::DatedFuturesUnsupported;
     case MarketType::Option:
         return BuildError::OptionsUnsupported;
@@ -226,7 +215,7 @@ std::int64_t futures_order_type(OrderType type, TimeInForce tif, OrderFlags flag
         return 5;
     }
     if (has_flag(flags, OrderFlags::PostOnly)) {
-        return 2; // post-only is an order TYPE here, not a flag beside the tif
+        return 2; // post-only is an order type here
     }
     switch (tif) {
     case TimeInForce::Ioc:
@@ -245,8 +234,6 @@ std::string_view spot_order_type(OrderType type, OrderFlags flags) noexcept {
     }
     return has_flag(flags, OrderFlags::PostOnly) ? "LIMIT_MAKER" : "LIMIT";
 }
-
-// ------------------------------------------------------------ unsigned ----
 
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_futures_server_time, .body = {}};
@@ -268,8 +255,7 @@ net::RestRequest RequestBuilder::spot_ticker_24h() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_spot_ticker_24h, .body = {}};
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One catalogue load at a time is the only use.
+// shared buffer; send a request before building the next
 net::RestRequest RequestBuilder::depth(std::string_view symbol, std::uint32_t limit) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_contract_depth);
@@ -304,8 +290,6 @@ net::RestRequest RequestBuilder::funding_rate(std::string_view symbol) noexcept 
     return writer.get();
 }
 
-// -------------------------------------------------------------- signed ----
-
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
 }
@@ -317,8 +301,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign_spot(net:
     if (!signer_->has_credentials()) {
         return std::unexpected{BuildError::NotSigned};
     }
-    // The digest covers the query EXACTLY as it goes out, so `signature` is
-    // appended after signing and nothing may re-order what precedes it.
+    // the digest covers the query as sent, so `signature` is appended last
     Appender msg{sign_msg_};
     msg << query;
     if (!query.empty()) {
@@ -366,10 +349,7 @@ SignedRequestBuilder::sign_futures(net::HttpMethod method,
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // apiKey + Request-Time + (sorted query | raw JSON body) — the parameter
-    // term is one or the other, never both, and the separator is nothing at
-    // all. A GET carries its parameters in the query and a POST in the body,
-    // so a POST that signed its query would authenticate an empty order.
+    // apiKey + Request-Time + (sorted query or raw json body), no separators
     Appender msg{sign_msg_};
     msg << signer_->api_key() << ts.view() << (body.empty() ? query : body);
     if (!msg.ok()) {
@@ -432,19 +412,17 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             if (!price.has_value()) {
                 return std::unexpected{BuildError::BadPrice};
             }
-            // `price` is a JSON NUMBER on this API; quoting it is answered 600.
+            // `price` is a json number; quoted it is answered 600
             json.decimal_raw("price", *price);
         }
-        // `vol` counts CONTRACTS, and the instrument's lot step is already
-        // stated in them, so this is the lot count rendered as a decimal.
+        // `vol` counts contracts, the lot unit
         json.decimal_raw("vol", *qty)
             .num("side", futures_side(cmd.side, cmd.flags))
             .num("type", futures_order_type(cmd.order_type, cmd.tif, cmd.flags))
             .raw("openType", k_open_type_cross)
             .str("externalOid", coid);
         if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
-            // `side` already says close in hedge mode; this is what says it in
-            // one-way mode, and MEXC takes whichever its account setting uses.
+            // reduceOnly marks a close in one-way mode; `side` does in hedge mode
             json.boolean("reduceOnly", true);
         }
         json.obj_end();
@@ -455,9 +433,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             net::HttpMethod::Post, ep::k_futures_order_create, {}, json.view(), now);
     }
     case MarketType::Spot: {
-        // MEXC spot advertises no timeInForce parameter at all: IOC and FOK
-        // have nowhere to go, and silently sending GTC would leave a resting
-        // order where the strategy asked for a fill-or-nothing.
+        // spot has no timeInForce, so ioc and fok are refused
         if (cmd.tif != TimeInForce::Gtc) {
             return std::unexpected{BuildError::SpotTifNotExpressible};
         }
@@ -471,8 +447,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             }
             query << "&price=" << *price;
         }
-        // ReduceOnly is deliberately not forwarded: a spot balance cannot be
-        // short, so MEXC has no field for it.
+        // spot has no reduce-only field
         query << "&newClientOrderId=" << coid;
         if (!query.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
@@ -505,8 +480,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     switch (cmd.instrument.market()) {
     case MarketType::Perp: {
         if (venue_id.empty()) {
-            // cancel_with_external takes ONE order and names it by symbol plus
-            // externalOid; the id-array endpoint cannot express a client id.
+            // cancel_with_external takes one order by symbol plus externalOid
             net::JsonWriter json{body_};
             json.obj_begin().str("symbol", symbol).str("externalOid", coid).obj_end();
             if (!json.ok()) {
@@ -518,10 +492,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
                                 json.view(),
                                 now);
         }
-        // The body IS a bare array of ids — not an object wrapping one — and
-        // the ids are declared List<Long>, so they go in UNQUOTED. An id that
-        // is not a run of digits cannot be rendered that way and is refused
-        // rather than emitted as JSON MEXC would answer 601 to.
+        // a bare array of unquoted List<Long> ids; non-digit ids are refused
         if (!all_digits(venue_id)) {
             return std::unexpected{BuildError::NoOrderTarget};
         }
@@ -563,9 +534,7 @@ SignedRequestBuilder::amend_order(const OrderCmd& cmd, const exec::InstrumentTab
     case MarketType::Spot:
     case MarketType::Perp:
     case MarketType::Future:
-        // Neither MEXC API has a modify endpoint. Synthesizing cancel-replace
-        // here would report an Updated the venue never granted, and would hide
-        // the queue position the order actually lost.
+        // no modify endpoint on either api
         return std::unexpected{BuildError::AmendUnsupported};
     case MarketType::Option:
         return std::unexpected{BuildError::OptionsUnsupported};
@@ -582,8 +551,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
     if (const auto refusal = market_refusal(market); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
-    // A batch that straddles markets would go to one endpoint and silently
-    // lose the other market's cancels.
+    // a batch mixing markets would lose one market's cancels
     for (const auto& cmd : cmds) {
         if (cmd.instrument.market() != market) {
             return std::unexpected{BuildError::UnknownInstrument};
@@ -595,8 +563,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
         Appender body{body_};
         body << "[";
         for (std::size_t i = 0; i < cmds.size(); ++i) {
-            // The array endpoint speaks venue ids only; an order we know only
-            // by our own id goes one at a time through cancel_with_external.
+            // the array takes venue ids only; others go through cancel_with_external
             const auto venue_id = cmds[i].target_exchange_order_id.view();
             if (!all_digits(venue_id)) {
                 return std::unexpected{BuildError::NoOrderTarget};
@@ -611,9 +578,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
             net::HttpMethod::Post, ep::k_futures_order_cancel, {}, body.view(), now);
     }
     case MarketType::Spot:
-        // MEXC spot cancels by symbol or by single order, never by a list of
-        // ids. Refused so the caller loops instead of cancelling a symbol's
-        // whole book because a batch was asked for.
+        // spot cancels by symbol or single order only
         (void)table;
         return std::unexpected{BuildError::SpotBatchCancelUnsupported};
     case MarketType::Future:
@@ -628,15 +593,10 @@ std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, UnixNanos now) {
     switch (market) {
     case MarketType::Perp: {
-        // The path buffer is a member, not a local: sign_futures copies the
-        // path into `target_` and the request that leaves here still points at
-        // the bytes it was given.
+        // a member buffer so the request still points at valid bytes
         Appender path{path_};
-        // The symbol is a PATH segment, and the two doc generations disagree
-        // about it: the legacy tree spells the sweep .../open_orders/{symbol}
-        // while the current one dropped the segment entirely. Naming a symbol
-        // keeps the old form and leaving it out keeps the new one, so a
-        // trailing empty segment is never emitted.
+        // the legacy tree takes .../open_orders/{symbol} and the current one
+        // no segment; never emit an empty one
         path << ep::k_futures_open_orders;
         if (!symbol.empty()) {
             path << "/" << symbol;
@@ -648,8 +608,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view symbol, Un
     }
     case MarketType::Spot: {
         if (symbol.empty()) {
-            // /api/v3/openOrders has no account-wide form; answering with one
-            // symbol's orders would read as "these are all of them".
+            // /api/v3/openOrders has no account-wide form
             return std::unexpected{BuildError::NeedsSymbol};
         }
         Appender query{query_};
@@ -686,9 +645,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
         return sign_futures(net::HttpMethod::Get, path.view(), {}, {}, now);
     }
     case MarketType::Spot: {
-        // Unlike /api/v3/openOrders, the single-order read marks `symbol`
-        // optional, so a client order id alone resolves an order the caller
-        // has no pair for.
+        // the single-order read takes `symbol` as optional
         Appender query{query_};
         query << "origClientOrderId=" << coid;
         if (!symbol.empty()) {
@@ -714,8 +671,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::my_trades(Mark
     const auto since_ms = static_cast<std::int64_t>(since.ns / 1'000'000ULL);
     switch (market) {
     case MarketType::Perp: {
-        // Sorted by parameter name ascending: the futures digest covers the
-        // query string in that order, and MEXC re-sorts before verifying.
+        // sorted by parameter name; the futures digest covers the query in that order
         Appender query{query_};
         query << "page_num=1&page_size=" << k_page_size;
         if (!symbol.empty()) {
@@ -757,8 +713,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     case MarketType::Perp:
         return sign_futures(net::HttpMethod::Get, ep::k_futures_positions, {}, {}, now);
     case MarketType::Spot:
-        // A spot balance is not a position. Answering "flat" would be a claim
-        // about a concept this API does not have.
+        // spot balances are not positions
         return std::unexpected{BuildError::SpotPositionsUnsupported};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -772,8 +727,7 @@ std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::funding_records(MarketType market, UnixNanos since, UnixNanos now) {
     switch (market) {
     case MarketType::Perp: {
-        // Sorted by parameter name ascending, like every other futures read:
-        // the digest covers the query string in that order.
+        // sorted by parameter name, as the digest requires
         Appender query{query_};
         query << "page_num=1&page_size=" << k_page_size;
         if (const auto since_ms = static_cast<std::int64_t>(since.ns / 1'000'000ULL);
@@ -787,9 +741,7 @@ SignedRequestBuilder::funding_records(MarketType market, UnixNanos since, UnixNa
             net::HttpMethod::Get, ep::k_futures_funding_records, query.view(), {}, now);
     }
     case MarketType::Spot:
-        // A spot pair pays no funding, and this ledger is the FUTURES
-        // account's. Answering with it would book a perpetual's charges
-        // against a spot gateway.
+        // spot pays no funding; this ledger is futures-only
         return std::unexpected{BuildError::SpotFundingUnsupported};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};

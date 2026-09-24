@@ -19,7 +19,7 @@ std::expected<void, WireError> read_position(ondemand::object& obj, WirePosition
         obj.reset();
         return wire::opt_str(obj, key).value_or(std::string_view{});
     };
-    // An empty side with size "0" is bybit's way of saying flat.
+    // an empty side with size "0" means flat
     out.side = field("side");
     out.size = field("size");
     out.avg_price = field("entryPrice");
@@ -55,7 +55,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
                     obj.reset();
                     return wire::opt_str(obj, key).value_or(std::string_view{});
                 };
-                // An empty side with size "0" is bybit's way of saying flat.
+                // an empty side with size "0" means flat
                 out.side = field("side");
                 out.size = field("size");
                 out.avg_price = field("entryPrice");

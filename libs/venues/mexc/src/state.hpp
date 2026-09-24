@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// `internal` because an anonymous namespace in a header makes a distinct type per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -28,21 +27,16 @@
 
 namespace raikiri::venues::mexc::internal {
 
-// Live orders tracked for their leaves. Far above any sane working set; the
-// cap exists so a venue incident cannot turn the map into the heap.
+// caps memory if the venue misbehaves
 constexpr std::size_t k_max_live_orders = 8'192;
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string channel;
     std::string symbol;
     std::uint32_t limit{0};
 };
 
-// State every mexc connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single threaded; only the gateway loop calls in
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
         : sink{&sink_ref}, clock{&clock_ref} {}
@@ -52,9 +46,7 @@ struct VenueState {
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
-    // The one market this process serves. MEXC's two trees share nothing: not
-    // the host, not the subscription shape, not even the encoding — futures is
-    // JSON and spot is protobuf.
+    // futures is json and spot protobuf; the trees share nothing
     MarketType market{MarketType::Perp};
 
     net::IoContext io;
@@ -67,29 +59,17 @@ struct VenueState {
 
     std::uint64_t next_app_ping_ns{0};
 
-    // The execution client's socket, registered so ONE timer pings both.
-    //
-    // MEXC's 60 s idle timer counts only CLIENT messages, so a socket that
-    // merely receives is closed. The data client owns the ping cadence and
-    // sends on both connections from it. The execution client has a poll of
-    // its own that gatewayd calls, so a second timer there would work too —
-    // one is kept because two would drift apart.
+    // registered so the data client's ping timer also reaches this socket
     net::WsClient* private_client{nullptr};
 
-    // Venue clock offsets, measured separately per tree: /api/v1 and /api/v3
-    // check a request against their own clock, and one offset for both is a
-    // signature that expires on whichever host drifted.
+    // one offset per tree since each checks against its own clock
     std::int64_t clock_offset_ns{0};
     std::int64_t spot_clock_offset_ns{0};
 
-    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
 
-    // As much of a live futures order as MEXC states in any one frame. The
-    // order push carries `vol`/`dealVol` and our externalOid; the deal push
-    // carries the fill and neither, so a fill cannot state its own leaves —
-    // which is the number the OMS treats as authoritative. Keyed by the venue
-    // order id, the one field both frames do carry.
+    // the deal push lacks leaves and externalOid, so they are remembered
+    // from the order push by venue order id
     struct OrderMemo {
         ExchangeClientOrderId client_order_id{};
         QtyLots leaves{QtyLots::from_raw(0)};
@@ -106,8 +86,7 @@ struct VenueState {
         desired.emplace_back(std::string{channel}, std::string{symbol}, limit);
     }
 
-    // Takes the tree explicitly rather than reading `market`: the caller knows
-    // which deployment stamped the timestamp it is adjusting.
+    // the caller names the tree whose clock stamped the timestamp
     [[nodiscard]] UnixNanos venue_now(MarketType tree) const noexcept {
         const auto offset = tree == MarketType::Spot ? spot_clock_offset_ns : clock_offset_ns;
         const auto local = clock->wall();
@@ -118,7 +97,7 @@ struct VenueState {
         if (wire.order_id.empty()) {
             return;
         }
-        // 3 filled, 4 cancelled, 5 invalid: nothing further can reference it.
+        // 3 filled, 4 cancelled, 5 invalid
         if (wire.state >= 3) {
             live_orders.erase(std::string{wire.order_id});
             return;
@@ -153,10 +132,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// The two trees report a refusal differently: futures wraps it in
-// {"success":false,"code":..,"message":..} and spot answers a bare
-// {"code":..,"msg":..}. Reading one with the other's parser loses the code,
-// and the code is what decides retry from halt.
+// futures wraps a refusal in {"success":false,"code","message"} and spot answers {"code","msg"}
 inline exec::VenueError rest_failure(std::string_view body, MarketType market) {
     if (market == MarketType::Spot) {
         const auto err = parse_spot_error(body);
@@ -172,8 +148,7 @@ inline exec::VenueError rest_failure(std::string_view body, MarketType market) {
     return exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg);
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
+// a skewed timestamp reads to the venue as a bad signature
 void sync_clock(VenueState& state, net::RestClient& rest);
 void sync_spot_clock(VenueState& state, net::RestClient& rest);
 

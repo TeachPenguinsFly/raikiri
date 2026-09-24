@@ -37,9 +37,7 @@ InstrumentBase base_of_kind(MarketType market, std::string_view symbol) {
 }
 
 TEST(AdminFormat, EveryValueTooLargeForADoubleLeavesAsDigits) {
-    // The rule the whole contract turns on. JavaScript holds integers exactly
-    // only to 2^53 — 9007199254740992 — and both of these are past it, so a
-    // JSON number would arrive at the browser rounded.
+    // both ids exceed 2^53, so a json number would round them
     const auto id = InstrumentId::make(VenueId::Deribit, MarketType::Option, SymbolId{3});
     EXPECT_GT(id.packed, 9'007'199'254'740'992ULL);
     EXPECT_EQ(digits(id), std::to_string(id.packed));
@@ -48,7 +46,6 @@ TEST(AdminFormat, EveryValueTooLargeForADoubleLeavesAsDigits) {
     EXPECT_GT(ts.ns, 9'007'199'254'740'992ULL);
     EXPECT_EQ(digits(ts), "1787904000000000000");
 
-    // And they are DIGITS, so a reader can parse them without guessing.
     for (const char c : digits(id)) {
         EXPECT_TRUE(c >= '0' && c <= '9');
     }
@@ -62,9 +59,6 @@ TEST(AdminFormat, ATurnoverPastInt64AtE9IsStillANumber) {
 }
 
 TEST(AdminFormat, APriceIsResolvedThroughTheInstrumentThatGivesItMeaning) {
-    // A tick count without its instrument is not a price. 40000 at a 0.0001
-    // tick is 400 000 000 ticks, and rendering the count instead of the price
-    // would be off by four orders of magnitude.
     const auto base = base_of_kind(MarketType::Option, "BTC-28AUG26-40000-C");
     const auto strike = *base.price_to_ticks(*parse_decimal_e9("40000"));
     EXPECT_EQ(strike.raw, 400'000'000);
@@ -73,7 +67,6 @@ TEST(AdminFormat, APriceIsResolvedThroughTheInstrumentThatGivesItMeaning) {
 }
 
 TEST(AdminFormat, ASizePastInt64AtE9IsStillRendered) {
-    // Phemex spot PEPE/USDT, lot 1, quoted 20 755 471 406 at the ask.
     auto base = base_of_kind(MarketType::Spot, "PEPE/USDT");
     base.lot_size = *parse_decimal_e9("1");
     base.tick_size = *parse_decimal_e9("0.00000001");
@@ -85,8 +78,6 @@ TEST(AdminFormat, ASizePastInt64AtE9IsStillRendered) {
 }
 
 TEST(AdminRegistry, AnOptionCarriesItsStrikeAndExpiryAndASpotCarriesNeither) {
-    // Absent, never zero: an expiry of zero is a date in 1970 and a strike of
-    // zero is a free option, and both would be read as data.
     const auto base = base_of_kind(MarketType::Option, "BTC-28AUG26-40000-C");
     const OptionInstrument option{.base = base,
                                   .strike = *base.price_to_ticks(*parse_decimal_e9("40000")),
@@ -105,7 +96,6 @@ TEST(AdminRegistry, AnOptionCarriesItsStrikeAndExpiryAndASpotCarriesNeither) {
     EXPECT_FALSE(flat.expiry.has_value());
     EXPECT_FALSE(flat.put_call.has_value());
 
-    // And absent means ABSENT on the wire, not null.
     std::string body;
     ASSERT_FALSE(glz::write<glz::opts{.skip_null_members = true}>(flat, body));
     EXPECT_EQ(body.find("strike"), std::string::npos) << body;
@@ -113,8 +103,6 @@ TEST(AdminRegistry, AnOptionCarriesItsStrikeAndExpiryAndASpotCarriesNeither) {
 }
 
 TEST(AdminRegistry, AnEmptyRuntimeDirectoryIsNoGatewaysRatherThanAnError) {
-    // Gateways come and go. A terminal that can say "none are running" is more
-    // useful than one that refuses to start.
     Registry registry;
     EXPECT_EQ(registry.discover("/tmp/raikiri-admin-test-does-not-exist", 1), 0U);
     EXPECT_EQ(registry.size(), 0U);
@@ -151,24 +139,16 @@ TEST(AdminServer, QueryParametersAreReadByNameAndNotByPosition) {
     EXPECT_EQ(http::query_param(query, "kind"), "option");
     EXPECT_EQ(http::query_param(query, "limit"), "50");
     EXPECT_TRUE(http::query_param(query, "cursor").empty());
-    // A prefix is not a name: `limit` must not answer for `lim`.
     EXPECT_TRUE(http::query_param(query, "lim").empty());
     EXPECT_TRUE(http::query_param("", "account").empty());
     EXPECT_TRUE(http::query_param("account", "account").empty()) << "a key with no value is no answer";
 }
 
-// ------------------------------------------------- a restarted gateway ----
-//
-// Against REAL segments, because the defect is in what the registry does with a
-// second segment under the same name and a hand-built attachment would prove
-// nothing about the mapping that goes away.
-
 std::string segment_dir() {
     return "/tmp/raikiri-admin-reattach-" + std::to_string(::getpid());
 }
 
-// Removed at the end whatever the test does, so a failed assertion cannot leave
-// a segment behind for the next run to attach to.
+// removed on exit so a failed assertion leaves no segment behind
 struct SegmentDir {
     SegmentDir() {
         std::error_code ec;
@@ -185,8 +165,7 @@ struct SegmentDir {
     }
 };
 
-// The catalogue hands out slots in push order, so an instrument's SymbolId is
-// the slot it will land in.
+// the catalogue assigns slots in push order, so a SymbolId is its slot
 raikiri::Instrument listed_as(std::uint32_t slot, std::string_view symbol) {
     InstrumentBase base{};
     base.id = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{slot});
@@ -200,9 +179,7 @@ raikiri::Instrument listed_as(std::uint32_t slot, std::string_view symbol) {
     return raikiri::Instrument{PerpInstrument{.base = base}};
 }
 
-// One run of one gateway, in gatewayd's own order: create the segment, fill the
-// catalogue, and only then publish — so a reader that can attach at all can
-// resolve every id it will be sent.
+// same order as gatewayd: create the segment, fill the catalogue, then publish
 std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation,
                                                const std::vector<std::string>& symbols) {
     auto owner = shm::SegmentOwner::create(
@@ -224,17 +201,9 @@ std::optional<shm::SegmentOwner> start_gateway(std::uint64_t generation,
 }
 
 TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
-    // MEASURED: a gatewayd was killed and started again, loaded its instruments
-    // and subscribed, and /v1/health went on reporting that account alive=false
-    // with the dead run's generation until admind itself was restarted.
     const SegmentDir dir;
     constexpr std::uint64_t k_first_run = 1'000;
-    // Far enough past the first run's last heartbeat that the dead owner reads
-    // dead, which is exactly what the terminal showed.
     constexpr std::uint64_t k_second_run = k_first_run + 10 * shm::k_owner_stale_ns;
-    // A plausible wall clock: the two are unrelated readings, which is the
-    // whole point — the monotonic one is small because the machine booted
-    // recently, the epoch one is not.
     constexpr std::uint64_t k_wall_now = 1'788'000'000'000'000'000ULL;
 
     auto first_run = start_gateway(k_first_run, {"AAA"});
@@ -247,24 +216,16 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     EXPECT_EQ(attached->client.generation(), k_first_run);
     const auto epoch = registry.epoch();
 
-    // A rescan of the SAME run must change nothing: re-attaching a live gateway
-    // every two seconds would spend the segment's four reader slots and unmap a
-    // catalogue nobody asked it to.
     ASSERT_EQ(registry.discover(segment_dir(), 1), 1U);
     EXPECT_EQ(registry.find("sim"), attached);
     EXPECT_EQ(registry.epoch(), epoch);
 
-    // The gateway dies and comes back: a new segment, a new generation, and a
-    // catalogue of its own. This is the rescan that used to skip it.
     first_run.reset();
     const auto second_run = start_gateway(k_second_run, {"BBB"});
     ASSERT_TRUE(second_run.has_value());
 
     const auto dead = registry.accounts(MonoNanos{k_second_run}, UnixNanos{k_wall_now});
-    // THE HEARTBEAT LEAVES ON THE WALL CLOCK. The gateway stamps it on the
-    // monotonic one and that is right for `alive` above, but the contract calls
-    // this field nanoseconds since the epoch — reported raw, twelve days of
-    // uptime read as 1969 and the terminal drew "496579h ago".
+    // last_heartbeat is reported on the wall clock
     EXPECT_LE(std::stoull(dead.front().gateway.last_heartbeat), k_wall_now);
     EXPECT_GT(std::stoull(dead.front().gateway.last_heartbeat), k_wall_now / 2)
         << "dated by its age, not by the monotonic reading";
@@ -282,17 +243,12 @@ TEST(AdminReattach, AGatewayThatRestartedIsAttachedAgainRatherThanLeftForDead) {
     EXPECT_TRUE(live.front().gateway.alive);
     EXPECT_EQ(live.front().gateway.generation, digits(k_second_run));
 
-    // And every read now goes to the NEW catalogue.
     const auto instruments = registry.instruments("sim", std::nullopt);
     ASSERT_EQ(instruments.size(), 1U);
     EXPECT_EQ(instruments.front().exchange_symbol, "BBB");
 }
 
 TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
-    // The hazard the re-attach creates. A live subscription holds a `listed`
-    // POINTING INTO the mapping a re-attach drops, so a session compares
-    // Registry::epoch() against the one it resolved at and resolves again; this
-    // is what resolving again has to answer.
     const SegmentDir dir;
     const auto kept = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{0});
     const auto gone = InstrumentId::make(VenueId::Sim, MarketType::Perp, SymbolId{1});
@@ -307,13 +263,10 @@ TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
     const auto before = resolve_targets(registry, watchlist, unknown);
     ASSERT_TRUE(unknown.empty());
     ASSERT_EQ(before.size(), 2U);
-    // Kept as a VALUE and never read again: once the re-attach has happened it
-    // is a pointer into an unmapped segment, and reading one is the
-    // use-after-free this test exists to keep out.
+    // dangles after the re-attach; never dereference it
     const auto* dropped = before.front().listed;
     const auto epoch = registry.epoch();
 
-    // The gateway comes back listing one of the two.
     first_run.reset();
     const auto second_run = start_gateway(2'000, {"AAA"});
     ASSERT_TRUE(second_run.has_value());
@@ -327,9 +280,6 @@ TEST(AdminReattach, ATargetBelongsToTheAttachmentItWasResolvedAgainst) {
     EXPECT_EQ(after.front().listed, registry.find("sim")->channels.catalogue->find(kept));
     EXPECT_EQ(after.front().id, kept);
     EXPECT_EQ(after.front().cell, 0U);
-    // The one the restarted run no longer lists is SAID rather than quietly
-    // dropped: a feed that stops ticking without a word is a terminal showing
-    // nothing where a price was asked for.
     ASSERT_EQ(missing.size(), 1U);
     EXPECT_EQ(missing.front(), digits(gone));
 }

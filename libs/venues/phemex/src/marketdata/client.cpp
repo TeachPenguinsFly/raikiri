@@ -28,8 +28,7 @@ namespace raikiri::venues::phemex::internal {
 
 namespace {
 
-// fundingInterval changes under a running contract (8 h to 4 h), and new
-// listings trade before the CDN-cached catalogue shows them.
+// fundingInterval can change on a live contract and new listings precede the cached catalogue
 constexpr std::uint64_t k_reread_interval_ns = 15ULL * 60ULL * 1'000'000'000ULL;
 constexpr std::uint32_t k_catalogue_timeout_ms = 15'000;
 constexpr std::size_t k_names_logged = 12;
@@ -56,7 +55,7 @@ constexpr std::size_t k_names_logged = 12;
     return out;
 }
 
-// The quote first: the book is also the BBO.
+// the quote first: the book is also the bbo
 [[nodiscard]] int ask_rank(std::string_view key) noexcept {
     if (is_book_key(key)) {
         return 0;
@@ -273,7 +272,7 @@ private:
             ask_count = to_levels(wire.asks, *found->listing, asks);
         }
         if (!bid_count.has_value() || !ask_count.has_value()) {
-            // A skipped level would leave the copy wrong until the next snapshot.
+            // a skipped level would leave the book wrong until the next snapshot
             ++state_->off_grid_frames;
             book.invalidate();
             return;
@@ -302,7 +301,7 @@ private:
 
     template <typename Print>
     void on_trades(const WireTrades<Print>& wire, UnixNanos received) noexcept {
-        // The subscribe reply replays 200 old prints; the tape starts after it.
+        // the subscribe reply replays 200 old prints
         if (wire.snapshot) {
             return;
         }

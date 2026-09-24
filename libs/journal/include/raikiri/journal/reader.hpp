@@ -16,9 +16,7 @@ enum class ReadResult : std::uint8_t {
     Corrupt, // CRC/structure violation before the committed watermark
 };
 
-// Tailing reader: follows a live journal (or replays a finished one) by
-// mmapping segments read-only and chasing committed_bytes. Safe to run in a
-// different process from the writer; also safe after the writer is gone.
+// follows a live journal or replays a finished one, from any process
 class JournalReader {
 public:
     JournalReader(const JournalReader&) = delete;
@@ -42,7 +40,7 @@ private:
 
     [[nodiscard]] bool open_segment(std::uint64_t segment_seq) noexcept;
     void close_segment() noexcept;
-    // Newest segment seq present on disk, or none.
+    // segment seqs present on disk
     [[nodiscard]] std::expected<std::vector<std::uint64_t>, JournalError> list_segments() const;
 
     std::string dir_;

@@ -139,8 +139,7 @@ private:
         if (!found.has_value() || !found->market->book.admit(wire->li)) {
             return;
         }
-        // bbo speaks only when the top moves; the ladder's level zero keeps a
-        // quiet market quoted.
+        // bbo fires only when the top moves; the ladder's level zero keeps a quiet market quoted
         if (const auto top = top_of(*wire); top.has_value()) {
             publish_top(*top, *found, received);
         }

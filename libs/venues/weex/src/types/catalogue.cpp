@@ -45,9 +45,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
                 *field = *value;
             }
             item.reset();
-            // RAW, not a string: `contractVal` is a JSON number, written as an
-            // integer on 573 rows and as a float on 449 in the same body, so
-            // the literal is taken as text and parsed once by the mapper.
+            // raw: contractVal is written as an int or a float
             const auto contract_val = wire::opt_raw(item, "contractVal");
             if (!contract_val.has_value()) {
                 return std::unexpected(contract_val.error());
@@ -60,9 +58,7 @@ parse_exchange_info(std::string_view body, InstrumentBuffer& storage) {
             }
             row.price_precision = *precision;
 
-            // LAST, because reading a nested array consumes it: the settlement
-            // timetable is counted and never inspected, so nothing after it
-            // needs the object rewound again.
+            // last, because reading the nested array consumes it
             item.reset();
             auto delivery = wire::req_array(item, "delivery");
             if (!delivery.has_value()) {

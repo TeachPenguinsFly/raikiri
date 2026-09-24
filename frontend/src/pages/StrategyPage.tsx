@@ -1,14 +1,5 @@
 import { useParams } from 'react-router'
 
-/** One strategy's page, and why it cannot be drawn.
- *
- *  The deepest of the three: it needs run parameters, a slot structure and
- *  per-slot settlements, none of which any process publishes.
- *
- *  There is no Start/Stop here. There was, and it was removed rather than
- *  disabled: a greyed control still says the feature exists, and a second
- *  producer into the command rings is a decision to be made deliberately
- *  rather than a POST added quietly. */
 export function StrategyPage() {
   const { name } = useParams()
   return (

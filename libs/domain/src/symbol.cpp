@@ -8,14 +8,7 @@ namespace raikiri {
 
 namespace {
 
-// Two spellings of ONE asset. Deliberately tiny, and it stays tiny: every entry
-// here merges two things forever, and a wrong merge is money in the wrong
-// column that nothing downstream can separate again.
-//
-// NOTHING HERE MAY CHANGE A SCALE. `1000PEPE` is not `PEPE` — it is a contract
-// on a thousand of them, and folding the two makes a thousandfold price gap
-// look like an arbitrage. Under-grouping costs a missing row on a screen;
-// over-grouping invents a trade.
+// two spellings of one asset; keep it tiny and never fold a scale (1000PEPE is not PEPE)
 struct Alias {
     std::string_view from;
     std::string_view to;
@@ -47,8 +40,7 @@ std::optional<SymbolText> canonical_symbol(std::string_view base, std::string_vi
     const auto left = aliased(*base_code);
     const auto right = aliased(*quote_code);
 
-    // The separator is what makes the form unambiguous: `BTC` + `USDT` and
-    // `BTCU` + `SDT` are different markets that concatenate to one string.
+    // the separator keeps BTC+USDT apart from BTCU+SDT
     std::string out;
     out.reserve(left.view().size() + 1 + right.view().size());
     out.append(left.view());
@@ -67,8 +59,6 @@ std::optional<std::pair<AssetCode, AssetCode>> split_symbol(std::string_view sym
     }
     const auto base = symbol.substr(0, cut);
     const auto quote = symbol.substr(cut + 1);
-    // A second separator means the symbol carries something besides the pair,
-    // and which part that something is belongs to the venue, not to this.
     if (quote.find(separator) != std::string_view::npos) {
         return std::nullopt;
     }

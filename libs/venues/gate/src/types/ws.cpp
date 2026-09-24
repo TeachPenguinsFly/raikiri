@@ -12,8 +12,7 @@ namespace {
 constexpr std::string_view k_channel_depth = "futures.order_book_update";
 constexpr std::string_view k_channel_spot_depth = "spot.order_book";
 
-// Writes into a caller-owned buffer, refusing rather than truncating: a
-// half-written frame would subscribe to something other than what was asked.
+// refuses rather than truncating a frame
 class FrameWriter {
 public:
     explicit FrameWriter(std::span<char> into) noexcept : into_{into} {}
@@ -111,8 +110,7 @@ std::string_view orders_channel(MarketType market) noexcept {
         return "spot.orders";
     case MarketType::Future:
     case MarketType::Option:
-        // Gate publishes options.orders and delivery channels; nothing here
-        // maps their payloads, so no subscription is offered.
+        // options and delivery payloads are not mapped
         return {};
     }
     return {};
@@ -139,10 +137,7 @@ std::string_view channel_for(exec::SubKind kind, MarketType market) noexcept {
     case exec::SubKind::Trades:
         return spot ? "spot.trades" : "futures.trades";
     case exec::SubKind::Depth:
-        // Spot takes the SNAPSHOT channel, not the delta one. Gate publishes a
-        // complete book every interval there, so the whole seed-and-chain
-        // machinery the futures deltas need has nothing to do — and a chain
-        // that cannot desynchronise cannot silently serve a stale book.
+        // spot uses the snapshot channel, so no seed or chain is needed
         return spot ? k_channel_spot_depth : k_channel_depth;
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
@@ -186,10 +181,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(
         writer.put(subscriptions[i].contract);
         writer.put("\"");
     }
-    // Both depth channels take the same two extra arguments IN OPPOSITE
-    // ORDER: futures is [contract, interval, level] and spot is
-    // [contract, level, interval]. Getting it backwards is refused outright —
-    // "incorrect level provided: 100ms" — rather than quietly served.
+    // futures takes [contract, interval, level], spot [contract, level, interval]
     if (channel == k_channel_depth) {
         writer.put(",\"");
         writer.put(k_depth_interval);

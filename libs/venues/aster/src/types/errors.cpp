@@ -25,7 +25,6 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_invalid_timestamp:
         return exec::ErrorClass::Retryable;
 
-    // The credentials are valid; the stream key is not.
     case k_invalid_listen_key:
         return exec::ErrorClass::Retryable;
 

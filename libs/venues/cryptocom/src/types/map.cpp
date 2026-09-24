@@ -10,7 +10,7 @@ namespace {
 
 constexpr std::uint64_t k_interval_ms = std::uint64_t{k_funding_interval_s} * 1000;
 
-// Off-step is refused, never rounded.
+// off-step is refused, not rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -180,7 +180,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    // Perpetuals quote the venue's USD bundle: "BTC/USD", never folded into USDT.
+    // perpetuals quote the venue's usd bundle ("BTC/USD"), not folded into usdt
     const auto canonical = canonical_symbol(wire.base_ccy, wire.quote_ccy);
     if (!canonical.has_value()) {
         return std::nullopt;

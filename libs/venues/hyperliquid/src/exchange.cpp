@@ -11,17 +11,8 @@ namespace {
 
 constexpr std::string_view k_exchange = "/exchange";
 
-// Writes one action twice from a single call sequence: msgpack, which is what
-// gets hashed and signed, and JSON, which is what the venue reads. Keeping the
-// two in one object is the whole point — a JSON body that disagrees with the
-// packed bytes is a good signature over a different order, and the venue's
-// answer names an address that changes every attempt.
-//
-// Two msgpack details are load-bearing and neither is visible in the output
-// until a signature is refused: map keys are written in INSERTION order, never
-// sorted, and a string of 32..255 bytes uses str8 (0xd9). A general msgpack
-// library that emits str16 for the 34-byte cloid produces a valid encoding of
-// the same value and an invalid signature.
+// msgpack keys keep insertion order and 32..255-byte strings use str8;
+// the json and packed forms share one call sequence
 class ActionWriter {
 public:
     ActionWriter(std::span<std::uint8_t> pack, std::span<char> json) noexcept
@@ -91,8 +82,7 @@ public:
     }
 
     ActionWriter& integer(std::uint64_t value) noexcept {
-        // Minimal width, UNSIGNED. A wider encoding of the same number hashes
-        // differently, so this is not an optimisation.
+        // minimal width, since a wider encoding hashes differently
         if (value < 0x80U) {
             put_byte(static_cast<std::uint8_t>(value));
         } else if (value <= 0xFFU) {
@@ -148,7 +138,7 @@ private:
         if (text.size() < 32) {
             put_byte(static_cast<std::uint8_t>(0xA0U | text.size()));
         } else if (text.size() < 256) {
-            put_byte(0xD9U); // str8, NOT str16: the cloid is 34 bytes
+            put_byte(0xD9U); // str8: the cloid is 34 bytes
             put_byte(static_cast<std::uint8_t>(text.size()));
         } else {
             overflow_ = true;
@@ -168,9 +158,7 @@ private:
     }
 
     void put_text(std::string_view text) noexcept {
-        // Nothing written here is ever user text: keys are literals and values
-        // are hex ids, digits and the venue's own enum words. Escaping would be
-        // dead code, so a value that would need it is a bug, not a case.
+        // values are literals, hex ids and digits, so nothing needs escaping
         for (const char c : text) {
             if (c == '"' || c == '\\') {
                 overflow_ = true;
@@ -200,10 +188,6 @@ private:
     bool pending_value_{false};
 };
 
-// ticks/lots -> the venue's decimal string. Integer throughout: a price that
-// travelled through a double is a price one tick from where it was meant.
-// format_e9 already strips trailing zeroes, which is what the venue's own
-// signing notes require.
 [[nodiscard]] std::string_view render(FixedE9 value, std::span<char> out) noexcept {
     return format_e9(value, out.data(), out.size());
 }
@@ -233,12 +217,7 @@ private:
     return std::nullopt;
 }
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than one a default arm swallows.
-// Asked BEFORE the instrument table is read: find() compares the whole id, so
-// an id for a market never loaded here resolves to nothing and would be
-// reported as UnknownInstrument — blaming the catalogue for a market that was
-// never served.
+// checked before the table lookup, so an unserved market is not reported as UnknownInstrument
 [[nodiscard]] std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -287,10 +266,7 @@ std::string_view to_string(BuildError err) noexcept {
 }
 
 std::uint64_t NonceSource::next(UnixNanos now) noexcept {
-    // Strictly increasing, whatever the clock does. The venue remembers the
-    // hundred highest nonces per signer and refuses anything at or below the
-    // smallest of them, so a repeated millisecond — or a clock stepping back —
-    // would otherwise cost an order with no diagnosis.
+    // strictly increasing even if the clock steps back
     const auto ms = now.ns / 1'000'000ULL;
     last_ = ms > last_ ? ms : last_ + 1;
     return last_;
@@ -299,7 +275,7 @@ std::uint64_t NonceSource::next(UnixNanos now) noexcept {
 bool price_digits_ok(std::string_view text) noexcept {
     const auto dot = text.find('.');
     if (dot == std::string_view::npos) {
-        return true; // integer prices are always accepted, however long
+        return true; // integer prices are always accepted
     }
     std::size_t significant = 0;
     bool started = false;
@@ -374,8 +350,7 @@ ExchangeBuilder::create_order(const OrderCmd& cmd,
     }
     action.end_map();
     action.end_array();
-    // Always present, even at its default: the SDK writes it unconditionally
-    // and an action hashed without it is a different action.
+    // always written; the reference sdk hashes it unconditionally
     action.key("grouping").str("na");
     action.end_map();
     if (!action.ok()) {
@@ -410,8 +385,6 @@ ExchangeBuilder::cancel_order(const OrderCmd& cmd, std::int64_t asset, std::uint
         action.key("a").integer(static_cast<std::uint64_t>(asset));
         action.key("o").integer(oid);
     } else {
-        // A DIFFERENT action, with different key names — not the same one with
-        // an alternative field.
         action.key("type").str("cancelByCloid");
         action.key("cancels").array(1).map(2);
         action.key("asset").integer(static_cast<std::uint64_t>(asset));
@@ -470,8 +443,7 @@ ExchangeBuilder::modify_order(const OrderCmd& cmd,
     ActionWriter action{packed_, action_json_};
     action.map(3);
     action.key("type").str("modify");
-    // The target: a venue id is a NUMBER and a client id is a STRING, in the
-    // same field. msgpack types differ, so this is not a formatting choice.
+    // an oid is a msgpack number, a cloid a string
     action.key("oid");
     if (oid != 0) {
         action.integer(oid);
@@ -489,8 +461,7 @@ ExchangeBuilder::modify_order(const OrderCmd& cmd,
     action.key("tif").str(tif_of(cmd));
     action.end_map().end_map();
     if (!cloid.empty()) {
-        // The replacement carries the same client id: the modify cancels and
-        // places atomically, so the id is never live on two orders at once.
+        // the modify keeps the client id; it cancels and places atomically
         action.key("c").str(cloid);
     }
     action.end_map();
@@ -509,8 +480,7 @@ std::uint64_t ExchangeBuilder::digits_to_oid(std::string_view text) noexcept {
 
 std::expected<net::RestRequest, BuildError> ExchangeBuilder::sign_and_wrap(
     std::span<const std::uint8_t> packed, std::string_view action_json, std::uint64_t nonce) {
-    // No vault and no expiry: both change the PREIMAGE, not just a JSON field,
-    // so they are wired here or not at all.
+    // vault and expiry change the preimage and are not supported here
     const auto hash = action_hash(packed, nonce, {}, 0);
     Signature signature{};
     if (!wallet_->sign(agent_digest(hash, mainnet_), signature)) {

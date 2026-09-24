@@ -1,7 +1,4 @@
-// Refuses every call; gatewayd starts `execution` even for market data. V2
-// signs orders with EIP-712 over secp256k1 (the hyperliquid signer could fit)
-// plus an HMAC header, but trading is held back by access: edgeX's terms (§1.5)
-// exclude residents AND citizens of sanctioned jurisdictions.
+// refuses every call; orders need an eip-712 signature and edgex's terms restrict access
 
 #include <raikiri/exec/execution_client.hpp>
 
@@ -18,8 +15,7 @@ namespace {
 
 constexpr std::string_view k_why = "edgex order entry needs an EIP-712 signer, which is not built";
 
-// Terminal, never Retryable: a caller that retries a missing signer retries
-// forever.
+// terminal: a caller retrying a missing signer retries forever
 [[nodiscard]] exec::VenueError refusal() noexcept {
     return exec::VenueError::make(exec::ErrorClass::Terminal, 0, k_why);
 }

@@ -77,8 +77,7 @@ TEST(BybitOrderbook, SnapshotCarriesLevelsAndOrderingIds) {
     EXPECT_EQ(book->bids[0].size, "0.006");
     EXPECT_EQ(book->asks[1].price, "16612.00");
 
-    // Zero copy: every view must point inside the caller's own buffer, not
-    // into scratch memory the next frame overwrites.
+    // every view must point inside the caller's buffer
     const auto* begin = frame.data();
     const auto* end = begin + frame.size();
     EXPECT_GE(book->bids[0].price.data(), begin);
@@ -95,15 +94,12 @@ TEST(BybitOrderbook, DeltaKeepsZeroSizeDeleteVerbatim) {
     EXPECT_FALSE(book->is_snapshot);
     EXPECT_EQ(book->update_id, 18521289U);
     ASSERT_EQ(book->bids.size(), 2U);
-    // "0" means delete; the parser passes it through and the book layer
-    // decides — interpreting it here would put venue semantics in the codec.
+    // the parser passes "0" through; the book layer deletes
     EXPECT_EQ(book->bids[0].size, "0");
     EXPECT_EQ(book->bids[1].size, "0.200");
 }
 
-// The two orderbook fixtures are consecutive frames off one socket, so the
-// snapshot and the delta chained onto it are exercised the way the venue
-// actually delivers them.
+// the two fixtures are consecutive frames off one socket
 BookSync book_for_btcusdt() {
     return BookSync{InstrumentId::make(VenueId::Bybit, MarketType::Perp, SymbolId{0}),
                     *parse_decimal_e9("0.1"),
@@ -124,8 +120,7 @@ TEST(BybitBook, DepthSnapshotCrossesIntoTheDomain) {
     EXPECT_EQ(book->ask_count, 2U);
     EXPECT_EQ(book->venue_seq, 18521288U) << "update_id, so a wrong book is traceable";
 
-    // Bids descend, asks ascend, and the two never cross — a book failing this
-    // is not a book, and every strategy reading it would price off the fiction.
+    // bids descend, asks ascend, and they never cross
     EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
     for (std::uint32_t i = 1; i < book->bid_count; ++i) {
         EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
@@ -157,9 +152,7 @@ TEST(BybitBook, DepthSnapshotCrossesIntoTheDomain) {
 }
 
 TEST(BybitBook, EverySubscribedLevelReachesTheDomain) {
-    // A live orderbook.50 snapshot, so this fails if the venue quietly serves
-    // a shallower book than the topic asked for or the book layer drops the
-    // tail on its way into shm.
+    // a live orderbook.50 snapshot; fails if levels are lost on the way to shm
     auto sync = book_for_btcusdt();
     OrderbookBuffer storage;
     const auto frame = fixture("orderbook_snapshot_50.json");
@@ -231,9 +224,7 @@ TEST(BybitTicker, SnapshotPopulatesEverything) {
 }
 
 TEST(BybitTicker, DeltaLeavesAbsentFieldsEmptyRatherThanZero) {
-    // The bug class this guards: a linear-perp ticker delta carries only
-    // what changed. Reading an absent fundingRate as zero would wipe the
-    // rate a funding strategy is pricing against.
+    // an absent fundingRate on a delta must not read as zero
     const auto frame = fixture("tickers_delta.json");
     const auto ticker = parse_ticker(frame);
     ASSERT_TRUE(ticker.has_value()) << to_string(ticker.error());
@@ -244,8 +235,7 @@ TEST(BybitTicker, DeltaLeavesAbsentFieldsEmptyRatherThanZero) {
     EXPECT_TRUE(ticker->funding_rate.empty()) << "absent means unchanged, not zero";
     EXPECT_TRUE(ticker->mark_price.empty());
     EXPECT_TRUE(ticker->next_funding_ms.empty());
-    // Same trap on the turnover columns: a zero here would erase a day's
-    // volume from the board until the next snapshot.
+    // same for the turnover columns
     EXPECT_TRUE(ticker->volume_24h.empty());
     EXPECT_TRUE(ticker->turnover_24h.empty());
 }
@@ -284,8 +274,7 @@ TEST(BybitOrders, StatusMappingIncludingTheTerminalTrap) {
     EXPECT_EQ(order_status_from("PartiallyFilled"), WireOrderStatus::PartiallyFilled);
     EXPECT_EQ(order_status_from("Filled"), WireOrderStatus::Filled);
     EXPECT_EQ(order_status_from("Cancelled"), WireOrderStatus::Cancelled);
-    // Reads like a partial fill, is terminal — mapping it to PartiallyFilled
-    // would leave the order open in our store forever.
+    // PartiallyFilledCanceled is terminal
     EXPECT_EQ(order_status_from("PartiallyFilledCanceled"),
               WireOrderStatus::PartiallyFilledCanceled);
     EXPECT_EQ(order_status_from("SomethingNew"), WireOrderStatus::Unknown);
@@ -344,7 +333,7 @@ TEST(BybitRest, ErrorEnvelopeSurfacesCodeAndClassifies) {
     ASSERT_TRUE(env.has_value());
     EXPECT_EQ(env->ret_code, 110007);
     EXPECT_EQ(env->ret_msg, "ab not enough for new order");
-    // Insufficient balance is terminal: retrying cannot conjure funds.
+    // insufficient balance is terminal
     EXPECT_EQ(classify(env->ret_code), exec::ErrorClass::Terminal);
 }
 
@@ -360,8 +349,7 @@ TEST(BybitRest, OpenOrdersList) {
 }
 
 TEST(BybitRest, TheCataloguePagesOnTheCursorItStates) {
-    // Two live pages at limit=2: each names the next by nextPageCursor, which
-    // arrives percent-encoded and goes back verbatim.
+    // two live pages at limit=2; the percent-encoded cursor goes back verbatim
     const auto first_body = fixture("rest_instruments_page1.json");
     const auto first = parse_envelope(first_body);
     ASSERT_TRUE(first.has_value());
@@ -392,15 +380,13 @@ TEST(BybitRest, TheCataloguePagesOnTheCursorItStates) {
     EXPECT_EQ(*parse_page_cursor(second->result),
               "first%3D1000000MOGUSDT%26last%3D10000NEXUSDT");
 
-    // A last page states no cursor, or an empty one.
+    // a last page states no cursor, or an empty one
     EXPECT_EQ(*parse_page_cursor(R"({"category":"linear","list":[],"nextPageCursor":""})"), "");
     EXPECT_EQ(*parse_page_cursor(fixture("rest_instruments.json")), "");
 }
 
 TEST(BybitRest, InstrumentsReachIntoNestedFilters) {
-    // tickSize and qtyStep live in NESTED objects — the shape a flat
-    // field-by-name loader silently misses, and an instrument with a zero
-    // tick size divides by zero at order time.
+    // tickSize and qtyStep sit in nested objects
     const auto body = fixture("rest_instruments.json");
     InstrumentBuffer storage;
     const auto instruments = parse_instruments(body, storage);
@@ -417,19 +403,14 @@ TEST(BybitRest, InstrumentsReachIntoNestedFilters) {
     EXPECT_EQ((*instruments)[1].symbol, "ETHUSDT");
     EXPECT_EQ((*instruments)[1].tick_size, "0.01");
 
-    // MINUTES, AND NOT ALWAYS 480. This field was in the fixture from the day
-    // it was captured and read by nobody, while the map returned eight hours
-    // for every row — which the two rows above cannot catch, because eight
-    // hours is what they settle on. ARKUSDT is one of the seven bybit settles
-    // hourly, and it is here so the constant cannot come back unnoticed.
+    // minutes, and not always 480; ARKUSDT settles hourly
     EXPECT_EQ((*instruments)[0].funding_interval_min, 480U);
     EXPECT_EQ((*instruments)[2].symbol, "ARKUSDT");
     EXPECT_EQ((*instruments)[2].funding_interval_min, 60U);
 }
 
 TEST(BybitRest, WalletBalanceReachesThroughTheAccountRowIntoItsCoins) {
-    // The coins hang two levels down, under result.list[0].coin — and the
-    // account row above them is where every account-wide figure lives.
+    // coins sit under result.list[0].coin
     const auto body = fixture("rest_wallet_balance.json");
     const auto env = parse_envelope(body);
     ASSERT_TRUE(env.has_value()) << to_string(env.error());
@@ -445,8 +426,7 @@ TEST(BybitRest, WalletBalanceReachesThroughTheAccountRowIntoItsCoins) {
     EXPECT_EQ((*coins)[1].coin, "USDT");
     EXPECT_EQ((*coins)[1].wallet_balance, "1284.30719465");
     EXPECT_EQ((*coins)[1].unrealised_pnl, "-1.23456789");
-    // Deprecated for unified accounts since January 2025: bybit still sends
-    // the key, with an empty string behind it.
+    // deprecated on unified accounts: the key comes with an empty string
     EXPECT_TRUE((*coins)[0].available_to_withdraw.empty());
     EXPECT_TRUE((*coins)[1].available_to_withdraw.empty());
 }
@@ -466,8 +446,7 @@ TEST(BybitBalances, WalletFiguresCrossIntoTheDomainAndSilenceStaysUndef) {
     EXPECT_EQ(usdt->asset.view(), "USDT");
     EXPECT_EQ(usdt->total.raw, 1'284'307'194'650);
     EXPECT_EQ(usdt->unrealized.raw, -1'234'567'890);
-    // Undef, never zero: bybit publishes no per-coin availability on a unified
-    // account, and a zero here would be a claim that nothing may be committed.
+    // undef: bybit publishes no per-coin availability on unified accounts
     EXPECT_TRUE(usdt->available.is_undef());
     EXPECT_EQ(usdt->ts_venue.ns, 1'787'910'470'604'000'000ULL);
 
@@ -478,8 +457,7 @@ TEST(BybitBalances, WalletFiguresCrossIntoTheDomainAndSilenceStaysUndef) {
 }
 
 TEST(BybitBalances, AWalletFigureTruncatesWhereAPriceWouldBeRefused) {
-    // The exact reader refuses anything past nine fractional digits outright,
-    // and a refused wallet figure shows as an account holding nothing.
+    // the exact reader refuses more than nine fractional digits
     WireCoinBalance wire{};
     wire.coin = "BTC";
     wire.wallet_balance = "0.1234567891234567";
@@ -491,7 +469,7 @@ TEST(BybitBalances, AWalletFigureTruncatesWhereAPriceWouldBeRefused) {
 }
 
 TEST(BybitBalances, ARowWithNoCoinIsDroppedRatherThanEmitted) {
-    // A number with no unit is worse than no number at all.
+    // a balance without a coin is refused
     WireCoinBalance nameless{};
     nameless.wallet_balance = "100";
     EXPECT_FALSE(map_coin_balance(nameless, UnixNanos{}).has_value());
@@ -507,12 +485,10 @@ TEST(BybitErrors, ClassificationBuckets) {
     EXPECT_EQ(classify(k_ret_ip_banned), exec::ErrorClass::RateLimited);
     EXPECT_EQ(classify(k_ret_sign_error), exec::ErrorClass::AuthFailure);
     EXPECT_EQ(classify(k_ret_invalid_api_key), exec::ErrorClass::AuthFailure);
-    // Clock skew looks like a signing failure but is fixed by resyncing
-    // time, so the clock poller gets a chance before we give up.
+    // clock skew is retryable once the clock resyncs
     EXPECT_EQ(classify(k_ret_timestamp_error), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_ret_insufficient_balance), exec::ErrorClass::Terminal);
-    // An unrecognised refusal repeated at full speed earns a ban; terminal
-    // is the safe default because reconciliation can undo it.
+    // unknown codes default to terminal
     EXPECT_EQ(classify(999999), exec::ErrorClass::Terminal);
 
     EXPECT_TRUE(is_benign_cancel_failure(k_ret_order_not_exists));
@@ -538,8 +514,7 @@ TEST(BybitWire, MalformedInputIsRefusedNotCrashed) {
     ExecutionBuffer eb;
     CoinBalanceBuffer cb;
     for (const auto frame : bad) {
-        // The contract is only that every one of these returns rather than
-        // crashing or reading out of bounds; ASan is the real assertion.
+        // every call must return without crashing; asan is the real check
         (void)parse_topic(frame);
         (void)parse_orderbook(frame, ob);
         (void)parse_trades(frame, tb);
@@ -555,8 +530,7 @@ TEST(BybitWire, MalformedInputIsRefusedNotCrashed) {
 }
 
 TEST(BybitWire, TruncationsOfEveryFixtureAreRefused) {
-    // Byte-wise truncation is the cheapest fuzz there is and it catches the
-    // "parser reads past the end of a half-frame" class outright.
+    // byte-wise truncation catches reads past the end of a half-frame
     for (const auto* name : {"orderbook_snapshot.json",
                              "public_trade.json",
                              "tickers_snapshot.json",

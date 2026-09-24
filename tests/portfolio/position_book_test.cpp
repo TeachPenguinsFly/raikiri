@@ -49,8 +49,7 @@ TEST(PositionBook, TwoStrategiesOnOneInstrumentKeepSeparateBooks) {
 }
 
 TEST(PositionBook, SameSymbolOnTwoVenuesIsTwoPositions) {
-    // The venue is the top byte of InstrumentId, so a basis trade holding both
-    // legs never nets them by accident.
+    // the venue is the top byte of InstrumentId
     const auto binance = btcusdt(VenueId::Binance);
     const auto bybit = btcusdt(VenueId::Bybit);
     PositionBook book;
@@ -79,8 +78,6 @@ TEST(PositionBook, RepeatedFillsLandInOnePosition) {
 }
 
 TEST(PositionBook, ClosedPositionStaysInTheBook) {
-    // Flat is not gone: the realized PnL and the fill count are the record of
-    // what happened, and dropping the row would drop them.
     const auto base = btcusdt(VenueId::Binance);
     PositionBook book;
 
@@ -97,8 +94,7 @@ TEST(PositionBook, ClosedPositionStaysInTheBook) {
 }
 
 TEST(PositionBook, PointersSurviveLaterInserts) {
-    // Strategies hold what find() returns across callbacks, so the book must
-    // never reallocate under them.
+    // strategies hold find() pointers across callbacks, so the book never reallocates
     const auto base = btcusdt(VenueId::Binance);
     PositionBook book{4};
 
@@ -124,7 +120,6 @@ TEST(PositionBook, RefusesToGrowPastCapacity) {
     const auto third = book.open({3, base.id}, UnixNanos{1});
     ASSERT_FALSE(third.has_value());
     EXPECT_EQ(third.error(), BookError::Full);
-    // An existing key still resolves once full.
     EXPECT_TRUE(book.open({1, base.id}, UnixNanos{1}).has_value());
 }
 
@@ -135,10 +130,6 @@ TEST(PositionBook, UnknownKeyIsNullNotAnEmptyPosition) {
 }
 
 TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
-    // The point of restoring at all: a process that comes up flat while the
-    // venue still holds everything is a reconciliation break against every
-    // instrument — the right alarm for a real disagreement and the wrong one
-    // for an ordinary restart.
     const auto base = btcusdt(VenueId::Bybit);
 
     PositionBook traded;
@@ -149,8 +140,6 @@ TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
     const auto* original = traded.find({1, base.id});
     ASSERT_NE(original, nullptr);
 
-    // Journalling copies exactly these fields, so restoring from them must
-    // reproduce the position the arithmetic left behind.
     PositionBook rebuilt;
     ASSERT_TRUE(rebuilt.restore({1, base.id},
                                 {.qty = original->qty(),
@@ -167,18 +156,14 @@ TEST(PositionBook, ARestoredPositionIsIndistinguishableFromATradedOne) {
     EXPECT_EQ(restored->cost().raw, original->cost().raw);
     EXPECT_EQ(restored->realized().raw, original->realized().raw);
     EXPECT_EQ(restored->fill_count(), original->fill_count());
-    // The average is derived, never stored — so it has to come back too.
     EXPECT_EQ(restored->avg_entry_price(base).raw, original->avg_entry_price(base).raw);
 
-    // And it keeps trading from there rather than starting over.
     ASSERT_TRUE(rebuilt.on_fill(base, fill(base, 1, Side::Sell, 3, "62000"), QtyLots::from_raw(3))
                     .has_value());
     EXPECT_TRUE(rebuilt.find({1, base.id})->flat());
 }
 
 TEST(PositionBook, RestoringTwiceIsRefusedRatherThanDoubled) {
-    // Replay runs before trading, so a collision means the caller replayed the
-    // journal twice — and a doubled position is worse than a missing one.
     const auto base = btcusdt(VenueId::Bybit);
     PositionBook book;
     const Position::Restored state{.qty = QtyLots::from_raw(5)};
@@ -190,8 +175,6 @@ TEST(PositionBook, RestoringTwiceIsRefusedRatherThanDoubled) {
 }
 
 TEST(PositionBook, RestoreRespectsTheCapacityTheBookWasGiven) {
-    // Same refusal as on_fill: the book is fixed-capacity so its entries never
-    // move, and silently growing it would invalidate every pointer handed out.
     const auto base = btcusdt(VenueId::Bybit);
     PositionBook book{1};
     EXPECT_TRUE(book.restore({1, base.id}, {}));

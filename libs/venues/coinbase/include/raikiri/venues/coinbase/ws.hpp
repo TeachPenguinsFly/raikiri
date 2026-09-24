@@ -1,13 +1,6 @@
 #pragma once
 
-// Coinbase Exchange public websocket protocol: channel naming and subscription
-// frames.
-//
-// A subscription is a CHANNEL carrying its own product list:
-// {"name":"ticker","product_ids":["BTC-USD"]}. The flat form the docs lead
-// with ("channels":["ticker"], "product_ids":[..]) applies every product to
-// every channel; the object form was verified live and is what lets one frame
-// carry different products per channel.
+// each channel carries its own product_ids, so one frame can mix products per channel
 
 #include <raikiri/exec/data_client.hpp>
 
@@ -27,15 +20,12 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// One public feed, no sandbox: Coinbase retired the Exchange sandbox, so
-// unlike okx there is no testnet host to switch to and nothing here takes a
-// flag.
+// coinbase retired the exchange sandbox; there is no testnet host
 [[nodiscard]] std::string_view stream_host() noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
 
-// Returns empty for a kind Coinbase does not stream, which the DataClient
-// turns into the base class's refusal.
+// empty for a kind coinbase does not stream
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
 
 struct Subscription {

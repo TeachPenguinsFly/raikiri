@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// The /conf endpoints take a list of keys and answer one result per key, so a
-// single-key request still arrives wrapped one level deeper than its payload.
+// /conf answers one result per key, so even one key is wrapped
 constexpr std::size_t k_conf_results = 1;
 
 } // namespace

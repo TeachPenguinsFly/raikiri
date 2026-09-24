@@ -13,15 +13,7 @@
 
 namespace raikiri::strategy {
 
-// The wire shapes, at namespace scope rather than in the anonymous namespace
-// below: glaze reflects over member names and a type with no linkage has none
-// to reflect. They are still private to this file — nothing declares them.
-//
-// EVERY NUMBER THAT CANNOT SURVIVE A DOUBLE IS A STRING, the same rule the
-// admin contract states and for the same reason: JavaScript holds integers
-// exactly only to 2^53, an instrument id is a packed 64-bit word with the
-// venue at bit 56, and a nanosecond timestamp is already 1.79e18. A strategy
-// id is 16 bits and stays a number, honestly.
+// at namespace scope because glaze needs linkage to reflect; numbers past 2^53 go out as strings
 constexpr glz::opts k_opts{.skip_null_members = true};
 
 struct StrategyRow {
@@ -51,18 +43,13 @@ struct Health {
 struct MovedBody {
     std::string phase;
     std::uint32_t strategy_id{0};
-    // A STOP'S ANSWER, and absent on a start. Zero here means a stop that
-    // found nothing working, which is a fact worth stating; on a start there
-    // is no question, and a zero would look like one that had been asked.
-    // BRACED so a start, which does not name it, is not a missing-field
-    // warning: gcc counts a member with no default of its own, and -Werror
-    // makes that fatal on a line that is deliberately partial.
+    // set on a stop only; braced so gcc's missing-field warning does not fire
     std::optional<std::uint64_t> orders_cancelled{};
 };
 
 struct PositionRow {
     std::string instrument_id;
-    std::string net_qty; // lots, as digits — signed: + long, - short
+    std::string net_qty; // lots as digits; signed: + long, - short
     std::optional<std::string> cost;
     std::string ts_opened;
     std::string ts_updated;
@@ -81,12 +68,7 @@ struct PnlRow {
     std::optional<std::string> net_realized;
 };
 
-// NO TOTAL, AND THAT IS THE POINT. Realized PnL is denominated in each
-// instrument's settlement currency — USDT on binance, BTC on deribit — and the
-// currency is not modelled in the book, so a sum here would be adding unlike
-// things and calling the result a number. portfolio::PositionBook refuses to
-// carry one for the same reason; totals belong in SQL, where the instrument
-// row carries the symbols.
+// no total, since positions settle in different currencies
 struct PnlBody {
     std::vector<PnlRow> pnl{};
     std::uint32_t strategy_id{0};
@@ -117,9 +99,7 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     return std::to_string(value);
 }
 
-// UNDEF IS NOT ZERO, so an undefined value is ABSENT rather than rendered.
-// format_e9 on the sentinel would print the most negative int64 as a decimal,
-// which is a number a reader would act on.
+// undef is absent rather than printed as int64 min
 [[nodiscard]] std::optional<std::string> decimal(FixedE9 value) {
     if (value.is_undef()) {
         return std::nullopt;
@@ -128,8 +108,7 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     return std::string{format_e9(value, buf.data(), buf.size())};
 }
 
-// A whole field of digits, or nothing. A partial parse is a refusal: "12abc"
-// is not the id 12, it is a client that built a URL wrong.
+// the whole field must be digits
 [[nodiscard]] std::optional<std::uint64_t> read_digits(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -155,8 +134,7 @@ template <typename T> http::Response json(const T& value, int status = 200) {
     case CreateError::UnknownType:
     case CreateError::IdReserved:
     case CreateError::Refused:
-        // The request is wrong and will be wrong again: a retry is not the
-        // remedy, so it must not be a 5xx.
+        // the request will fail again, so not a 5xx
         return 422;
     case CreateError::IdTaken:
         return 409;
@@ -168,9 +146,6 @@ template <typename T> http::Response json(const T& value, int status = 200) {
 }
 
 [[nodiscard]] int status_for(ControlError error) noexcept {
-    // 404 against 409 is the distinction the two error families exist to keep:
-    // "there is no such strategy" and "there is, and it is already stopped"
-    // are answered differently by every client that automates either.
     return error == ControlError::NoSuchStrategy ? 404 : 409;
 }
 
@@ -206,8 +181,7 @@ http::Response create_strategy(Registry& live,
     if (body.type.empty()) {
         return http::problem(422, "type is required", "one of /v1/strategy-types");
     }
-    // Never allocated here: "the next free id" could be one whose history is still
-    // in the journal.
+    // never allocated here; a free id may still have history in the journal
     if (body.strategy_id == -1) {
         return http::problem(422, "strategy_id is required", "a whole number from 2 to 65535");
     }
@@ -223,9 +197,7 @@ http::Response create_strategy(Registry& live,
         return http::problem(
             status_for(made.error().error), "refused", made.error().detail);
     }
-    // 201: it exists and holds an id, and it is NOT running. A start is a
-    // second instruction on purpose — creating and starting in one call means
-    // a typo in a config is discovered by the market.
+    // created but not running; start is a separate instruction
     return json(row_of(*made, book), 201);
 }
 
@@ -267,9 +239,7 @@ http::Handler make_control(Registry& live,
                                          "refused",
                                          to_string(moved.error()));
                 }
-                // The count of what it was holding rides back with the phase.
-                // A STOP DOES NOT FLATTEN — whatever position it had, it still
-                // has, and the number below is orders pulled, never lots sold.
+                // a stop does not flatten; the count is orders pulled
                 const auto after = live.find(*id);
                 return json(MovedBody{.phase = std::string{to_string(*moved)},
                                       .strategy_id = *id,
@@ -288,9 +258,6 @@ http::Handler make_control(Registry& live,
                                .types = types.size()});
         }
         if (req.path == "/v1/strategy-types") {
-            // Whatever was registered, and nothing this file knows the name
-            // of. A service linking strategies from elsewhere lists them here
-            // without a line changing.
             return json(TypeList{.types = types.types()});
         }
         if (req.path == k_prefix) {
@@ -309,9 +276,7 @@ http::Handler make_control(Registry& live,
             }
             const auto view = live.find(*id);
             if (!view.has_value()) {
-                // NOT an empty page. This process may hold a position under
-                // that id restored from its journal, but it runs no strategy
-                // by it, and answering with rows would say it does.
+                // this process runs no strategy under that id, even if it holds a restored position
                 return http::problem(404, "no such strategy", req.path);
             }
             const auto rest = slash == std::string_view::npos ? std::string_view{} : tail.substr(slash + 1);
@@ -340,9 +305,6 @@ http::Handler make_control(Registry& live,
                     if (position.key().strategy_id != *id) {
                         continue;
                     }
-                    // Three numbers rather than one, because a net figure
-                    // that cannot be decomposed is a figure nobody can act
-                    // on: fees and price are different problems.
                     out.pnl.push_back({.instrument_id = digits(position.key().instrument.packed),
                                        .realized = decimal(position.realized()),
                                        .fees = decimal(position.fees()),

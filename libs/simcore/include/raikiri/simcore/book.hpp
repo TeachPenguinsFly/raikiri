@@ -1,15 +1,6 @@
 #pragma once
 
-// Single-instrument limit order book for the sim venue (VenueId::Sim).
-//
-// Price-time priority: levels ordered by price (bids descending, asks
-// ascending), FIFO within a level. std::map + std::deque on purpose — the
-// sim is a correctness tool, not the hot path, and tree maps keep level
-// iteration trivially ordered and debuggable.
-//
-// Fills always execute at the RESTING order's price: the aggressor pays what
-// the book displays, exactly as on a real venue. Determinism: the book has
-// no clock and no randomness — state depends only on the call sequence.
+// price-time priority; fills execute at the resting order's price; no clock or randomness
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -26,11 +17,9 @@
 
 namespace raikiri::simcore {
 
-// Owner tag 0 marks background ("scenery") liquidity; any other value is a
-// client order the Engine tracks in its registry.
+// owner 0 is background liquidity; any other value is a client order
 inline constexpr std::uint32_t k_background_owner = 0;
 
-// What happened to the taker's remainder after matching.
 enum class Disposition : std::uint8_t {
     Filled,           // fully filled, nothing left over
     Rested,           // GTC remainder joined the book
@@ -43,8 +32,7 @@ enum class BookError : std::uint8_t {
     BadQty,
 };
 
-// One maker<->taker execution. maker_leaves rides along so the Engine can
-// build the maker-side Filled event without re-querying the book.
+// maker_leaves lets the engine build the maker's Filled event without re-querying
 struct Fill {
     std::uint64_t maker_id{0};
     std::uint32_t maker_owner{0};

@@ -1,11 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It authenticates, subscribes and turns each frame into an event on the sink.
-// It sends no orders: an order goes out over REST and is ANSWERED here, and
-// joining those two halves is the execution client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kraken/envelope.hpp>
 #include <raikiri/venues/kraken/map.hpp>
@@ -22,7 +16,7 @@
 
 namespace raikiri::venues::kraken::internal {
 
-// The private socket is its own connection, so it reports its own health.
+// the private socket reports its own health
 constexpr std::uint32_t k_private_stream_id = 1;
 
 OrderEventType event_type_of(DeltaEffect effect) noexcept {
@@ -37,8 +31,7 @@ OrderEventType event_type_of(DeltaEffect effect) noexcept {
     case DeltaEffect::Silent:
         break;
     }
-    // Silent frames still update the memo, and the type they carry is never
-    // published; Accepted is the honest placeholder for one.
+    // silent frames update the memo; the type is never published
     return OrderEventType::Accepted;
 }
 
@@ -53,11 +46,7 @@ LiveOrder memo_of(const OrderEvent& event) noexcept {
             .leaves = event.leaves_qty};
 }
 
-// Kraken's private feeds ride the same socket shape as the public ones, but the
-// subscribe carries a signed challenge that is valid for ONE connection. That
-// is why this is a second WsClient rather than another subscription on the
-// market-data one: a public reconnect must not have to re-run the handshake,
-// and an order stream must not drop because a book resubscribe failed.
+// a second WsClient: the signed challenge is valid for one connection
 class PrivateHandler final : public net::WsHandler {
 public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
@@ -65,8 +54,7 @@ public:
     void attach(net::WsClient& client) noexcept { client_ = &client; }
 
     void on_open() override {
-        // The challenge is per CONNECTION: a signature minted on the previous
-        // socket authenticates nothing on this one.
+        // the challenge is per connection
         challenge_len_ = 0;
         signed_len_ = 0;
         const auto frame = protocol_.challenge_request_frame(state_->signer.api_key());
@@ -96,9 +84,7 @@ public:
             on_fills(payload, received);
             return;
         case EventKind::Alert:
-            // A refused private subscribe is an authentication failure wearing
-            // the same {"event":"alert"} shape a bad product id wears; without
-            // this the stream is simply silent.
+            // a refused private subscribe arrives as an alert, the same shape as a bad product id
             state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
                                            .stream_id = k_private_stream_id,
                                            .ts = state_->clock->wall()});
@@ -110,8 +96,7 @@ public:
         case EventKind::Trade:
         case EventKind::Book:
         case EventKind::Unknown:
-            // Public feeds are never subscribed on this socket. Naming them is
-            // what makes a new feed a compiler error rather than a dropped one.
+            // public feeds are listed so a new feed is a compile error
             return;
         }
     }
@@ -161,10 +146,7 @@ private:
         return frame.has_value() && client_->send(frame->text);
     }
 
-    // The snapshot describes the working set at connect time. It is remembered
-    // and NOT published: an order the OMS already knows about would arrive as a
-    // second Accepted, and reconciliation — not a replay — is what settles a
-    // gap.
+    // the snapshot is remembered, not published; reconciliation settles gaps
     void on_snapshot(std::string_view frame, UnixNanos received) noexcept {
         static thread_local const auto storage_owner = std::make_unique<OrderSnapshotBuffer>();
         auto& storage = *storage_owner;
@@ -199,9 +181,7 @@ private:
             }
             return;
         }
-        // A removal names an order id and nothing else. Without the memo there
-        // is no instrument to attribute it to, and an event with the wrong
-        // instrument is worse than one that never fires.
+        // a removal names only an order id; the memo supplies the instrument
         const auto* memo = state_->recall(delta->order_id);
         if (memo == nullptr) {
             return;
@@ -254,15 +234,13 @@ private:
     VenueState* state_;
     net::WsClient* client_{nullptr};
     Protocol protocol_;
-    // A UUID is 36 characters; the slack is for a challenge Kraken lengthens.
+    // a uuid is 36 characters; slack for a longer challenge
     std::array<char, 64> challenge_{};
     std::array<char, k_authent_bytes> signed_challenge_{};
     std::size_t challenge_len_{0};
     std::size_t signed_len_{0};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)

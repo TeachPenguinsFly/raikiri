@@ -1,11 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It logs in, subscribes and turns each frame into an event on the sink. It
-// sends no orders: an order goes out over REST and is ANSWERED here, and
-// joining those two halves is the execution client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitget/envelope.hpp>
 #include <raikiri/venues/bitget/errors.hpp>
@@ -21,10 +15,7 @@
 
 namespace raikiri::venues::bitget::internal {
 
-// Private order stream. Login FIRST and subscribe only once Bitget answers:
-// a subscribe sent before the login lands is refused with 30004 and never
-// retried, leaving a socket that is up, silent, and indistinguishable from a
-// quiet account.
+// log in first and subscribe after the answer; an early subscribe is refused with 30004 and not retried
 class PrivateHandler final : public net::WsHandler {
 public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
@@ -72,8 +63,7 @@ public:
             }
             state_->last_error_code = err->code;
             if (is_login_failure(err->code)) {
-                // Bitget closes the socket when a login fails, so the
-                // reconnect will fail identically until a human intervenes.
+                // bitget closes the socket on a failed login, so reconnects fail the same way
                 state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
                                                .stream_id = 1,
                                                .ts = state_->clock->wall()});
@@ -113,8 +103,6 @@ private:
     net::WsClient* client_{nullptr};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)

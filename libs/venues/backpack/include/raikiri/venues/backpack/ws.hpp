@@ -13,16 +13,14 @@ namespace raikiri::venues::backpack {
 inline constexpr std::string_view k_bbo_stream = "bookTicker.";
 inline constexpr std::string_view k_trade_stream = "trade.";
 inline constexpr std::string_view k_mark_price_stream = "markPrice.";
-// The 200 ms aggregate, not realtime: the same chain at a fraction of the frames.
+// 200 ms aggregate: the same chain with fewer frames
 inline constexpr std::string_view k_depth_stream = "depth.200ms.";
 
 [[nodiscard]] std::string_view stream_prefix(exec::SubKind kind) noexcept;
 
-// Empty for a kind this venue does not stream by symbol.
 [[nodiscard]] std::string_view
 stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
 
-// The symbol a depth key carries, or empty when `key` is not a depth stream.
 [[nodiscard]] std::string_view depth_symbol(std::string_view key) noexcept;
 
 class Protocol {

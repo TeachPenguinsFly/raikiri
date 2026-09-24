@@ -12,9 +12,7 @@ struct Case {
     Parse parse;
 };
 
-// Feeds each fixture, and some hundreds of damaged copies of it, to its
-// parser. Refusing or accepting is fine; only a crash fails, which is why the
-// test means something under ASan and UBSan.
+// feeds each fixture and damaged copies of it to its parser; only a crash fails
 void hammer(std::string_view venue, std::initializer_list<Case> cases);
 
 } // namespace raikiri::wire::malformed

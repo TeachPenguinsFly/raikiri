@@ -1,33 +1,7 @@
 #pragma once
 
-// The order book: what a frame says about it, and what a reader must hold to
-// keep one in step.
-//
-// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
-// rule that decides whether a delta may be applied at all, and the rule means
-// nothing without the ids it reads.
-//
-// <sym>@depth200 SEEDS ITSELF. The channel opens with an `e:"depthSnapshot"`
-// carrying the whole window and continues as `e:"depth"` deltas, so there is no
-// REST read in this path at all. Four things measured off the live socket on
-// 2026-09-07, none of them taken from a page:
-//
-//   * the chain shares its boundary: `U == the previous frame's u`, on 478 of
-//     478 consecutive deltas across four books in 75 s, with no id skipped and
-//     none repeated. `U == previous u + 1` held on none of them and would
-//     reject every valid frame.
-//   * the window is maintained by the venue. Subscribed at 15, the book stood
-//     at exactly 15 levels a side on 595 of 595 frames applied — WEEX deletes
-//     what falls out of it by sending the level at quantity "0". Nothing here
-//     prunes, because there is nothing to prune.
-//   * every price and every size divided exactly by the catalogue's own
-//     10^-pricePrecision and 10^-quantityPrecision on 6092 of 6092 levels, so
-//     an exact-or-refuse conversion drops nothing that WEEX actually sends.
-//   * a re-SUBSCRIBE of a channel a live socket already holds draws a fresh
-//     `depthSnapshot` within 300 ms. That is the recovery a gap would need; the
-//     connection pool has no per-key resend today, so a gapped book is
-//     invalidated and waits for its socket's next open, which re-asks and is
-//     answered with a snapshot the same way.
+// @depth200 opens with a depthSnapshot then deltas chained on U == previous u
+// only a resubscribe draws a new snapshot
 
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
@@ -44,15 +18,13 @@
 
 namespace raikiri::venues::weex {
 
-// A level is ["79375.3","2.5048"] on the socket and in the REST body alike.
+// a level is ["price","qty"] on the socket and in rest
 struct WireLevel {
     std::string_view price;
     std::string_view qty; // "0" means delete this level
 };
 
-// The deepest tier WEEX offers is 200 — `@depth5` and `@depth20` are refused
-// with `invalid depth level`, so 15 and 200 are the whole list. This adapter
-// subscribes at 200 and publishes the top k_book_levels of it.
+// weex offers depth 15 and 200 only; the top k_book_levels are published
 inline constexpr std::size_t k_max_levels = 200;
 
 struct LevelBuffer {
@@ -60,12 +32,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// One frame off the depth channel, snapshot or delta.
-//
-// `d` is the venue's own word for which it is — "SNAPSHOT" or "CHANGED" — and
-// `e` says the same thing a second time. The parser refuses a frame whose two
-// answers disagree: a snapshot applied as a delta leaves a book that is a
-// mixture of two moments and reports itself as live.
+// d and e both name snapshot or delta; a frame where they disagree is refused
 struct WireDepth {
     std::string_view symbol;
     bool is_snapshot{false};
@@ -87,8 +54,6 @@ enum class BookResult : std::uint8_t {
     Gap,      // the shared-boundary chain broke: book dropped, snapshot required
 };
 
-// One contract's book. Prices and sizes become instrument-scaled integers at
-// ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
 public:
     using Level = book::Level;
@@ -99,13 +64,10 @@ public:
 
     [[nodiscard]] bool live() const noexcept { return live_; }
 
-    // The book as shared memory takes it, or nullopt while it is unseeded or
-    // desynchronised.
+    // nullopt while unseeded or desynchronised
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
-    // The top of book off the same ladders. WEEX streams no quote channel at
-    // all — `@bookTicker` is refused with `invalid event : bookticker` — so
-    // this IS the venue's BBO rather than a cheaper restatement of one.
+    // weex streams no quote channel, so this is the venue's bbo
     [[nodiscard]] std::optional<Bbo> touch(UnixNanos ts_event, UnixNanos ts_init) const;
 
     void invalidate() noexcept;
@@ -138,11 +100,8 @@ private:
     bool live_{false};
 };
 
-// A gapped book is reseeded by resubscribing its channel: WEEX sends a depth
-// snapshot only on subscribe. WEEX also sends nothing while a book is still,
-// so a silent book is reseeded after k_book_silence_ns, and each reseed whose
-// snapshot matches the book it replaced doubles that wait up to
-// k_book_silence_cap_ns. A snapshot that differs means the stream stopped.
+// weex sends a snapshot only on subscribe and nothing while a book is still
+// a silent reseed whose snapshot matches doubles the wait up to the cap
 inline constexpr std::uint64_t k_book_silence_ns = 300ULL * 1'000'000'000ULL;
 inline constexpr std::uint64_t k_book_silence_cap_ns = 3'600ULL * 1'000'000'000ULL;
 
@@ -160,7 +119,7 @@ struct BookWatch {
 
 [[nodiscard]] Reseed due_for_reseed(BookWatch& watch, std::uint64_t now_ns) noexcept;
 void on_delta(BookWatch& watch, std::uint64_t now_ns) noexcept;
-// True when the snapshot a silent reseed drew differs from the book it replaced.
+// true when the reseed snapshot differs from the book it replaced
 [[nodiscard]] bool on_reseed_snapshot(BookWatch& watch, std::uint64_t digest) noexcept;
 [[nodiscard]] std::uint64_t book_digest(const DepthBook& book) noexcept;
 

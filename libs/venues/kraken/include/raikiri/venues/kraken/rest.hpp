@@ -1,18 +1,6 @@
 #pragma once
 
-// Kraken Futures derivatives v3 REST request building.
-//
-// There is no clock endpoint: every response carries `serverTime`, and
-// `ticker` is the cheapest such read (~600 bytes against ~1 MiB).
-//
-// Signing (see sign.hpp for the digest chain) has two traps of its own:
-//
-//   * the signed path DROPS the "/derivatives" prefix. The request goes to
-//     /derivatives/api/v3/sendorder and the signature covers /api/v3/sendorder;
-//   * `postData` is the parameter text exactly as it travels. A POST here is
-//     form-urlencoded with an EMPTY query, a GET carries its parameters in the
-//     query with an empty body, and signing the other one authenticates as a
-//     bad key rather than as a malformed request.
+// the signed path drops /derivatives; a post signs its form body, a get its query
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -37,10 +25,7 @@ enum class BuildError : std::uint8_t {
     BufferTooSmall, // payload exceeded the scratch buffer (a config bug)
     NotSigned,      // credentials were never loaded
     NoOrderTarget,  // cancel/amend naming neither a venue id nor a client id
-    // Kraken Spot is a DIFFERENT PRODUCT: api.kraken.com, its own symbology and
-    // an auth scheme that shares only the base64 secret. Nothing in this
-    // adapter speaks it, and an order routed here would be signed for a host it
-    // never reaches.
+    // kraken spot is another host and auth scheme, not served here
     SpotUnsupported,
     DatedFuturesUnsupported, // FI_/FF_ load as Future; map_instrument drops them
     OptionsUnsupported,
@@ -48,11 +33,7 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
 
-// Named before the instrument table is read by every builder that takes an
-// OrderCmd. InstrumentTable::find compares the WHOLE id, so an id for a market
-// this adapter never loaded resolves to nothing and would otherwise answer
-// UnknownInstrument — a refusal that blames a stale catalogue when the truth is
-// that the market is not served here.
+// checked before the instrument table so an unserved market is named rather than reported unknown
 [[nodiscard]] std::optional<BuildError> market_refusal(MarketType market) noexcept;
 
 class RequestBuilder {
@@ -81,24 +62,19 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    // Kraken DOES modify a live order, and spells the target `orderId` here
-    // while cancelorder spells the same field `order_id`. The response objects
-    // disagree the same way (wire.hpp).
+    // editorder spells the target orderId; cancelorder spells it order_id
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> open_orders(UnixNanos now);
 
-    // `last_fill_time` is a CURSOR, not a floor: the endpoint answers the 100
-    // fills BEFORE it, newest first. Empty asks for the newest page; paging
-    // further back means echoing the oldest `fillTime` this page carried.
+    // a cursor: the 100 fills before it, newest first; empty for the newest page
     [[nodiscard]] std::expected<net::RestRequest, BuildError> fills(std::string_view last_fill_time,
                                                                     UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(UnixNanos now);
 
-    // Exposed for tests: the exact bytes that went into the inner SHA-256, and
-    // the Authent header they produced.
+    // for tests: the bytes of the inner sha-256 and the resulting authent
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
     [[nodiscard]] std::string_view last_authent() const noexcept;
 
@@ -114,16 +90,13 @@ private:
                                                                      std::string_view post_data,
                                                                      UnixNanos now);
 
-    // Kraken rejects a nonce at or below the last one this key used, and two
-    // orders fired inside one millisecond would otherwise collide.
+    // nonces must increase per key, including two orders in one millisecond
     [[nodiscard]] std::string_view next_nonce(UnixNanos now) noexcept;
 
     net::Signer* signer_;
     std::uint64_t last_nonce_{0};
 
-    // Scratch, reused per build: one request must be sent before the next is
-    // built, which is the contract every builder in this repo carries. The
-    // RestRequest hands out views into these.
+    // reused per build; send each request before building the next
     std::array<char, 1024> params_{};
     std::array<char, 1024> target_{};
     std::array<char, 1152> sign_msg_{};

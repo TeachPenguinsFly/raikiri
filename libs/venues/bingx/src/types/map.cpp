@@ -8,20 +8,15 @@ namespace raikiri::venues::bingx {
 
 namespace {
 
-// FixedE9 holds nine fractional digits, so a precision past nine has no exact
-// step and the row is refused rather than approximated.
+// fixed-e9 has nine fractional digits
 constexpr std::int64_t k_max_precision = 9;
 
 constexpr std::uint32_t k_seconds_per_hour = 3600;
 
-// /openApi/spot/v1/common/symbols answers 1 for a listed pair; 0, 10 and 25
-// are the states it is not tradable in.
+// spot status 1 is listed; 0, 10 and 25 are not tradable
 constexpr std::int64_t k_spot_online = 1;
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means BingX changed a contract's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// values off the instrument's step are dropped unrounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -43,17 +38,12 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// A wallet figure, not a price: a balance is reported at the VENUE's own
-// resolution, and the exact reader refuses a whole number over a tail it
-// cannot hold — which reads as an account holding nothing. What is dropped is
-// the dust below 1e-9, toward zero, so no figure here can be misstated by as
-// much as a nanocoin.
+// venue resolution; dust below 1e-9 is truncated toward zero
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates stay at 1e9 scale
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -62,11 +52,7 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
-// BingX names a spot pair and a perpetual IDENTICALLY, so every mapper states
-// the market it reads and a frame that resolves to the other one is dropped
-// rather than mapped. The market-data mappers take it from the caller — the
-// socket knows which tree it connected to. Funding and positions pin the swap:
-// a spot pair has neither.
+// spot and perp share symbols, so each mapper names its market; funding and positions are perp
 const InstrumentBase*
 base_for_market(std::string_view symbol, const exec::InstrumentTable& table, MarketType market) {
     const auto* instrument = table.find(symbol);
@@ -77,9 +63,7 @@ base_for_market(std::string_view symbol, const exec::InstrumentTable& table, Mar
     return base.id.market() == market ? &base : nullptr;
 }
 
-// Both trees state the ORIGINAL and the CUMULATIVE filled size and never the
-// remainder. Floored at zero: a venue that overstates the fill must not
-// produce a negative quantity nobody downstream checks for.
+// leaves = orig - cumulative, floored at zero
 QtyLots leaves_from(std::string_view orig, std::string_view filled, const InstrumentBase& base) {
     const auto total = to_lots(orig, base);
     if (!total.has_value()) {
@@ -101,8 +85,7 @@ bool copy_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
-// Exponent-aware: the spot catalogue writes its steps as "1e-06", which
-// parse_decimal_e9 cannot read.
+// exponent-aware: the spot catalogue writes steps like "1e-06"
 std::optional<FixedE9> to_number_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -110,10 +93,7 @@ std::optional<FixedE9> to_number_e9(std::string_view text) {
     return parse_number_e9(text);
 }
 
-// BingX names the pair nowhere but the symbol, `BTC-USDT`, on both the futures
-// and the spot catalogue. A row whose pair cannot be read is DROPPED rather
-// than carried with the exchange symbol standing in — an instrument nothing can
-// group is one a cross-venue view would show as a market of its own.
+// rows whose pair cannot be parsed from the symbol are dropped
 std::optional<SymbolText> canonical_of(std::string_view symbol) {
     const auto pair = split_symbol(symbol, '-');
     if (!pair.has_value()) {
@@ -186,7 +166,7 @@ std::optional<TradeTick> map_trade(const WireTrade& wire,
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // The flip: `m` says the BUYER was the maker, so the aggressor sold.
+    // m true means the buyer was maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
     out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
     out.ts_init = ts_init;
@@ -217,9 +197,7 @@ std::optional<BookSnapshot> map_book(const WireDepth& wire,
             }
             const auto price = to_ticks(level.price, base);
             const auto qty = to_lots(level.qty, base);
-            // A level that does not divide by the instrument's step truncates
-            // the book here rather than being rounded into a price BingX never
-            // quoted.
+            // a level off the step truncates the book here
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -317,7 +295,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Bingx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     const auto canonical = canonical_of(wire.symbol);
@@ -336,15 +314,13 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
 }
 
 std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
-    // Two gates, not one: a pair can be listed and priced for the web and
-    // still be closed to API orders, and an order on one is refused.
+    // a listed pair can still be closed to api orders
     if (wire.status != k_spot_online || !wire.api_buy || !wire.api_sell) {
         return std::nullopt;
     }
     const auto tick = to_number_e9(wire.tick_size);
     const auto lot = to_number_e9(wire.step_size);
-    // Nine live rows quote a tick of 1e-12. FixedE9 has no such value, and a
-    // step rounded up to 1e-9 is a price grid BingX does not use.
+    // some rows quote a 1e-12 tick, which fixed-e9 cannot hold
     if (!tick.has_value() || !lot.has_value() || tick->raw <= 0 || lot->raw <= 0) {
         return std::nullopt;
     }
@@ -354,7 +330,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Bingx, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
     const auto canonical = canonical_of(wire.symbol);
@@ -399,9 +375,7 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table, Market
     out.leaves = leaves_from(wire.orig_qty, wire.executed_qty, *base);
     switch (wire.status) {
     case WireOrderStatus::New:
-        // PENDING counts here: BingX's own examples show a resting limit order
-        // in that state, and reading it as anything else adopts a working
-        // order as finished.
+        // pending is a resting order
         out.status = OrderStatus::Accepted;
         break;
     case WireOrderStatus::PartiallyFilled:
@@ -436,8 +410,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
         return std::nullopt;
     }
 
-    // `x` is what happened, `X` where the order stands after. BingX has been
-    // seen answering "Unknown" for `X` on a frame whose `x` said TRADE.
+    // x is what happened, X where the order stands; X may be "Unknown"
     OrderEventType type{};
     if (wire.exec_type == "NEW") {
         type = OrderEventType::Accepted;
@@ -448,8 +421,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
     } else if (wire.exec_type == "EXPIRED") {
         type = OrderEventType::Expired;
     } else {
-        // CALCULATED is BingX's ADL/liquidation bookkeeping, not an execution,
-        // and an unknown type is not something to guess a lifecycle from.
+        // calculated is adl or liquidation bookkeeping; unknown types are dropped
         return std::nullopt;
     }
 
@@ -483,9 +455,7 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
         return out;
     }
 
-    // A fill states its own size and price. BingX's coin-M copy of this push
-    // omits both, and reporting the cumulative at the AVERAGE price would
-    // invent a trade at a price nothing matched at.
+    // a fill without its own size and price is dropped
     const auto price = to_ticks(wire.last_price, *base);
     const auto qty = to_lots(wire.last_qty, *base);
     if (!price.has_value() || !qty.has_value() || qty->raw <= 0) {
@@ -494,17 +464,13 @@ std::optional<OrderEvent> map_order_update(const WireOrderUpdate& wire,
     out.price = *price;
     out.qty = *qty;
     if (const auto fee = to_e9(wire.fee); fee.has_value()) {
-        // BingX writes a fee CHARGED as negative, like okx and bitget. Flipped
-        // on the way in for the same reason they are: every consumer here
-        // counts a positive number as money leaving, and an unflipped charge
-        // is booked as a gain.
+        // bingx sends a charged fee negative; flipped so positive means paid
         out.fee = FixedE9::from_raw(-fee->raw);
     }
     if (wire.maker_known) {
         out.liquidity = wire.is_maker ? Liquidity::Maker : Liquidity::Taker;
     }
-    // Spot states a trade id and the perpetual push mints none, so this stays
-    // empty rather than holding an id BingX never issued.
+    // only spot states a trade id
     if (!wire.trade_id.empty() && wire.trade_id != "0") {
         if (const auto id = ExecId::from(wire.trade_id); id.has_value()) {
             out.exec_id = *id;
@@ -520,12 +486,7 @@ std::optional<BalanceReport> map_balance(const WireBalance& wire, UnixNanos ts_v
     }
     BalanceReport out{};
     out.asset = *asset;
-    // Each field stays UNDEF where BingX sent nothing, or sent something this
-    // cannot read. A zero would claim the account holds none of the asset,
-    // which is not what an absent field says.
-    //
-    // `equity` is read nowhere: it is `balance` plus `unrealizedProfit`, and
-    // publishing it as the total would count the open pnl beside it twice.
+    // fields stay undef when absent or unreadable; equity is ignored as it includes open pnl
     if (const auto total = to_amount(wire.balance); total.has_value()) {
         out.total = *total;
     }
@@ -552,8 +513,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
 
     exec::PositionReport out{};
     out.instrument = base->id;
-    // positionAmt is unsigned on both sides of the book, so the side is the
-    // only thing that says which way the position points.
+    // positionAmt is unsigned; the side gives the sign
     out.net_qty = QtyLots::from_raw(wire.position_side == "SHORT" ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.avg_price, *base); entry.has_value()) {
         out.avg_entry = *entry;

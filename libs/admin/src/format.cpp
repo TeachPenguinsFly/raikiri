@@ -9,8 +9,7 @@ namespace raikiri::admin {
 
 namespace {
 
-// Taken in 128 bits: a meme coin's book size in e9 passes int64, and the
-// checked multiply in lots_to_qty aborts there.
+// 128-bit: a large book size in e9 overflows int64
 std::string scaled(std::int64_t count, FixedE9 step) {
     if (step.is_undef()) {
         return {};

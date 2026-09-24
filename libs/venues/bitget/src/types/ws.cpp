@@ -13,7 +13,6 @@ constexpr std::string_view k_inst_type_live = "USDT-FUTURES";
 constexpr std::string_view k_inst_type_demo = "SUSDT-FUTURES";
 constexpr std::string_view k_inst_type_spot = "SPOT";
 
-// Not a path and not a method: a fixed string that happens to look like both.
 constexpr std::string_view k_login_method = "GET";
 constexpr std::string_view k_login_path = "/user/verify";
 
@@ -59,15 +58,14 @@ std::string_view private_stream_path() noexcept {
 std::string_view inst_type(MarketType market, bool testnet) noexcept {
     switch (market) {
     case MarketType::Spot:
-        // Demo trading is a futures-only product here; there is no S-prefixed
-        // spot instType to switch to, so the flag cannot apply.
+        // demo is futures-only; spot has no S-prefixed instType
         return k_inst_type_spot;
     case MarketType::Perp:
     case MarketType::Future:
-        // Delivery contracts list under the same USDT-M product as the perps.
+        // delivery lists under the same usdt-m product as perps
         return testnet ? k_inst_type_demo : k_inst_type_live;
     case MarketType::Option:
-        // Bitget lists no options. Empty leaves subscribe_frame to refuse.
+        // bitget lists no options; empty makes subscribe_frame refuse
         return {};
     }
     return {};
@@ -82,10 +80,7 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     case exec::SubKind::Trades:
         return "trade";
     case exec::SubKind::Depth:
-        // The deepest self-contained snapshot Bitget offers: books1/5/15 are
-        // the whole tier list — books50 and books100 are refused with 30016
-        // "Param error". Going past 15 means maintaining a local book off the
-        // incremental `books` channel, which nothing here does yet.
+        // books15 is the deepest snapshot channel; books50 and books100 are refused with 30016
         return "books15";
     case exec::SubKind::Kline:
         return {}; // the bar size is part of the channel name; no consumer yet
@@ -100,7 +95,7 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     }
     const auto batch = subscriptions.size();
     for (std::size_t i = 0; i < batch; ++i) {
-        // A declined kind or a missing instType earns a 30016 Param error.
+        // a declined kind or missing instType gets 30016
         if (subscriptions[i].channel.empty() || subscriptions[i].inst_id.empty() ||
             subscriptions[i].inst_type.empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
@@ -158,8 +153,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
     if (!signer.has_credentials() || passphrase.empty()) {
         return std::unexpected{WsBuildError::NotSigned};
     }
-    // The passphrase goes into a JSON string unescaped; a quote or backslash
-    // in it would produce a frame Bitget reads as a different request.
+    // the passphrase is sent unescaped, so quotes and backslashes are refused
     if (passphrase.find_first_of("\"\\") != std::string_view::npos) {
         return std::unexpected{WsBuildError::NotSigned};
     }

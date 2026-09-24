@@ -1,4 +1,4 @@
-// Against bytes captured live on 2026-09-25; see fixtures/README.md.
+// fixtures captured live; see fixtures/README.md
 
 #include <raikiri/venues/edgex/book.hpp>
 #include <raikiri/venues/edgex/endpoints.hpp>
@@ -199,7 +199,7 @@ TEST(EdgexEnvelope, ARefusalNamesItsChannelOnlyInsideTheEchoedRequest) {
     EXPECT_EQ(bad_channel->channel, "nosuch.30000001");
 }
 
-// SOLUSDC: tick 0.01, step 0.1.
+// SOLUSDC: tick 0.01, step 0.1
 Book sol_book(FixedE9 tick = FixedE9::from_raw(10'000'000)) {
     return Book{InstrumentId::make(VenueId::Edgex, MarketType::Perp, SymbolId{3}),
                 tick,
@@ -363,8 +363,7 @@ TEST(EdgexFunding, TheTickerRateIsTheForecastNotTheLastSettlement) {
     const auto mrvl = perp(30000077);
     const auto funding = map_funding(ticker_of(*rows, 30000077), mrvl, k_ingest);
     ASSERT_TRUE(funding.has_value());
-    // Same second, REST getLatestFundingRate: settled -0.0004477, forecast
-    // -0.0004145. The ticker carries the forecast.
+    // rest reports the settled rate and the forecast; the ticker carries the forecast
     const auto rest = fixture("rest_latest_funding_rate.json");
     EXPECT_NE(rest.find(R"("fundingRate":"-0.0004477","isSettlement":false,)"
                         R"("forecastFundingRate":"-0.0004145")"),

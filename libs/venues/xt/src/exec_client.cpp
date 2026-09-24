@@ -17,21 +17,10 @@ namespace raikiri::venues::xt::internal {
 
 namespace {
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// Order entry goes OUT over REST for both markets and the lifecycle comes BACK
-// on the matching private socket, and nothing on either side can tell whether
-// the other happened. This class is the only thing that knows both: it holds
-// the table of orders handed over and not yet answered, ages them out, and
-// synthesises the gap event that stops an unanswered order sitting open
-// forever in the strategy's book. The REST answer to a create carries only the
-// venue order id — the socket's `NEW` push is the acceptance — so nothing is
-// emitted on a success here beyond seeding the memo that later fills read
-// their side and leaves out of.
+// holds orders sent over rest and not yet answered on the socket, and emits a gap when they age out;
+// the socket's NEW push is the acceptance
 class XtExec final : public exec::ExecutionClient {
 public:
     XtExec(std::shared_ptr<VenueState> state, MarketType market)
@@ -40,8 +29,7 @@ public:
 
     ~XtExec() override { state_->private_poll = nullptr; }
 
-    // This object registers itself in state the DATA client also holds, so a
-    // copy would leave two registrations and one of them dangling.
+    // registers itself in state the data client shares; a copy would dangle
     XtExec(const XtExec&) = delete;
     XtExec& operator=(const XtExec&) = delete;
     XtExec(XtExec&&) = delete;
@@ -84,10 +72,7 @@ public:
         return started_ && perp_up && spot_up && (spot_ || perp_);
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps rest connections the venue closed so an idle gateway does not send into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
@@ -99,9 +84,6 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -133,13 +115,9 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. The three share one path
-    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // unanswered is reported as a gap, not a reject; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -158,8 +136,7 @@ private:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working",
-            // and whether anything is working is exactly what is unknown.
+            // undef: whether anything is working is unknown
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -181,14 +158,12 @@ private:
         if (!api_.send(*request, market, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            // Never left this process, so nothing is in doubt.
             emit_reject(cmd,
                         kind,
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
-        // because the callback is exactly what may never run.
+        // recorded before sending since the callback may never run
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -200,14 +175,12 @@ private:
 
     void
     on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
-        // Any answer settles it, including a refusal: the table tracks silence.
+        // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed, and calling that a refusal is how a process
-            // records a rejection opposite a live position.
+            // not a rejection: the request may have reached the matcher
             state_->sink->on_order_error(
                 cmd.client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -220,9 +193,7 @@ private:
         const bool http_ok = response.status >= 200 && response.status < 300;
         if (http_ok && envelope_ok(response.body, market)) {
             if (kind == Kind::Create) {
-                // The ack carries the venue order id and nothing else. Seeding
-                // the memo here is what lets a fill that overtakes the socket's
-                // NEW push still state its side and its leaves.
+                // the ack carries only the venue order id; seed the memo so a fill that beats the NEW push knows side and leaves
                 if (const auto id = parse_order_ack(response.body); id.has_value()) {
                     state_->remember(*id,
                                      {.client_order_id = cmd.exchange_client_order_id,
@@ -249,9 +220,7 @@ private:
         emit_reject(cmd, kind, rest_failure(response.body, market));
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
+    // OrderEvent has no text field, so the sink gets the error here
     void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
@@ -267,18 +236,13 @@ private:
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
-        // A create that never reached the book leaves nothing behind; a refused
-        // cancel or amend leaves the order exactly as it was.
         event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
         state_->sink->on_order_event(event);
     }
 
-    // Minted synchronously, and only at start(): the socket cannot subscribe
-    // without a key, and a cold start is the one place a blocking round trip
-    // costs nothing. A FAILURE MARKS THE KEY STALE so the poll below re-mints
-    // it without ever blocking the gateway loop.
+    // minted synchronously only at start(); a failure marks the key stale for poll to re-mint
     [[nodiscard]] bool mint_listen_key() {
         const auto request = api_.builder().listen_key(state_->venue_now(MarketType::Perp));
         const auto key =
@@ -321,9 +285,7 @@ private:
         return true;
     }
 
-    // A key XT declared invalid is re-minted ASYNCHRONOUSLY: this runs on the
-    // gateway's poll, and the blocking fetch() that start() can afford would
-    // stall every other venue for the length of one XT round trip.
+    // re-minted asynchronously; a blocking fetch here would stall the gateway loop
     void refresh_key(MarketType market) noexcept {
         auto* stream = market == MarketType::Spot ? spot_stream_.get() : perp_stream_.get();
         bool& in_flight = market == MarketType::Spot ? spot_key_in_flight_ : perp_key_in_flight_;
@@ -361,8 +323,7 @@ private:
         stream->reconnect();
     }
 
-    // Driven by the data client's poll: ExecutionClient has no hook of its own
-    // and XT's 30 s idle timer counts only what the client sent.
+    // driven by the data client's poll; ExecutionClient has no hook
     void poll_private(UnixNanos now) noexcept {
         if (state_->perp_key_stale) {
             refresh_key(MarketType::Perp);
@@ -387,7 +348,6 @@ private:
     bool spot_{false};
     bool perp_{false};
     bool started_{false};
-    // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

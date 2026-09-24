@@ -12,28 +12,18 @@ concurrency:
 permissions:
   contents: read
 
-# The implicit shell is `bash -e`, which has no pipefail: `make demo | tee`
-# would then report tee's exit status and a failing demo would pass. Naming
-# bash explicitly gets `-eo pipefail`.
+# name bash so steps run with -o pipefail
 defaults:
   run:
     shell: bash
 
 env:
   UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-  # detect_leaks is intentionally absent: LeakSanitizer does not exist on
-  # darwin-arm64 and asking for it aborts the process at startup. Leaks are a
-  # Linux-CI finding (ASan enables LSan there by default) — a macOS-only
-  # developer will never see them locally, which is half the point of build.yml.
+  # no detect_leaks: lsan does not exist on darwin-arm64
   ASAN_OPTIONS: strict_string_checks=1
 
 jobs:
-  # Production runs on Linux/x86-64. This job exists because macOS is the
-  # documented dev/demo platform and it takes a different code path in exactly
-  # the places that are easy to break: the shm segment is a regular file-backed
-  # mmap rather than tmpfs, preallocate() is F_PREALLOCATE rather than
-  # fallocate(), and pin_thread() returns ENOTSUP instead of pinning. Nothing
-  # here is a performance gate.
+  # macos differs in shm backing, preallocate and thread pinning
   macos:
     name: apple-clang / dev-asan
     runs-on: macos-14
@@ -42,11 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # profiles/macos-appleclang asserts compiler.version=17. Conan does not
-      # verify that claim against the compiler on PATH, so a stale default Xcode
-      # would produce packages labelled apple-clang 17 built by something older
-      # — the failure then surfaces as a C++23 library gap, far from the cause.
-      # Selecting the newest installed Xcode keeps the label honest.
+      # profiles/macos-appleclang claims compiler.version=17 and conan does not check it
       - name: Select newest Xcode
         run: |
           latest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)
@@ -63,9 +49,6 @@ jobs:
       - name: Install Conan
         run: pip install --disable-pip-version-check 'conan~=2.31'
 
-      # Same reasoning as build.yml: the profile is part of the key. This job
-      # populates two configurations in one cache — Debug for dev-asan and
-      # Release for the demo — so the key names both.
       - name: Cache Conan packages
         uses: actions/cache@v4
         with:
@@ -83,36 +66,18 @@ jobs:
       - name: Configure
         run: cmake --preset dev-asan
 
-      # 3 vCPU / 7 GB runner; Beast's translation units are the memory-heavy
-      # ones and Ninja's default (cores + 2) has been enough to OOM smaller
-      # macOS runners.
+      # ninja's default job count can run this runner out of memory
       - name: Build
         run: cmake --build --preset dev-asan --parallel 3
 
       - name: Test
         run: ctest --preset dev-asan --parallel 2
 
-      # `make demo` builds and runs the bench (Release) preset — a second Conan
-      # configuration — because the demo's whole output is a latency table and
-      # measuring an ASan build would be noise on top of noise. It spawns
-      # gatewayd(sim) + strategyd for 10s across two processes and one shm
-      # segment, which is the actual portability assertion: the file-backed
-      # transport and the unpinned single-core loop still complete a full
-      # tick -> callback -> order -> fill round trip on macOS.
-      #
-      # The numbers it prints are NOT published anywhere. Shared runners are
-      # co-tenanted and unpinned; a p99 measured here says nothing about the
-      # production target, and publishing it would invite the comparison.
+      # the demo builds the release preset; its latency numbers mean nothing on shared runners
       - name: Demo (sim venue, 10s)
         run: make demo | tee demo.log
 
-      # The launcher only checks child exit codes, so assert on the invariants
-      # the run is supposed to establish. fills=0 means the pipeline never
-      # completed a round trip and the exit code lied. fsm-refusals must be 0:
-      # an order-state-machine refusal is a logic error, not a timing artefact.
-      # exec-ring-overruns is deliberately NOT asserted — the broadcast ring
-      # drops on a descheduled consumer by design, and a shared runner will
-      # deschedule.
+      # exec-ring-overruns is not asserted: the broadcast ring drops on a descheduled consumer
       - name: Check demo invariants
         run: |
           grep -q 'fsm-refusals=0' demo.log || { echo "demo: FSM refused a transition"; exit 1; }

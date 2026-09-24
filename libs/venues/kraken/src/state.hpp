@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per file
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -28,21 +27,13 @@
 
 namespace raikiri::venues::kraken::internal {
 
-// Kraken pushes the whole book, not a fixed depth: a live PF_XBTUSD snapshot
-// measured 107 KiB, so the transport's 1 MiB default gets headroom.
+// kraken pushes the whole book, so the 1 mib default gets headroom
 constexpr std::size_t k_max_message_bytes = std::size_t{4} * 1024 * 1024;
 
-// A ceiling on what one process remembers about working orders. The memo is
-// the ONLY thing that names an instrument when a removal delta arrives: that
-// frame carries an order id and nothing else.
+// the memo is the only source of the instrument for a removal delta
 constexpr std::size_t k_max_live_orders = 8'192;
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
-// What an order removal frame does not say. `open_orders` reports a departure
-// as {"order_id":..., "is_cancel":true, "reason":...} — no instrument, no
-// side, no size — so an adapter that did not write this down cannot emit the
-// event at all.
+// a removal frame carries only order_id, is_cancel and reason
 struct LiveOrder {
     InstrumentId instrument{};
     ExchangeClientOrderId client_order_id{};
@@ -54,9 +45,7 @@ struct LiveOrder {
     QtyLots leaves{};
 };
 
-// State every kraken connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single threaded: the gateway loop is the only caller
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -81,7 +70,6 @@ struct VenueState {
 
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
 
     [[nodiscard]] UnixNanos venue_now() const noexcept {
@@ -96,7 +84,7 @@ struct VenueState {
         }
         const std::string key{order_id};
         if (live_orders.size() >= k_max_live_orders && !live_orders.contains(key)) {
-            return; // a bounded memo beats an unbounded one that OOMs the gateway
+            return; // bounded so the memo cannot exhaust memory
         }
         live_orders[key] = order;
     }

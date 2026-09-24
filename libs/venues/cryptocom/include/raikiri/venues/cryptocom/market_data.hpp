@@ -11,7 +11,7 @@
 
 namespace raikiri::venues::cryptocom {
 
-// Every parser here takes Event::data, not the frame.
+// every parser here takes Event::data, not the frame
 
 struct WireTrade {
     std::string_view trade_id;
@@ -45,8 +45,7 @@ struct WireValue {
 
 [[nodiscard]] std::expected<WireValue, WireError> parse_value(std::string_view data);
 
-// Rate, estimate and mark arrive on three channels; the record is published
-// whole, so each is remembered here. Unstated stays UNDEF.
+// rate, estimate and mark arrive on three channels and are published as one record
 struct FundingMemo {
     FixedE9 rate{};
     FixedE9 predicted{};

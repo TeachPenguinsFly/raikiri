@@ -7,25 +7,13 @@ type Funding = components['schemas']['Funding']
 type Ticker = components['schemas']['Ticker']
 type Book = components['schemas']['Book']
 
-/** What a screen asks for. One channel per subscription, which is what the
- *  server accepts and what makes each one separately closable. */
 export type Request =
   | { channel: 'quotes'; instruments: string[]; hz?: number }
   | { channel: 'funding'; instruments: string[]; hz?: number }
   | { channel: 'ticker'; instruments: string[]; hz?: number }
   | { channel: 'book'; instrument: string; levels?: number; hz?: number }
 
-/** One socket for the whole terminal.
- *
- *  Not one per screen: a browser caps concurrent sockets per origin, and every
- *  extra one is a second handshake, a second heartbeat and a second thing to
- *  reconnect. Subscriptions are multiplexed over it and closed individually,
- *  which is exactly what the protocol was built for.
- *
- *  Reference-counted by request. Two panels asking for the same book share one
- *  subscription and the server sends one stream; the last of them to unmount is
- *  what unsubscribes. Without the count, the first unmount would silence the
- *  second panel. */
+/** one shared socket; subscriptions are reference-counted by request */
 class Socket {
   private ws: WebSocket | null = null
   private opening = false
@@ -60,9 +48,6 @@ class Socket {
       live.listeners.delete(onFrame)
       live.refs -= 1
       if (live.refs > 0) return
-      // Last reader gone: tell the server to stop sending. A terminal that
-      // subscribes on every tab change and never unsubscribes accumulates
-      // feeds until the connection's cap refuses the next one.
       this.subs.delete(key)
       this.send(JSON.stringify({ op: 'unsubscribe', id: live.id }))
       if (this.subs.size === 0) this.close()
@@ -89,9 +74,7 @@ class Socket {
     this.ws = ws
     ws.onopen = () => {
       this.opening = false
-      // Everything asked for while the socket was still opening, and everything
-      // that was live before a reconnect: the server keeps no memory of a
-      // closed connection, so the client is what remembers.
+      // the server forgets a closed connection, so resend every subscription on open
       for (const entry of this.subs.values()) {
         ws.send(this.subscribeMessage(entry.id, entry.request))
       }
@@ -108,8 +91,6 @@ class Socket {
     ws.onclose = () => {
       this.ws = null
       this.opening = false
-      // Reopened only if something still wants it. Reconnecting a socket
-      // nobody is listening to is how a closed tab keeps a gateway busy.
       if (this.subs.size > 0) setTimeout(() => this.open(), 1000)
     }
     ws.onerror = () => ws.close()
@@ -128,12 +109,7 @@ class Socket {
 
 const socket = new Socket()
 
-/** Subscribes while the component is mounted and unsubscribes when it is not.
- *
- *  `request` is compared by VALUE, not by identity: a caller that rebuilds the
- *  object every render would otherwise resubscribe every render, and under
- *  StrictMode's double mount that is two subscriptions where one was asked for.
- */
+/** request is compared by value so a rebuilt object does not resubscribe */
 function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): T | null {
   const [value, setValue] = useState<T | null>(null)
   const readRef = useRef(read)
@@ -155,19 +131,7 @@ function useFeed<T>(request: Request | null, read: (frame: Frame) => T | null): 
   return value
 }
 
-/** Merges the rows of each frame into one map, keyed by instrument.
- *
- *  MERGED, not replaced. A frame carries only what MOVED, so a venue that did
- *  not tick this round is absent from it — and dropping the map would blank a
- *  price that is perfectly current.
- *
- *  A NEW MAP EVERY TIME A FRAME LANDS, so a useMemo that reads it recomputes.
- *
- *  MERGED IN THE LISTENER, never from the last frame a render saw. Two frames
- *  landing between renders used to leave only the second in state, and the
- *  first — usually the snapshot, the only frame a quiet venue sends — was
- *  dropped: aster, blofin and binance sat at dashes while the socket carried
- *  their quotes. */
+/** merges frames in the listener into a new map; a frame carries only what moved */
 function useRows<T extends { instrument_id: string }>(
   request: Request | null,
   read: (frame: Frame) => T[] | null,

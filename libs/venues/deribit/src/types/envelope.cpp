@@ -11,9 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// The parameter count distinguishes the two book streams:
-// "book.BTC-PERPETUAL.100ms" is incremental, "book.BTC-PERPETUAL.none.1.100ms"
-// a depth-limited snapshot. No instrument name contains a dot.
+// book.X.100ms is incremental, book.X.none.1.100ms a snapshot; names contain no dot
 constexpr std::size_t k_max_segments = 6;
 
 struct Channel {
@@ -50,17 +48,13 @@ EventKind kind_from_channel(const Channel& channel) noexcept {
         return channel.count >= 5 ? EventKind::Bbo : EventKind::Book;
     }
     if (stream == "user") {
-        // user.changes.{kind}.{currency}.raw — the instrument is NOT in the
-        // channel here, it is in every row of the payload.
+        // the instrument is in each payload row here
         return channel.parts[1] == "changes" ? EventKind::UserChange : EventKind::Unknown;
     }
-    // Other channels exist; only what ws.cpp subscribes to is claimed here.
     return EventKind::Unknown;
 }
 
-// True where the channel's SECOND segment is an instrument name. On the
-// private channels it is the topic, and copying it into EventInfo would hand
-// the mapper "orders" as a symbol to look up.
+// on private channels the second segment is the topic
 bool names_instrument(EventKind kind) noexcept {
     switch (kind) {
     case EventKind::Bbo:
@@ -77,7 +71,6 @@ bool names_instrument(EventKind kind) noexcept {
     return false;
 }
 
-// Shared spine of the opt_/req_ pairs; req_ adds a refusal of the empty case.
 template <typename Reader>
 [[nodiscard]] std::expected<std::string_view, WireError>
 find_scalar(wire::ondemand::object& obj, std::string_view key, Reader reader) {
@@ -115,7 +108,7 @@ std::expected<std::string_view, WireError> num_of(wire::ondemand::value value) {
     if (raw == "null") {
         return std::string_view{};
     }
-    // A quoted token here means Deribit changed a number into a string.
+    // a quoted token means deribit turned a number into a string
     if (raw.empty() || raw.front() == '"') {
         return std::unexpected(WireError::WrongType);
     }
@@ -167,7 +160,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (method->empty()) {
-            info.kind = EventKind::Response; // a reply to something we sent
+            info.kind = EventKind::Response;
             return info;
         }
         auto params = push_params(*root);
@@ -184,7 +177,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
         if (*method != "subscription") {
-            return info; // Unknown: ignored, never fatal
+            return info; // unknown: ignored
         }
         const auto channel = wire::req_str(*params, "channel");
         if (!channel.has_value()) {

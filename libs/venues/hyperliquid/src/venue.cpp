@@ -49,16 +49,11 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
             feed = cut == std::string_view::npos ? std::string_view{} : feed.substr(cut + 1);
         }
     }
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // a bad credential reference is dropped here and later reads as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
-        // The address rides `api_key_env` for want of a better field, and goes
-        // through the provider for its schemes rather than for secrecy: an
-        // Ethereum address is public by construction.
+        // the account address rides api_key_env; it is public
         .key([&](std::string_view value) { state->address = std::string{value}; })
-        // Not an HMAC secret: a secp256k1 private key, and it IS the account. A
-        // gateway without it reads the account fine and can place nothing.
+        // secp256k1 private key; without it the gateway reads but cannot trade
         .secret([&](std::string_view value) { (void)state->wallet.load(value); })
         .resolve();
     exec::VenueAdapter adapter{};

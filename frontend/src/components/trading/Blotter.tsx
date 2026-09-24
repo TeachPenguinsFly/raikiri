@@ -13,18 +13,7 @@ export type Tab = 'orders' | 'trades' | 'positions' | 'balances'
 
 const k_all: Tab[] = ['positions', 'orders', 'trades', 'balances']
 
-/** THE THREE BLOTTERS ARE READ BY SWITCHING BETWEEN THEM, so the columns they
- *  share must not move when you do.
- *
- *  On the default `auto` table layout every table measures its own content and
- *  arrives at its own widths, so tabbing from Positions to Orders slid the id,
- *  the venue and the symbol sideways — three columns that hold the same thing
- *  in all three tables. Fixed layout plus one shared prefix pins them: the eye
- *  keeps its anchor and only the columns that genuinely differ differ.
- *
- *  Exactly one column per table is left unsized, and it absorbs whatever the
- *  panel has spare. Sizing all of them would make the browser scale every
- *  column to fill the width, which is the same drift by another route. */
+/** fixed layout and shared lead widths keep common columns still across tabs; leave one column unsized */
 const LEAD = { id: 92, venue: 128, symbol: 112 }
 
 function Cols({ rest }: { rest: Array<number | null> }) {
@@ -44,13 +33,9 @@ const dp = (v: number, places = 2) =>
   v.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places })
 const signed = (v: number, places = 2) => `${v >= 0 ? '+' : '−'}${dp(Math.abs(v), places)}`
 
-/** A figure the venue did not publish. Never a zero: a zero is a measurement. */
+/** a figure the venue did not publish */
 const Silent = () => <span className="text-fg-dim">—</span>
 
-/** What the catalogue says about an instrument, keyed by the id every ledger
- *  row carries. Orders, fills and positions name only the id — venue and symbol
- *  live here, and a row whose id the catalogue does not know shows the id
- *  rather than inventing a name for it. */
 type Catalogue = Map<string, Listing>
 
 const useCatalogue = (): Catalogue => {
@@ -65,12 +50,7 @@ const useCatalogue = (): Catalogue => {
   }, [markets])
 }
 
-/** Loading, failed and empty are three different screens.
- *
- *  A failed query renders the server's own words: `/v1/orders` and its
- *  neighbours answer 503 with a message explaining that admind was started
- *  without a DSN, and that message is the whole answer to "why is this table
- *  empty" — replacing it with an empty table asserts that nothing happened. */
+/** a failed query shows the server's own message, such as the 503 without a dsn */
 function Outcome<T>({ q, empty, children }: {
   q: Query<T>
   empty: string
@@ -88,20 +68,17 @@ function Outcome<T>({ q, empty, children }: {
   return <>{Array.isArray(q.data) && q.data.length === 0 ? <EmptyState title={empty} /> : children(q.data)}</>
 }
 
-/** The bottom of the screen, where what you have done lives. */
 export function Blotter({ tabs = k_all }: { tabs?: Tab[] }) {
   const [tab, setTab] = useState<Tab>(tabs[0] as Tab)
   const catalogue = useCatalogue()
 
-  // All four run, not just the open one: the counts on the tabs are the reason
-  // to switch, and a count that only appears after you switch is not one.
+  // all queries run so every tab shows its count
   const orders = useQuery(() => api.orders({ open: true }), [], 5_000)
   const fills = useQuery(() => api.fills({ limit: '100' }), [], 5_000)
   const positions = useQuery(() => api.positions(), [], 5_000)
   const balances = useQuery(() => api.balances(), [], 10_000)
 
-  // NO COUNT until the answer arrived. A zero beside a tab whose query failed
-  // would read as "nothing here", which is the one thing it does not know.
+  // no count until the query answers
   const count = (q: Query<{ items: unknown[] } | unknown[]>): string =>
     q.state !== 'ready' ? '' : String(Array.isArray(q.data) ? q.data.length : q.data.items.length)
 
@@ -191,12 +168,7 @@ const N = ({ children, className }: { children: ReactNode; className?: string })
 
 const where = (c: Catalogue, id: string) => c.get(id)
 
-/** An instant, as a person reads one.
- *
- *  Every timestamp on the wire is nanoseconds since the epoch, as a STRING,
- *  because the value is past what a double holds exactly. Printed raw it is a
- *  nineteen-digit number under a column headed "Updated", which is the shape
- *  this column had. */
+/** wire timestamps are nanosecond strings, past what a double holds */
 function When({ nanos }: { nanos: string | undefined }) {
   if (nanos === undefined || nanos === '' || nanos === '0') return <Silent />
   const millis = nanosToMillis(nanos)
@@ -215,12 +187,7 @@ function Cell({ listing, id }: { listing: Listing | undefined; id: string }) {
           <Venue venue={listing.venue} market={listing.market === 'spot' ? 'spot' : 'perp'} />
         )}
       </td>
-      {/* The id when the catalogue does not know it: a row whose instrument
-          this gateway never loaded is still a real row, and blanking it would
-          hide the one case worth looking at.
-          SET DIFFERENTLY, though — a nineteen-digit packed id in the weight a
-          symbol gets reads as a symbol, and a person scanning the column has
-          no way to tell that this row's gateway is simply not attached. */}
+      {/* an id the catalogue does not know is shown dimmed rather than as a symbol */}
       {listing === undefined ? (
         <td
           className="num truncate px-3 text-2xs text-fg-dim"
@@ -267,8 +234,7 @@ function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
             </td>
             <td className="px-3 text-fg-mid capitalize">{o.order_type}</td>
             <N>{o.price === undefined || o.price === null ? <Silent /> : o.price}</N>
-            {/* FILLED IS A DIFFERENCE, not a field: what the venue reports is
-                what is still working, and the fill is the drop in it. */}
+            {/* filled is the drop in the venue's remaining quantity */}
             <N>
               {qty === null || leaves === null ? (
                 <Silent />
@@ -284,8 +250,6 @@ function Orders({ rows, catalogue }: { rows: Order[]; catalogue: Catalogue }) {
             <td className="px-3">
               <StatusBadge status={o.status} />
             </td>
-            {/* The stamp, not an age. An age has to be recomputed before it can
-                be compared with anything else in the journal. */}
             <td className="num px-3 text-right text-xs text-fg-mid">
               <When nanos={o.ts_created} />
             </td>
@@ -323,8 +287,7 @@ function Trades({ rows, catalogue }: { rows: Fill[]; catalogue: Catalogue }) {
           </td>
           <N>{t.price === '' ? <Silent /> : t.price}</N>
           <N>{t.qty === '' ? <Silent /> : t.qty}</N>
-          {/* A NEGATIVE FEE IS A MAKER REBATE and stays negative: folding it
-              into a cost would hide the one case a desk is trying to earn. */}
+          {/* a negative fee is a maker rebate and stays negative */}
           <td className="num px-3 text-right text-fg-mid">
             {t.fee === undefined || t.fee === null ? <Silent /> : t.fee}
           </td>
@@ -372,9 +335,7 @@ function Positions({ rows, catalogue }: { rows: Position[]; catalogue: Catalogue
               )}
             </td>
             <N>{p.realized === undefined || p.realized === null ? <Silent /> : p.realized}</N>
-            {/* NULL IS NOT FLAT. A venue that has not answered and a venue
-                reporting zero are different facts, and this column exists to
-                keep them apart rather than to agree with the one beside it. */}
+            {/* null means the venue has not answered; zero means it reported zero */}
             <td className="num px-3 text-right text-fg-mid">
               {p.venue_qty === undefined || p.venue_qty === null ? <Silent /> : p.venue_qty}
             </td>

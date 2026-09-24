@@ -24,9 +24,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_endpoint_unreachable:
         return exec::ErrorClass::Retryable;
 
-    // The same payload signed against a corrected offset succeeds. A REPEATED
-    // request (603) is deliberately not here: retrying one places the order
-    // twice.
+    // 603 (duplicate) is excluded; retrying it places the order twice
     case k_request_expired:
         return exec::ErrorClass::Retryable;
 
@@ -53,8 +51,7 @@ exec::ErrorClass classify_spot(std::int64_t code) noexcept {
     case k_spot_internal:
         return exec::ErrorClass::Retryable;
 
-    // A stale timestamp is retryable because the next attempt carries a fresh
-    // one; a recvWindow we chose is not, and belongs with the config bugs.
+    // a stale timestamp is retryable; a bad recvWindow is a config bug
     case k_spot_request_expired:
         return exec::ErrorClass::Retryable;
 

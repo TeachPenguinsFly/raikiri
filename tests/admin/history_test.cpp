@@ -18,8 +18,7 @@
 namespace raikiri::admin {
 namespace {
 
-// The same options routes.cpp writes with: a field with no answer is absent,
-// never null and never zero.
+// same options as routes.cpp
 constexpr glz::opts k_opts{.skip_null_members = true};
 
 template <typename T> std::string json_of(const T& value) {
@@ -39,14 +38,10 @@ std::string hex_of(std::string_view raw) {
     return out;
 }
 
-// ------------------------------------------------------------- cursors ----
-
 TEST(AdminHistoryCursor, ACursorRoundTripsAndTellsTheClientNothing) {
     const Cursor cursor{.ts = 1'787'840'965'107'000'000ULL, .key = "bybit", .key2 = "1699:9021"};
     const auto text = cursor.encode();
 
-    // Opaque by contract. A client that could read one would start building
-    // one, and the day the ordering key changes its pages would move silently.
     EXPECT_EQ(text.find("bybit"), std::string::npos) << text;
     EXPECT_EQ(text.find("1787840965107000000"), std::string::npos) << text;
 
@@ -76,9 +71,6 @@ TEST(AdminHistoryCursor, AForgedCursorIsRefusedRatherThanHalfRead) {
 }
 
 TEST(AdminHistoryCursor, ACursorNamesTheRowItStoppedOnAndNotAPositionInAList) {
-    // Keyset, not offset. Every cursor below is built from the row that was
-    // emitted, so the next page resumes strictly after it however many rows
-    // arrived meanwhile.
     Order order{};
     order.client_order_id = "281474976710658";
     order.ts_created = "1787840965107000000";
@@ -123,11 +115,7 @@ TEST(AdminHistoryCursor, EveryCursorSurvivesItsOwnEncoding) {
     EXPECT_EQ(*back, cursor_after(fill));
 }
 
-// --------------------------------------------------------------- units ----
-
 TEST(AdminHistoryUnits, ATickCountIsNotAPriceUntilAnInstrumentSaysWhatATickIs) {
-    // 79418.30 at a 0.1 tick is 794183 ticks, and 2.5 at a 0.001 lot is 2500
-    // lots. Emitting either count would be wrong by four orders of magnitude.
     const Scales scales{.tick_size = *parse_decimal_e9("0.1"),
                         .lot_size = *parse_decimal_e9("0.001")};
     EXPECT_EQ(scales.price(PriceTicks::from_raw(794'183)), "79418.3");
@@ -136,8 +124,6 @@ TEST(AdminHistoryUnits, ATickCountIsNotAPriceUntilAnInstrumentSaysWhatATickIs) {
 }
 
 TEST(AdminHistoryUnits, AnInstrumentTheCatalogueDoesNotHoldRendersNothingAtAll) {
-    // raikiri.instruments is loaded by ops tooling while persisterd writes
-    // orders regardless, so this is a state the API really reaches.
     const Scales unknown{};
     EXPECT_FALSE(unknown.price(PriceTicks::from_raw(794'183)).has_value());
     EXPECT_FALSE(unknown.size(QtyLots::from_raw(2'500)).has_value());
@@ -156,9 +142,6 @@ TEST(AdminHistoryUnits, AnAbsentValueIsAbsentAndAZeroIsAZero) {
 }
 
 TEST(AdminHistoryUnits, ACatalogueRowWithAnImpossibleScaleRefusesRatherThanAborting) {
-    // The domain's arithmetic aborts on overflow, which is right for numbers
-    // this system computed and wrong for a row it merely read: a bad catalogue
-    // entry must not take the admin API down with it.
     const Scales absurd{.tick_size = FixedE9::from_raw(1'000'000'000'000'000'000),
                         .lot_size = FixedE9::from_raw(1'000'000'000'000'000'000)};
     EXPECT_FALSE(absurd.price(PriceTicks::from_raw(1'000'000'000)).has_value());
@@ -179,8 +162,6 @@ TEST(AdminHistoryUnits, TheLiveCatalogueFillsOnlyWhatTheTableLeftOut) {
     EXPECT_FALSE(Scales{}.or_from(Scales{}).price(PriceTicks::from_raw(1)).has_value());
 }
 
-// ---------------------------------------------------------------- json ----
-
 TEST(AdminHistoryShape, EveryNumberTooLargeForADoubleLeavesAsAString) {
     Order order{};
     order.client_order_id = "281474976710658";
@@ -199,7 +180,6 @@ TEST(AdminHistoryShape, EveryNumberTooLargeForADoubleLeavesAsAString) {
     EXPECT_NE(body.find(R"("instrument_id":"720575940379279361")"), std::string::npos) << body;
     EXPECT_NE(body.find(R"("ts_created":"1787840965107000000")"), std::string::npos) << body;
     EXPECT_NE(body.find(R"("price":"79418.3")"), std::string::npos) << body;
-    // strategy_id is small enough to be a number honestly, and is one.
     EXPECT_NE(body.find(R"("strategy_id":0)"), std::string::npos) << body;
 }
 
@@ -223,9 +203,6 @@ TEST(AdminHistoryShape, AFieldWithNoAnswerIsAbsentRatherThanNullOrZero) {
 }
 
 TEST(AdminHistoryShape, AFundingObservationCarriesOnlyWhatTheVenuePublished) {
-    // Few venues publish a predicted rate and none publish all of these. An
-    // interval of zero in particular would be read as data: annualising by it
-    // divides.
     FundingObservation observation{};
     observation.instrument_id = "720575940379279361";
     observation.rate = "-0.000058784";
@@ -251,8 +228,6 @@ TEST(AdminHistoryShape, TheLastPageSaysSoByOmittingItsCursor) {
 }
 
 TEST(AdminHistoryShape, AReconBreakSaysWhichKindOfDisagreementItWas) {
-    // `unknown` is the venue not answering, and it is NOT agreement: agreeing
-    // instruments are never recorded at all.
     ReconBreak recon{};
     recon.venue = "okx";
     recon.symbol = "BTC-USDT-SWAP";
@@ -276,11 +251,7 @@ TEST(AdminHistoryKinds, APnlKindIsAClosedSetAndAnythingElseIsRefused) {
     EXPECT_FALSE(pnl_kind_from_string("").has_value());
 }
 
-// ----------------------------------------------------------- postgres ----
-
 TEST(AdminHistoryDown, ADatabaseThatIsNotThereIsAnEmptyAnswerAndNotAThrow) {
-    // A terminal that can show live state without history is more useful than
-    // one that refuses to answer at all.
     History history{"host=127.0.0.1 port=1 dbname=nothing connect_timeout=1"};
     EXPECT_FALSE(history.connected());
     EXPECT_FALSE(history.health().reachable);
@@ -294,11 +265,7 @@ TEST(AdminHistoryDown, ADatabaseThatIsNotThereIsAnEmptyAnswerAndNotAThrow) {
     EXPECT_TRUE(history.recon_breaks({}).items.empty());
 }
 
-// Against a live Postgres — skipped unless RAIKIRI_PG_DSN is set (CI provides
-// a service container; locally: infra postgres or docker). Every read swallows
-// its own failure by design, so the assertion is not the rows: it is that the
-// connection is still open afterwards, which only holds if the statement
-// actually parsed and ran.
+// skipped unless RAIKIRI_PG_DSN is set; reads swallow failures, so the check is that the connection stays open
 TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
     const char* dsn = std::getenv("RAIKIRI_PG_DSN");
     if (dsn == nullptr || *dsn == '\0') {
@@ -362,16 +329,12 @@ TEST(AdminHistoryPg, EveryQueryTheContractNamesIsValidSqlAgainstTheRealSchema) {
         {.account = account, .since = UnixNanos{1}, .cursor = textual, .limit = 5});
     survived("recon breaks");
 
-    // A cursor whose key is not the number that column holds is answered with
-    // nothing, never with a page from somewhere else.
     const PageQuery forged{.cursor = Cursor{.ts = 1, .key = "not-a-number", .key2 = {}}};
     EXPECT_TRUE(history.orders(forged, std::nullopt).items.empty());
     EXPECT_TRUE(history.funding(forged).items.empty());
     survived("a forged cursor");
 }
 
-// raikiri.instruments is empty until something loads it, and persisterd writes
-// fills regardless: the gateways' own catalogue has to answer for those rows.
 TEST(AdminHistoryPg, AFillWhoseInstrumentTheTableLacksIsScaledByTheLiveCatalogue) {
     const char* dsn = std::getenv("RAIKIRI_PG_DSN");
     if (dsn == nullptr || *dsn == '\0') {
@@ -419,9 +382,6 @@ TEST(AdminHistoryPg, AFillWhoseInstrumentTheTableLacksIsScaledByTheLiveCatalogue
     EXPECT_EQ(fills[0].fee, "0.00503188");
 }
 
-// A restart renumbered the catalogue, so the id an old fill carries now names
-// another symbol with another tick. The fill is priced by the generation it
-// was made under, and the live catalogue answers only where no window does.
 TEST(AdminHistoryPg, AFillIsPricedByTheGenerationItWasMadeUnder) {
     const char* dsn = std::getenv("RAIKIRI_PG_DSN");
     if (dsn == nullptr || *dsn == '\0') {

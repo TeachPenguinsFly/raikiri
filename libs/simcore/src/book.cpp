@@ -6,9 +6,7 @@ namespace raikiri::simcore {
 
 namespace {
 
-// Walks the far side price-then-time. Fills happen at RESTING prices — the
-// aggressor pays what the book displays. Fully consumed makers leave both the
-// level queue and the id index so the two structures never diverge.
+// fully consumed makers leave both the level queue and the id index
 template <typename SideMap, typename IndexMap, typename Crosses>
 [[nodiscard]] std::int64_t consume(SideMap& far,
                                    IndexMap& index,
@@ -42,8 +40,7 @@ template <typename SideMap, typename IndexMap, typename Crosses>
     return left;
 }
 
-// FOK pre-scan: how much could fill within the limit, capped at `cap` so the
-// walk stops as soon as the answer is "enough".
+// fok pre-scan, capped at `cap` so the walk stops once enough is found
 template <typename SideMap, typename Crosses>
 [[nodiscard]] std::int64_t
 liquidity_up_to(const SideMap& far, PriceTicks limit, std::int64_t cap, Crosses crosses) {

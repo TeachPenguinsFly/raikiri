@@ -1,17 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what the wallet carries. None of them belongs to the order
-// path — they run on a poller's schedule. The bullet token the private socket
-// opens on is minted here too, because minting it is a signed REST call and
-// nothing else about the socket is.
-//
-// One market family: one host, one signed pool, one builder. Spot and futures
-// share nothing but the signing scheme, so nothing is shared here either —
-// not the connection, not the paths, not the size units.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/kucoin/account.hpp>
 #include <raikiri/venues/kucoin/envelope.hpp>
@@ -45,16 +33,14 @@ public:
 
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
+    // orders are answered asynchronously; the reads here are synchronous
     [[nodiscard]] OrderRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
         return rest_.send(request, std::move(on_done));
     }
 
-    // Whether an order or a read for this market can be answered at all. A
-    // dated future is served by the perpetual host, and nothing else is.
+    // dated futures are served by the perpetual host
     [[nodiscard]] bool serves(MarketType market) const noexcept {
         const bool futures = market == MarketType::Perp || market == MarketType::Future;
         return market_ == market || (futures && market_ == MarketType::Perp);
@@ -72,14 +58,11 @@ public:
                                           : "kucoin futures is not enabled on this gateway");
     }
 
-    // The private socket's ticket, minted by a SIGNED POST and good for one
-    // connection. An AuthFailure here is final — retrying a refused key at
-    // full speed is how an account earns a lockout — and every other failure
-    // is worth another attempt.
+    // single-connection ticket from a signed post; an auth failure is final
     [[nodiscard]] std::expected<PrivateTicket, exec::VenueError> private_ticket() {
         const auto request = builder_.bullet_private(market_, state_->venue_now());
         if (!request.has_value()) {
-            // No credentials: retrying cannot produce them.
+            // no credentials: retrying cannot produce them
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::AuthFailure, 0, to_string(request.error()))};
         }
@@ -87,8 +70,7 @@ public:
         if (!body.has_value()) {
             return std::unexpected{body.error()};
         }
-        // `WireBullet`'s fields are VIEWS INTO `body`, so the endpoint — which
-        // owns its strings — is built here, while the body is still alive.
+        // WireBullet views into body, so build the endpoint while body is alive
         const auto bullet = parse_bullet(*body);
         if (!bullet.has_value()) {
             return std::unexpected{
@@ -125,9 +107,7 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) {
-        // Neither host can answer this directly: futures offers no read by
-        // clientOid at all, and the spot one demands a symbol this signature
-        // does not carry. The active sweep is the only route to the answer.
+        // neither host reads by clientOid with this signature, so sweep actives
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -182,9 +162,7 @@ public:
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
         switch (market) {
         case MarketType::Spot:
-            // KuCoin does have a spot wallet, GET /api/v1/accounts on the other
-            // host. Refused rather than answered from the futures overview:
-            // they are two accounts, and money moves between them by transfer.
+            // the spot wallet is a separate account on the spot host
             return std::unexpected{exec::not_implemented("kucoin spot balance pull")};
         case MarketType::Perp:
         case MarketType::Future:
@@ -213,9 +191,7 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kucoin: account overview names no currency")};
         }
-        // ONE ROW: the overview covers one settle currency and this gateway
-        // trades one. A second settle currency is a second wallet and a second
-        // process, exactly as a second market is.
+        // one settle currency per gateway
         return std::vector<BalanceReport>{*balance};
     }
 
@@ -223,8 +199,7 @@ public:
     position_reports(MarketType market) {
         switch (market) {
         case MarketType::Spot:
-            // Spot holds balances, not positions. An empty list would be read
-            // as "flat", which is a claim about a concept this market lacks.
+            // spot has no positions; an empty list would read as flat
             return std::unexpected{exec::not_implemented("kucoin spot position pull")};
         case MarketType::Perp:
         case MarketType::Future:
@@ -280,9 +255,7 @@ private:
         return collect(*wire);
     }
 
-    // KuCoin answers spot actives one symbol at a time, so the sweep asks which
-    // symbols have any before asking for them. Two round trips, but the
-    // alternative is a per-instrument loop over the whole catalogue.
+    // spot actives are per symbol, so list the symbols first
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError> spot_open_orders() {
         const auto listing = builder_.active_symbols(MarketType::Spot, state_->venue_now());
         if (!listing.has_value()) {
@@ -309,8 +282,7 @@ private:
             }
             const auto body = usable_body(await_response(*state_, rest_, *request));
             if (!body.has_value()) {
-                // A partial sweep read as a complete one is a book that looks
-                // emptier than it is, so the whole answer fails together.
+                // a partial sweep fails whole
                 return std::unexpected{body.error()};
             }
             static thread_local const auto storage_owner = std::make_unique<OrderBuffer>();

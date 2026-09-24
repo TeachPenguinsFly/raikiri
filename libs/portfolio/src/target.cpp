@@ -29,9 +29,7 @@ std::optional<QtyLots> size_for_risk(const InstrumentBase& base,
         return std::nullopt; // a stop at the entry risks everything or nothing
     }
 
-    // What one lot loses over the stop distance, measured through the same
-    // function that prices everything else — so an inverse contract is sized
-    // by its base-denominated loss and not by a quote-shaped guess.
+    // priced through the same function so inverse contracts size in base
     const auto one = QtyLots::from_raw(1);
     const auto at_entry = settlement_value(base, entry, one);
     const auto at_stop = settlement_value(base, stop, one);
@@ -45,7 +43,7 @@ std::optional<QtyLots> size_for_risk(const InstrumentBase& base,
     }
 
     const auto budget = mul_div(equity.raw, risk_fraction.raw, k_e9);
-    const auto lots = budget / per_lot; // truncates: never round a size UP
+    const auto lots = budget / per_lot; // truncates
     return QtyLots::from_raw(lots);
 }
 

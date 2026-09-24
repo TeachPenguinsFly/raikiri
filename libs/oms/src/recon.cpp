@@ -8,8 +8,7 @@ std::int64_t book_as_of(std::int64_t book_now,
                         std::span<const BookedFill> booked,
                         std::uint64_t boundary_ns) noexcept {
     for (const auto& fill : booked) {
-        // Strictly after: a fill stamped AT the boundary is one the venue had
-        // when it answered, and rewinding it would invent a break.
+        // strictly after; a fill at the boundary was already in the venue's answer
         if (fill.ts_ns > boundary_ns) {
             book_now -= fill.lots;
         }

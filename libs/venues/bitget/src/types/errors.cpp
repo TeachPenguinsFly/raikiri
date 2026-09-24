@@ -18,14 +18,11 @@ exec::ErrorClass classify(std::string_view code) noexcept {
         code == k_open_too_frequent) {
         return exec::ErrorClass::RateLimited;
     }
-    // Clock skew alone: a resync fixes it, a retry without one repeats it.
-    // 40005 is NOT here — a malformed timestamp is our bug, not the venue's.
+    // clock skew, which a resync fixes; 40005 is a malformed timestamp and stays out
     if (code == k_timestamp_expired || code == k_recv_window_expired) {
         return exec::ErrorClass::Retryable;
     }
-    // Transient venue-side conditions. 45023 "Error creating order" is
-    // deliberately absent: a create whose outcome is unknown must never be
-    // repeated, and a duplicate fill costs more than a missed order.
+    // 45023 is excluded: a create with an unknown outcome must not be repeated
     if (code == k_system_error || code == k_request_timed_out || code == k_system_busy ||
         code == k_unknown_error || code == k_cancel_order_error || code == k_retry_request ||
         code == k_trade_suspended) {

@@ -11,9 +11,7 @@ namespace {
 constexpr std::string_view k_hdr_key = "X-MBX-APIKEY";
 constexpr std::string_view k_form = "application/x-www-form-urlencoded";
 
-// Appends into a fixed buffer and remembers whether it ever ran out. A
-// truncated query would still be signed, and the signature would then
-// authenticate an order that is not the one intended.
+// tracks overflow; a truncated query would still be signed
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -50,11 +48,6 @@ private:
     bool overflow_{false};
 };
 
-// Post-only is a time-in-force value on aster (GTX), not a separate flag,
-// so it displaces whatever the order asked for rather than accompanying it.
-// Renders an instrument-scaled integer back to the decimal text aster
-// expects. Goes through FixedE9 rather than a float: a double round trip is
-// exactly how a price arrives one tick away from the intended one.
 } // namespace
 
 std::string_view to_string(BuildError err) noexcept {
@@ -79,8 +72,7 @@ net::RestRequest RequestBuilder::instruments() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_exchange_info, .body = {}};
 }
 
-// Every symbol in one call. Aster answers ~880 rows, which is cheaper than
-// asking per instrument and is why this needs no round-robin cursor.
+// one call returns every symbol
 net::RestRequest RequestBuilder::ticker_24h() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_ticker_24h, .body = {}};
 }

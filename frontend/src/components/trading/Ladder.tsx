@@ -8,21 +8,7 @@ interface Level {
   size: number
 }
 
-/** The book as one column: asks above, the inside market across the middle,
- *  bids below.
- *
- *  It used to be two ladders side by side. In a 256px rail that halves every
- *  column, and it puts the two prices a taker compares — best bid and best ask
- *  — at opposite ends of the panel instead of one line apart. Stacked, the
- *  spread is where the eye already is.
- *
- *  The depth bar is CUMULATIVE from the touch: what a taker wants to know is
- *  how far down the book their order reaches, and a chart of individual levels
- *  answers a question nobody asked.
- *
- *  Twelve levels a side. The rail's height is fixed by the ticket above it, and
- *  a book asked for more levels than it has room for cuts its outermost row in
- *  half — which reads as a rendering fault, not as the end of the book. */
+/** asks above, bids below; depth bars are cumulative from the touch */
 export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
   const cumulative = (rows: Level[]) => {
     let running = 0
@@ -42,8 +28,6 @@ export function Ladder({ bids, asks }: { bids: Level[]; asks: Level[] }) {
         <span className="col-head">Total</span>
       </div>
 
-      {/* Asks run outward from the touch, so the row nearest the spread sits
-          nearest the spread. */}
       <div className="flex min-h-0 flex-1 flex-col-reverse justify-start overflow-hidden">
         {askRows.map((r, i) => (
           <Row key={r.price} row={r} peak={peak} tone="down" faded={i} />
@@ -84,9 +68,6 @@ function Row({
         style={{ width: `${(row.depth / peak) * 100}%` }}
       />
       <span className="num relative z-10 flex w-full justify-between">
-        {/* Only the touch is at full strength, and the rest fade with depth.
-            Forty saturated figures turn the book into a colour field, and then
-            the one thing it exists for is the hardest thing on it to read. */}
         <span
           className={cn('w-[62px]', tone === 'up' ? 'text-up' : 'text-down')}
           style={faded === 0 ? undefined : { opacity: Math.max(0.45, 0.8 - faded * 0.02) }}

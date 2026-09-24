@@ -40,7 +40,7 @@ std::expected<FixedE9, ParseError> parse_decimal_e9(std::string_view text) noexc
     }
 
     std::int64_t frac_e9 = 0;
-    if (p != end) { // consume '.'
+    if (p != end) {
         ++p;
         int digits = 0;
         for (; p != end; ++p) {
@@ -75,7 +75,6 @@ std::expected<FixedE9, ParseError> parse_decimal_e9(std::string_view text) noexc
 }
 
 std::string_view format_e9(FixedE9 value, char* buf, std::size_t buf_len) noexcept {
-    // Worst case: "-9223372036.854775807" = 21 chars.
     if (buf_len < 32 || value.is_undef()) {
         return {};
     }
@@ -112,8 +111,6 @@ std::string_view format_e9(FixedE9 value, char* buf, std::size_t buf_len) noexce
 
 namespace {
 
-// Bounds the int128 accumulator and the power-of-ten loops. No live token from
-// any of the sixteen venues comes near either.
 constexpr int k_max_mantissa_digits = 30;
 constexpr int k_max_shift = 30;
 
@@ -169,7 +166,7 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
     out.exponent = -fractional;
 
     if (i < text.size()) {
-        ++i; // skip the 'e'
+        ++i;
         bool exponent_negative = false;
         if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
             exponent_negative = text[i] == '-';
@@ -232,7 +229,6 @@ std::optional<FixedE9> parse_number_e9(std::string_view text) noexcept {
 }
 
 std::optional<FixedE9> parse_amount_e9(std::string_view text) noexcept {
-    // Same reader; the difference is the promise at the call site.
     return parse_rate_e9(text);
 }
 

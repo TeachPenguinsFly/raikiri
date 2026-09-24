@@ -1,16 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers, and the one pool of weight they are
-// spent from.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what was charged. None of them belongs to the order path —
-// they run on a poller's schedule and may not spend the allowance a cancel is
-// about to need, which is what the Poll rate class is for.
-//
-// The public socket's own REST polling — the funding premium and the 24-hour
-// ticker, neither of which binance streams — is NOT here: those are unsigned
-// market data and live beside the socket that publishes them.
+// signed calls and the shared weight pool; unsigned market-data polls live beside the socket
 
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -34,9 +24,7 @@
 
 namespace raikiri::venues::binance::internal {
 
-// A build that failed for want of credentials is an AuthFailure, not a
-// Terminal one: the gateway must halt and say so rather than retry a request
-// that will fail identically forever.
+// missing credentials are AuthFailure so the gateway halts instead of retrying
 exec::VenueError build_failed(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NoCredentials ? exec::ErrorClass::AuthFailure
                                                                    : exec::ErrorClass::Terminal,
@@ -55,13 +43,10 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // keeps the socket warm so an order does not pay a reconnect
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // Held by the state, not by this class: the catalogue loader and the public
-    // socket's depth seed sign through the same builder, and a second one would
-    // be a second clock offset.
+    // held by the state so every signer shares one builder and one clock offset
     [[nodiscard]] RequestBuilder& builder() noexcept { return state_->builder; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -69,14 +54,11 @@ public:
     }
 
 
-    // ONE POOL. binance meters weight across every endpoint together, so every
-    // call here spends `Shared` and only the cost differs — thirty for the
-    // income ledger against five for a balance, measured from its own
-    // used-weight header rather than read off a page.
+    // binance meters weight across every endpoint, so every call spends Shared
     [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
                                                               exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
-            return {}; // unmeasured venue: unlimited, not closed
+            return {}; // unmeasured venue: unlimited
         }
         const auto taken = state_->budget->take(target, state_->clock->mono(), cls);
         if (taken.has_value()) {
@@ -90,14 +72,12 @@ public:
 
     void penalize() const noexcept {
         if (state_->budget != nullptr) {
-            // The venue's answer outranks our accounting, which has just been
-            // proven wrong.
+            // the venue's refusal outranks our accounting
             state_->budget->penalize_all(state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 
-    // Cold-path request and answer in one. Every caller is a reconciliation
-    // read or a listen-key call, never the hot loop.
+    // cold path only: reconciliation reads and listen-key calls
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     pull(const net::RestRequest& request, std::uint64_t timeout_ms = 10'000) {
         return usable_body(await_response(*state_, rest_, request, timeout_ms));
@@ -174,11 +154,7 @@ public:
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
-        // THE WHOLE ACCOUNT, not one contract. This asked for
-        // `first_known_instrument()` — whichever row happened to load first —
-        // and reported success with the trades of a symbol nobody traded,
-        // which reads in a log exactly like an account that did nothing. The
-        // endpoint never needed a symbol; see the builder.
+        // the whole account; the endpoint takes no symbol
         const auto request = builder().user_trades({}, since, state_->venue_now());
         if (!request.has_value()) {
             return std::unexpected{build_failed(request.error())};
@@ -211,10 +187,7 @@ public:
             return std::unexpected{allowed.error()};
         }
         if (market != MarketType::Perp) {
-            // Every path in this adapter targets fapi.binance.com, which is
-            // USD-M futures and nothing else. Binance spot balances live on
-            // another host behind another API; answering with the futures
-            // wallet would report the wrong money under a spot label.
+            // fapi is usd-m futures only; spot balances need another api
             return std::unexpected{exec::not_implemented("binance spot balance pull")};
         }
         const auto request = builder().account(state_->venue_now());
@@ -229,16 +202,14 @@ public:
         auto& storage = *storage_owner;
         const auto wire = parse_account(*body, storage);
         if (!wire.has_value()) {
-            // An unreadable account is refused rather than reported as an
-            // empty vector, which reads as an account holding nothing.
+            // an unreadable account is refused, since an empty vector reads as holding nothing
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
         std::vector<BalanceReport> out;
         out.reserve(wire->assets.size());
         for (const auto& entry : wire->assets) {
-            // Most rows map to nothing: binance names every collateral asset
-            // it accepts, held or not.
+            // binance names every collateral asset it accepts, held or not
             if (const auto report = map_balance(entry, wire->multi_assets_margin);
                 report.has_value()) {
                 out.push_back(*report);
@@ -265,8 +236,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_income(*body, storage);
         if (!rows.has_value()) {
-            // A body we cannot read is NOT an empty ledger: answering "no
-            // funding" would book zero against a position that paid some.
+            // an unreadable body is an error; an empty ledger would book zero funding
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable income ledger")};
         }
@@ -279,9 +249,7 @@ public:
             } else if (row.income_type == "COMMISSION") {
                 kind = LedgerKind::Fee;
             } else {
-                // REALIZED_PNL and the transfer kinds: derived from fills this
-                // process already booked, so taking the venue's copy would
-                // count the same money twice.
+                // realized pnl and transfers derive from fills already booked
                 continue;
             }
             const auto* instrument = state_->instruments.find(row.symbol);

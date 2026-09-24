@@ -9,8 +9,7 @@ namespace raikiri {
 
 namespace {
 
-// Fixed width, so two identities are never ambiguous about where one field
-// ends: a variable-length encoding would let 0x1a.0xb and 0x1.0xab collide.
+// fixed width so two identities cannot collide
 constexpr std::size_t k_hex_digits = 16;
 
 void write_hex(std::span<char, k_hex_digits> out, std::uint64_t value) noexcept {
@@ -41,9 +40,7 @@ ExecId fill_identity(ClientOrderId order, QtyLots leaves, std::string_view venue
         if (const auto id = ExecId::from(venue_exec_id); id.has_value()) {
             return *id;
         }
-        // Longer than the field can hold. Truncating would merge two fills into
-        // one row, so this falls through and says the venue did not answer —
-        // which is less wrong, and visible.
+        // too long for the field; truncating would merge two fills
     }
     std::array<char, 1 + k_hex_digits + 1 + k_hex_digits> buf{};
     buf[0] = '~';

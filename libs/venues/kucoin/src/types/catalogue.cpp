@@ -43,8 +43,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
             out.symbol = *symbol;
             out.status = *status;
             out.type = *type;
-            // Optional so a row that names no pair costs that row, not the
-            // catalogue; the mapper is what refuses it.
+            // optional so a row without a pair costs only that row
             const auto base_currency = wire::opt_str(obj, "baseCurrency");
             const auto quote_currency = wire::opt_str(obj, "quoteCurrency");
             if (!base_currency.has_value() || !quote_currency.has_value()) {
@@ -74,9 +73,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                 return std::unexpected(granularity.error());
             }
             out.funding_granularity_ms = *granularity;
-            // OPTIONAL, unlike everything above: a contract listed but never
-            // traded carries neither field, and refusing the row over that
-            // would drop the instrument out of the catalogue entirely.
+            // optional: a never-traded contract carries neither field
             for (const auto& [key, field] :
                  {std::pair{"fundingFeeRate", &out.funding_fee_rate},
                   std::pair{"predictedFundingFeeRate", &out.predicted_funding_fee_rate}}) {

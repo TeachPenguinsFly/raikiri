@@ -13,22 +13,18 @@ namespace {
     switch (kind) {
     case exec::SubKind::Bbo:
     case exec::SubKind::Depth:
-        // ONE CHANNEL FOR BOTH. WEEX streams no quote of its own, so the top of
-        // book is the ladder's first level rather than a second subscription.
+        // Bbo and Depth share one channel
         return k_depth_channel;
     case exec::SubKind::Trades:
         return k_trade_channel;
     case exec::SubKind::MarkPrice:
-        // The ticker is where WEEX states a mark price, and the same frame
-        // carries the 24-hour turnover.
+        // the ticker carries the mark and the 24h turnover
         return k_ticker_channel;
     case exec::SubKind::Funding:
-        // Not a channel at all: polled over REST. The data client routes this
-        // kind before it reaches here.
+        // polled over rest; routed before reaching here
         return {};
     case exec::SubKind::Kline:
-        // WEEX streams klines as <sym>@kline_<interval>_LAST_PRICE; not wired
-        // until a strategy asks for one.
+        // klines are <sym>@kline_<interval>_LAST_PRICE; not wired
         return {};
     }
     return {};
@@ -91,10 +87,7 @@ Protocol::method_frame(std::string_view head, std::span<const std::string_view> 
     }
     const auto batch = channels.size();
     for (std::size_t i = 0; i < batch; ++i) {
-        // AN EMPTY NAME POISONS THE WHOLE FRAME. WEEX refuses a params array
-        // for one bad member and subscribes none of the rest, so a channel
-        // nothing could name is refused here rather than taking the others
-        // down with it.
+        // one bad member refuses the whole frame, so empty names are refused here
         if (channels[i].empty()) {
             return std::unexpected{WsBuildError::UnsupportedKind};
         }

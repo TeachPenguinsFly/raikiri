@@ -93,7 +93,7 @@ struct RowKeys {
     bool perp{false};
 };
 
-// One unreadable row fails the whole parse rather than delisting it silently.
+// one unreadable row fails the whole parse rather than delisting it silently
 std::expected<std::span<const WireContract>, WireError>
 parse_catalogue(std::string_view body, ContractBuffer& storage, const RowKeys& keys) {
     return guarded([&]() -> std::expected<std::span<const WireContract>, WireError> {
@@ -369,8 +369,7 @@ std::expected<WireDepth, WireError> parse_depth(std::string_view frame, LevelBuf
         }
         std::size_t rows = 0;
         for (auto entry : *data) {
-            // One row per frame on every frame seen; a second would be a delta
-            // this parse drops, so it is refused and the chain breaks loudly.
+            // one row per frame; a second would be a delta this parse drops, so it is refused
             if (++rows > 1) {
                 return std::unexpected(WireError::TooManyEntries);
             }

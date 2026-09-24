@@ -27,6 +27,6 @@ tools/
 __pycache__/
 .pytest_cache/
 
-# Notes and research stay on this machine; only the manual is published.
+# notes stay local; only the manual is published
 docs/*
 !docs/README.md

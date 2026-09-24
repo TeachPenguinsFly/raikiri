@@ -1,6 +1,4 @@
--- An instrument id's symbol half is a gateway's load-order index, so one id is
--- one row per gateway generation, valid over [valid_from, valid_to) in unix ns.
--- A row with no generation (0) and no window predates this and matches always.
+-- one row per gateway generation, valid over [valid_from, valid_to) in unix ns; generation 0 matches always
 ALTER TABLE raikiri.instruments
     ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS valid_from BIGINT NOT NULL DEFAULT 0,

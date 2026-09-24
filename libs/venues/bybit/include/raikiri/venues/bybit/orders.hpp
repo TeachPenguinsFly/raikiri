@@ -1,12 +1,5 @@
 #pragma once
 
-// An order's life on the wire: what the stream says happened to it, what a
-// REST answer says about it, and the fills it produced.
-//
-// The execution rows live here rather than beside the ledger because they are
-// the ORDER's own events. What the account did with them is account.hpp's
-// reading of the same rows.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/bybit/errors.hpp>
 #include <raikiri/wire/error.hpp>
@@ -19,8 +12,7 @@
 
 namespace raikiri::venues::bybit {
 
-// Bybit order lifecycle values. PartiallyFilledCanceled is the one that
-// surprises people: it is terminal, not a partial fill.
+// PartiallyFilledCanceled is terminal
 enum class WireOrderStatus : std::uint8_t {
     New,
     PartiallyFilled,
@@ -64,10 +56,7 @@ parse_order_updates(std::string_view frame, OrderUpdateBuffer& storage);
 struct WireExecution {
     std::string_view symbol;
     // "Trade" | "Funding" | "Settle" | "BustTrade" | "AdlTrade" | ...
-    //
-    // NOT OPTIONAL TO READ. A funding settlement arrives on the same private
-    // topic as a fill, with a real execQty and execPrice, and a mapper that
-    // does not look here turns it into a trade the account never made.
+    // funding settlements arrive on this topic with a real qty and price
     std::string_view exec_type;
     std::string_view exec_id;
     std::string_view order_id;
@@ -96,7 +85,7 @@ struct WireOrderAck {
 
 [[nodiscard]] std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view result);
 
-// One entry of /v5/order/realtime (open orders) — the reconciliation pull.
+// one entry of /v5/order/realtime
 using WireOpenOrder = WireOrderUpdate;
 
 [[nodiscard]] std::expected<std::span<const WireOpenOrder>, WireError>

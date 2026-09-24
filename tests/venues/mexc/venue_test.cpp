@@ -51,8 +51,7 @@ public:
     std::vector<OrderEvent> events;
 };
 
-// The real catalogue, loaded through the real parser and mapper: a table built
-// by hand would agree with whatever the mapper happens to do.
+// the real catalogue through the real parser and mapper
 exec::InstrumentTable catalogue() {
     const auto body = fixture("rest_contract_detail.json");
     static thread_local InstrumentBuffer storage;
@@ -70,20 +69,8 @@ exec::InstrumentTable catalogue() {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
-// -------------------------------------------------------------- venue ----
-
 TEST(MexcWire, TheBulkFundingAnswerStatesEveryCycleTheVenueUses) {
-    // THE ONLY PLACE MEXC STATES A SETTLEMENT INTERVAL — the catalogue carries
-    // none, and every perpetual was interned with 0 until this was read. An
-    // analysis that then assumed eight hours was wrong for most of the venue:
-    // 610 of 1,201 contracts settled every four hours when this was captured.
-    //
-    // One row of each cycle the venue published on 2026-09-24, so a parser that
-    // only handled the common case would be caught on the others.
-    // THE BODY IS HELD, NOT PASSED AS A TEMPORARY. Every string_view in the
-    // parsed rows points into it; a temporary dies at the end of the call and
-    // leaves them dangling — the same lifetime fault the production loader had
-    // and AddressSanitizer caught there first.
+    // the only place mexc states an interval; the body is held because the rows view it
     const auto body = fixture("rest_funding_rates.json");
     auto storage = std::make_unique<FundingRateBuffer>();
     const auto rows = parse_funding_rates(body, *storage);
@@ -116,8 +103,7 @@ TEST(MexcVenue, RegistersAndBuilds) {
 }
 
 TEST(MexcVenue, AnUnbuildableCommandIsRefusedLocally) {
-    // No catalogue and no credentials, so nothing can be built. Silence would
-    // leave the order open in the store forever.
+    // no catalogue or credentials, so the refusal must arrive as an event
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -160,8 +146,6 @@ TEST(MexcVenue, CapsRowAgreesWithWhatTheAdapterCanDo) {
     EXPECT_FALSE(caps.book_checksum) << "the depth channel guarantees begin/end, not a checksum";
 }
 
-// --------------------------------------------------------------- wire ----
-
 TEST(MexcWire, EventDispatchResolvesChannelAndSymbol) {
     for (const auto& [file, kind] : {std::pair{"ws_ticker.json", EventKind::Ticker},
                                      std::pair{"ws_deal.json", EventKind::Trade},
@@ -171,7 +155,7 @@ TEST(MexcWire, EventDispatchResolvesChannelAndSymbol) {
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << file;
         EXPECT_EQ(event->kind, kind) << file;
-        // The symbol is in the ENVELOPE, not in the payload.
+        // the symbol is in the envelope
         EXPECT_EQ(event->symbol, "BTC_USDT") << file;
     }
 }
@@ -234,9 +218,7 @@ TEST(MexcWire, ASnapshotWithoutBeginOrEndReadsThemAsZero) {
 }
 
 TEST(MexcWire, DepthAndDepthFullAreNotConfused) {
-    // "push.depth" is a prefix of "push.depth.full" and the two carry opposite
-    // guarantees: a prefix match would let an unordered delta be read as a
-    // top-of-book snapshot.
+    // "push.depth" prefixes "push.depth.full", so prefix matching would read a delta as a snapshot
     const auto delta = fixture("ws_depth_update.json");
     const auto snapshot = fixture("ws_depth_full.json");
     EXPECT_EQ(parse_event(delta)->kind, EventKind::Depth);
@@ -244,9 +226,7 @@ TEST(MexcWire, DepthAndDepthFullAreNotConfused) {
 }
 
 TEST(MexcWire, ControlFramesAreNotMistakenForData) {
-    // An acknowledgement and a refusal differ only in the channel name.
-    // Reading a refusal as an ack turns "the venue rejected this" into "this is
-    // quiet", which is indistinguishable from a market with no activity.
+    // an ack and a refusal differ only in channel name
     const auto ack = fixture("ws_subscribe_ack.json");
     const auto pong = fixture("ws_pong.json");
     EXPECT_EQ(parse_event(ack)->kind, EventKind::SubscribeAck);
@@ -256,14 +236,12 @@ TEST(MexcWire, ControlFramesAreNotMistakenForData) {
     ASSERT_EQ(parse_event(bad)->kind, EventKind::Error);
     const auto err = parse_stream_error(bad);
     ASSERT_TRUE(err.has_value());
-    // No code exists to classify on: the reason is prose.
+    // prose, no code
     EXPECT_EQ(err->msg, "Contract [NOSUCH_USDT] not exists");
 }
 
 TEST(MexcWire, IdleTimeoutArrivesOnTheSameErrorChannelAsARefusal) {
-    // Captured by holding a socket open for 100 s without sending anything
-    // while it kept RECEIVING pushes. Inbound traffic does not reset MEXC's
-    // timer, which is the whole reason poll() sends an application ping.
+    // inbound pushes do not reset the venue's idle timer
     const auto frame = fixture("ws_idle_timeout.json");
     ASSERT_EQ(parse_event(frame)->kind, EventKind::Error);
     const auto err = parse_stream_error(frame);
@@ -276,18 +254,16 @@ TEST(MexcWire, TickerCarriesPricesAsNumberTokens) {
     const auto ticker = parse_ticker(frame);
     ASSERT_TRUE(ticker.has_value());
     EXPECT_EQ(ticker->symbol, "BTC_USDT");
-    // Unquoted JSON numbers, handed on as their literal tokens so the decimal
-    // parser sees exactly what MEXC wrote and no double is built on the way.
+    // unquoted numbers kept as literal tokens
     EXPECT_EQ(ticker->bid_price, "64155");
     EXPECT_EQ(ticker->ask_price, "64155.1");
     EXPECT_EQ(ticker->fair_price, "64150.4");
     EXPECT_EQ(ticker->funding_rate, "0.000085");
     EXPECT_EQ(ticker->ts_ms, 1'786'394'656'908ULL);
-    // `amount24`, the QUOTE turnover. The `volume24` of 758957590 beside it in
-    // the same frame is a CONTRACT count and is deliberately not carried.
+    // `amount24` is quote turnover; `volume24` contracts are not carried
     EXPECT_EQ(ticker->volume_24h_quote, "4912147390.01821");
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer
     EXPECT_GE(ticker->bid_price.data(), frame.data());
     EXPECT_LE(ticker->bid_price.data() + ticker->bid_price.size(), frame.data() + frame.size());
 }
@@ -298,7 +274,7 @@ TEST(MexcWire, DealFrameKeepsEveryPrintAndItsDirection) {
     const auto trades = parse_trades(frame, storage);
     ASSERT_TRUE(trades.has_value());
     ASSERT_EQ(trades->size(), 4U);
-    // Per-print objects carry no symbol; it comes off the envelope.
+    // the symbol comes off the envelope
     EXPECT_EQ((*trades)[0].symbol, "BTC_USDT");
     EXPECT_EQ((*trades)[0].price, "64153.7");
     EXPECT_EQ((*trades)[0].qty, "544");
@@ -309,8 +285,7 @@ TEST(MexcWire, DealFrameKeepsEveryPrintAndItsDirection) {
 }
 
 TEST(MexcWire, DepthDeltasChainOnBeginAndEnd) {
-    // Two CONSECUTIVE frames off one live socket, so the chain across them is
-    // real rather than constructed.
+    // two consecutive live frames
     LevelBuffer storage;
     const auto first = fixture("ws_depth_update.json");
     const auto second = fixture("ws_depth_update_next.json");
@@ -339,14 +314,12 @@ TEST(MexcWire, DepthFullIsASnapshotWithSizes) {
     EXPECT_EQ(depth->bids.front().price, "64124.8");
     EXPECT_EQ(depth->bids.front().qty, "399964");
     EXPECT_EQ(depth->asks.front().price, "64124.9");
-    // `cts` is the matching-engine time, not the envelope's send time.
+    // `cts` is matching-engine time
     EXPECT_EQ(depth->ts_ms, 1'786'982'679'141ULL);
 }
 
 TEST(MexcWire, RestDepthHasNoChannelAndFallsBackToTheEnvelopeClock) {
-    // The REST body is a snapshot by construction and its `cts` is null, so
-    // the only clock it has is `timestamp`. A zero here would poison every
-    // latency histogram downstream.
+    // the rest body's `cts` is null, so `timestamp` is the clock
     LevelBuffer storage;
     const auto body = fixture("rest_depth.json");
     const auto depth = parse_depth(body, storage);
@@ -375,14 +348,13 @@ TEST(MexcWire, RestEnvelopeSeparatesSuccessFromFailure) {
 }
 
 TEST(MexcWire, EnvelopeThatCannotBeReadIsNotSuccess) {
-    // Zero is the success code, so an unreadable body must fail rather than
-    // decay into one that said zero.
+    // an unreadable body must not decay into code 0
     EXPECT_FALSE(parse_rest_envelope(R"({"code":0})").has_value());
     EXPECT_FALSE(parse_rest_envelope("not json").has_value());
 }
 
 TEST(MexcWire, ServerTimeIsTheDataFieldItself) {
-    // `data` is the epoch-millisecond number, not an object or an array.
+    // `data` is the epoch-ms number
     const auto body = fixture("rest_server_time.json");
     const auto ms = parse_server_time(body);
     ASSERT_TRUE(ms.has_value());
@@ -484,10 +456,8 @@ TEST(MexcWire, RestFundingRateCarriesTheSchedule) {
     EXPECT_EQ(funding->next_settle_ms, 1'786'406'400'000ULL);
 }
 
-// ---------------------------------------------------------------- map ----
-
 TEST(MexcMap, StepIsDerivedAsAnIntegerPowerOfTen) {
-    // MEXC states a digit count, never a step, so this derivation is ours.
+    // mexc states a digit count, never a step
     EXPECT_EQ(step_from_scale(0)->raw, k_e9);
     EXPECT_EQ(step_from_scale(1)->raw, 100'000'000);
     EXPECT_EQ(step_from_scale(9)->raw, 1);
@@ -512,9 +482,7 @@ TEST(MexcMap, InstrumentDerivesStepsAndCarriesContractSize) {
 }
 
 TEST(MexcMap, ScaleFinerThanFixedPointIsRefusedNotRounded) {
-    // SATS_USDT lists priceScale 11 and FixedE9 stops at nine fractional
-    // digits. Loading it with a rounded tick would make every later price
-    // conversion silently wrong.
+    // priceScale 11 exceeds FixedE9's nine digits
     WireInstrument wire{};
     wire.symbol = "SATS_USDT";
     wire.base_coin = "SATS";
@@ -527,15 +495,13 @@ TEST(MexcMap, ScaleFinerThanFixedPointIsRefusedNotRounded) {
 }
 
 TEST(MexcMap, ApiDisallowedRowStillLoadsForMarketData) {
-    // apiAllowed gates ORDER placement. Filtering on it would blind the
-    // gateway to contracts it can legitimately stream.
+    // apiAllowed gates order placement only
     const auto table = catalogue();
     EXPECT_NE(table.find("AIINU_USDT"), nullptr);
 }
 
 TEST(MexcMap, SpotIsRefusedBecauseTheEndpointIsFuturesOnly) {
-    // Answering a spot request from futures rows is a whole category of
-    // position bug.
+    // futures rows must not answer a spot request
     WireInstrument wire{};
     wire.symbol = "BTC_USDT";
     wire.base_coin = "BTC";
@@ -568,8 +534,7 @@ TEST(MexcMap, BboComesFromTheSnapshotChannel) {
 }
 
 TEST(MexcMap, IncrementalDepthNeverBecomesABbo) {
-    // The captured delta leads with a bid 1900 below the touch. Treating its
-    // first entry as top of book would publish a spread that never existed.
+    // the delta leads with a bid 1900 below the touch
     const auto table = catalogue();
     LevelBuffer storage;
     const auto frame = fixture("ws_depth_update.json");
@@ -589,17 +554,14 @@ TEST(MexcMap, BookSnapshotCrossesIntoTheDomain) {
 
     const auto book = map_book(*depth, table, k_ingest);
     ASSERT_TRUE(book.has_value());
-    // Every level the subscription asked for reaches the domain snapshot; a
-    // book that stops at five is the old tier still being served.
+    // every requested level reaches the snapshot
     EXPECT_EQ(book->bid_count, k_book_depth);
     EXPECT_EQ(book->ask_count, k_book_depth);
     static_assert(k_book_depth <= k_book_levels);
     EXPECT_EQ(book->venue_seq, 40'789'901'950ULL);
     EXPECT_EQ(book->ts_event.ns, 1'786'982'679'141ULL * 1'000'000ULL);
 
-    // Bids descend, asks ascend, and the two never cross — a book that fails
-    // this is not a book, and publishing it would misprice every strategy
-    // reading it.
+    // bids descend, asks ascend, and the sides never cross
     EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
     for (std::uint32_t i = 1; i < book->bid_count; ++i) {
         EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
@@ -616,8 +578,7 @@ TEST(MexcMap, BookSnapshotCrossesIntoTheDomain) {
 }
 
 TEST(MexcMap, IncrementalDepthNeverBecomesABook) {
-    // The delta carries only what changed, so publishing it as a snapshot
-    // would hand shm a five-level book with a bid 1900 off the touch.
+    // a delta must not publish as a snapshot
     const auto table = catalogue();
     LevelBuffer storage;
     const auto frame = fixture("ws_depth_update.json");
@@ -637,9 +598,7 @@ TEST(MexcMap, UnknownSymbolYieldsNoBook) {
 }
 
 TEST(MexcMap, PriceOffTheTickIsDroppedNotRounded) {
-    // A price that does not divide by the tick means MEXC changed an
-    // instrument's precision under us. Rounding would put an order one tick
-    // from where it was meant.
+    // an off-tick price is refused, not rounded
     const auto table = catalogue();
     const std::array<WireLevel, 1> bids{WireLevel{.price = "64142.45", .qty = "1"}};
     const std::array<WireLevel, 1> asks{WireLevel{.price = "64142.5", .qty = "1"}};
@@ -689,8 +648,7 @@ TEST(MexcMap, FundingFromTheTickerHasNoSchedule) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 85'000);        // 0.000085
     EXPECT_EQ(funding->mark_price.raw, 641'504); // fairPrice is MEXC's mark
-    // The channel states no settlement boundary. A zero reads as unknown; a
-    // guessed 8h would read as fact.
+    // zero reads as unknown
     EXPECT_EQ(funding->next_funding_time.ns, 0U);
     EXPECT_EQ(funding->interval_s, 0U);
     EXPECT_EQ(funding->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
@@ -716,7 +674,7 @@ TEST(MexcMap, FundingFromTheTickerCarriesTheCatalogueInterval) {
     const auto funding = map_funding(*ticker, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->interval_s, 4U * 3600U);
-    // The boundary rest_funding_rate.json states as nextSettleTime.
+    // the boundary rest_funding_rate.json states as nextSettleTime
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400'000ULL * 1'000'000ULL);
 }
 
@@ -733,8 +691,7 @@ TEST(MexcMap, TickerStatsScaleContractsIntoBaseUnits) {
     EXPECT_EQ(stats->volume_24h_base.raw, 75'895'759'000'000LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'394'656'908ULL * 1'000'000ULL);
 
-    // A frame that restated no turnover must publish nothing, or the board
-    // reads a day's volume as zero.
+    // a frame with no turnover publishes nothing
     WireTicker silent{};
     silent.symbol = "BTC_USDT";
     silent.funding_rate = "0.000085";
@@ -750,7 +707,7 @@ TEST(MexcMap, FundingFromRestCarriesTheSchedule) {
     const auto funding = map_funding(*wire, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 85'000);
-    EXPECT_EQ(funding->interval_s, 8U * 3600U); // collectCycle is HOURS
+    EXPECT_EQ(funding->interval_s, 8U * 3600U); // collectCycle is in hours
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400'000ULL * 1'000'000ULL);
 }
 
@@ -775,7 +732,7 @@ TEST(MexcMap, CoinMarginedContractIsInverseAndTurnsOverInDollars) {
     const auto stats = map_ticker_stats(*ticker, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
     EXPECT_EQ(stats->volume_24h_quote.raw, 7'599'700'000'000LL); // 75997 contracts of $100
-    EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL);     // amount24 is BTC here
+    EXPECT_EQ(stats->volume_24h_base.raw, 90'676'765'443LL); // amount24 is btc here
 
     const auto linear = catalogue();
     EXPECT_EQ(base_of(*linear.find("BTC_USDT")).kind, ContractKind::Linear);
@@ -789,8 +746,6 @@ TEST(MexcMap, ContractWithoutAFundingRateIsNotFundingAtZero) {
     EXPECT_FALSE(map_funding(wire, table, k_ingest).has_value());
 }
 
-// ------------------------------------------------------------- errors ----
-
 TEST(MexcErrors, VerifiedCodesLandInTheRightBuckets) {
     EXPECT_EQ(classify(k_rate_limited), exec::ErrorClass::RateLimited);
     EXPECT_EQ(classify(k_not_logged_in), exec::ErrorClass::AuthFailure);
@@ -799,19 +754,15 @@ TEST(MexcErrors, VerifiedCodesLandInTheRightBuckets) {
 }
 
 TEST(MexcErrors, ClockSkewIsRetryableNotAuthFailure) {
-    // The same payload signed against a corrected offset succeeds, so filing
-    // this under AuthFailure would halt a venue whose keys are fine.
+    // retryable: the same payload signed with a corrected offset succeeds
     EXPECT_EQ(classify(k_request_expired), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_internal_error), exec::ErrorClass::Retryable);
 }
 
 TEST(MexcErrors, UnknownCodeIsTerminal) {
-    // An unknown refusal repeated at full speed is how an account earns an IP
-    // ban; a spuriously terminal order is recoverable by reconciliation.
+    // unknown codes are terminal
     EXPECT_EQ(classify(999'999), exec::ErrorClass::Terminal);
 }
-
-// ----------------------------------------------------------------- ws ----
 
 TEST(MexcWs, SubscribeFrameNamesExactlyOneSymbol) {
     Protocol protocol;
@@ -819,8 +770,7 @@ TEST(MexcWs, SubscribeFrameNamesExactlyOneSymbol) {
     const auto frame = protocol.subscribe_frame(one);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->text, R"({"method":"sub.ticker","param":{"symbol":"BTC_USDT"}})");
-    // There is no batch form: `param` takes one symbol, so a wide gateway
-    // sends one message per symbol per channel.
+    // `param` takes one symbol; there is no batch form
     EXPECT_EQ(frame->consumed, 1U);
 }
 
@@ -843,8 +793,7 @@ TEST(MexcWs, UnsubscribeReusesTheChannelStem) {
 }
 
 TEST(MexcWs, ChannelNamesMatchWhatTheSocketPushesBack) {
-    // sub.<stem> is answered by rs.sub.<stem> and delivers push.<stem>; the
-    // parser keys on the push form, so the two must not drift.
+    // sub.<stem> is acked as rs.sub.<stem> and delivers push.<stem>
     EXPECT_EQ(channel_for(exec::SubKind::Bbo), "depth.full");
     EXPECT_EQ(channel_for(exec::SubKind::Trades), "deal");
     EXPECT_EQ(channel_for(exec::SubKind::Depth), "depth");
@@ -855,8 +804,7 @@ TEST(MexcWs, ChannelNamesMatchWhatTheSocketPushesBack) {
 }
 
 TEST(MexcWs, AKindMexcDoesNotStreamIsRefusedRatherThanSentEmpty) {
-    // MEXC ignores an unknown method in silence, so a malformed frame would
-    // present as a channel that simply never delivers.
+    // mexc ignores an unknown method silently
     Protocol protocol;
     const std::array<Subscription, 1> one{Subscription{.channel = {}, .symbol = "BTC_USDT"}};
     const auto frame = protocol.subscribe_frame(one);
@@ -865,11 +813,8 @@ TEST(MexcWs, AKindMexcDoesNotStreamIsRefusedRatherThanSentEmpty) {
     EXPECT_EQ(protocol.subscribe_frame({}).error(), WsBuildError::NothingToSend);
 }
 
-// --------------------------------------------------------------- rest ----
-
 TEST(MexcRest, SymbolGoesInThePathForDepthAndFundingButInTheQueryForTicker) {
-    // The two shapes coexist on the same API; sending one as the other is a
-    // 1001 that reads like a delisted contract.
+    // sending one shape as the other gets 1001
     RequestBuilder builder;
     EXPECT_EQ(builder.depth("BTC_USDT", 5).target, "/api/v1/contract/depth/BTC_USDT?limit=5");
     EXPECT_EQ(builder.funding_rate("BTC_USDT").target, "/api/v1/contract/funding_rate/BTC_USDT");
@@ -879,13 +824,10 @@ TEST(MexcRest, SymbolGoesInThePathForDepthAndFundingButInTheQueryForTicker) {
     EXPECT_EQ(rest_host(), "contract.mexc.com");
     EXPECT_EQ(stream_host(MarketType::Perp), "contract.mexc.com");
     EXPECT_EQ(stream_path(MarketType::Perp), "/edge");
-    // Public data and signed calls live on different names: contract.mexc.com
-    // 403s a private POST at the CDN, api.mexc.com answers it.
+    // contract.mexc.com 403s a private post; api.mexc.com answers it
     EXPECT_EQ(private_rest_host(), "api.mexc.com");
     EXPECT_NE(private_rest_host(), rest_host());
 }
-
-// ------------------------------------------------------ ledger ---------
 
 TEST(MexcWire, FundingRowsSitUnderResultListWithTheirOwnPagingCounters) {
     static thread_local FundingRecordBuffer storage;
@@ -896,8 +838,7 @@ TEST(MexcWire, FundingRowsSitUnderResultListWithTheirOwnPagingCounters) {
     EXPECT_EQ((*rows)[0].symbol, "BTC_USDT");
     EXPECT_EQ((*rows)[0].id, 328'033U);
     EXPECT_EQ((*rows)[0].position_type, 1);
-    // Bare JSON numbers on this endpoint, kept as their tokens: the trailing
-    // zero of row 1 survives, which an integer read would not.
+    // bare json numbers kept as tokens, so trailing zeroes survive
     EXPECT_EQ((*rows)[0].funding, "0.0837798");
     EXPECT_EQ((*rows)[0].rate, "-0.002");
     EXPECT_EQ((*rows)[1].funding, "0.0125670");
@@ -905,12 +846,7 @@ TEST(MexcWire, FundingRowsSitUnderResultListWithTheirOwnPagingCounters) {
 }
 
 TEST(MexcMap, TheFundingDirectionComesOffThePositionAndTheRateNotTheAmountsSign) {
-    // THE BUG THIS EXISTS FOR: MEXC documents `funding` only as "Fee" and
-    // never states whether it is signed, and its own worked example is a long
-    // settled at a NEGATIVE rate — the case where a long receives — so the
-    // positive figure it shows discriminates nothing. A reader that trusted
-    // that sign would report every payment as income on the day MEXC ships a
-    // magnitude. The direction is taken from the two fields MEXC does document.
+    // mexc does not document the sign of `funding`, so direction comes from position type and rate
     const auto table = catalogue();
     static thread_local FundingRecordBuffer storage;
     const auto body = fixture("rest_funding_records.json");
@@ -923,17 +859,15 @@ TEST(MexcMap, TheFundingDirectionComesOffThePositionAndTheRateNotTheAmountsSign)
             booked.push_back(*charge);
         }
     }
-    // SUSHI_USDT is not in this catalogue: a contract we never loaded is
-    // dropped rather than booked against a guess.
+    // SUSHI_USDT is not loaded, so it is dropped
     ASSERT_EQ(booked.size(), 3U);
 
-    // A long at a NEGATIVE rate receives — MEXC's own documented example.
+    // a long at a negative rate receives
     EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
     EXPECT_EQ(booked[0].amount.raw, 83'779'800);
-    // The same long at a POSITIVE rate pays, and the amount MEXC states is
-    // positive on both rows.
+    // a long at a positive rate pays; the stated amount is positive on both rows
     EXPECT_EQ(booked[1].amount.raw, -12'567'000);
-    // A SHORT at that same positive rate is on the other side of it.
+    // a short at a positive rate receives
     EXPECT_EQ(booked[2].amount.raw, 10'279'600);
 
     EXPECT_EQ(booked[0].settled_at.ns, 1'606'435'200'000ULL * 1'000'000ULL);
@@ -943,9 +877,7 @@ TEST(MexcMap, TheFundingDirectionComesOffThePositionAndTheRateNotTheAmountsSign)
 }
 
 TEST(MexcRest, TheFundingReadIsAccountWideAndCarriesTheCursorItWasGiven) {
-    // `symbol` is OPTIONAL on this endpoint, which is the whole reason a pull
-    // naming only a market can ask it: the sibling trade history is
-    // per-symbol and is refused for exactly that reason.
+    // `symbol` is optional on this endpoint
     net::Signer signer;
     signer.set_api_key("mexc-test-key");
     ASSERT_TRUE(signer.secret().assign("mexc-test-secret").has_value());
@@ -960,19 +892,16 @@ TEST(MexcRest, TheFundingReadIsAccountWideAndCarriesTheCursorItWasGiven) {
               "/api/v1/private/position/funding_records"
               "?page_num=1&page_size=100&start_time=1606435200000");
 
-    // A zero cursor names no window at all rather than the epoch: the venue's
-    // own default page is the whole window it will answer.
+    // a zero cursor sends no window; the venue's default page applies
     const auto from_zero = builder.funding_records(MarketType::Perp, UnixNanos{0}, now);
     ASSERT_TRUE(from_zero.has_value());
     EXPECT_EQ(from_zero->target,
               "/api/v1/private/position/funding_records?page_num=1&page_size=100");
 
-    // Spot pays no funding and has no ledger of one.
+    // spot has no funding ledger
     EXPECT_EQ(builder.funding_records(MarketType::Spot, since, now).error(),
               BuildError::SpotFundingUnsupported);
 }
-
-// ------------------------------------------------- spot market data ----
 
 exec::InstrumentTable spot_catalogue() {
     static thread_local SpotSymbolBuffer storage;
@@ -989,9 +918,7 @@ exec::InstrumentTable spot_catalogue() {
 }
 
 TEST(MexcMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
-    // Both catalogues state the pair, which is the only reading available on
-    // spot: `BTCUSDT` runs the halves together, where the perpetual's
-    // `BTC_USDT` at least separates them.
+    // `BTCUSDT` has no separator, so the catalogue fields state the pair
     const auto perps = catalogue();
     const auto* perp = perps.find("BTC_USDT");
     ASSERT_NE(perp, nullptr);
@@ -1004,8 +931,7 @@ TEST(MexcMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
     EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "BTCUSDT");
     EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
 
-    // A row naming no pair is refused rather than carried under the exchange
-    // symbol: an instrument nothing can group shows as a market of its own.
+    // a row naming no pair is refused
     WireSpotSymbol unnamed{};
     unnamed.symbol = "BTCUSDT";
     unnamed.status = "1";
@@ -1019,8 +945,7 @@ TEST(MexcMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
 }
 
 TEST(MexcSpotStream, TheEnvelopeNamesTheFrameByFieldNumber) {
-    // Not by the channel string: the number is what the decoder can act on,
-    // and an unknown one is skipped rather than guessed at.
+    // dispatch by payload field number; unknown numbers are skipped
     const auto quote = fixture("ws_spot_book_ticker.pb");
     const auto event = parse_stream_event(quote);
     ASSERT_TRUE(event.has_value());
@@ -1029,7 +954,7 @@ TEST(MexcSpotStream, TheEnvelopeNamesTheFrameByFieldNumber) {
     EXPECT_GT(event->ts_ms, 1'000'000'000'000ULL);
     EXPECT_FALSE(event->payload.empty());
 
-    // JSON on the same socket is not a message, and must not read as one.
+    // json on the spot socket is not a market data message
     EXPECT_FALSE(parse_stream_event(R"({"id":0,"code":0,"msg":"PONG"})").has_value());
 }
 
@@ -1049,8 +974,7 @@ TEST(MexcSpotStream, TheQuoteDecodesToAnUncrossedBook) {
 }
 
 TEST(MexcSpotStream, EveryPrintNamesItsTaker) {
-    // tradeType 1 is the taker BUYING — verified against GET /api/v3/trades,
-    // which states isBuyerMaker outright.
+    // tradeType 1 is a taker buy
     const auto frame = fixture("ws_spot_deals.pb");
     const auto event = parse_stream_event(frame);
     ASSERT_TRUE(event.has_value());
@@ -1071,10 +995,7 @@ TEST(MexcSpotStream, EveryPrintNamesItsTaker) {
 }
 
 TEST(MexcSpotStream, TheBookIsWholeAndItsSizesAreFinerThanTheLot) {
-    // MEXC quotes sizes at baseAssetPrecision (1e-8) and trades at
-    // baseSizePrecision (1e-6). An exact conversion refuses nearly every
-    // level, which would void the whole book — so market data truncates, and
-    // the discarded remainder is below the smallest tradable size.
+    // market data truncates sizes to the 1e-6 order step from the 1e-8 quote precision
     const auto frame = fixture("ws_spot_depth.pb");
     const auto event = parse_stream_event(frame);
     ASSERT_TRUE(event.has_value());

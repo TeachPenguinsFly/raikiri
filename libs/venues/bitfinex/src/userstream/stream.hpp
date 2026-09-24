@@ -1,13 +1,6 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It authenticates and turns each frame into an event on the sink. It sends no
-// orders: an order goes out over REST and is ANSWERED here, and joining those
-// two halves is the execution client's job, not this one's.
-//
-// Every frame is a POSITIONAL ARRAY, exactly like the public feed's — the tag
-// in slot 1 is the only thing that says what the row is.
+// every private frame is a positional array; the tag in slot 1 says what it is
 
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bitfinex/envelope.hpp>
@@ -26,9 +19,7 @@ namespace raikiri::venues::bitfinex::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
-// Routes one authenticated frame. Everything private rides CHANNEL 0 and is
-// told apart by its tag; a tag with no channel in GatewaySink is dropped rather
-// than parsed, which is what keeps the wallet and funding streams free.
+// everything private rides channel 0; tags with no sink channel are dropped unparsed
 void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) noexcept {
     const auto info = parse_frame(frame);
     if (!info.has_value()) {
@@ -65,9 +56,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         if (!wire.has_value()) {
             return;
         }
-        // Remembered BEFORE the event is emitted: an execution for the same
-        // order may already be queued behind this frame, and it can state
-        // neither whose it is nor what is left out of anything else.
+        // remembered before emitting: an execution for this order may follow immediately
         const auto client_id = remember(*wire);
         if (const auto event = map_order_event(*wire, state.instruments, client_id, received);
             event.has_value()) {
@@ -82,19 +71,14 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         if (!orders.has_value()) {
             return;
         }
-        // A snapshot is not a transition. It seeds the memo so the fills that
-        // follow can name their order, and the reconciler asks for the state
-        // through open_order_reports().
+        // a snapshot seeds the memo only; it emits no transition
         for (const auto& wire : *orders) {
             (void)remember(wire);
         }
         return;
     }
     if (info->tag == "tu") {
-        // `te` and `tu` are the SAME fill twice — `te` arrives first with the
-        // fee still null and `tu` restates it once the fee is known. Only one
-        // may reach the sink or every fill is counted twice, and `tu` is the
-        // one that carries the fee.
+        // te and tu are the same fill; only tu, which carries the fee, is emitted
         const auto wire = parse_execution(frame);
         if (!wire.has_value()) {
             return;
@@ -106,11 +90,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         }
         return;
     }
-    // Three tags are deliberately silent. `te` is the fill `tu` restates.
-    // `ps`/`pn`/`pu`/`pc` carry positions GatewaySink has no channel for, and
-    // the reconciler pulls those over REST. `n` is the verdict on a WRITE, and
-    // every write this adapter sends goes over REST and reads its own answer —
-    // a socket `n` would be a verdict on an order nothing here placed.
+    // te, positions and n are ignored: positions are pulled over rest and writes read their own answer
 }
 
 class PrivateHandler final : public net::WsHandler {
@@ -152,8 +132,6 @@ private:
     NonceSource nonces_;
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)
@@ -171,8 +149,7 @@ public:
 
     [[nodiscard]] bool connected() const noexcept { return ws_.connected(); }
 
-    // An authenticated socket with no public subscriptions receives no
-    // heartbeat at all, so it has to speak first to stay open.
+    // with no public subscriptions there are no heartbeats, so it pings to stay open
     void heartbeat(UnixNanos now) noexcept {
         if (now.ns < next_ping_ns_) {
             return;

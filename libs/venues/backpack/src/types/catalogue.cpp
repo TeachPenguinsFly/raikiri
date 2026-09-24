@@ -8,7 +8,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// Named apart from wire::opt_u64, which refuses the null every spot row sends.
+// wire::opt_u64 refuses the null every spot row sends
 std::expected<std::uint64_t, WireError> nullable_u64(wire::ondemand::object& obj,
                                                      std::string_view key) {
     wire::ondemand::value value;

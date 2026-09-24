@@ -33,8 +33,7 @@ EventKind kind_from_feed(std::string_view feed) noexcept {
     if (feed == "open_orders") {
         return EventKind::OpenOrders;
     }
-    // Snapshot and delta are one shape here, unlike open_orders: both carry a
-    // `fills` array under the same key.
+    // fills snapshot and delta share one shape, unlike open_orders
     if (feed == "fills" || feed == "fills_snapshot") {
         return EventKind::Fills;
     }
@@ -57,9 +56,7 @@ EventKind kind_from_event(std::string_view event) noexcept {
     return EventKind::Unknown;
 }
 
-// Days since 1970-01-01 from a proleptic Gregorian date (Hinnant). Integer
-// only: this feeds a clock offset, and a double loses whole seconds past
-// 2^53 nanoseconds.
+// days since epoch from a gregorian date (hinnant), integer only
 [[nodiscard]] constexpr std::int64_t
 days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
     y -= m <= 2 ? 1 : 0;
@@ -70,8 +67,7 @@ days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) noexcept {
     return era * 146097 + static_cast<std::int64_t>(doe) - 719468;
 }
 
-// Fixed-width unsigned field at `offset`. Returns false on anything that is
-// not exactly `width` digits, so a reshaped timestamp fails loudly.
+// false unless exactly width digits
 [[nodiscard]] bool field_at(std::string_view text,
                             std::size_t offset,
                             std::size_t width,

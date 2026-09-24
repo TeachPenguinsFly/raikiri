@@ -23,26 +23,10 @@ namespace raikiri::venues::bitfinex::internal {
 
 namespace {
 
-// Enough sockets for bitfinex's whole SPOT catalogue at 36 channels each: 183
-// pairs times three channels — ticker, trades and book — is 549, which fills
-// fifteen sockets and leaves nine keys on a sixteenth (MEASURED: exactly that).
-// The perpetual tree costs a fourth channel for `status` and needs nine sockets
-// for its 79 contracts.
-//
-// EIGHTEEN IS WHAT THIS IP WAS MEASURED TO HOLD, not a number bitfinex states:
-// eighteen simultaneous connections, opened one every four seconds, were all
-// accepted, all acked and all delivering. What the venue does state is a RATE —
-// no more than 20 connections a minute on api-pub — and THAT is the ceiling
-// that would actually hurt, because a pool spends it in one go: every socket
-// here reopens together after a venue restart, so a wave costs the whole pool
-// inside one minute. Eighteen fits in the twenty with a retry to spare; a
-// catalogue that outgrows it is refused out loud rather than opening a
-// nineteenth.
+// api-pub allows 20 new connections a minute and the pool reopens every socket at once
 constexpr std::size_t k_max_connections = 18;
 
-// A pool key is one channel on one symbol, joined by a byte neither can
-// contain. The pool stores keys as opaque strings and hands them back when a
-// socket reconnects, so this is the only place that knows the shape.
+// pool key is channel and symbol joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(ChannelKind kind, std::string_view symbol) {
@@ -52,18 +36,14 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The inverse, and the only decode: two readers of a key that disagree about
-// where the cut is drift apart silently. The symbol is a view into the key,
-// which the pool owns for as long as the connection holds it.
+// the only decode; the symbol views the pool-owned key
 [[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
     const auto cut = key.find(k_key_sep);
     if (cut == std::string_view::npos) {
         return std::nullopt;
     }
     const auto channel = key.substr(0, cut);
-    // `status` carries several unrelated feeds and channel_kind() decides from
-    // the subscription key rather than the name; `deriv:` is the only one this
-    // adapter ever asks for.
+    // status carries several feeds; deriv: is the only one requested
     const auto kind = channel == channel_name(ChannelKind::DerivStatus) ? ChannelKind::DerivStatus
                                                                         : channel_kind(channel, {});
     if (kind == ChannelKind::Unknown) {
@@ -72,10 +52,7 @@ constexpr char k_key_sep = '\x1f';
     return Subscription{.kind = kind, .symbol = key.substr(cut + 1)};
 }
 
-// This socket's ids are gone, and only this socket's. The books it fed are
-// chained by it and by no other connection, so invalidating the whole map here
-// would put every instrument in the process back on a resync that this reopen
-// did not break.
+// only this socket's ids and books are invalidated
 void forget(VenueState& state, ChannelRegistry& registry) noexcept {
     for (const auto& binding : registry.bound()) {
         if (binding.kind != ChannelKind::Book) {
@@ -183,12 +160,11 @@ void handle_data(VenueState& state,
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return; // unsynced or dropped: silence, never a guess
         }
-        // A book frame carries no timestamp of any kind, so ingest is the only
-        // honest ts_event this channel can offer.
+        // book frames have no timestamp, so ts_event is ingest time
         if (const auto depth = book.snapshot(received, received); depth.has_value()) {
             state.sink->on_depth(*depth);
         }
-        // The fast top of book, beside the ticker's rather than instead of it.
+        // the fast top of book, beside the ticker's
         if (const auto bbo = book.touch(received, received); bbo.has_value()) {
             state.sink->on_bbo(*bbo);
         }
@@ -199,11 +175,7 @@ void handle_data(VenueState& state,
     }
 }
 
-// noexcept, and so are the two above, although this path allocates: a book
-// frame for an instrument seen for the first time grows state.books. An escape
-// from an asio callback holding live market data is not something to unwind
-// through, and the codebase already aborts rather than continues on a corrupt
-// number (fixed_point.hpp), so failing loudly here is the consistent answer.
+// noexcept though it allocates; an escape here aborts
 void handle_frame(VenueState& state,
                   ChannelRegistry& registry,
                   std::string_view frame,
@@ -220,18 +192,13 @@ void handle_frame(VenueState& state,
         handle_subscribed(registry, frame);
         break;
     case FrameKind::Info:
-        // Both notices reissue channel ids, and they arrive on the ONE socket
-        // they concern. The pool's other connections were told nothing and
-        // must keep the bindings they hold.
+        // both notices reissue channel ids on this socket only
         if (info->code == k_info_reconnect || info->code == k_info_maintenance_end) {
             forget(state, registry);
         }
         break;
     case FrameKind::Error: {
-        // 10305 lands here when a socket was asked for more channels than the
-        // server it landed on serves. Counted rather than ignored: it is the
-        // one signal that the table's ws_streams has been set above
-        // what this venue actually gives.
+        // 10305: the socket was asked for more channels than its server serves
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
             ++state.subscribe_refusals;
@@ -239,8 +206,7 @@ void handle_frame(VenueState& state,
         break;
     }
     case FrameKind::Auth:
-        // The public sockets never authenticate; the execution client's does,
-        // and it reads that frame on its own handler.
+        // only the execution client's socket authenticates
         break;
     case FrameKind::Heartbeat:
     case FrameKind::Unsubscribed:
@@ -250,21 +216,13 @@ void handle_frame(VenueState& state,
     }
 }
 
-// ONE CONNECTION'S HANDLER, which is why there is a pool per socket below
-// rather than one pool of sixteen.
+// one connection's handler; there is a pool per socket
 class SocketHandler final : public net::WsHandler {
 public:
     SocketHandler(VenueState& state, ChannelRegistry& registry)
         : state_{&state}, registry_{&registry} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. The pool re-asks for this socket's keys
-    // when it opens, and replaying the desired set on every connection is the
-    // flood the pool exists to avoid.
-    //
-    // What does belong here is forgetting: every id this socket held died with
-    // the old connection, and the books it fed have a broken delta chain.
-    // Bitfinex reseeds a book channel with a snapshot on subscribe, so the
-    // reopen this precedes is the resync — no REST burst is owed for it.
+    // the pool resubscribes on open, which reseeds each book with a snapshot
     void on_open() override {
         forget(*state_, *registry_);
         state_->sink->on_connectivity(
@@ -309,8 +267,6 @@ public:
                                    [](const auto& socket) { return socket->pool->connected(); });
     }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -335,7 +291,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "symbol too long")};
         }
         if (!state_->add_subscription(channel, *owned)) {
-            return {}; // Funding and MarkPrice are ONE `status` key, not two
+            return {}; // funding and mark price share one status key
         }
         return place(key_of(channel, symbol));
     }
@@ -356,40 +312,21 @@ public:
             if (!ping_due || !socket->pool->connected()) {
                 continue;
             }
-            // EVERY socket. Bitfinex pushes a heartbeat on each subscribed
-            // channel, so a socket that has bound one is never silent — but
-            // the window before its first ack is, and that window is per
-            // connection.
+            // ping every socket; one with no ack yet gets no heartbeat
             socket->pool->broadcast(Protocol::ping_frame());
             pinged = true;
         }
         if (pinged) {
             state_->next_app_ping_ns = now.ns + k_app_ping_interval_ns;
         }
-        // The execution client's authenticated socket rides this timer too:
-        // ExecutionClient has no poll hook, and a socket with no public
-        // subscriptions receives no heartbeat to answer.
+        // the execution client's socket rides this timer too
         if (state_->private_poll) {
             state_->private_poll(now);
         }
     }
 
 private:
-    // ONE POOL PER SOCKET, AND THE REASON IS THE CHANNEL ID.
-    //
-    // net::WsPool reports every one of its connections to ONE handler, and
-    // on_message says nothing about which socket a frame arrived on. The other
-    // seven venues on the pool can live with that because their frames name
-    // the instrument. Bitfinex's do not: a data frame is [CHAN_ID, payload],
-    // and CHAN_ID means whatever the acknowledgement on THAT socket said it
-    // means — see ChannelRegistry for what the venue was measured to do with
-    // those numbers. A handler that cannot tell its sockets apart cannot keep
-    // one registry per socket, so each connection gets its own handler, which
-    // means its own pool.
-    //
-    // What the pool still owns, and what this would otherwise have to
-    // reimplement per socket: the paced sends, the lazy open, and the reconnect
-    // that re-asks for that connection's keys and nobody else's.
+    // one pool per socket: frames carry only a chanId, valid on the socket that acked it
     struct Socket {
         explicit Socket(VenueState& state) : handler{state, registry} {}
 
@@ -398,9 +335,7 @@ private:
         std::unique_ptr<net::WsPool> pool; // last: it holds the handler above
     };
 
-    // Places one key on the first socket with room, and opens another when
-    // none has any. Only the connection ceiling refuses — said out loud rather
-    // than leaving the instrument silently unwatched.
+    // first socket with room, else a new one; only the connection ceiling refuses
     std::expected<void, exec::VenueError> place(std::string key) {
         const std::array<std::string, 1> one{std::move(key)};
         for (const auto& socket : sockets_) {
@@ -431,21 +366,13 @@ private:
                           .port = std::string{stream_port()},
                           .target = std::string{stream_path()}},
             socket->handler,
-            // ONE connection, because the registry above it is one
-            // connection's. The pool's own placement is what `place` does
-            // across these single-socket pools instead.
+            // one connection, matching the per-socket registry
             net::WsPoolConfig{.max_connections = 1},
             [this](std::span<const std::string> keys) { return build_frames(keys); });
         return socket;
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the ordering lives here
-    // rather than at subscribe time: on a reconnect the order that matters is
-    // the order the venue is asked in.
-    //
-    // ONE FRAME PER KEY — a `subscribe` object carries exactly one channel here
-    // — so a connection's set costs its key count in sends.
+    // called on every open of the socket; one frame per key
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
         views.reserve(keys.size());
@@ -454,18 +381,13 @@ private:
                 views.push_back(*one);
             }
         }
-        // THE BOOK FIRST. Once the sends are paced, whatever goes last
-        // effectively does not go at all — and `book` is both the depth panel
-        // and the Bid/Ask columns, which it fills at 1261 frames a minute
-        // against the ticker channel's 5.
+        // book first: with paced sends the tail lags, and the book feeds the bbo
         std::ranges::stable_partition(
             views, [](const Subscription& one) { return one.kind == ChannelKind::Book; });
 
         std::vector<std::string> frames;
         frames.reserve(views.size() + 1);
-        // BEFORE ANY SUBSCRIPTION, and on every reopen: `conf` sets how this
-        // connection spells its numbers, and a socket that misses it answers
-        // in a shape the parsers here do not read.
+        // conf goes before any subscription on every open; the parsers expect its number format
         frames.emplace_back(Protocol::conf_frame());
         for (const auto& view : views) {
             if (const auto frame = state_->protocol.subscribe_frame(view); frame.has_value()) {

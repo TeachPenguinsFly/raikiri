@@ -1,12 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It subscribes with the key it was handed, keeps the connection alive and
-// turns each push into an event on the sink. It sends no orders: an order goes
-// out over REST and is ANSWERED here, and joining those two halves is the
-// execution client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/xt/endpoints.hpp>
 #include <raikiri/venues/xt/errors.hpp>
@@ -21,20 +14,14 @@
 
 namespace raikiri::venues::xt::internal {
 
-// XT closes a private socket that has sent no application `ping` for 30 s, and
-// only CLIENT messages count toward that timer — a connection receiving order
-// pushes the whole time is still dropped. Ten seconds of headroom leaves room
-// for a missed tick and a reconnect inside the window.
+// xt drops a private socket that sends no app ping for 30 s, even while receiving
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
 constexpr std::uint32_t k_perp_stream_id = 1;
 
 constexpr std::uint32_t k_spot_stream_id = 2;
 
-// Routes one private push. Both trees wear the same {topic,event,data} shell
-// and NOTHING ELSE in common: futures states an order with long field names,
-// spot with two-letter ones, so the reader is chosen by the market rather than
-// sniffed from the payload.
+// same shell on both trees but different field names, so the reader is chosen by market
 void handle_private_frame(VenueState& state,
                           MarketType market,
                           std::string_view frame,
@@ -51,9 +38,7 @@ void handle_private_frame(VenueState& state,
             if (!wire.has_value()) {
                 return;
             }
-            // Remembered BEFORE the event is emitted: a fill for the same order
-            // may already be queued behind this frame, and it can state neither
-            // its side nor its leaves out of anything else.
+            // remembered before emitting: a queued fill for this order needs its side and leaves
             OrderContext context = state.context_for(wire->order_id);
             context.side = wire->side == "SELL" ? Side::Sell : Side::Buy;
             context.side_known = !wire->side.empty();
@@ -119,8 +104,7 @@ void handle_private_frame(VenueState& state,
     }
     case PrivateTopic::Position:
     case PrivateTopic::Balance:
-        // GatewaySink carries no channel for either; the reconciler asks for
-        // positions through position_reports() instead.
+        // GatewaySink has no channel for these; positions come via position_reports()
         return;
     case PrivateTopic::Ack:
         state.sink->on_connectivity({.state = exec::ConnState::Connected,
@@ -128,8 +112,7 @@ void handle_private_frame(VenueState& state,
                                      .ts = state.clock->wall()});
         return;
     case PrivateTopic::Refusal:
-        // Code 2 is the only refusal with a remedy: the key is dead and a new
-        // one has to be minted before the socket can carry anything.
+        // code 2: the key is dead, mint a new one
         if (info->code == k_listen_key_invalid) {
             (market == MarketType::Spot ? state.spot_key_stale : state.perp_key_stale) = true;
         }
@@ -186,9 +169,7 @@ private:
     const std::string* key_{nullptr};
 };
 
-// One private connection, owned as one thing so a caller cannot hold the
-// handler without the client it is attached to. The key is owned here rather
-// than by the handler because it is re-minted over REST between reconnects.
+// the key is owned here because it is re-minted over rest between reconnects
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market)
@@ -212,15 +193,13 @@ public:
 
     void set_key(std::string_view key) { key_.assign(key); }
 
-    // The socket subscribes with whatever key it holds AT on_open, so a fresh
-    // key only takes effect on a fresh connection.
+    // the key is read at on_open, so a new key needs a new connection
     void reconnect() {
         client_.stop();
         client_.start();
     }
 
-    // A TEXT ping, not a websocket control frame: XT counts only application
-    // messages toward the idle timer this is holding off.
+    // a text ping; xt counts only application messages
     void keepalive(UnixNanos now) noexcept {
         if (now.ns < next_ping_ns_) {
             return;

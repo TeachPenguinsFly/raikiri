@@ -10,12 +10,9 @@ namespace {
 
 constexpr std::string_view k_hdr_authorization = "Authorization";
 
-// A rendered FixedE9 never needs more than sign + 19 digits + point.
 constexpr std::size_t k_number_bytes = 32;
 
-// Drops a part that would overflow rather than truncating mid-token, so an
-// over-long currency yields a request Deribit refuses with Invalid params
-// instead of one that names a different market.
+// drops a part that would overflow instead of truncating mid-token
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -39,8 +36,6 @@ private:
     std::size_t len_{0};
 };
 
-// Reports overflow instead of truncating: a query cut mid-number names a size
-// nobody asked for, and the signature would authenticate it.
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -65,8 +60,6 @@ public:
         return *this << std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())};
     }
 
-    // Rendered from int64 fixed-point; no floating-point instruction is
-    // reachable from an order price on this path.
     Appender& operator<<(FixedE9 value) noexcept {
         if (value.is_undef()) {
             overflow_ = true;
@@ -105,17 +98,12 @@ private:
     return "good_til_cancelled";
 }
 
-// The venue-corrected wall clock in milliseconds. Deribit rejects a signature
-// whose timestamp is more than 60 seconds old, so this is the one place the
-// clock offset the adapter measured actually has to be applied.
+// deribit rejects a signature timestamp older than 60 s
 [[nodiscard]] std::uint64_t to_ms(UnixNanos now) noexcept {
     return now.ns / 1'000'000ULL;
 }
 
-// Exact conversion of an order quantity into the venue's `amount`. QtyLots
-// counts steps of lot_size, and lot_size is min_trade_amount, so the product
-// IS what Deribit wants — in USD for a reversed future and in coin for an
-// option, decided by the instrument rather than by a branch here.
+// lot_size is min_trade_amount, so qty x lot_size is deribit's amount
 [[nodiscard]] std::optional<FixedE9> amount_of(const InstrumentBase& base, QtyLots qty) noexcept {
     if (qty.is_undef() || qty.raw <= 0) {
         return std::nullopt;
@@ -187,9 +175,6 @@ std::string_view to_string(BuildError err) noexcept {
     return "Unknown";
 }
 
-// Deribit's coin-margined complex is the perpetual, the dated future and the
-// option series, and private/buy takes the same shape for all three. Spot is
-// the one refusal, and it is named rather than implied.
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Perp:
@@ -197,9 +182,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Option:
         return std::nullopt;
     case MarketType::Spot:
-        // Deribit routes spot to Coinbase Exchange and settles it in a
-        // different currency model; map_instrument refuses every spot row, so
-        // no spot instrument is ever in the table to order against.
+        // map_instrument refuses spot rows, so none are in the table
         return BuildError::SpotNotModelled;
     }
     return BuildError::SpotNotModelled;
@@ -231,9 +214,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(std::stri
     const auto timestamp = to_ms(now);
     const auto nonce = sign::nonce(++nonce_counter_, nonce_);
 
-    // The `data` term is the request itself: METHOD \n uri \n body \n. Every
-    // private call here is a GET whose body is empty, and the trailing newline
-    // stays regardless — Deribit's own worked example emits it.
     std::array<char, 896> data{};
     const auto request_data = sign::request_data(net::HttpMethod::Get, target, {}, data);
     const auto message = sign::message(timestamp, nonce, request_data, sign_msg_);
@@ -292,12 +272,8 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         }
         target << "&price=" << *price << "&time_in_force=" << tif_text(cmd.tif);
     }
-    // post_only DEFAULTS TO TRUE on Deribit, alone among the venues here, so
-    // it is stated on every order — a market order that inherited the default
-    // would be refused outright. reject_post_only rides with it because
-    // Deribit's own post-only behaviour is to REPRICE an order that would
-    // cross, and an order resting at a price the strategy never chose is worse
-    // than one that never rested.
+    // post_only defaults to true on deribit, so it is always sent;
+    // reject_post_only stops deribit repricing an order that would cross
     target << "&post_only=" << (post_only ? "true" : "false");
     if (post_only) {
         target << "&reject_post_only=true";
@@ -328,9 +304,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         if (currency.empty()) {
             return std::unexpected{BuildError::UnknownCurrency};
         }
-        // Scoped to the currency on purpose: an unscoped cancel_by_label
-        // sweeps every currency, and a label collision across coins would
-        // cancel an order this command never named.
+        // scoped to the currency: unscoped it sweeps every currency
         target << ep::k_order_cancel_by_label << "?label=" << cmd.exchange_client_order_id.view()
                << "&currency=" << currency;
     } else {
@@ -357,9 +331,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (!cmd.target_exchange_order_id.empty()) {
         target << ep::k_order_edit << "?order_id=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
-        // edit_by_label works only while EXACTLY ONE open order carries the
-        // label. A ULID is minted per order, so that holds by construction —
-        // and the instrument is required beside it.
         target << ep::k_order_edit_by_label << "?label=" << cmd.exchange_client_order_id.view()
                << "&instrument_name=" << base.exchange_symbol.view();
     } else {
@@ -401,8 +372,6 @@ SignedRequestBuilder::open_orders(MarketType market, std::string_view currency, 
         return std::unexpected{BuildError::UnknownCurrency};
     }
     Appender target{target_};
-    // "future" covers the perpetual AND the dated series; the caller keeps
-    // only the rows whose instrument resolves to the market it asked for.
     target << ep::k_open_orders_by_currency << "?currency=" << currency
            << "&kind=" << kind_of(market);
     if (!target.ok()) {
@@ -440,9 +409,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::user_trades(
            << "&kind=" << kind_of(market)
            << "&count=" << static_cast<std::uint64_t>(k_max_trade_page);
     if (since.ns != 0) {
-        // Ascending from the watermark, so a page that fills leaves the OLDEST
-        // unseen fills behind rather than the newest — the caller can advance
-        // and ask again.
+        // ascending, so a full page leaves the oldest unseen fills for the next page
         target << "&start_timestamp=" << to_ms(since) << "&sorting=asc";
     }
     if (!target.ok()) {

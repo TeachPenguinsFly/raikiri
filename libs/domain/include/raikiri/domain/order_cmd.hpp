@@ -1,9 +1,6 @@
 #pragma once
 
-// Order command vocabulary — the strategy's instruction to a gateway.
-// Domain-owned (like OrderEvent): the shm layer transports it and asserts
-// its slot properties, venue adapters consume it, but neither defines it.
-// Fixed 128-byte trivially-copyable layout: it IS the shm ring slot.
+// the strategy's instruction to a gateway; its fixed 128-byte layout is the shm ring slot
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>

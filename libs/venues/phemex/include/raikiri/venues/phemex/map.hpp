@@ -15,12 +15,10 @@
 
 namespace raikiri::venues::phemex {
 
-// Which of the venue's two number formats an instrument's frames use. Never
-// both: a USDT perp's price is "84258.6", a spot pair's is 8425860000000.
+// each instrument uses one format: decimal strings or scaled integers
 enum class Encoding : std::uint8_t { Real, Scaled };
 
-// What the frames need to decode an instrument that the Instrument itself
-// does not carry.
+// decoding data the Instrument does not carry
 struct Listing {
     Encoding encoding{Encoding::Real};
     std::int64_t price_step{0}; // Scaled: the tick in the frame's units
@@ -49,20 +47,17 @@ struct Listed {
 
 [[nodiscard]] UnixNanos ns_to_unix(std::uint64_t ns, UnixNanos fallback) noexcept;
 
-// The venue publishes no next funding time. Every settlement measured sits on
-// the UTC grid of the contract's interval counted from the epoch, so it is
-// computed from that.
+// no next funding time is published; settlements sit on the utc grid of the interval
 [[nodiscard]] UnixNanos next_funding_time(UnixNanos now, std::uint32_t interval_s) noexcept;
 
-// Nullopt for anything not Listed and any row whose grid will not map.
+// nullopt unless Listed with a grid that maps
 [[nodiscard]] std::optional<Listed> map_linear_perp(const WirePerp& wire);
 [[nodiscard]] std::optional<Listed> map_inverse_perp(const WireProduct& wire,
                                                      std::uint32_t settle_scale);
 [[nodiscard]] std::optional<Listed>
 map_spot(const WireProduct& wire, std::uint32_t base_scale, std::uint32_t quote_scale);
 
-// Every Listed row of one market, linear and inverse together on Perp.
-// `refused` counts the Listed rows that would not map.
+// refused counts Listed rows that would not map
 struct MappedCatalogue {
     std::vector<Listed> listed;
     std::size_t refused{0};
@@ -70,7 +65,7 @@ struct MappedCatalogue {
 
 [[nodiscard]] MappedCatalogue map_catalogue(const WireCatalogue& wire, MarketType market);
 
-// Nullopt when any level is off the grid: the frame cannot be applied.
+// nullopt when any level is off the grid
 [[nodiscard]] std::optional<std::size_t> to_levels(std::span<const WireRealLevel> wire,
                                                    const InstrumentBase& base,
                                                    std::span<book::Level> out);

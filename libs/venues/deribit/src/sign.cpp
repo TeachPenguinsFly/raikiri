@@ -7,8 +7,6 @@ namespace raikiri::venues::deribit::sign {
 
 namespace {
 
-// Reports overflow instead of truncating: a signature over a short string
-// authenticates a request that was never built.
 class Appender {
 public:
     explicit Appender(std::span<char> into) noexcept : into_{into} {}
@@ -66,8 +64,7 @@ std::string_view request_data(net::HttpMethod method,
                               std::string_view body,
                               std::span<char> out) noexcept {
     Appender text{out};
-    // The trailing newline after the body is NOT optional; Deribit's own
-    // worked example emits it for a GET whose body is empty.
+    // deribit expects the trailing newline even for an empty body
     text << method_text(method) << "\n" << uri << "\n" << body << "\n";
     return text.view();
 }

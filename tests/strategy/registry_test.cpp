@@ -1,10 +1,3 @@
-// The factory, the registry and the order a start and a stop happen in.
-//
-// No kernel, no sockets: the Context below records what a strategy asked for
-// and the Kernel hooks record what the registry asked the kernel for. Every
-// property under test is about ORDER and REFUSAL, and both are visible from
-// here.
-
 #include <raikiri/strategies/register.hpp>
 #include <raikiri/strategy/factory.hpp>
 #include <raikiri/strategy/registry.hpp>
@@ -18,9 +11,6 @@
 namespace raikiri::strategy {
 namespace {
 
-// A Context that answers nothing and remembers nothing, because none of these
-// tests are about what a strategy can see. It exists so an instance has an
-// address to hold.
 class SilentContext final : public Context {
 public:
     std::expected<ClientOrderId, RejectReason> submit(const NewOrder&) noexcept override {
@@ -44,9 +34,6 @@ private:
     LiveClock clock_;
 };
 
-// Everything that happened, in the order it happened, across every instance.
-// One log rather than a flag per event: the properties being tested are
-// orderings, and a set of booleans cannot express one.
 std::vector<std::string>& journal() {
     static std::vector<std::string> entries;
     return entries;
@@ -72,9 +59,6 @@ private:
     std::string tag_;
 };
 
-// A strategy that reads its config and refuses one it cannot use. The only
-// form of registration that can say no, and the reason MakeResult carries a
-// sentence rather than a code.
 class Picky final : public Strategy {
 public:
     static MakeResult make(const Params& params) {
@@ -86,7 +70,6 @@ public:
     }
 };
 
-// A strategy that places nothing and simply exists, for the id rules.
 class Quiet final : public Strategy {};
 
 struct Harness {
@@ -115,17 +98,12 @@ struct Harness {
     std::uint64_t now_ns{1'000};
 };
 
-// ------------------------------------------------------------ factory ----
-
 TEST(StrategyFactory, ANameIsTakenOnceAndTheSecondRegistrationLoses) {
-    // Never replaces: two registrations under one name is a link-order
-    // accident, and letting the second win makes which strategy runs depend on
-    // the order the objects were linked in.
+    // the first registration wins so link order cannot pick the strategy
     Factory types;
     EXPECT_TRUE(register_type<Quiet>(types, "carry"));
     EXPECT_FALSE(register_type<Picky>(types, "carry"));
     EXPECT_EQ(types.size(), 1U);
-    // And the FIRST one is what still answers.
     EXPECT_TRUE(types.make("carry", {.config = "anything", .strategy_id = 7}).has_value());
 }
 
@@ -137,8 +115,6 @@ TEST(StrategyFactory, ANamelessTypeAndANullConstructorAreBothRefused) {
 }
 
 TEST(StrategyFactory, AnUnknownTypeSaysTheNameItWasAskedFor) {
-    // A caller that mistyped a name needs to see which spelling arrived, not
-    // that "the type" is unknown.
     Factory types;
     const auto built = types.make("carrry", {});
     ASSERT_FALSE(built.has_value());
@@ -150,8 +126,6 @@ TEST(StrategyFactory, AConstructorMayRefuseItsConfigAndSayWhy) {
     ASSERT_TRUE(register_type<Picky>(types, "picky"));
     const auto refused = types.make("picky", {.config = "nonsense", .strategy_id = 4});
     ASSERT_FALSE(refused.has_value());
-    // The words are the strategy's own — this library cannot know which key
-    // was wrong, which is the whole reason the error is text.
     EXPECT_NE(refused.error().find("nonsense"), std::string::npos) << refused.error();
     EXPECT_TRUE(types.make("picky", {.config = "good"}).has_value());
 }
@@ -164,16 +138,11 @@ TEST(StrategyFactory, AConstructorReturningNothingBecomesAReasonRatherThanACrash
 }
 
 TEST(StrategyFactory, TheStrategiesLibraryRegistersByACallAndNotByAStaticInitializer) {
-    // The hazard register.hpp names: a static object in a static library whose
-    // translation unit nothing else references is dropped by the linker, and
-    // the failure looks exactly like a type that silently does not exist. A
-    // call cannot be dropped, and this is what proves the call is the one that
-    // does the work.
+    // a static registrar in an unreferenced translation unit is dropped by the linker; register_all is the explicit call
     Factory types;
     EXPECT_EQ(raikiri::strategies::register_all(types), 1U);
     EXPECT_TRUE(types.contains("demo-maker"));
     EXPECT_TRUE(types.make("demo-maker", {.config = "", .strategy_id = 3}).has_value());
-    // And calling it twice adds nothing rather than replacing anything.
     EXPECT_EQ(raikiri::strategies::register_all(types), 0U);
     EXPECT_EQ(types.size(), 1U);
 }
@@ -186,12 +155,7 @@ TEST(StrategyFactory, TypesComeBackSortedSoAListingCanBeDiffed) {
     EXPECT_EQ(types.types(), (std::vector<std::string>{"alpha", "mu", "zeta"}));
 }
 
-// ------------------------------------------------------------ create ----
-
 TEST(StrategyRegistry, TheManualDeskIdIsNeverHandedToAStrategy) {
-    // A strategy sharing k_manual_strategy_id would net its position into the
-    // desk's book, and the two would then be one position nobody could take
-    // apart again.
     Harness h;
     Registry live{h.kernel()};
     const auto made =
@@ -202,9 +166,6 @@ TEST(StrategyRegistry, TheManualDeskIdIsNeverHandedToAStrategy) {
 }
 
 TEST(StrategyRegistry, ZeroIsTheNoOrderSentinelAndNotAStrategy) {
-    // ClientOrderId{0} is the universal "no order" and its strategy_id() is 0,
-    // so an event carrying no client order id would be delivered to whoever
-    // held this id as if it were theirs.
     Harness h;
     Registry live{h.kernel()};
     const auto made = live.create({.name = "zero", .type = "quiet", .strategy_id = 0}, h.types);
@@ -259,9 +220,7 @@ TEST(StrategyRegistry, AConfigTheStrategyRefusesComesBackInItsOwnWords) {
 }
 
 TEST(StrategyRegistry, ItRefusesToGrowPastItsCapacity) {
-    // Capacity is fixed because dispatch holds a pointer into the instance
-    // table while a hook runs, and a hook that created a strategy over the
-    // control surface would reallocate it underneath.
+    // fixed capacity: dispatch holds a pointer into the table while a hook runs
     Harness h;
     Registry live{h.kernel()};
     for (std::uint16_t id = 2; id < 2 + Registry::k_max_instances; ++id) {
@@ -274,8 +233,6 @@ TEST(StrategyRegistry, ItRefusesToGrowPastItsCapacity) {
     EXPECT_EQ(over.error().error, CreateError::Full);
     EXPECT_EQ(live.size(), Registry::k_max_instances);
 }
-
-// ------------------------------------------------------- start and stop ----
 
 TEST(StrategyRegistry, ACreatedStrategyIsNotYetRunningAndSeesNothing) {
     Harness h;
@@ -291,12 +248,7 @@ TEST(StrategyRegistry, ACreatedStrategyIsNotYetRunningAndSeesNothing) {
 }
 
 TEST(StrategyRegistry, StopReversesStartExactly) {
-    // Start:  phase, then on_start, then the subscription.
-    // Stop:   unsubscribe, then on_stop, then the orders.
-    //
-    // The order is the whole point: unsubscribing first is what keeps a tick
-    // polled mid-teardown out of a strategy that is being taken apart, and
-    // cancelling after on_stop is what pulls whatever that hook placed.
+    // start: phase, on_start, subscribe. stop: unsubscribe, on_stop, cancel orders
     Harness h;
     Registry live{h.kernel()};
     ASSERT_TRUE(live.create({.name = "r", .type = "recorder", .strategy_id = 3}, h.types));
@@ -326,21 +278,17 @@ TEST(StrategyRegistry, EveryRefusalOfAStartOrAStopIsNamed) {
     EXPECT_EQ(live.stop(3).error(), ControlError::NoSuchStrategy);
 
     ASSERT_TRUE(live.create({.name = "r", .type = "recorder", .strategy_id = 3}, h.types));
-    // A stop before a start: nothing to unwind.
     EXPECT_EQ(live.stop(3).error(), ControlError::NotRunning);
     ASSERT_TRUE(live.start(3, {}));
     EXPECT_EQ(live.start(3, {}).error(), ControlError::AlreadyRunning);
     ASSERT_TRUE(live.stop(3));
-    // And from the end, neither move.
     EXPECT_EQ(live.start(3, {}).error(), ControlError::Finished);
     EXPECT_EQ(live.stop(3).error(), ControlError::Finished);
 
-    // A refused start ran no hook and a refused stop pulled no order.
     EXPECT_EQ(journal(), (std::vector<std::string>{"s3:start", "s3:stop", "cancel:3"}));
 }
 
 TEST(StrategyRegistry, TheProcessStopSignalTearsDownThroughTheSamePath) {
-    // A shutdown must not be a shorter unwind than a person's stop.
     Harness h;
     Registry live{h.kernel()};
     ASSERT_TRUE(live.create({.name = "r", .type = "recorder", .strategy_id = 3}, h.types));
@@ -352,14 +300,10 @@ TEST(StrategyRegistry, TheProcessStopSignalTearsDownThroughTheSamePath) {
     EXPECT_EQ(live.poll(), 1U);
     EXPECT_EQ(live.find(3)->phase, Phase::Stopped);
     EXPECT_EQ(journal(), (std::vector<std::string>{"s3:start", "s3:stop", "cancel:3"}));
-    // And it does not stop twice.
     EXPECT_EQ(live.poll(), 0U);
 }
 
 TEST(StrategyRegistry, AStopDoesNotFlattenAPosition) {
-    // The registry is handed exactly one thing to do to the order path, and it
-    // is a cancel. Nothing here can reduce a position, and this test is what
-    // keeps a later "helpful" flatten from being added quietly.
     Harness h;
     std::vector<std::string> asked;
     auto kernel = h.kernel();
@@ -372,12 +316,8 @@ TEST(StrategyRegistry, AStopDoesNotFlattenAPosition) {
     ASSERT_TRUE(live.start(3, {}));
     ASSERT_TRUE(live.stop(3));
     EXPECT_EQ(asked, (std::vector<std::string>{"cancel:3"}));
-    // And the teardown did nothing else at all: no second call, no hook the
-    // registry invented, nothing between on_stop and the cancel.
     EXPECT_EQ(journal(), (std::vector<std::string>{"s3:start", "s3:stop"}));
 }
-
-// ----------------------------------------------------------- dispatch ----
 
 TEST(StrategyRegistry, MarketDataReachesEveryRunningInstance) {
     Harness h;
@@ -401,9 +341,6 @@ TEST(StrategyRegistry, MarketDataReachesEveryRunningInstance) {
 }
 
 TEST(StrategyRegistry, AnOrderEventReachesOnlyTheStrategyThatPlacedIt) {
-    // The client order id packs the strategy that placed the order, so the
-    // event names its own owner. Handing it to the others would show a
-    // strategy somebody else's fills.
     Harness h;
     Registry live{h.kernel()};
     ASSERT_TRUE(live.create({.name = "a", .type = "recorder", .strategy_id = 3}, h.types));
@@ -417,8 +354,6 @@ TEST(StrategyRegistry, AnOrderEventReachesOnlyTheStrategyThatPlacedIt) {
     live.on_order_event(event);
     EXPECT_EQ(journal(), (std::vector<std::string>{"s4:order"}));
 
-    // An id nobody here owns — the manual desk's, or an order from a previous
-    // run that reconciliation closed — lands nowhere.
     journal().clear();
     OrderEvent stray{};
     stray.client_order_id = ClientOrderId::make(k_manual_strategy_id, 1);

@@ -9,14 +9,13 @@ namespace raikiri::venues::deribit {
 
 namespace {
 
-// The rate's UNIT, not a payment cadence — see map_funding.
+// the rate's unit, not a payment cadence
 constexpr std::uint32_t k_funding_basis_s = 8 * 60 * 60;
 
-// UnixNanos wraps past ~2554-07-21 in the millisecond multiply, and Deribit
-// parks perpetuals at 32503708800000 (year 3000) as an expiry sentinel.
+// deribit sets perpetual expiry to 32503708800000 (year 3000); unixnanos wraps past 2554
 constexpr std::uint64_t k_max_expiry_ms = std::numeric_limits<std::uint64_t>::max() / 1'000'000ULL;
 
-// Real Deribit exponents live in [-5, 5]; this only bounds the shift below.
+// real exponents are in [-5, 5]; this only bounds the shift
 constexpr int k_max_exponent = 60;
 
 [[nodiscard]] constexpr bool is_digit(char c) noexcept {
@@ -38,10 +37,7 @@ constexpr uint128_t k_mantissa_cap = *pow10(30);
 
 } // namespace
 
-// The value is mantissa * 10^(exponent - fraction_digits), so its e9 form is
-// that mantissa shifted by 9 + exponent - fraction_digits: a multiply when the
-// shift is positive, an EXACT division when negative. Failing to divide evenly
-// means more precision than FixedE9 models, which is refused, not rounded.
+// a negative shift must divide exactly; extra precision is refused
 std::optional<FixedE9> parse_number_e9(std::string_view token) noexcept {
     if (token.empty()) {
         return std::nullopt;
@@ -136,9 +132,7 @@ std::optional<FixedE9> parse_number_e9(std::string_view token) noexcept {
 
 namespace {
 
-// Exact conversion against the instrument's own step. Failing to divide evenly
-// means Deribit changed an instrument's precision, so the value is dropped:
-// rounding is how a reference price lands a tick off what actually printed.
+// a remainder means the instrument's precision changed, so the value is dropped
 std::optional<std::int64_t> exact_steps(std::string_view token, FixedE9 step) {
     if (token.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -160,9 +154,7 @@ std::optional<QtyLots> to_lots(std::string_view token, const InstrumentBase& bas
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// A 24-hour aggregate is an AMOUNT, not a size on the instrument's grid: no
-// lot size divides a sum of fills, and truncating below 1e-9 errs downward
-// rather than refusing the whole figure.
+// 24h aggregates are amounts off the lot grid, truncated below 1e-9
 std::optional<FixedE9> to_amount_e9(std::string_view token) {
     return token.empty() ? std::nullopt : parse_amount_e9(token);
 }
@@ -197,7 +189,6 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
     out.ask = *ask;
     out.bid_qty = *bid_qty;
     out.ask_qty = *ask_qty;
-    // The one timestamp is the matching-engine one; there is no send time.
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
     out.ts_init = ts_init;
     return out;
@@ -228,9 +219,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
 
 namespace {
 
-// Deribit quotes an implied vol as a PERCENT: 172.79 means 172.79 %. Every
-// other rate in this system is a ratio, and a percent read as one is a 100x
-// vol — so the conversion happens here, at the one edge where units change.
+// deribit quotes implied vol as a percent; converted to a ratio here
 std::optional<FixedE9> iv_ratio(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -256,9 +245,7 @@ map_greeks(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos
 
     OptionGreeks out{};
     out.instrument = base_of(*instrument).id;
-    // Each field stands on its own: Deribit ships 0.0 for a greek that really
-    // is zero — a deep-in-the-money call has gamma 0 — so an unparseable one
-    // is left undefined rather than folded into the same number.
+    // a greek can really be 0, so an unparseable one stays undefined
     const auto put = [](std::string_view text, FixedE9& into) {
         if (const auto value = parse_number_e9(text); value.has_value()) {
             into = *value;
@@ -314,8 +301,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO, even though every observed ticker carries `stats`:
-    // a frame that states neither figure says nothing about the day's volume.
+    // absent stats is not zero volume
     if (wire.stats_volume.empty() && wire.stats_volume_usd.empty()) {
         return std::nullopt;
     }
@@ -334,7 +320,6 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 
 namespace {
 
-// Deribit's own vocabulary for where an order stands.
 enum class OrderState : std::uint8_t { Open, Filled, Rejected, Cancelled, Triggered, Untriggered };
 
 std::optional<OrderState> state_of(std::string_view text) noexcept {
@@ -359,16 +344,11 @@ std::optional<OrderState> state_of(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-// A remainder Deribit killed because the order said so, versus one a human or
-// the venue withdrew. Deribit has no "expired" state, so the time-in-force is
-// the only witness, and the difference is what an operator reads to tell an
-// IOC working as designed from a venue cancelling underneath a strategy.
+// deribit has no expired state; tif tells an ioc remainder from a cancel
 bool ends_by_expiry(std::string_view tif) noexcept {
     return tif == "immediate_or_cancel" || tif == "fill_or_kill";
 }
 
-// Both terms ride the same unit, so their difference is a lot count. Anything
-// that does not divide exactly means the instrument's step moved under us.
 std::optional<QtyLots> leaves_of(const WireOrder& wire, const InstrumentBase& base) {
     const auto amount = to_lots(wire.amount, base);
     if (!amount.has_value()) {
@@ -439,9 +419,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         if (!qty.has_value()) {
             return std::nullopt;
         }
-        // A partially filled order is already PartiallyFilled to the FSM, and
-        // Accepted is not a transition out of it. The Filled events the same
-        // frame carries say everything this row would repeat.
+        // a partially filled order cannot go back to accepted
         if (leaves->raw != qty->raw) {
             return std::nullopt;
         }
@@ -449,9 +427,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         break;
     }
     case OrderState::Filled:
-        // Every unit of a filled order is accounted for by its trades, which
-        // arrive on their own channel. Synthesising a Filled here would book
-        // the quantity twice.
+        // fills arrive as trades; a filled event here would count them twice
         return std::nullopt;
     case OrderState::Rejected:
         event.type = OrderEventType::Rejected;
@@ -463,13 +439,10 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         event.type = OrderEventType::Triggered;
         break;
     case OrderState::Untriggered:
-        // A resting trigger order. This adapter places none, so one appearing
-        // was placed elsewhere and there is no local order to move.
+        // this adapter places no trigger orders
         return std::nullopt;
     }
     stamp(event, wire, base, ts_init);
-    // A rejected order never rested, so nothing is left of it. Every other
-    // state here reports what the venue itself says went unfilled.
     event.leaves_qty = event.type == OrderEventType::Rejected ? QtyLots::from_raw(0) : *leaves;
     return event;
 }
@@ -490,9 +463,7 @@ std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
     }
 
     if (leaves.is_undef()) {
-        // The OMS reads leaves_qty as authoritative on a fill and subtracts it
-        // from the order quantity; an undefined one is not a number that
-        // arithmetic survives, so the caller must resolve it first.
+        // leaves must be definite before the oms subtracts it
         return std::nullopt;
     }
 
@@ -512,9 +483,7 @@ std::optional<OrderEvent> map_fill(const WireUserTrade& wire,
     event.price = *price;
     event.qty = *qty;
     event.leaves_qty = leaves;
-    // The fee is in fee_currency, which for a reversed future and for an
-    // option alike is the base coin — the same currency the position settles
-    // in, never the USD the future is priced in.
+    // fee is in the base coin
     if (const auto fee = parse_number_e9(wire.fee); fee.has_value()) {
         event.fee = *fee;
     }
@@ -561,8 +530,6 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
         report.status = OrderStatus::Triggered;
         break;
     case OrderState::Untriggered:
-        // Armed but not yet live. The domain has no separate status for it and
-        // Accepted is what it behaves as: resting at the venue, not filled.
         report.status = OrderStatus::Accepted;
         break;
     }
@@ -626,8 +593,6 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
-    // Signed: the sign IS the direction, and exact_steps keeps it because a
-    // negative multiple of the step still divides evenly.
     const auto size = to_lots(wire.size, base);
     if (!size.has_value()) {
         return std::nullopt;
@@ -655,7 +620,6 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
         }
         break;
     case MarketType::Future:
-        // Both share kind "future", and confusing them is a position bug.
         if (wire.kind != "future" || perpetual) {
             return std::nullopt;
         }
@@ -685,35 +649,20 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Deribit, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // The smallest order the venue will take, in the same unit as lot_size.
     base.min_notional = *lot;
-    // ONE amount unit, not one contract. portfolio::settlement_value reads
-    // qty x lot_size x contract_value as the notional, and lot_size here is
-    // min_trade_amount — already denominated in what Deribit's `amount` field
-    // counts (USD on the reversed futures, coin on the options). Storing the
-    // venue's contract_size beside it would multiply the notional by that
-    // block a second time: a BTC-PERPETUAL lot would price at 100 USD instead
-    // of 10, and every PnL derived from it would be ten times the truth.
-    // contract_size itself survives as lot_size wherever the two agree, which
-    // on every reversed future they do.
+    // lot_size is already min_trade_amount in deribit's amount unit,
+    // so storing contract_size as well would multiply the notional twice
     base.contract_value = FixedE9::from_raw(k_e9);
-    // Deribit states the direction itself and the guard above already refused
-    // anything but "reversed", so every future reaching here is the venue's own
-    // word for inverse: the amount is USD, settlement is in the base coin.
     base.kind = ContractKind::Inverse;
 
     if (market == MarketType::Option) {
-        // A BTC option quotes its PREMIUM in BTC and sizes itself in BTC, so
-        // its notional is amount x price with no reciprocal anywhere —
-        // the linear formula, even though the same catalogue calls the row
-        // "reversed" and the future beside it genuinely is inverse. Inheriting
-        // the future's arithmetic here would price a premium by dividing.
+        // options quote premium and size in the base coin, so the notional is linear
         base.kind = ContractKind::Linear;
         const auto strike = exact_steps(wire.strike, base.tick_size);
         if (!strike.has_value() || *strike <= 0) {

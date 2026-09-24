@@ -26,8 +26,6 @@ FixedE9 settlement_value(const InstrumentBase& base, PriceTicks price, QtyLots q
     const auto units = venue_units_e9(base, qty);
     const auto px = price_e9(base, price);
     if (base.kind == ContractKind::Inverse) {
-        // A zero price would mean the venue quoted a contract as worthless.
-        // Refusing beats dividing.
         if (px <= 0) {
             return FixedE9::undef();
         }

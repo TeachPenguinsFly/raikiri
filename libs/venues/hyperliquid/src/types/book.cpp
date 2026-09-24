@@ -9,7 +9,6 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// {"px":"64143.0","sz":"26.35385","n":66}; nothing downstream models `n`.
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     wire::ondemand::object obj;
     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
@@ -134,12 +133,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
                     if (!count.has_value()) {
                         return std::unexpected(count.error());
                     }
-                    // NAMED, not braced. Assigning a brace list into a span
-                    // works on a plain member and is rejected by libstdc++
-                    // when the target is reached through a reference or a
-                    // conditional, as it is here — measured both ways under
-                    // gcc 14. The sibling adapters write to the member
-                    // directly and are unaffected.
+                    // assigned by name; libstdc++ rejects a brace list here
                     (side == 0 ? out.bids : out.asks) =
                         std::span<const WireLevel>{into.data(), *count};
                     ++side;

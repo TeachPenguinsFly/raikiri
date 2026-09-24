@@ -12,7 +12,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is ["64148.0","7.4404"]: price then size, both strings.
+// a level is ["64148.0","7.4404"]: price then size
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry,
                                                const wire::Session& s) {
     wire::ondemand::array pair;
@@ -123,10 +123,7 @@ std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view fram
         out.bid_qty = *bid_qty;
         out.ask_price = *ask;
         out.ask_qty = *ask_qty;
-        // opt_* answers 0 for a field that is not there, which is what makes
-        // this frame readable on both trees: the swap carries u and T, spot
-        // carries neither, and only E is common. A zero here means ABSENT and
-        // must not be read as a sequence number or a timestamp.
+        // zero means absent: swap sends u and T, spot neither
         if (!update_id.has_value() || !transaction.has_value() || !event.has_value()) {
             return std::unexpected(WireError::WrongType);
         }
@@ -204,10 +201,7 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
             return std::unexpected(WireError::MissingField); // nothing else names it
         }
         out.ts_ms = *ts != 0 ? *ts : *stamp;
-        // SPOT SENDS ASKS WORST FIRST. Both trees send bids best-first, so the
-        // asymmetry reads as a normal book right up to the point where the top
-        // of it is a hundred dollars away from the bid — and crossed against
-        // it, which is a signal every strategy acts on.
+        // spot sends asks worst first
         if (market == MarketType::Spot) {
             std::reverse(storage.asks.begin(), storage.asks.begin() + static_cast<long>(*asks));
         }

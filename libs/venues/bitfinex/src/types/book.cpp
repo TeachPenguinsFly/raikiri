@@ -18,16 +18,13 @@ WireLevel level_from(const std::array<std::string_view, k_level_arity>& fields) 
     return out;
 }
 
-// The venue's own reader: parse_decimal_e9 refuses the exponents this venue
-// writes. The exact-or-refuse rule itself is book::exact_steps.
+// parse_decimal_e9 refuses the exponents this venue writes
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_number_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
 }
 
-// The sign is the side here, never part of the quantity, so it comes off
-// before anything is scaled. A negative reaching QtyLots would be a size no
-// consumer could interpret.
+// the sign is the side; it comes off before scaling
 struct SignedToken {
     std::string_view magnitude;
     bool negative{false};
@@ -126,8 +123,7 @@ bool Book::apply_level(const WireLevel& wire) {
     const auto price_ticks = PriceTicks::from_raw(*price);
 
     if (wire.count == 0) {
-        // COUNT zero is the delete, and the amount beside it is a bare +1/-1
-        // that says only which side to look on — never a size to rest here.
+        // count zero deletes; the amount is only a side marker
         side.remove(price_ticks);
         return true;
     }
@@ -154,7 +150,6 @@ BookResult Book::apply(const WireBook& update) {
     }
 
     if (!synced_) {
-        // A delta before the opening snapshot has no book to change.
         return BookResult::Ignored;
     }
     for (const auto& wire : update.levels) {
@@ -170,9 +165,7 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
     if (!synced_) {
         return std::nullopt;
     }
-    // venue_seq left at zero on purpose: this channel publishes no ordering
-    // token at all, and a number we invented would read as one Bitfinex stood
-    // behind.
+    // this channel has no ordering token
     return ladders_.snapshot(instrument_, /*venue_seq=*/0, ts_event, ts_init);
 }
 

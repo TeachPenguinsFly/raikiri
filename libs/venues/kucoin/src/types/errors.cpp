@@ -44,9 +44,7 @@ bool is_benign_cancel_failure(std::int64_t code, std::string_view msg) noexcept 
     if (code == k_futures_order_not_cancelable) {
         return true;
     }
-    // Spot answers the same condition with 400100, the catch-all parameter
-    // error, so the code alone would also swallow a malformed cancel as
-    // harmless. Both spellings below have been seen for this one condition.
+    // spot answers this with the catch-all 400100, so the text decides
     return code == k_parameter_error && (msg.find("order_not_exist") != std::string_view::npos ||
                                          msg.find("does not exist") != std::string_view::npos);
 }

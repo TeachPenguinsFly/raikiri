@@ -16,12 +16,10 @@
 
 namespace raikiri::admin {
 
-// The shapes glaze reflects, named rather than anonymous: reflection reads
-// field names off a type with linkage and an anonymous namespace has none.
+// named namespace: glaze reflection needs linkage
 namespace stream_wire {
 
-// The contract's OrderEvent and Fill. They live here because the exec ring is
-// their only live source and nothing outside this file renders one.
+// the contract's OrderEvent and Fill; the exec ring is their only live source
 struct OrderEventRow {
     std::string client_order_id;
     std::string instrument_id;
@@ -48,9 +46,7 @@ struct FillRow {
     std::string ts_event;
 };
 
-// The client message as it arrives. Ids are text here and stay text until they
-// are read as digits, because that is the only way a 64-bit id survives a
-// browser at all.
+// ids stay text until read as digits
 struct Message {
     std::string op;
     std::string id;
@@ -60,11 +56,8 @@ struct Message {
     std::vector<std::string> funding;
     std::vector<std::string> ticker;
     std::vector<std::string> events;
-    // Raw, so the cadence never passes through a double on its way to being an
-    // integer count of millihertz.
+    // raw so the cadence never passes through a double
     std::optional<glz::raw_json> hz;
-    // Raw, like hz: a depth past 2^53 is nonsense, but reading it as a JSON
-    // number here would let a double decide how many levels to send.
     std::optional<glz::raw_json> levels;
 };
 
@@ -72,14 +65,10 @@ struct Message {
 
 namespace {
 
-// glaze omits an empty optional, which is the contract's rule: a field with no
-// answer is absent, never null and never zero.
+// glaze omits an empty optional; the contract's absent fields rely on it
 constexpr glz::opts k_write_opts{.skip_null_members = true};
 
-// A key this server does not know is a client one version ahead, not a client
-// speaking nonsense. What it asked for is decided by the fields named below,
-// and a subscribe that named no channel at all is refused loudly, which is
-// what catches a misspelling.
+// unknown keys are ignored for forward compatibility; a subscribe naming no channel is refused
 constexpr glz::opts k_read_opts{.error_on_unknown_keys = false};
 
 constexpr std::size_t k_max_id_bytes = 64;
@@ -107,8 +96,7 @@ void append_ts(std::string& out, UnixNanos ts) {
     out += '"';
 }
 
-// The frame's `type` and its payload field are the same word in every state
-// variant, which is why one builder covers all of them.
+// the frame's `type` matches its payload field in every state variant
 template <typename T>
 std::string
 list_frame(std::string_view type, std::string_view id, UnixNanos ts, std::span<const T> rows) {
@@ -149,9 +137,7 @@ std::optional<InstrumentId> read_id(std::string_view text) noexcept {
     return InstrumentId{packed};
 }
 
-// `positions` and `health` arrive through the `events` array because the
-// subscribe message has no field of their own — but they are STATE, sampled
-// and coalesced like every other table, not sequenced.
+// `positions` and `health` arrive via `events` but are sampled state
 std::optional<Feed> read_event(std::string_view name) noexcept {
     if (name == "orders") {
         return Feed::Orders;
@@ -210,8 +196,6 @@ std::string join(const std::vector<std::string>& parts) {
 
 } // namespace
 
-// ------------------------------------------------------- subscriptions ----
-
 bool sequenced(Feed feed) noexcept {
     switch (feed) {
     case Feed::Orders:
@@ -231,8 +215,7 @@ bool sequenced(Feed feed) noexcept {
 }
 
 std::expected<ClientMessage, Problem> parse_client_message(std::string_view text) {
-    // Copied because glaze reads a null-terminated buffer and a WebSocket
-    // payload is not one.
+    // copied: glaze needs a null-terminated buffer
     const std::string buffer{text};
     stream_wire::Message wire{};
     if (const auto ec = glz::read<k_read_opts>(wire, buffer); ec) {
@@ -323,9 +306,7 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
                     .detail = "one of quotes, book, greeks, funding, ticker, events"});
     }
     if (channels > 1) {
-        // The ack states ONE cadence, so a handle covers one channel. Nothing
-        // stops a client from opening several handles, and then each ack says
-        // the truth about the feed it belongs to.
+        // one cadence per ack, so one channel per handle
         return std::unexpected(Problem{.title = "one channel per subscription",
                                        .status = 400,
                                        .detail = "the ack states one cadence"});
@@ -333,22 +314,13 @@ std::expected<ClientMessage, Problem> parse_client_message(std::string_view text
     return out;
 }
 
-// ------------------------------------------------------------ cadence ----
-
 std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept {
     switch (feed) {
     case Feed::Quotes:
-        // One instrument is a focused view and earns the sampling rate; a
-        // watchlist of forty is a display, and a display is 10 Hz.
+        // a focused view gets the sampling rate; a watchlist gets 10 Hz
         return instruments <= 1 ? 30'000 : 10'000;
     case Feed::Book:
-        // A depth ladder is read, not raced: the eye takes a picture of it and
-        // the hand acts on the top of it, and the top is on the quotes feed at
-        // thirty. But ONE ladder open is a focused view and a second between
-        // frames is visibly a slideshow, so it gets five; several venues at
-        // once is a cross-venue display, and thirty frames a second of
-        // hundred-level ladders each is bandwidth that buys nothing.
-        // A client that wants faster asks, and negotiate_millihertz answers.
+        // one ladder gets 5 Hz, several get 1 Hz; the top of book is on the quotes feed
         return instruments <= 1 ? 5'000 : 1'000;
     case Feed::Greeks:
     case Feed::Funding:
@@ -393,8 +365,6 @@ void ChangeGate::accept(std::size_t slot, std::uint32_t version) noexcept {
     }
 }
 
-// --------------------------------------------------- records into rows ----
-
 std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base) {
     if (bbo.bid.is_undef() || bbo.ask.is_undef() || bbo.bid_qty.is_undef() ||
         bbo.ask_qty.is_undef()) {
@@ -412,8 +382,7 @@ Book book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size
     Book out{};
     out.instrument_id = digits(snapshot.instrument);
     out.ts_event = digits(snapshot.ts_event);
-    // Levels past the count are the previous snapshot's, still sitting in the
-    // cell: the writer overwrites what it filled and nothing else.
+    // levels past the count are stale; the writer only overwrites what it filled
     const auto cap = std::min<std::size_t>(levels, k_book_levels);
     const auto bids = std::min<std::size_t>(snapshot.bid_count, cap);
     const auto asks = std::min<std::size_t>(snapshot.ask_count, cap);
@@ -451,9 +420,7 @@ Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base) {
     out.predicted_rate = decimal(funding.predicted_rate);
     out.mark_price = price(funding.mark_price, base);
     out.next_funding_time = digits(funding.next_funding_time);
-    // Null rather than zero when the venue did not say: annualising an hourly
-    // rate as an eight-hourly one is wrong by a factor of eight, and a zero
-    // interval would be read as a number.
+    // null when the venue did not say; zero would be read as an interval
     if (funding.interval_s != 0) {
         out.interval_seconds = static_cast<std::int64_t>(funding.interval_s);
     }
@@ -469,16 +436,11 @@ Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base) {
 Position position_of(const shm::PositionCell& cell, const InstrumentBase& base, UnixNanos now) {
     Position out{};
     out.instrument_id = digits(cell.report.instrument);
-    // The venue reports per account; a strategy is this system's idea and the
-    // segment carries no dimension for it.
+    // positions are per account; the segment has no strategy dimension
     out.strategy_id = 0;
-    // THE GATEWAY HOLDS ONLY THE VENUE'S HALF, so `qty` and `venue_qty` are
-    // the same number here and this feed can never show a break. The book's
-    // own quantity lives in strategyd, and a disagreement between the two is
-    // what /v1/recon-breaks is for.
+    // the gateway holds only the venue's side, so `qty` equals `venue_qty` here
     out.qty = size(cell.report.net_qty, base);
-    // avg_entry_price stays empty on purpose: a venue recomputes an average by
-    // its own rules and this system's cost basis is not that number.
+    // avg_entry_price stays empty; the venue's average is not this system's cost basis
     out.ts_updated = digits(cell.ts_pulled);
     const bool fresh = cell.ts_pulled.ns != 0 && now.ns < cell.ts_pulled.ns + k_position_stale_ns;
     if (fresh) {
@@ -488,13 +450,10 @@ Position position_of(const shm::PositionCell& cell, const InstrumentBase& base, 
     return out;
 }
 
-// ------------------------------------------------------------- frames ----
-
 std::string ack_frame(std::string_view id, std::optional<std::int64_t> millihertz) {
     auto out = frame_head("ack", id);
     if (millihertz.has_value()) {
-        // Small enough to be a JSON number honestly, and rendered through the
-        // one formatter so 500 millihertz is 0.5 and not 0.49999999.
+        // rendered through the shared formatter so 500 millihertz prints 0.5
         out += R"(,"hz":)";
         out += decimal(FixedE9::from_raw(*millihertz * 1'000'000));
     }
@@ -517,8 +476,7 @@ std::string greeks_frame(std::string_view id, UnixNanos ts, std::span<const Gree
 Ticker ticker_of(const TickerStats& stats) {
     Ticker out{};
     out.instrument_id = digits(stats.instrument);
-    // Not scaled by the instrument's tick or lot: a turnover is money and a
-    // base volume is coins, and neither is priced in the units a ladder is.
+    // not scaled by tick or lot
     out.volume_24h_base = decimal(stats.volume_24h_base);
     out.volume_24h_quote = decimal(stats.volume_24h_quote);
     out.ts_event = digits(stats.ts_event);
@@ -608,8 +566,6 @@ std::string problem_frame(std::string_view id, const Problem& problem) {
     return out;
 }
 
-// ------------------------------------------------------------ targets ----
-
 std::vector<Target> resolve_targets(const Registry& registry,
                                     std::span<const InstrumentId> ids,
                                     std::vector<std::string>& unknown) {
@@ -618,9 +574,7 @@ std::vector<Target> resolve_targets(const Registry& registry,
     for (const auto id : ids) {
         const auto row = registry.catalogue_row(id);
         const std::size_t cell = id.symbol().raw;
-        // An id past the tables has nowhere to quote from, which reaches the
-        // client as the same answer as no gateway listing it at all: nothing
-        // will ever arrive for it.
+        // an id past the tables gets the same answer as an unlisted one
         if (!row.has_value() || cell >= shm::k_bbo_cells) {
             unknown.push_back(digits(id));
             continue;
@@ -629,8 +583,6 @@ std::vector<Target> resolve_targets(const Registry& registry,
     }
     return out;
 }
-
-// -------------------------------------------------------------- stream ----
 
 namespace {
 
@@ -642,29 +594,24 @@ using tcp = asio::ip::tcp;
 
 constexpr std::string_view k_path = "/v1/stream";
 
-// A confused or hostile client must not make the process allocate: the largest
-// honest message is a watchlist of a few hundred ids.
+// the largest honest message is a watchlist of a few hundred ids
 constexpr std::uint64_t k_max_message_bytes = 64 * 1024;
 constexpr std::size_t k_max_feeds = 64;
 
-// Control frames — acks, problems, gaps — are owed to the client and wait
-// here. State frames never do: they are dropped instead. A queue this deep
-// means the socket has stopped taking anything at all.
+// control frames queue here; state frames are dropped instead
 constexpr std::size_t k_max_queued = 64;
 
-// Bounded so one busy venue cannot hold the pass open indefinitely.
+// bounded so one busy venue cannot hold the pass open
 constexpr std::size_t k_max_polls_per_pass = 256;
 
 struct EventSource {
     const Gateway* gateway{nullptr};
-    // The ring the cursor below counts in. A re-attached gateway maps a new
-    // one, and a sequence number from the old ring means nothing in it.
+    // a sequence from the old ring means nothing after a re-attach
     const shm::ExecRing* ring{nullptr};
     shm::ExecReader reader;
 };
 
-// Order events arrive on a shm ring nothing signals, so a client holding them
-// is polled at this pace between its sampled feeds.
+// the exec ring is not signalled, so it is polled at this pace
 constexpr std::uint64_t k_event_poll_ns = 10'000'000;
 
 struct FeedState {
@@ -673,24 +620,17 @@ struct FeedState {
     std::int64_t millihertz{0};
     std::uint64_t period{0};
     MonoNanos due{};
-    // What the client ASKED for, kept beside what it resolved to. A re-attached
-    // gateway is a new catalogue, and the targets have to be built again from
-    // the ids rather than from themselves.
+    // the requested ids, kept so targets can be rebuilt after a re-attach
     std::vector<InstrumentId> asked;
     std::vector<Target> targets;
     ChangeGate gate;
     std::vector<EventSource> sources;
     std::uint64_t seq{0};
-    // Book subscriptions only. Kept per subscription because two venues open
-    // side by side may want different depth — a thin book needs every level it
-    // has, a deep one needs the top of it.
+    // book subscriptions only; per subscription
     std::size_t levels{k_default_levels};
 };
 
-// A cell that moved: the payload as copied, the instrument that gives it
-// meaning, and the version THE COPY carried. The probe's version is not that
-// one — the writer may have moved between the two reads, and recording the
-// probe's would skip the value it wrote.
+// `version` is the copy's, not the probe's; the writer may move between the reads
 template <typename Record> struct Changed {
     std::size_t slot{0};
     std::uint32_t version{0};
@@ -698,16 +638,13 @@ template <typename Record> struct Changed {
     Record record{};
 };
 
-// One client, alive as long as its own handler chain holds it.
 class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(tcp::socket socket, const Registry& registry, const Clock& clock)
         : ws_{std::move(socket)}, registry_{&registry}, clock_{&clock}, epoch_{registry.epoch()} {}
 
     void run() {
-        // Read the upgrade request before accepting it, because the path is
-        // part of the contract and a socket that asked for something else is
-        // not this server's to answer.
+        // read the upgrade request first; the path is part of the contract
         request_ = std::make_unique<http::request_parser<http::empty_body>>();
         auto self = shared_from_this();
         http::async_read(ws_.next_layer(),
@@ -716,25 +653,14 @@ public:
                          [self](beast::error_code ec, std::size_t) { self->on_request(ec); });
     }
 
-    // Samples what is due and hands the reactor whatever the socket will take.
-    // Returns the frames that left, so an idle caller knows it may sleep.
+    // returns frames sent, so an idle caller may sleep
     std::size_t tick(MonoNanos mono, UnixNanos wall) {
         if (closed_ || !open_) {
             return 0;
         }
         resync();
         std::size_t sent = drain_events();
-        // ROUND ROBIN, and the deadline moves only for a feed that was
-        // actually sampled. Both halves are load-bearing and neither was here:
-        //
-        // The socket takes one frame per tick, so the first feed to be sampled
-        // makes busy() true for every feed after it. Advancing `due` before
-        // that check meant a skipped feed did not merely wait — it forfeited
-        // its turn, and starting the walk at zero every tick meant the same
-        // feeds forfeited it every time. A terminal subscribing to quotes at
-        // 10 Hz beside a book and a funding feed at 1 Hz starved both: measured
-        // on one socket, whichever channel was subscribed last received
-        // NOTHING, indefinitely.
+        // round robin; `due` advances only for a feed actually sampled, or later feeds starve
         for (std::size_t step = 0; step < feeds_.size(); ++step) {
             if (busy()) {
                 break; // the socket is behind; every remaining feed stays due
@@ -743,8 +669,7 @@ public:
             if (sequenced(feed.kind) || mono.ns < feed.due.ns) {
                 continue;
             }
-            // Scheduled from NOW rather than from the missed deadline: a client
-            // that stalled is not owed a burst when it comes back.
+            // scheduled from now so a stalled client gets no burst
             feed.due = mono + feed.period;
             sent += sample(feed, mono, wall) ? 1U : 0U;
         }
@@ -833,7 +758,6 @@ private:
         }
     }
 
-    // Every attached gateway, in the registry's order.
     [[nodiscard]] std::vector<const Gateway*> attached() const {
         std::vector<const Gateway*> out;
         out.reserve(registry_->size());
@@ -843,9 +767,7 @@ private:
         return out;
     }
 
-    // One target per catalogued instrument that has a position cell. The whole
-    // catalogue, because a position feed follows the account rather than a
-    // watchlist.
+    // every catalogued instrument with a position cell; positions follow the account
     [[nodiscard]] static std::vector<Target>
     position_targets(const std::vector<const Gateway*>& gateways) {
         std::vector<Target> out;
@@ -872,16 +794,7 @@ private:
         return out;
     }
 
-    // A GATEWAY THAT RESTARTED IS A NEW MAPPING, AND EVERY `listed` THIS
-    // SESSION HOLDS POINTED INTO THE OLD ONE.
-    //
-    // The registry re-attaches such a gateway and moves its epoch to say so
-    // (registry.hpp). Live subscriptions RE-RESOLVE here rather than the
-    // re-attach being refused while a session holds targets: a terminal is
-    // connected all day, so refusing would mean a restarted gatewayd stays
-    // alive=false until admind is restarted — which is the defect this fixes,
-    // reintroduced through the other door. Cheap, and it has to be: one
-    // integer compare on every tick, work only on the tick after a re-attach.
+    // re-resolve targets when the registry epoch moves after a gateway re-attach
     void resync() {
         const auto epoch = registry_->epoch();
         if (epoch == epoch_) {
@@ -891,11 +804,7 @@ private:
         const auto gateways = attached();
         for (auto& feed : feeds_) {
             if (sequenced(feed.kind)) {
-                // ONLY THE GATEWAY THAT RESTARTED. Its ring went with its
-                // mapping and its sequence numbers belonged to a world that is
-                // gone (shm/segment.hpp), so that reader starts again on the
-                // new ring — but every fill is money, and resetting the other
-                // venues' cursors would skip whatever they had queued.
+                // reset only the restarted gateway's ring cursor; other venues' queued events must not be skipped
                 for (auto& source : feed.sources) {
                     if (source.ring != source.gateway->channels.exec_events) {
                         source.ring = source.gateway->channels.exec_events;
@@ -913,9 +822,7 @@ private:
                 std::vector<std::string> unknown;
                 feed.targets = resolve_targets(*registry_, feed.asked, unknown);
                 if (!unknown.empty()) {
-                    // A restarted gateway numbers its own catalogue, so an id
-                    // it no longer lists is an id that will never arrive. Said
-                    // out loud, exactly as at subscribe time.
+                    // ids the restarted gateway no longer lists get a problem frame
                     enqueue(problem_frame(feed.id,
                                           {.title = "the gateway restarted and no longer lists "
                                                     "these instruments",
@@ -923,9 +830,7 @@ private:
                                            .detail = join(unknown)}));
                 }
             }
-            // Empty again, so the first tick after a re-attach is a snapshot:
-            // nothing has been sent from the new mapping, and the versions
-            // recorded against the old one mean nothing in it.
+            // empty gate so the first tick after a re-attach is a snapshot
             feed.gate = ChangeGate{feed.targets.size()};
         }
     }
@@ -935,8 +840,7 @@ private:
             enqueue(problem_frame(message.id, {.title = "too many subscriptions", .status = 429}));
             return;
         }
-        // A handle is replaced, not duplicated: re-subscribing the same id is
-        // how a terminal changes a watchlist.
+        // re-subscribing a handle replaces it
         drop(message.id);
 
         if (!message.quotes.empty()) {
@@ -966,17 +870,14 @@ private:
         FeedState feed{};
         feed.id = message.id;
         feed.kind = kind;
-        // Clamped, not refused: a client asking for two hundred levels wants
-        // the deepest book there is, and the deepest book there is is what the
-        // snapshot holds.
+        // clamped to the snapshot depth, not refused
         feed.levels =
             std::min<std::size_t>(message.levels.value_or(k_default_levels), k_book_levels);
         feed.asked.assign(ids.begin(), ids.end());
         std::vector<std::string> unknown;
         feed.targets = resolve_targets(*registry_, ids, unknown);
         if (!unknown.empty()) {
-            // Said out loud: a watchlist quietly missing a row is a terminal
-            // showing nothing where a price was asked for.
+            // unresolved ids get a problem frame
             enqueue(problem_frame(message.id,
                                   {.title = "no gateway holds these instruments",
                                    .status = 404,
@@ -985,8 +886,7 @@ private:
         if (feed.targets.empty()) {
             return;
         }
-        // An empty gate and a deadline of now make the first tick a snapshot:
-        // nothing has been sent, so everything the tables hold has moved.
+        // empty gate and due now: the first tick is a snapshot
         feed.gate = ChangeGate{feed.targets.size()};
         feed.millihertz = negotiate_millihertz(kind, feed.targets.size(), message.millihertz);
         feed.period = period_ns(feed.millihertz);
@@ -1002,10 +902,7 @@ private:
         for (const auto kind : message.events) {
             switch (kind) {
             case Feed::Recon:
-                // Reconciliation runs in strategyd and reaches Postgres
-                // through the journal; no gateway channel carries a verdict,
-                // so there is nothing here to sample. Refused rather than
-                // acked into silence.
+                // no gateway channel carries recon verdicts, so refuse
                 enqueue(problem_frame(
                     message.id,
                     {.title = "no live channel for reconciliation breaks",
@@ -1089,9 +986,7 @@ private:
         case Feed::Positions:
             return sample_positions(feed, wall);
         case Feed::Health:
-            // Gateways only: the database half belongs to whoever owns the
-            // connection and this side has none, so `database` here is a
-            // default rather than an observation.
+            // gateways only; `database` is a default here
             enqueue(health_frame(feed.id, wall, registry_->health(mono, wall)));
             return true;
         case Feed::Orders:
@@ -1102,9 +997,7 @@ private:
         return false;
     }
 
-    // Every sampled table is read the same way, and the order matters: probe
-    // the version, copy only when it moved, and hand back the version the copy
-    // carried so the caller can record it once the frame has actually left.
+    // probe the version, copy only if moved, return the copy's version
     template <typename Record, typename Table>
     [[nodiscard]] std::vector<Changed<Record>>
     changed(const FeedState& feed, Table* shm::GatewayChannels::* channel) const {
@@ -1125,7 +1018,7 @@ private:
         return out;
     }
 
-    // Recorded only now, because only now has the frame reached the socket.
+    // recorded only once the frame reached the socket
     static void remember(FeedState& feed,
                          const std::vector<std::pair<std::size_t, std::uint32_t>>& taken) {
         for (const auto& [slot, version] : taken) {
@@ -1232,8 +1125,7 @@ private:
     }
 
     std::size_t drain_events() {
-        // Also reached from a write completion, which is outside tick(): every
-        // door into the targets resyncs before it touches one.
+        // also reached from a write completion; resync before touching targets
         resync();
         std::size_t sent = 0;
         for (auto& feed : feeds_) {
@@ -1258,9 +1150,7 @@ private:
                     break;
                 case shm::PollResult::Overrun:
                     any = true;
-                    // Ring ITEMS, not frames of this subscription: the events
-                    // are gone, so how many of them this feed would have sent
-                    // is exactly what cannot be known.
+                    // the gap counts ring items, not this subscription's frames
                     enqueue(gap_frame(feed.id, source.reader.gap()));
                     ++sent;
                     break;
@@ -1293,8 +1183,7 @@ private:
 
     [[nodiscard]] bool busy() const noexcept { return writing_ || !out_.empty(); }
 
-    // Where the next tick starts its walk, so a chatty feed cannot hold the
-    // front of the queue for ever.
+    // where the next tick starts its walk
     std::size_t next_feed_{0};
 
     void enqueue(std::string frame) {
@@ -1320,8 +1209,7 @@ private:
                 self->close();
                 return;
             }
-            // Events drain at the speed of the socket rather than of the tick,
-            // because a fill that waited a poll cycle is a fill nobody saw.
+            // events drain at socket speed, not tick speed
             self->drain_events();
             self->pump();
         });
@@ -1332,7 +1220,7 @@ private:
     std::unique_ptr<http::request_parser<http::empty_body>> request_;
     const Registry* registry_;
     const Clock* clock_;
-    // The registry epoch every target here was resolved against.
+    // the registry epoch the targets were resolved against
     std::uint64_t epoch_{0};
     std::vector<FeedState> feeds_;
     std::deque<std::string> out_;
@@ -1409,8 +1297,7 @@ bool Stream::start() {
     if (ec) {
         return false;
     }
-    // Port 0 asks the kernel to choose, which is how a test binds without
-    // agreeing a number with whatever else is running.
+    // port 0 lets tests bind any free port
     impl_->port = impl_->acceptor.local_endpoint(ec).port();
     impl_->running = true;
     impl_->accept();

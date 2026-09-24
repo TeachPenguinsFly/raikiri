@@ -36,7 +36,7 @@ struct WireBook {
     std::span<const WireLevel> asks;
 };
 
-// The frame does not say which shape it is; the envelope's channel does.
+// the envelope's channel says which shape the frame is
 [[nodiscard]] std::expected<WireBook, WireError>
 parse_book(std::string_view data, bool snapshot, LevelBuffer& storage);
 
@@ -48,8 +48,7 @@ enum class BookResult : std::uint8_t {
     BadLevel, // a level off the instrument's tick or lot
 };
 
-// The venue keeps the 50-level window itself and deletes what falls out of it,
-// so nothing here truncates.
+// the venue keeps the 50-level window and deletes what falls out
 class Book {
 public:
     Book(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);

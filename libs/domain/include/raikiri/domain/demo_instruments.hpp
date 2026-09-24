@@ -1,10 +1,6 @@
 #pragma once
 
-// DEMO SCAFFOLDING: the static instrument table both sides of `make demo`
-// agree on (gatewayd-sim publishes these, strategyd trades them) without a
-// database. SymbolId is the array index — the interning convention the whole
-// system uses. Replaced by Postgres / instruments.json loading when live
-// venues land; nothing outside demo wiring may include this header.
+// demo instrument table shared by gatewayd-sim and strategyd; only demo wiring may include it
 
 #include <raikiri/domain/instrument.hpp>
 

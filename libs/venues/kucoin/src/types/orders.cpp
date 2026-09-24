@@ -30,8 +30,7 @@ OrderChangeType change_from(std::string_view type) noexcept {
     return OrderChangeType::Unknown;
 }
 
-// Both hosts spell the shared order fields the same way; what differs is which
-// of them arrive, so every one is optional and the mapper decides what it needs.
+// every field optional; the hosts differ in which arrive
 std::expected<void, WireError> read_order(wire::ondemand::object& obj, WireOrder& out) {
     const auto symbol = req_decimal(obj, "symbol");
     if (!symbol.has_value()) {
@@ -53,8 +52,7 @@ std::expected<void, WireError> read_order(wire::ondemand::object& obj, WireOrder
         }
         *field = *value;
     }
-    // Spot says `active` and `lastUpdatedAt`, futures says `isActive` and
-    // `updatedAt`; reading only one pair loses half the answer.
+    // spot: active and lastUpdatedAt; futures: isActive and updatedAt
     const auto active = wire::opt_bool(obj, "active");
     const auto is_active = wire::opt_bool(obj, "isActive");
     const auto cancel_exist = wire::opt_bool(obj, "cancelExist");
@@ -138,8 +136,7 @@ std::expected<WireOrderChange, WireError> parse_order_change(std::string_view fr
                     return std::unexpected(type.error());
                 }
                 out.type = change_from(*type);
-                // `orderTime` counts milliseconds on spot and nanoseconds on
-                // futures, so it is carried raw and never timed by.
+                // milliseconds on spot, nanoseconds on futures, so never timed by
                 const auto order_time = opt_u64(obj, "orderTime");
                 const auto ts = opt_u64(obj, "ts");
                 if (!order_time.has_value() || !ts.has_value()) {

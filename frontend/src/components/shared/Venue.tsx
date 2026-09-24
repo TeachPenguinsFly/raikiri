@@ -1,20 +1,13 @@
 import { cn } from '@/lib/utils'
 import { ExchangeIcon } from './ExchangeIcon'
 
-/** A venue, named the same way everywhere.
- *
- *  The bare word was the problem: `bybit` set as body text in a column of
- *  numbers reads as a value rather than as an identity, and the reader has to
- *  parse it every row. The mark carries the identity and the word confirms it,
- *  which is one glance instead of one read. */
 export function Venue({
   venue,
   market,
   className,
 }: {
   venue: string
-  /** Shown only where a venue can appear twice — a desk running spot and perp
-   *  on one exchange has two accounts, and the row has to say which. */
+  /** shown only where a venue has both a spot and a perp account */
   market?: 'perp' | 'spot'
   className?: string
 }) {

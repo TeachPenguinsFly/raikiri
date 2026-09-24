@@ -7,8 +7,7 @@
 
 namespace raikiri::http {
 
-// At namespace scope rather than in an anonymous one: glaze reflects over
-// member names, and a type with no linkage has none to reflect.
+// namespace scope: glaze reflection needs linkage
 struct ProblemBody {
     std::string title;
     int status{0};
@@ -17,9 +16,7 @@ struct ProblemBody {
 
 namespace {
 
-// A detail that has no answer is ABSENT, never an empty string: a client
-// rendering `detail` unconditionally would show a blank line where there is
-// nothing to say.
+// an absent detail is omitted, not an empty string
 constexpr glz::opts k_opts{.skip_null_members = true};
 
 } // namespace

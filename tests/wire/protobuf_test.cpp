@@ -7,8 +7,6 @@
 namespace raikiri::wire::pb {
 namespace {
 
-// Builds the encoding by hand so the tests state the bytes they mean rather
-// than trusting the decoder to describe itself.
 std::string varint(std::uint64_t value) {
     std::string out;
     do {
@@ -64,8 +62,6 @@ TEST(Protobuf, ReadsTheThreeWireTypesTheStreamsUse) {
 }
 
 TEST(Protobuf, AFieldIsFoundByNumberAndAnUnknownOneIsSkipped) {
-    // The whole reason for reading by number: a venue that adds a field must
-    // not break a decoder that never asked for it.
     const auto message = number(2, 7) + bytes(1, "first") + number(99, 5) + bytes(3, "third");
 
     EXPECT_EQ(bytes_field(message, 1), "first");
@@ -73,7 +69,6 @@ TEST(Protobuf, AFieldIsFoundByNumberAndAnUnknownOneIsSkipped) {
     EXPECT_EQ(varint_field(message, 2), 7U);
     EXPECT_EQ(varint_field(message, 99), 5U);
     EXPECT_FALSE(bytes_field(message, 4).has_value());
-    // Right number, wrong wire type: not an answer.
     EXPECT_FALSE(bytes_field(message, 2).has_value());
     EXPECT_FALSE(varint_field(message, 1).has_value());
 }
@@ -83,8 +78,6 @@ TEST(Protobuf, ATruncatedMessageStopsRatherThanReadingPastItself) {
     for (std::size_t cut = 1; cut < whole.size(); ++cut) {
         const std::string_view partial{whole.data(), cut};
         Reader reader{partial};
-        // Whatever it manages to read, it must terminate and must never claim
-        // a field whose bytes are not all present.
         std::size_t fields = 0;
         while (const auto field = reader.next()) {
             ASSERT_LE(field->bytes.size(), partial.size());
@@ -95,15 +88,12 @@ TEST(Protobuf, ATruncatedMessageStopsRatherThanReadingPastItself) {
 }
 
 TEST(Protobuf, GarbageEndsIterationInsteadOfInventingFields) {
-    // Wire types 3, 4, 6 and 7 are not readable: 3 and 4 were removed from the
-    // language and the rest were never assigned.
+    // wire types 3 and 4 were removed and 6 and 7 were never assigned
     for (const std::uint64_t type : {3ULL, 4ULL, 6ULL, 7ULL}) {
         const auto message = varint((1ULL << 3U) | type) + std::string(8, '\x01');
         Reader reader{message};
         EXPECT_FALSE(reader.next().has_value()) << "wire type " << type;
     }
-    // Field number zero cannot be assigned, so a buffer that starts with one
-    // is not a message.
     const auto zero = varint(0) + std::string(4, '\x01');
     Reader zero_reader{zero};
     EXPECT_FALSE(zero_reader.next().has_value());
@@ -114,8 +104,6 @@ TEST(Protobuf, GarbageEndsIterationInsteadOfInventingFields) {
 }
 
 TEST(Protobuf, AnOverlongVarintIsRefused) {
-    // Eleven continuation bytes cannot be a u64, and accepting them would make
-    // the decoder disagree with every other reader about where the field ends.
     const auto message = key(1, WireType::Varint) + std::string(11, '\xFF');
     Reader reader{message};
     EXPECT_FALSE(reader.next().has_value());

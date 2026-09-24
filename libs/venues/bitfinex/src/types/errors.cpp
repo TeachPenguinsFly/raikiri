@@ -22,7 +22,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_maintenance_end:
         return exec::ErrorClass::Retryable;
 
-    // Too many connections opening at once. Spacing them out is the fix.
+    // too many connections opening at once
     case k_concurrency_limit:
         return exec::ErrorClass::Retryable;
 

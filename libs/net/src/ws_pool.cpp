@@ -18,18 +18,13 @@ namespace {
 std::mutex g_pools_mu;
 std::vector<const WsPool*> g_pools;
 
-// One connection's own handler. It exists because WsClient reports to a single
-// handler and the pool has several clients: this one knows WHICH connection
-// opened, so a reconnect re-asks for that connection's keys and nobody else's.
+// per-connection handler so a reconnect re-asks only that connection's keys
 class ConnHandler final : public WsHandler {
 public:
     using OnOpen = std::function<void()>;
     using OnClose = std::function<void(WsCloseReason)>;
 
-    // `current` is the pool's one-slot record of which connection is being
-    // dispatched. It is set for exactly the length of a forwarded on_message
-    // and cleared after, which is what makes WsPool::reply() unambiguous —
-    // and why reply() outside a handler must fail rather than guess a socket.
+    // `current` is set only while forwarding on_message, which makes reply() unambiguous
     ConnHandler(WsHandler& shared,
                 OnOpen opened,
                 OnClose closed,
@@ -41,15 +36,9 @@ public:
     void speaks_for(WsClient& client) noexcept { self_ = &client; }
 
     void on_open() override {
-        // The pool re-asks for THIS connection's keys; the shared handler no
-        // longer resubscribes anything, which is what made forwarding safe.
+        // the pool re-asks for this connection's keys
         opened_();
-        // AND IT MUST BE FORWARDED. Not forwarding it left the adapter's own
-        // on_open unreachable, and that is where a venue invalidates the depth
-        // books whose delta chain a reconnect has just broken. Invalidating on
-        // a socket whose books were fine costs a reseed; NOT invalidating one
-        // whose chain is gone serves a stale book as current, which is the
-        // failure this codebase refuses to have.
+        // forwarded so the adapter can invalidate books whose delta chain the reconnect broke
         shared_->on_open();
     }
 
@@ -60,13 +49,7 @@ public:
     }
 
     void on_close(WsCloseReason reason) override {
-        // WHY, not just that. The reasons say different things and lead to
-        // different fixes: PongTimeout is a client that stopped answering,
-        // ServerClosed is a venue deciding against us — for a stream socket
-        // that usually means it judged the reader too slow — and Transport is
-        // the network. Without this a flapping socket looks identical whatever
-        // caused it, and the books it unsynchronises are the only visible
-        // symptom.
+        // forward the reason; each points to a different cause
         closed_(reason);
         if (reason != WsCloseReason::Requested) {
             RLOG_WARN("ws pool {}: socket closed — {} ({})",
@@ -123,12 +106,7 @@ struct WsPool::Impl {
         }
     }
 
-    // Re-asks for everything one connection holds. On a first open that is the
-    // keys just placed; on a reconnect it is the same set again, because the
-    // venue remembers nothing about a closed socket.
-    // Queues this connection's whole ask. Called when keys are placed on it
-    // and again whenever it opens — NOT the same thing as the connection
-    // having opened, which is why the open callback does not live here.
+    // queues this connection's whole ask, on placement and on every open
     void refill(Conn& conn) {
         conn.pending = build_frames(conn.keys);
         conn.next_send_ns = 0;
@@ -141,15 +119,13 @@ struct WsPool::Impl {
     BuildFrames build_frames;
     OnConnectionOpen on_open;
     Admit admit;
-    // First opens and reopens together; the first `conns.size()` of them are
-    // the pool coming up and are not worth a line.
+    // first opens and reopens together
     std::size_t reopens{0};
     WsCloseReason last_close{WsCloseReason::Requested};
     std::uint64_t last_close_ns{0};
     std::vector<std::unique_ptr<Conn>> conns;
     bool started{false};
-    // Whose message is in flight, or null between dispatches. Single threaded
-    // by contract, like the io context that drives it.
+    // whose message is in flight, or null between dispatches
     WsClient* dispatching{nullptr};
 };
 
@@ -173,8 +149,7 @@ WsPool::~WsPool() {
 
 void WsPool::start() {
     impl_->started = true;
-    // Deliberately opens nothing: the first subscribe does. See the header for
-    // why an idle socket is worse than a late one.
+    // opens nothing; the first subscribe does
 }
 
 void WsPool::stop() {
@@ -210,7 +185,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
         }
         if (target == nullptr) {
             if (impl.conns.size() >= impl.settings.max_connections) {
-                return false; // at the ceiling: said, never silently dropped
+                return false; // at the ceiling: reported, not dropped
             }
             auto conn = std::make_unique<Impl::Conn>();
             auto* raw = conn.get();
@@ -218,14 +193,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                 *impl.handler,
                 [&impl, raw] {
                     impl.refill(*raw);
-                    // COUNTED AND SAID, because a reopen is the most expensive
-                    // event this pool produces and it was the only one nothing
-                    // recorded. Every book on this socket has just lost its
-                    // delta chain; on a venue that reseeds over REST that is a
-                    // burst of snapshots in one second, and a burst like it has
-                    // already earned this process an IP ban. Watching a depth
-                    // book count oscillate with no way to see the reopen behind
-                    // it is how that stayed unexplained for a day.
+                    // counted because a reopen breaks every book on the socket
                     ++impl.reopens;
                     if (impl.reopens > impl.conns.size()) {
                         RLOG_WARN("ws pool {}: a socket reopened carrying {} keys — their books "
@@ -235,8 +203,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                                   impl.reopens - impl.conns.size());
                     }
                     if (impl.on_open) {
-                        // The keys of THIS socket, so an adapter resynchronises
-                        // the books this reopen actually broke.
+                        // this socket's keys, so only its books resync
                         impl.on_open(raw->keys);
                     }
                 },
@@ -263,9 +230,7 @@ bool WsPool::subscribe(std::span<const std::string> keys) {
                             keys.begin() + static_cast<std::ptrdiff_t>(placed),
                             keys.begin() + static_cast<std::ptrdiff_t>(placed + take));
         placed += take;
-        // Queued whole rather than appended to what is already waiting: the
-        // frames a builder makes describe the connection's SET, and half of an
-        // older set plus half of a newer one asks for neither.
+        // queued whole: the frames describe the connection's full set
         impl.refill(*target);
     }
     return true;

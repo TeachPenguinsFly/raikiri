@@ -1,29 +1,5 @@
-# Precompiled headers, compiled a fixed three times and reused by every
-# first-party target.
-#
-# The headers named in them are the ones a translation unit pays for whether
-# or not it uses them. Measured on this tree with -fsyntax-only: <simdjson.h>
-# costs 0.62s, <gtest/gtest.h> 0.46s, and the libc++ headers between them
-# another 0.2s or so — against 0.02s for an empty TU.
-#
-# REUSE_FROM is what makes this affordable: the PCH is built three times no
-# matter how many targets consume it. One per target would cost more than it
-# saves across 120 targets.
-#
-# WARN: a PCH hides a missing #include — a TU that compiles only because the
-# PCH named <vector> for it breaks the moment RAIKIRI_PCH is OFF. That switch
-# exists so the tree can be checked honestly; a build that passes only with
-# the PCH on is a broken build, not a fast one.
-#
-# INVARIANT: simdjson may only be precompiled into a target that links it.
-# The amalgamation defines functions inline, so a TU that parses it emits
-# references to simdjson symbols whether or not the source names one, and a
-# target without the library then fails to link. Hence the LINK_LIBRARIES
-# test below rather than a directory list: libs/venues/sim links no parser.
-#
-# gtest is deliberately kept out of the non-test PCHs. Its macros would
-# otherwise be visible to production code, and code that compiles because a
-# test framework happened to be in scope is worse than code that is slow.
+# simdjson goes only into the pch of targets that link it
+# build with RAIKIRI_PCH=OFF to catch includes the pch hides
 
 function(_raikiri_pch_targets dir out)
   get_property(targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
@@ -35,13 +11,7 @@ function(_raikiri_pch_targets dir out)
   set(${out} "${targets}" PARENT_SCOPE)
 endfunction()
 
-# ANCHORED TO RAIKIRI, NOT TO THE BUILD'S ROOT.
-#
-# `CMAKE_SOURCE_DIR` is the top of whatever build is running, and raikiri is
-# meant to be added as a subproject by a repository that keeps its own code
-# private. Under such a build every path below resolved into the OTHER
-# repository, and the PCH failed on a header that was never there — which is
-# the framework breaking exactly the consumer it exists for.
+# relative to raikiri so it also works as a subproject
 set(RAIKIRI_PCH_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 
 function(raikiri_enable_pch)

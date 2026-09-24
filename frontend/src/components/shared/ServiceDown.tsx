@@ -1,13 +1,3 @@
-/** What the terminal shows when admind cannot be reached at all.
- *
- *  NOT an empty state. An empty panel says "there is nothing here", which is a
- *  claim about the market; this says "we cannot see", which is a claim about
- *  us. Rendering the first when the second is true is how a person reads a
- *  flat book off a dead socket and believes it.
- *
- *  It replaces the whole page rather than annotating a panel, because when the
- *  API is gone every panel is equally blind and sixteen identical warnings say
- *  no more than one. */
 export function ServiceDown({ detail }: { detail?: string | undefined }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 text-center">

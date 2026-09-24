@@ -19,13 +19,7 @@ namespace {
 
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the private socket, and
-// nothing on either side can tell whether the other happened. This class is
-// the only thing that knows both: it holds the table of orders handed over and
-// not yet answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
+// orders go out over rest and come back on the private socket; this class ages out unanswered ones
 class OkxExec final : public exec::ExecutionClient {
 public:
     explicit OkxExec(std::shared_ptr<VenueState> state)
@@ -34,8 +28,6 @@ public:
     std::expected<void, exec::VenueError> start() override {
         api_.start();
         if (!state_->credentialed()) {
-            // Market data still runs; every order path below refuses, so
-            // nothing can sit open waiting for a verdict no code will produce.
             return {};
         }
         stream_.start();
@@ -81,9 +73,7 @@ public:
             }
             sent += batch->consumed;
         }
-        // Whatever the builder would not take — an instrument the catalogue
-        // does not know, a wedged queue — is refused out loud. A cancel that
-        // vanishes leaves an order live that the strategy believes is gone.
+        // anything the builder would not take is refused explicitly
         for (const auto& cmd : cmds.subspan(sent)) {
             emit(cmd,
                  OrderEventType::CancelRejected,
@@ -92,9 +82,6 @@ public:
         }
     }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -126,17 +113,13 @@ public:
     }
 
 private:
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps idle rest connections the venue already closed
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
     }
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — and closed by reconciliation.
+    // an unanswered order is reported as a gap; reconciliation closes it
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -155,7 +138,7 @@ private:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working".
+            // undef: zero leaves would read as nothing working
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -175,9 +158,7 @@ private:
         const auto captured = cmd;
         const auto sent = api_.send(*request, [this, captured, on_failure](net::RestResponse&& r) {
             const auto refusal = verdict(r, captured.exchange_client_order_id, on_failure);
-            // A CONNECTIVITY REFUSAL IS NOT THE VENUE'S ANSWER. The request may
-            // have reached the matcher before the read failed, so it stays in
-            // the table for the sweep rather than being called rejected here.
+            // the request may have reached the matcher, so it stays for the sweep
             if (refusal.has_value() && refusal->cls == exec::ErrorClass::Connectivity) {
                 state_->sink->on_order_error(captured.client_order_id, *refusal);
                 return;
@@ -188,14 +169,11 @@ private:
             }
         });
         if (!sent) {
-            // Never left this process, so nothing is in doubt.
             emit(cmd,
                  on_failure,
                  exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED, recorded before the callback that may
-        // never run.
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -211,10 +189,7 @@ private:
             for (const auto& cmd : captured) {
                 const auto refusal =
                     verdict(r, cmd.exchange_client_order_id, OrderEventType::CancelRejected);
-                // WORSE IN A BATCH THAN ALONE. A lost connection here would
-                // declare every cancel in the chunk refused, while the venue may
-                // have taken all of them — leaving the desk sure it still has
-                // orders it no longer has.
+                // the venue may have taken every cancel in the chunk
                 if (refusal.has_value() && refusal->cls == exec::ErrorClass::Connectivity) {
                     state_->sink->on_order_error(cmd.client_order_id, *refusal);
                     continue;
@@ -240,14 +215,7 @@ private:
         return true;
     }
 
-    // OKX answers a refused single order with envelope code "1" — "Operation
-    // failed" — and puts the reason in data[].sCode. Reading only the
-    // envelope turns every rejection into the same unclassifiable failure,
-    // and reading only sCode misses a request that never reached the matcher.
-    //
-    // ABSENT MEANS ACCEPTED. The refusal carries its own reason rather than a
-    // bare verdict, because sCode is the only place the reason exists and a
-    // caller that got back an enum has already lost it.
+    // a refused order answers envelope code 1 with the reason in data[].sCode; absent means accepted
     [[nodiscard]] std::optional<exec::VenueError> verdict(const net::RestResponse& response,
                                                           const ExchangeClientOrderId& id,
                                                           OrderEventType on_failure) const {
@@ -287,9 +255,6 @@ private:
         return exec::VenueError::make(classify(code), code, text);
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
     void emit(const OrderCmd& cmd, OrderEventType type, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};

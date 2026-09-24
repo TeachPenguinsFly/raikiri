@@ -19,8 +19,7 @@ enum class Step : std::uint8_t {
     Gap,   // the chain broke: the state is dropped and asked for again
 };
 
-// The ack's latest_sequence_number anchors the snapshot; a delta whose prev is
-// not the last sequence is never applied, and the book resubscribes.
+// latest_sequence_number from the ack anchors the snapshot; a delta whose prev breaks the chain resubscribes
 class Sequence {
 public:
     void acknowledged(std::uint64_t latest) noexcept {
@@ -36,7 +35,7 @@ public:
 
     [[nodiscard]] std::uint64_t gaps() const noexcept { return gaps_; }
 
-    // True once per break; clears when a snapshot lands.
+    // true once per break; clears when a snapshot lands
     [[nodiscard]] bool take_resubscribe() noexcept;
 
     void drop() noexcept;
@@ -77,18 +76,18 @@ private:
     book::Ladders ladders_;
 };
 
-// Fields are UNDEF until stated and again when the venue nulls them.
+// fields are undef until stated and again when the venue nulls them
 class Quote {
 public:
     Quote(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
-    // False on a value that will not convert; the quote is then cleared.
+    // false on a value that will not convert; the quote is then cleared
     [[nodiscard]] bool replace(const WireQuote& snapshot);
     [[nodiscard]] bool apply(const WireQuote& delta);
 
     void clear() noexcept;
 
-    // Nullopt until all four fields are known.
+    // nullopt until all four fields are known
     [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const noexcept;
 
     Sequence sequence;

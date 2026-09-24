@@ -26,8 +26,7 @@ namespace raikiri::venues::hyperliquid::internal {
 
 namespace {
 
-// The spot catalogue is 326 pairs plus every token behind them in one body, so
-// the read that loads it gets more room than a reconciliation pull.
+// the spot catalogue body is large, so its read gets a longer timeout
 constexpr std::uint64_t k_catalogue_timeout_ms = 20'000;
 
 class HyperliquidInstruments final : public exec::InstrumentSource {
@@ -40,8 +39,6 @@ public:
     }
 
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_all(MarketType market) override {
-        // Decided before a socket opens: asking for a market this venue does
-        // not list costs nothing.
         switch (market) {
         case MarketType::Perp:
             return load_perp();
@@ -57,8 +54,7 @@ public:
 
 private:
     std::expected<std::vector<Instrument>, exec::VenueError> load_perp() {
-        // No clock sync anywhere in this adapter: /info is unauthenticated and
-        // the venue publishes no server-time read.
+        // no clock sync: /info is unauthenticated and the venue has no server-time read
         rest_.start();
         const auto body = read_info(*state_, rest_, RequestBuilder::meta(), k_catalogue_timeout_ms);
         if (!body.has_value()) {
@@ -79,8 +75,7 @@ private:
             if (!instrument.has_value()) {
                 continue; // delisted, or an underivable step
             }
-            // The row's position in `universe` IS the asset id. Counting the
-            // rows we kept shifts every asset after a delisted one.
+            // the row's position in `universe` is the asset id
             keep(std::move(*instrument), entry.index, loaded);
         }
         if (auto dexes = load_dexes(loaded); !dexes.has_value()) {
@@ -189,15 +184,13 @@ private:
             if (!instrument.has_value()) {
                 continue;
             }
-            // A DIFFERENT index space: pair 107 is asset 10107, while asset
-            // 107 is an unrelated perpetual. Getting it wrong trades that.
+            // spot asset id is 10000 + pair index; the low range is perps
             keep(std::move(*instrument), spot_asset_id(entry.index), loaded);
         }
         return loaded;
     }
 
-    // No asset id for a HIP-3 row, so the order path refuses it: its /exchange
-    // index is offset per dex and nothing here trades one.
+    // hip-3 rows get no asset id, so the order path refuses them
     void keep(Instrument instrument,
               std::optional<std::int64_t> asset,
               std::vector<Instrument>& loaded) {
@@ -208,7 +201,6 @@ private:
         if (asset.has_value()) {
             state_->asset_ids.emplace(id->packed, *asset);
         }
-        // The table rewrote the id to the slot that indexes it.
         loaded.push_back(*state_->instruments.find(*id));
     }
 

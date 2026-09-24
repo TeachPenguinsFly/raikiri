@@ -1,6 +1,4 @@
-# STATIC rather than INTERFACE since register.cpp exists: the registration has
-# to be a symbol a service can call, because a static initializer in a library
-# nobody references is dropped by the linker — see register.hpp.
+# static so the service can call the registration symbol; see register.hpp
 add_library(raikiri_strategies STATIC src/register.cpp)
 add_library(raikiri::strategies ALIAS raikiri_strategies)
 

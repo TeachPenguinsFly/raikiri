@@ -1,12 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It subscribes where BingX needs asking, inflates every frame and turns each
-// push into an event on the sink. It sends no orders: an order goes out over
-// REST and is ANSWERED here, and joining those two halves is the execution
-// client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bingx/envelope.hpp>
 #include <raikiri/venues/bingx/map.hpp>
@@ -23,13 +16,10 @@ constexpr std::uint32_t k_perp_stream_id = 1;
 
 constexpr std::uint32_t k_spot_stream_id = 2;
 
-// The spot user stream is the one that needs asking; the perpetual one pushes
-// everything as soon as the listenKey connects.
+// only the spot user stream needs a subscribe
 constexpr std::string_view k_spot_user_channel = "spot.executionReport";
 
-// One account event. `market` is the socket's, not the frame's: BingX spells a
-// spot pair and a perpetual identically and neither push says which tree it
-// came from, so the connection is the only thing that knows.
+// market comes from the socket; pushes do not say which tree
 void handle_private_frame(VenueState& state,
                           MarketType market,
                           std::string_view frame,
@@ -54,8 +44,7 @@ void handle_private_frame(VenueState& state,
             state.remember(wire->order_id, event->exchange_client_order_id);
         }
         state.sink->on_order_event(*event);
-        // Nothing more will arrive for an order the venue has closed, so the
-        // memo entry goes with it rather than outliving the order forever.
+        // drop the memo entry once the order is closed
         if (event->type == OrderEventType::Canceled || event->type == OrderEventType::Expired ||
             (event->type == OrderEventType::Filled && event->leaves_qty.raw == 0)) {
             state.forget(wire->order_id);
@@ -87,9 +76,7 @@ void handle_private_frame(VenueState& state,
     }
 }
 
-// The user stream. Same gzip framing and same "Ping" keepalive as the public
-// socket — the authentication is the listenKey on the URL, which is why this
-// handler carries no login frame.
+// same gzip framing and ping as the public socket; auth is the listen key in the url
 class PrivateHandler final : public net::WsHandler {
 public:
     PrivateHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
@@ -97,8 +84,6 @@ public:
     void on_open() override {
         const auto stream_id = market_ == MarketType::Spot ? k_spot_stream_id : k_perp_stream_id;
         if (market_ == MarketType::Spot && client_ != nullptr) {
-            // Perpetual pushes everything unbidden; a silent SPOT socket is a
-            // missing subscribe and not a quiet account.
             const auto frame = protocol_.subscribe_channel(k_spot_user_channel);
             if (!frame.has_value() || !client_->send(frame->text)) {
                 state_->sink->on_connectivity({.state = exec::ConnState::AuthFailed,
@@ -119,7 +104,6 @@ public:
                 ++state_->inflate_failures;
                 return;
             }
-            // Same keepalive as the public socket: four bytes, not JSON.
             if (is_ping(*frame)) {
                 if (client_ != nullptr) {
                     (void)client_->send(Protocol::pong_frame());
@@ -149,10 +133,7 @@ private:
     net::Inflater inflater_;
 };
 
-// One private connection, owned as one thing so a caller cannot hold the
-// handler without the client it is attached to. The key is baked into the
-// target, so a fresh key means a fresh stream object rather than a fresh
-// subscribe frame.
+// the key is baked into the target, so a new key needs a new stream
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market, const std::string& key)

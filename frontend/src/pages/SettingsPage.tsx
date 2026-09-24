@@ -5,18 +5,9 @@ import { Venue } from '@/components/shared/Venue'
 import { nanosToMillis } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 
-/** Which gateways are attached, which is NOT which keys work.
- *
- *  The screen used to draw a venue-by-market grid of key permissions with `ok`
- *  and `refused` in it. Nothing behind the screen tests a credential: there is
- *  no credentials endpoint, and `GET /v1/accounts` answers the narrower
- *  question of which (venue, market) pairs have a gatewayd attached. A key
- *  that is missing or refused shows up here as a venue that is simply not in
- *  the list, and saying more than that would be inventing a check. */
+/** lists attached gateways; no endpoint checks credentials */
 const k_refresh_ms = 5_000
 
-/** Age rather than a wall clock: a heartbeat is only ever read as "how long
- *  since", and the terminal keeps every clock in UTC. */
 function since(nanos: string | undefined, now: number): string {
   if (nanos === undefined) return '—'
   const seconds = Math.max(0, Math.round((now - nanosToMillis(nanos)) / 1000))
@@ -95,8 +86,6 @@ export function SettingsPage() {
                         <span className="text-down">not answering</span>
                       )}
                     </td>
-                    {/* A dead gateway's catalogue belongs to the generation that
-                        died with it, so the count is not a fact any more. */}
                     <td className="num px-3 text-right text-fg-mid">
                       {a.gateway.alive ? a.gateway.instruments.toLocaleString() : '—'}
                     </td>

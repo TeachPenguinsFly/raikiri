@@ -45,8 +45,7 @@ parse_real_trades(std::string_view frame, PrintBuffer<WireRealPrint>& storage);
 [[nodiscard]] std::expected<WireTrades<WireScaledPrint>, WireError>
 parse_scaled_trades(std::string_view frame, PrintBuffer<WireScaledPrint>& storage);
 
-// perp_market24h_pack_p rows are positional; only the snapshot names the
-// columns, so the order is carried from it to every incremental after.
+// rows are positional; the snapshot names the columns for later incrementals
 struct PackColumns {
     int symbol{-1};
     int mark{-1};
@@ -62,7 +61,7 @@ struct WirePackRow {
     std::string_view symbol;
     std::string_view mark;
     std::string_view rate;      // per the contract's own interval, not per 8 h
-    std::string_view predicted; // equal to `rate` on every live row measured
+    std::string_view predicted;
     std::string_view volume;    // base
     std::string_view turnover;  // quote
 };

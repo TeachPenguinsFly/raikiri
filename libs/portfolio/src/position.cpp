@@ -9,9 +9,7 @@ namespace {
     return v < 0 ? -v : v;
 }
 
-// Settlement value carried into the book with the sign of the trade: a buy
-// adds what it cost, a sell adds what it returned as a negative. Closing then
-// needs no side-specific formula — the two signs cancel on their own.
+// signed with the trade so closing needs no side-specific formula
 [[nodiscard]] std::int64_t
 signed_value(const InstrumentBase& base, Side side, QtyLots qty, PriceTicks price) noexcept {
     const auto value = settlement_value(base, price, qty);
@@ -47,27 +45,20 @@ Position::Applied Position::apply_fill(const InstrumentBase& base,
     out.flipped = close_raw > 0 && add_raw > 0;
 
     if (close_raw > 0) {
-        // Split BEFORE any arithmetic runs, so the sign never crosses zero
-        // inside the basis math. One rounding, and the other half by
-        // subtraction: rounding both independently makes the venue's fee and
-        // the sum of our attributions disagree, and the gap compounds.
+        // one rounding, the other half by subtraction, so the parts sum to the fee
         out.close_fee = close_raw == delta.raw
                             ? fee
                             : FixedE9::from_raw(mul_div(fee.raw, close_raw, delta.raw));
         out.open_fee = FixedE9::from_raw(detail::checked_sub(fee.raw, out.close_fee.raw));
 
-        // A full close releases the entire basis rather than a ratio of it:
-        // the pro-rata truncation would otherwise leave a residue behind in a
-        // position that is flat.
+        // a full close releases the whole basis so no truncation residue remains
         const std::int64_t released = close_raw == magnitude(open_qty)
                                           ? cost_.raw
                                           : mul_div(cost_.raw, close_raw, magnitude(open_qty));
         const std::int64_t proceeds = signed_value(base, side, QtyLots::from_raw(close_raw), price);
         const std::int64_t sum = detail::checked_add(released, proceeds);
 
-        // Inverse inverts, and this is the whole trap: a long inverse position
-        // is denominated in the base currency, and its base value SHRINKS as
-        // the price rises. Same sum, opposite meaning.
+        // a long inverse position's base value shrinks as price rises
         realized_ = FixedE9::from_raw(
             detail::checked_add(realized_.raw, base.kind == ContractKind::Inverse ? sum : -sum));
         out.realized = FixedE9::from_raw(base.kind == ContractKind::Inverse ? sum : -sum);

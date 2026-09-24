@@ -1,7 +1,7 @@
 # The browser check
 
 Playwright tests that load the terminal against a running admind and check what
-the page renders, since a quote can reach the socket and still never be drawn.
+the page renders. A quote can reach the socket and still not be drawn.
 
 ## Running it
 
@@ -28,6 +28,5 @@ Browsers are installed once, per machine:
 | a venue quotes a number, not a dash | quotes arrive and the table does not redraw |
 | the number moves | the first frame renders and every one after it is dropped |
 
-The last two read the **text of the Bid cell**. Asserting that a row exists is
-what would have passed on the bug above: the rows were all there, each with a
+The last two read the text of the Bid cell, since a row can exist with only a
 dash in it.

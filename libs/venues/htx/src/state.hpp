@@ -1,8 +1,5 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
-
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
 #include <raikiri/net/io_context.hpp>
@@ -24,21 +21,14 @@
 
 namespace raikiri::venues::htx::internal {
 
-// Live orders tracked for their leaves and their identity. Far above any sane
-// working set; the cap exists so a venue incident cannot turn the map into the
-// heap.
 constexpr std::size_t k_max_live_orders = 8'192;
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string code;
     std::string suffix;
 };
 
-// State every htx connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single threaded: only the gateway loop touches it
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
         : sink{&sink_ref}, clock{&clock_ref} {}
@@ -56,7 +46,6 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
     std::vector<std::string> funding_codes;
 
-    // Venue clock offset from /api/v1/timestamp.
     std::int64_t clock_offset_ns{0};
 
     std::uint64_t subscribe_refusals{0};
@@ -64,10 +53,7 @@ struct VenueState {
 
     std::uint64_t inflate_failures{0};
 
-    // As much of a live order as HTX states in any one frame, keyed by the
-    // venue order id — the only field every private frame on both surfaces
-    // carries. Spot's REST match rows name no client order id at all, and a
-    // fill that cannot say whose it is routes nowhere.
+    // keyed by venue order id, the only field every private frame carries
     struct OrderMemo {
         ClientOrderId client_order_id{};
         ExchangeClientOrderId exchange_client_order_id{};
@@ -76,10 +62,7 @@ struct VenueState {
 
     std::unordered_map<std::string, OrderMemo> live_orders;
 
-    // What a perp order was actually sent as. The swap's client_order_id is an
-    // int64, so the ULID the OMS asks query_order about was never on the wire;
-    // this is the only place the two are tied together, and the contract code
-    // beside it is the other half the single-order read demands.
+    // the swap was sent an int64 client id; this ties it to the ulid and the contract code
     struct SwapTarget {
         std::int64_t client_order_id{0};
         std::string contract_code;
@@ -96,8 +79,7 @@ struct VenueState {
         desired.emplace_back(std::string{code}, std::string{suffix});
     }
 
-    // HTX refuses a signature whose Timestamp is more than a few minutes from
-    // ITS clock, so a laptop drifting looks exactly like a bad key.
+    // htx refuses a Timestamp a few minutes off its clock as a bad signature
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
         return UnixNanos{
@@ -151,9 +133,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. An empty answer here would read as "the venue holds nothing".
+// exhaustive so Option needs an explicit decision
 inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -162,15 +142,11 @@ inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept
     case MarketType::Future:
         return exec::not_implemented("htx dated futures order entry");
     case MarketType::Option:
-        // HTX lists options on their own host and API, keyed by an underlying
-        // and an expiry. Nothing maps an OptionInstrument onto that yet.
         return exec::not_implemented("htx options order entry");
     }
     return exec::not_implemented("htx: unknown market");
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::htx::internal

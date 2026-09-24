@@ -61,12 +61,7 @@ parse_instruments(std::string_view result, InstrumentBuffer& storage) {
             if (auto lot_filter = wire::req_object(entry, "lotSizeFilter");
                 lot_filter.has_value()) {
                 auto filter = *lot_filter;
-                // The spot category spells the same two facts differently:
-                // basePrecision for the lot step and minOrderAmt for the
-                // minimum notional. Reading only the derivatives names left
-                // every spot row without a lot size, and a row with no lot
-                // size is dropped — which is why a spot catalogue used to load
-                // zero instruments while the caps row claimed the market.
+                // spot spells these basePrecision and minOrderAmt
                 out.qty_step = wire::opt_str(filter, "qtyStep").value_or(std::string_view{});
                 if (out.qty_step.empty()) {
                     filter.reset();

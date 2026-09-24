@@ -1,12 +1,11 @@
-# Thin orchestration over Conan + CMake presets.
-#   make deps PRESET=dev-asan   # install third-party deps for the preset's build type
-#   make build PRESET=dev-asan  # configure (if needed) + build
-#   make test PRESET=dev-asan
-#   make up                     # gateways + admind + the terminal, locally
-#   make demo                   # end-to-end sim run with latency table
-#   make bench                  # Release benchmarks
-#   make db-up                  # the cold plane: postgres in docker
-#   make db-migrate             # apply sql/migrations to it
+# make deps PRESET=dev-asan   # third-party deps for the preset's build type
+# make build PRESET=dev-asan  # configure if needed, then build
+# make test PRESET=dev-asan
+# make up                     # gateways, admind and the terminal, locally
+# make demo                   # end-to-end sim run with latency table
+# make bench                  # release benchmarks
+# make db-up                  # postgres in docker
+# make db-migrate             # apply sql/migrations
 PRESET ?= dev-asan
 
 UNAME := $(shell uname -s)
@@ -41,14 +40,10 @@ build:
 test: build
 	ctest --preset $(PRESET)
 
-# The whole stack against live venues. VENUES= picks which; credentials are
-# optional and their absence is stated rather than fatal.
 up: build
 	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
 	PRESET=$(PRESET) ./scripts/dev_up.sh
 
-# Postgres, the schema, and every backend process in one go; the terminal is
-# `make web`, in its own shell.
 dup: build db-up db-migrate
 	@mkdir -p $${RAIKIRI_DATA_DIR:-/tmp/raikiri-dev}
 	RAIKIRI_PG_DSN=$(PG_DSN) WEB=none PRESET=$(PRESET) ./scripts/dev_up.sh
@@ -57,8 +52,7 @@ web:
 	@test -d frontend/node_modules || (cd frontend && npm install)
 	cd frontend && npm run dev -- --host 127.0.0.1 --port $${WEB_PORT:-5173}
 
-# For when a run was killed rather than stopped: a gateway that did not clean
-# up leaves a segment whose owner is gone, and the next start refuses it.
+# clears segments left behind by a killed run
 down:
 	-@pkill -f 'apps/gatewayd/gatewayd' 2>/dev/null || true
 	-@pkill -f 'apps/admind/admind' 2>/dev/null || true
@@ -82,11 +76,6 @@ fmt:
 clean:
 	rm -rf build
 
-# --- the cold plane -----------------------------------------------------------
-# Postgres only. It is not on the order path: nothing here is required to trade,
-# and a gateway runs with the database down. What it holds is history — fills,
-# the ledger, reconciliation breaks — which is why admind answers 503 rather
-# than an empty page when it is missing.
 PG_DSN ?= postgresql://raikiri:raikiri@localhost:5432/raikiri
 
 db-up:
@@ -96,9 +85,7 @@ db-up:
 		printf '.'; sleep 1; done; echo ' ready'
 	@echo 'export RAIKIRI_PG_DSN=$(PG_DSN)'
 
-# A SIBLING DATABASE FOR THE TESTS, so a test run can never write a row the
-# terminal then reports as a position. `tests/integration` drains a real journal
-# into Postgres and its rows are indistinguishable from trading once they land.
+# a separate database so test rows never show up as positions
 db-test-up:
 	docker compose exec -T db psql -U raikiri -d postgres \
 		-c "CREATE DATABASE raikiri_test" 2>/dev/null || true
@@ -113,9 +100,6 @@ db-test-down:
 db-down:
 	docker compose down
 
-# Applied through the container's own psql, so a working copy needs no local
-# client. ON_ERROR_STOP because a migration that half-applies leaves a schema
-# nobody can reason about; the files are written to be re-runnable.
 db-migrate:
 	@for f in sql/migrations/*.sql; do \
 		echo "applying $$f"; \

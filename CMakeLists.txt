@@ -22,15 +22,7 @@ set(RAIKIRI_MARCH "" CACHE STRING "Explicit -march target (never 'native'); empt
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
 
-# ccache, off by default because it is a trade rather than a win. Measured on
-# this tree: a cache miss costs ~0.4s per TU on top of the compile, so editing
-# a widely-included header goes from 51s to 75s, while a clean build of source
-# already compiled once goes from 109s to 40s. Turn it on if you switch
-# branches or wipe build directories more often than you edit headers.
-#
-# The sloppiness is not optional with RAIKIRI_PCH on — ccache will not cache a
-# TU compiled against a precompiled header unless told that the PCH's defines
-# and __DATE__/__TIME__ do not matter, and every such TU then misses.
+# with RAIKIRI_PCH on, ccache needs the pch sloppiness or every tu misses
 option(RAIKIRI_CCACHE "Compile through ccache when the host has it" OFF)
 if(RAIKIRI_CCACHE)
   find_program(RAIKIRI_CCACHE_BIN ccache)

@@ -19,8 +19,7 @@ enum class SyncResult : std::uint8_t {
     BadLevel,    // a price or size off the instrument's grid: book dropped
 };
 
-// A snapshot's `u` continues the REST sequence rather than restarting at 1, as
-// the docs claim; it seeds the chain and each delta must be exactly one past it.
+// a snapshot's u continues the rest sequence; each delta must be exactly one past it
 class BookSync {
 public:
     using Level = book::Level;

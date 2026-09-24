@@ -11,26 +11,20 @@ namespace raikiri::venues::mexc {
 
 namespace {
 
-// /contract/detail's `state`: 0 is the enabled value and the only one seen
-// across all 1086 rows on 2026-08-10.
+// /contract/detail `state`: 0 is enabled
 constexpr std::int64_t k_state_enabled = 0;
 
-// FixedE9 carries nine fractional digits.
 constexpr std::int64_t k_max_scale = 9;
 
-// `positionType` on both the position rows and the funding ledger.
 constexpr std::int64_t k_position_long = 1;
 constexpr std::int64_t k_position_short = 2;
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means MEXC changed an instrument's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// exact conversion; a value off the step is dropped, not rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
     }
-    const auto value = parse_number_e9(text); // the depth socket writes NEX as 8.390E-7
+    const auto value = parse_number_e9(text); // may be scientific, e.g. 8.390E-7
     if (!value.has_value() || value->raw % step.raw != 0) {
         return std::nullopt;
     }
@@ -47,17 +41,8 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// MEXC SPOT QUOTES SIZES FINER THAN IT WILL TRADE THEM. exchangeInfo states
-// baseSizePrecision — the ORDER step, 1e-6 on BTCUSDT — while the book and the
-// prints carry baseAssetPrecision, 1e-8. So an exact conversion refuses almost
-// every level, and refusing a level voids the book: the futures tree never hit
-// this because there the two are the same number.
-//
-// Truncating toward zero is the only reading that stays honest. The discarded
-// remainder is strictly below one lot — the smallest size this venue will
-// accept an order for — so it is size that cannot be traded against. Orders
-// still convert EXACTLY, through to_lots: an order that does not land on the
-// step is refused, as it must be.
+// spot books carry sizes finer than the order step, so levels
+// truncate to lots; orders still convert exactly
 std::optional<QtyLots> to_lots_floor(std::string_view text, const InstrumentBase& base) {
     const auto qty = parse_decimal_e9(text);
     if (!qty.has_value() || base.lot_size.raw <= 0) {
@@ -66,8 +51,7 @@ std::optional<QtyLots> to_lots_floor(std::string_view text, const InstrumentBase
     return QtyLots::from_raw(qty->raw / base.lot_size.raw);
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates keep their e9 form rather than ticks
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -76,9 +60,7 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return value.has_value() ? std::optional{*value} : std::nullopt;
 }
 
-// A turnover figure, and the reader above is the wrong one for it: an exact
-// read refuses a whole number over a tail below 1e-9, and a refused turnover
-// shows a market that traded as one that did not.
+// turnover truncates below 1e-9 instead of failing
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
@@ -248,9 +230,7 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
             }
             const auto price = to_ticks(level.price, *base);
             const auto qty = to_lots(level.qty, *base);
-            // A level that does not divide by the instrument's step truncates
-            // the book here rather than being rounded into a price MEXC never
-            // quoted.
+            // an off-grid level truncates the book here
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -311,8 +291,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     out.ts_init = ts_init;
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
-        // The ticker states no settle time; nextSettleTime sits on the UTC
-        // interval grid for 1187 of 1188 contracts.
+        // the ticker states no settle time; nextSettleTime is on the utc interval grid
         if (out.interval_s > 0) {
             const std::uint64_t interval_ns = std::uint64_t{out.interval_s} * 1'000'000'000ULL;
             out.next_funding_time = UnixNanos{(out.ts_event.ns / interval_ns + 1) * interval_ns};
@@ -349,8 +328,7 @@ map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, Uni
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. A frame that states no turnover says nothing about
-    // the window, and a zero written here erases the last figure the board had.
+    // absent turnover leaves the previous figure in place
     if (wire.volume_24h_quote.empty()) {
         return std::nullopt;
     }
@@ -366,7 +344,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     out.instrument = base->id;
     out.volume_24h_base = FixedE9::from_raw(0);
     if (base->kind == ContractKind::Inverse) {
-        // amount24 is in the base coin here, and a contract is a fixed number of dollars.
+        // amount24 is in the base coin here; a contract is a fixed dollar amount
         out.volume_24h_base = to_amount(wire.volume_24h_quote).value_or(FixedE9::from_raw(0));
         const auto contracts = to_amount(wire.volume_24h_contracts);
         if (!contracts.has_value() || base->contract_value.raw <= 0) {
@@ -464,12 +442,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Mexc, MarketType::Perp, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // A row whose pair MEXC did not state is DROPPED rather than carried under
-    // the exchange symbol: an instrument nothing can group shows in a
-    // cross-venue view as a market of its own.
+    // a row with no stated pair is dropped
     const auto canonical = canonical_symbol(wire.base_coin, wire.quote_coin);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -486,8 +462,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
 }
 
 std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
-    // `status` is the STRING "1" on a trading row; the tradability gate is
-    // isSpotTradingAllowed, which is false on rows MEXC still prices.
+    // `status` is "1" on a trading row; isSpotTradingAllowed gates tradability
     if (wire.status != "1" || !wire.spot_trading_allowed) {
         return std::nullopt;
     }
@@ -495,8 +470,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     if (!tick.has_value()) {
         return std::nullopt;
     }
-    // The quantity step arrives as a decimal, not a digit count: the two
-    // precisions in one row are stated in different forms.
+    // the quantity step is a decimal, not a digit count
     const auto lot = parse_decimal_e9(wire.base_size_step);
     if (!lot.has_value() || lot->raw <= 0) {
         return std::nullopt;
@@ -507,12 +481,10 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Mexc, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // `BTCUSDT` runs the halves together with nothing between them, so the
-    // catalogue's own fields are the only reading. A row missing either half
-    // is dropped, as on the perpetual above.
+    // a row missing either half is dropped
     const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -521,31 +493,25 @@ std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
     base.asset_class = AssetClass::Crypto;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // A spot lot IS one base unit; there is no contract multiplier to carry.
+    // a spot lot is one base unit
     base.contract_value = FixedE9::from_raw(k_e9);
     base.kind = ContractKind::Linear;
     return SpotInstrument{base};
 }
 
-// ------------------------------------------------------------- private ----
-
 namespace {
 
-// MEXC futures says 1 holding, 2 system auto-holding, 3 closed.
+// 1 holding, 2 system auto-holding, 3 closed
 constexpr std::int64_t k_position_closed = 3;
 
-// MEXC futures order states. 2 covers New and PartiallyFilled alike.
+// futures order states; 2 covers new and partially filled
 constexpr std::int64_t k_order_pending = 1;
 constexpr std::int64_t k_order_working = 2;
 constexpr std::int64_t k_order_filled = 3;
 constexpr std::int64_t k_order_cancelled = 4;
 constexpr std::int64_t k_order_invalid = 5;
 
-// Our own ULID coming back from the venue. Anything that is not one — MEXC's
-// own web orders carry a 35-character `_m_<hex>` externalOid — leaves the field
-// UNSET rather than dropping the event: an order we did not place is still an
-// order the reconciler has to see, and an id that does not parse is never
-// truncated into a lookalike of one that does.
+// a non-ulid externalOid (web orders use `_m_<hex>`) leaves the field unset and keeps the event
 void copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     if (const auto id = ExchangeClientOrderId::from(text); id.has_value()) {
         out = *id;
@@ -576,9 +542,7 @@ bool copy_exec_id(std::string_view text, ExecId& out) {
     return true;
 }
 
-// Ordered minus dealt, floored at zero. A venue that reports more dealt than
-// ordered is a schema event; reading the difference as unsigned would turn it
-// into an enormous resting size.
+// ordered minus dealt, floored at zero
 QtyLots leaves_from(std::string_view ordered, std::string_view dealt, const InstrumentBase& base) {
     const auto total = to_lots(ordered, base);
     if (!total.has_value()) {
@@ -592,7 +556,7 @@ QtyLots leaves_from(std::string_view ordered, std::string_view dealt, const Inst
 } // namespace
 
 Side side_from_futures(std::int64_t side) noexcept {
-    // 1 open long, 2 close short — both buy. 3 open short, 4 close long.
+    // 1 open long and 2 close short buy; 3 open short and 4 close long sell
     return (side == 1 || side == 2) ? Side::Buy : Side::Sell;
 }
 
@@ -608,8 +572,7 @@ std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
     if (wire.state == k_order_pending) {
         return std::nullopt; // "uninformed": MEXC has not decided yet
     } else if (wire.state == k_order_working) {
-        // State 2 covers both New and PartiallyFilled and only dealVol tells
-        // them apart. A partial's lifecycle belongs to its deal frame.
+        // state 2 covers new and partially filled; dealVol tells them apart
         const auto dealt = to_lots(wire.deal_vol, *base);
         if (dealt.has_value() && dealt->raw > 0) {
             return std::nullopt;
@@ -677,8 +640,7 @@ std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
     if (const auto fee = to_e9(wire.fee); fee.has_value()) {
         out.fee = *fee;
     }
-    // A fill whose liquidity MEXC did not state stays Unknown: guessing Taker
-    // is how a maker strategy scores itself against a number it invented.
+    // unknown liquidity stays Unknown
     out.liquidity = wire.liquidity_known ? (wire.taker ? Liquidity::Taker : Liquidity::Maker)
                                          : Liquidity::Unknown;
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
@@ -735,7 +697,7 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
 
     exec::PositionReport out{};
     out.instrument = base->id;
-    // holdVol is UNSIGNED; positionType is the only thing that says which way.
+    // holdVol is unsigned; positionType gives the direction
     out.net_qty =
         QtyLots::from_raw(wire.position_type == k_position_short ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.hold_avg_price, *base); entry.has_value()) {
@@ -769,7 +731,7 @@ std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
         break;
     case WireOrderStatus::PartiallyFilled:
     case WireOrderStatus::Filled:
-        // The fill is the trade record's to report; this frame only restates it.
+        // the trade record reports the fill
         return std::nullopt;
     case WireOrderStatus::Unknown:
         return std::nullopt;
@@ -903,11 +865,8 @@ std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
     if (magnitude == 0) {
         return std::nullopt; // a settlement that moved nothing is nothing to book
     }
-    // A positive rate has longs paying shorts, which is the convention MEXC
-    // states and its own worked example follows. The rate's sign is read off
-    // the TOKEN rather than off a parsed value: a rate padded below 1e-9
-    // truncates to zero, and which way the money went must not depend on a
-    // digit the reader threw away.
+    // a positive rate means longs pay; the sign is read from the token
+    // since tiny rates truncate to zero
     const bool rate_negative = wire.rate.starts_with('-');
     const bool paid_away = (wire.position_type == k_position_long) != rate_negative;
 
@@ -916,8 +875,7 @@ std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
     charge.amount = FixedE9::from_raw(paid_away ? -magnitude : magnitude);
     charge.kind = LedgerKind::Funding;
     charge.settled_at = ms_to_unix(wire.settle_ms, UnixNanos{});
-    // MEXC mints an id per row, which is what tells two settlements on one
-    // contract apart when the stamps collide.
+    // mexc's row id separates settlements with the same stamp
     std::array<char, 24> buf{};
     if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.id);
         ec == std::errc{}) {

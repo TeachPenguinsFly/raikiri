@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per translation unit
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -30,17 +29,12 @@
 
 namespace raikiri::venues::kucoin::internal {
 
-// The bullet response states 18 s; this is the fallback if it ever omits it.
+// fallback when the bullet omits its ping interval
 constexpr std::uint64_t k_default_ping_ms = 18'000;
 
-// Long enough that a venue outage does not turn into a bullet-public flood,
-// short enough that a token rejection costs one second of data.
 constexpr std::uint64_t k_reopen_delay_ns = 1'000'000'000ULL;
 
-// How long a runtime reopen waits for its bullet token before asking again.
-// Ten seconds is what the blocking version allowed, and it is kept — the
-// difference is that the gateway loop now runs throughout instead of standing
-// still for it.
+// how long a runtime reopen waits for its bullet token
 constexpr std::uint64_t k_bullet_deadline_ns = 10'000'000'000ULL;
 
 struct OwnedSubscription {
@@ -48,24 +42,13 @@ struct OwnedSubscription {
     std::string symbol;
 };
 
-// What a private socket needs to open. KuCoin puts a one-shot token in the
-// stream URL and states the ping cadence beside it, and only a signed REST
-// call mints one — which is why the socket cannot open before the REST pool
-// has, and why this vocabulary is shared by both halves rather than owned by
-// either.
+// a signed rest call mints the one-shot token and ping cadence the private socket opens with
 struct PrivateTicket {
     StreamEndpoint endpoint;
     std::uint64_t ping_interval_ms{0};
 };
 
-// Anything with a timer of its own registers here and is driven from the DATA
-// client's poll. The private socket needs one: KuCoin closes a connection
-// whose application-level ping stops arriving, and the websocket control frame
-// does not count as one.
-//
-// gatewayd also polls the execution client, so this registry is not the only
-// way to get a tick — it is the way that keeps every timer in this adapter on
-// one clock.
+// timers driven from the data client's poll; the private socket needs an application ping
 class Pumped {
 public:
     Pumped() = default;
@@ -78,35 +61,21 @@ protected:
     ~Pumped() = default;
 };
 
-// State every kucoin connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, so nothing locks.
+// shared per gateway process; single threaded, nothing locks
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
         : sink{&sink_ref}, clock{&clock_ref} {}
 
     exec::GatewaySink* sink;
     const Clock* clock;
-    // Shared with the order path: KuCoin meters one allowance per IP, so two
-    // budgets would each believe they had the whole of it. Null means the
-    // venue is unmeasured, which reads as unlimited rather than as closed.
+    // shared with the order path since kucoin meters one allowance per ip; null is unlimited
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
-    // The one market this process serves. KuCoin's two trees are separate
-    // deployments reached through separate bullets, and they share a subject
-    // name ("level2") for two different payloads, so nothing below can read a
-    // frame without knowing which socket it arrived on.
+    // the trees share subject names for different payloads, so the market is fixed per process
     MarketType market{MarketType::Perp};
 
-    // TWO FEEDS, ONE ADAPTER. False is the classic tree — a bullet minted over
-    // REST, colon-joined topics, one message per price level that moves and a
-    // book that must be seeded from /api/v1/level2/snapshot. True is UTA v2:
-    // no token, one subscribe frame per symbol, a whole book followed by
-    // deltas conflated at 10 ms, and no seed to fetch.
-    //
-    // Chosen per deployment in config/venues.yaml, not here, because which one
-    // a desk wants depends on what reads the feed — and because the classic
-    // path must stay reachable until this one has run a week.
+    // false is the classic feed, true is uta v2; chosen in config/venues.yaml
     bool uta{false};
 
     std::unordered_map<std::uint64_t, UtaBook> uta_books;
@@ -120,13 +89,10 @@ struct VenueState {
     std::vector<OwnedSubscription> desired;
     std::vector<Pumped*> pumps;
 
-    // What each contract's two funding subjects have said so far. KuCoin
-    // splits the rate and the mark across them and the record is written
-    // whole — see market_data.hpp.
+    // funding rate and mark arrive on separate subjects; see market_data.hpp
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
 
-    // The seed rides its own pool so a book resynchronising never queues
-    // behind the bullet token or the catalogue.
+    // own pool so a resync never queues behind the bullet or catalogue
     net::RestClient depth_rest{io,
                                net::RestConfig{.host = std::string{rest_host()}, .port = "443"}};
     std::unordered_map<std::uint64_t, DepthBook> books;
@@ -138,9 +104,7 @@ struct VenueState {
     std::uint64_t reopen_at_ns{0};
     std::uint64_t connect_seq{0};
 
-    // Measured against /api/v1/timestamp. KuCoin refuses signatures more than
-    // five seconds from ITS clock, so a laptop drifting looks exactly like a
-    // bad key until the offset is applied.
+    // offset to /api/v1/timestamp; signatures are refused 5 s off
     std::int64_t clock_offset_ns{0};
 
     [[nodiscard]] UnixNanos venue_now() const {
@@ -149,9 +113,7 @@ struct VenueState {
             static_cast<std::uint64_t>(static_cast<std::int64_t>(local.ns) + clock_offset_ns)};
     }
 
-    // ASKED BEFORE EVERY MARKET-DATA REST SEND, and a false refuses it. KuCoin
-    // counts weight, priced per path in config/venues.yaml, so the target must
-    // reach the budget. Poll, never Order: a seed may not spend a cancel's reserve.
+    // checked before every market-data rest send; poll class, so seeds never spend the order reserve
     [[nodiscard]] bool admit_poll(std::string_view target = {}) noexcept {
         if (budget == nullptr) {
             return true; // unmeasured venue: unlimited, not closed
@@ -160,8 +122,7 @@ struct VenueState {
             .has_value();
     }
 
-    // A 429 spends nothing more until the pool refills, which KuCoin states in
-    // gw-ratelimit-reset (ms).
+    // a 429 holds spending until gw-ratelimit-reset (ms)
     void hold_after_refusal(const net::RestResponse& response) noexcept {
         if (budget == nullptr || response.status != 429) {
             return;
@@ -190,8 +151,7 @@ struct VenueState {
         return "raikiri" + std::to_string(clock->wall().ns + connect_seq++);
     }
 
-    // Null when the symbol is not one this gateway listed: there is nothing to
-    // accumulate into and nothing the mapper could publish anyway.
+    // null for a symbol this gateway did not list
     FundingMemo* memo_for(std::string_view symbol) {
         const auto* listed = instruments.find(symbol);
         if (listed == nullptr) {
@@ -218,8 +178,6 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Turns a REST answer into a usable body, or into the classified failure the
-// gateway acts on.
 inline std::expected<std::string, exec::VenueError>
 usable_body(const std::optional<net::RestResponse>& response) {
     if (!response.has_value()) {

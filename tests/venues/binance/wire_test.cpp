@@ -27,7 +27,7 @@ std::string fixture(std::string_view name) {
     return buf.str();
 }
 
-// Every parser takes the payload, not the {"stream":..,"data":..} wrapper.
+// parsers take the unwrapped payload
 std::string data_of(std::string_view name) {
     const auto frame = fixture(name);
     const auto inner = unwrap(frame);
@@ -44,9 +44,7 @@ TEST(BinanceWire, UnwrapReturnsTheInnerPayload) {
 }
 
 TEST(BinanceWire, UnwrapPassesAnUnwrappedFrameThrough) {
-    // A single-stream socket sends the payload bare; the same parser has to
-    // read both, because which socket delivered a frame is not the parser's
-    // business.
+    // a single-stream socket sends the payload bare
     const std::string bare = R"({"e":"bookTicker","s":"BTCUSDT"})";
     const auto inner = unwrap(bare);
     ASSERT_TRUE(inner.has_value());
@@ -76,12 +74,11 @@ TEST(BinanceWire, BookTickerParsesBothSides) {
     EXPECT_FALSE(book->bid_qty.empty());
     EXPECT_FALSE(book->ask_qty.empty());
     EXPECT_GT(book->update_id, 0U);
-    // T is when the book changed, E is when binance sent it; conflating them
-    // would put venue queueing delay into our latency numbers.
+    // T is when the book changed, E when binance sent it
     EXPECT_GT(book->transaction_ms, 0U);
     EXPECT_GE(book->event_ms, book->transaction_ms);
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer
     EXPECT_GE(book->symbol.data(), data.data());
     EXPECT_LE(book->symbol.data() + book->symbol.size(), data.data() + data.size());
 }
@@ -95,9 +92,7 @@ TEST(BinanceWire, AggTradeCarriesAggressorSide) {
     EXPECT_FALSE(trade->qty.empty());
     EXPECT_GT(trade->trade_id, 0U);
     EXPECT_GT(trade->trade_ms, 0U);
-    // m == true means the BUYER was the maker, so the aggressor sold. The
-    // field reads backwards from how it is usually wanted, which is exactly
-    // why it stays named after the wire here and is flipped in the mapper.
+    // m == true means the buyer was maker
     EXPECT_TRUE(trade->buyer_is_maker);
 }
 
@@ -127,9 +122,7 @@ TEST(BinanceWire, DepthUpdateSurfacesTheChainingIds) {
     const auto next_data = data_of("ws_depth_update_next.json");
     const auto next = parse_depth_update(next_data, *next_storage);
     ASSERT_TRUE(next.has_value());
-    // The futures chaining rule: pu of an event equals u of the one before.
-    // The spot rule (U == previous u + 1) rejects every valid futures delta,
-    // and these two fixtures are consecutive frames off the live socket.
+    // on futures pu equals the previous u; these fixtures are consecutive live frames
     EXPECT_EQ(next->prev_id, first_last);
 }
 
@@ -144,8 +137,7 @@ TEST(BinanceWire, DepthSnapshotCarriesTheIdTheSeedIsAnchoredOn) {
     EXPECT_EQ(snapshot->bids[0].price, "64453.00");
     EXPECT_EQ(snapshot->bids[0].qty, "7.616");
     EXPECT_EQ(snapshot->asks[0].price, "64453.10");
-    // Without an id the levels are a picture of no particular moment, so a
-    // body missing it is refused rather than read as a book at id zero.
+    // a body with no id is refused
     const std::string idless = R"({"bids":[["1.0","1.0"]],"asks":[["2.0","1.0"]]})";
     EXPECT_FALSE(parse_depth_snapshot(idless, *storage).has_value());
 }
@@ -174,9 +166,7 @@ TEST(BinanceWire, RestErrorIsDetectedByNegativeCode) {
 }
 
 TEST(BinanceWire, SuccessBodyIsNotReadAsAnError) {
-    // Zero code means "this body is a success payload" — the distinction has
-    // to survive bodies that carry no code field at all, and bodies that are
-    // arrays rather than objects.
+    // zero code means a success payload, including bodies with no code and arrays
     for (const char* file :
          {"rest_premium_index.json", "rest_server_time.json", "rest_depth_snapshot.json"}) {
         const auto body = fixture(file);
@@ -210,8 +200,7 @@ TEST(BinanceWire, ExchangeInfoReadsFiltersRegardlessOfOrder) {
     EXPECT_EQ(btc->step_size, "0.001");
     EXPECT_FALSE(btc->min_notional.empty());
 
-    // The wire layer reports what the venue said; deciding that a SETTLING
-    // contract or a non-perpetual one is unusable belongs to the mapper.
+    // the wire layer reports every row; the mapper filters
     const auto* settling = find("OMGUSDT");
     ASSERT_NE(settling, nullptr);
     EXPECT_EQ(settling->status, "SETTLING");
@@ -221,9 +210,7 @@ TEST(BinanceWire, ExchangeInfoReadsFiltersRegardlessOfOrder) {
 }
 
 TEST(BinanceWire, BothTradeSpellingsReadAsOnePrint) {
-    // The adapter asks for @trade, because @aggTrade is acknowledged on this
-    // venue and then never sends a frame. Either shape must still read: the
-    // only difference is which key carries the id.
+    // either trade shape must read; only the id key differs
     const auto aggregate = data_of("ws_agg_trade.json");
     const auto from_aggregate = parse_trade(aggregate);
     ASSERT_TRUE(from_aggregate.has_value());
@@ -239,9 +226,7 @@ TEST(BinanceWire, BothTradeSpellingsReadAsOnePrint) {
 }
 
 TEST(BinanceWire, PremiumIndexCarriesTheFundingTheStreamNeverSends) {
-    // The @markPrice stream is acknowledged on this venue and then sends
-    // nothing, so this pull is where funding comes from. One call answers for
-    // every symbol, which is why the parser fills a buffer rather than a row.
+    // one premiumIndex call answers every symbol
     const auto body = fixture("rest_premium_index.json");
     PremiumBuffer storage;
     const auto rows = parse_premium_index(body, storage);
@@ -269,12 +254,8 @@ TEST(BinanceWire, AccountCarriesEveryCollateralAssetNotOnlyTheHeldOnes) {
     const auto body = fixture("rest_account.json");
     const auto account = parse_account(body, *storage);
     ASSERT_TRUE(account.has_value());
-    // The mode is why this endpoint is read rather than /fapi/v2/balance: the
-    // wallet rows are on both, and only this one says how to read their free
-    // figure.
     EXPECT_FALSE(account->multi_assets_margin);
-    // Twenty rows, two of them money. The parser reports what arrived; which
-    // rows are worth publishing is map_balance's decision, not this one's.
+    // twenty rows; map_balance decides which to publish
     ASSERT_EQ(account->assets.size(), 20U);
     EXPECT_EQ(account->assets.front().asset, "USDT");
     EXPECT_EQ(account->assets.front().wallet_balance, "12425.26059217");
@@ -285,7 +266,7 @@ TEST(BinanceWire, AccountCarriesEveryCollateralAssetNotOnlyTheHeldOnes) {
     EXPECT_EQ(account->assets.back().wallet_balance, "0.00000000");
     EXPECT_EQ(account->assets.back().update_ms, 0U);
 
-    // An error body is not an account with nothing in it.
+    // an error body is not an empty account
     const std::string_view rejected = R"({"code":-2015,"msg":"Invalid API-key."})";
     EXPECT_FALSE(parse_account(rejected, *storage).has_value());
 }
@@ -304,15 +285,7 @@ TEST(BinanceWire, GarbageIsRefusedRatherThanPartiallyRead) {
 }
 
 TEST(BinanceWire, TheTradeAFeeWasChargedOnIsReadAsTheStringBinanceSends) {
-    // THE ONE ID BINANCE SENDS AS A STRING. `tranId` beside it in the same
-    // object is a bare number, and libs/wire's own note says binance spells
-    // its ids as numbers — which is true everywhere except here.
-    //
-    // Read with opt_u64 it was 0 on every row binance has ever sent. The fee
-    // ledger then keyed each charge by `tranId`, which no execution quotes, so
-    // not one commission ever joined the fill it belonged to: two live fills on
-    // 2026-09-16 produced `fees: agreed=0 unmatched=2`, and the same would have
-    // been true of every fee before them.
+    // tradeId is a string on this endpoint while tranId is a number
     const auto body = fixture("rest_income.json");
     IncomeBuffer storage;
     const auto rows = parse_income(body, storage);
@@ -323,20 +296,14 @@ TEST(BinanceWire, TheTradeAFeeWasChargedOnIsReadAsTheStringBinanceSends) {
     EXPECT_EQ((*rows)[0].trade_id, 220'574'436ULL) << "the string, parsed";
     EXPECT_EQ((*rows)[0].tran_id, 95'210'220'574'436ULL) << "the number beside it, untouched";
 
-    // A FUNDING ROW HAS NO TRADE, and binance says so with "" rather than by
-    // omitting the field. Zero is the right reading; what must not happen is
-    // the row being refused over it.
+    // a funding row has an empty tradeId, read as zero
     EXPECT_EQ((*rows)[1].income_type, "FUNDING_FEE");
     EXPECT_EQ((*rows)[1].trade_id, 0ULL);
     EXPECT_NE((*rows)[1].tran_id, 0ULL);
 }
 
 TEST(BinanceWire, TheFundingScheduleIsReadFromTheOnlyPlaceBinanceStatesIt) {
-    // exchangeInfo carries every other trading rule for a perp and not this
-    // one, so the catalogue answered eight hours for all 571 of them. Binance
-    // settles 465 every four hours and five every hour.
-    //
-    // The fixture is one row of each interval binance publishes.
+    // one row of each interval binance publishes
     const auto body = fixture("rest_funding_info.json");
     FundingInfoBuffer storage;
     const auto rows = parse_funding_info(body, storage);
@@ -350,18 +317,12 @@ TEST(BinanceWire, TheFundingScheduleIsReadFromTheOnlyPlaceBinanceStatesIt) {
     EXPECT_EQ((*rows)[2].symbol, "ARKUSDT");
     EXPECT_EQ((*rows)[2].interval_hours, 1U);
 
-    // THE CAPS WERE IN THIS FIXTURE FROM THE DAY IT WAS CAPTURED, read by
-    // nothing. A rate resting on its ceiling is demand the venue stopped
-    // pricing, and an analysis that cannot see the ceiling reads it as a rate
-    // that merely happened to be high.
     EXPECT_EQ((*rows)[0].cap, "0.02000000");
     EXPECT_EQ((*rows)[0].floor, "-0.02000000");
 }
 
 TEST(BinanceWire, SubscribeRefusalIsNotAnAcknowledgement) {
-    // The two answers differ by one field. Reading a refusal as an ack turns
-    // "the venue rejected this stream" into "this stream is quiet", which is
-    // indistinguishable from a market with no activity.
+    // ack and refusal differ by one field
     const std::string ok = R"({"result":null,"id":1})";
     auto event = parse_event(ok);
     ASSERT_TRUE(event.has_value());

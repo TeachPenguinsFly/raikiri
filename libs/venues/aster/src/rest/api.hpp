@@ -1,16 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers, and the one pool of weight they are
-// spent from.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what was charged. None of them belongs to the order path —
-// they run on a poller's schedule and may not spend the allowance a cancel is
-// about to need, which is what the Poll rate class is for.
-//
-// The public socket's own REST polling — the funding premium and the 24-hour
-// ticker, neither of which aster streams — is NOT here: those are unsigned
-// market data and live beside the socket that publishes them.
+// signed reconciliation reads, spent from the poll rate class
 
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -34,9 +24,7 @@
 
 namespace raikiri::venues::aster::internal {
 
-// A build that failed for want of credentials is an AuthFailure, not a
-// Terminal one: the gateway must halt and say so rather than retry a request
-// that will fail identically forever.
+// missing credentials halt the gateway instead of retrying
 exec::VenueError build_failed(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NoCredentials ? exec::ErrorClass::AuthFailure
                                                                    : exec::ErrorClass::Terminal,
@@ -55,13 +43,10 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // the venue reaps idle sockets silently
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // Held by the state, not by this class: the catalogue loader and the public
-    // socket's depth seed sign through the same builder, and a second one would
-    // be a second clock offset.
+    // one builder shared with the catalogue loader and depth seed, so one clock offset
     [[nodiscard]] RequestBuilder& builder() noexcept { return state_->builder; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -69,10 +54,7 @@ public:
     }
 
 
-    // ONE POOL. aster meters weight across every endpoint together, so every
-    // call here spends `Shared` and only the cost differs — thirty for the
-    // income ledger against five for a balance, measured from its own
-    // used-weight header rather than read off a page.
+    // aster meters one weight pool across all endpoints
     [[nodiscard]] std::expected<void, exec::VenueError> spend(std::string_view target,
                                                               exec::RateClass cls) noexcept {
         if (state_->budget == nullptr) {
@@ -90,14 +72,11 @@ public:
 
     void penalize() const noexcept {
         if (state_->budget != nullptr) {
-            // The venue's answer outranks our accounting, which has just been
-            // proven wrong.
             state_->budget->penalize_all(state_->clock->mono(), 1'000'000'000ULL);
         }
     }
 
-    // Cold-path request and answer in one. Every caller is a reconciliation
-    // read or a listen-key call, never the hot loop.
+    // cold path: reconciliation reads and listen-key calls
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     pull(const net::RestRequest& request, std::uint64_t timeout_ms = 10'000) {
         return usable_body(await_response(*state_, rest_, request, timeout_ms));

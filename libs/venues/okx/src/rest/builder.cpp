@@ -17,9 +17,7 @@ constexpr std::string_view k_hdr_ts = "OK-ACCESS-TIMESTAMP";
 constexpr std::string_view k_hdr_passphrase = "OK-ACCESS-PASSPHRASE";
 constexpr std::string_view k_hdr_simulated = "x-simulated-trading";
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long instId yields a request
-// OKX refuses with 51001 instead of one that names a different instrument.
+// drops a part that would overflow instead of truncating mid-token
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -53,8 +51,6 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed message authenticates something we did not mean to send.
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -79,15 +75,12 @@ private:
     bool overflow_{false};
 };
 
-// OKX has no timeInForce field: post-only, IOC and FOK ARE order types.
-// Sending "limit" with a post-only flag beside it is accepted and places a
-// crossing order, which is the expensive way to learn this.
+// okx has no timeInForce: post-only, ioc and fok are order types
 [[nodiscard]] std::string_view
 ord_type_text(OrderType type, TimeInForce tif, OrderFlags flags) noexcept {
     switch (type) {
     case OrderType::Market:
-        // Market is already immediate-or-cancel, and OKX has no post-only
-        // market order to express.
+        // market is already ioc, and okx has no post-only market order
         return "market";
     case OrderType::Limit:
         break;
@@ -175,9 +168,7 @@ std::string_view iso8601_ms(UnixNanos now, std::span<char, 24> out) noexcept {
     const auto days = static_cast<std::int64_t>(ms / 86'400'000ULL);
     const auto in_day = ms % 86'400'000ULL;
 
-    // days-from-civil, inverted (Howard Hinnant). Integer throughout: a
-    // timestamp computed in floating point loses milliseconds around 2038 and
-    // signs a string the venue then disagrees with.
+    // days-from-civil inverted (howard hinnant), integer only
     auto z = days + 719'468;
     const auto era = (z >= 0 ? z : z - 146'096) / 146'097;
     const auto doe = z - era * 146'097;
@@ -209,8 +200,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One catalogue load at a time is the only use.
+// builders share one buffer: send a request before building the next
 net::RestRequest RequestBuilder::instruments(std::string_view inst_type) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_instruments);
@@ -304,8 +294,7 @@ RequestBuilder::signed_get(std::string_view path, std::string_view query, UnixNa
     }
     const auto ts = iso8601_ms(now, timestamp_);
 
-    // The whole target, '?' and query included — OKX signs a GET's parameters
-    // as part of requestPath. There is no body to append.
+    // okx signs a GET's query as part of requestPath
     Appender msg{sign_msg_};
     msg << ts << "GET" << target.view();
     if (!msg.ok()) {
@@ -358,26 +347,20 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
     }
     switch (market) {
     case MarketType::Spot:
-        // A SPOT market order defaults to sizing in the QUOTE currency on a
-        // buy. Our lots are base units, so omitting tgtCcy turns "buy 0.003
-        // BTC" into "spend 0.003 USDT" — an order 20000x too small that the
-        // venue accepts without complaint.
+        // a spot market buy sizes in quote by default, so tgtCcy pins it to base
         if (cmd.order_type == OrderType::Market) {
             json.str("tgtCcy", "base_ccy");
         }
         break;
     case MarketType::Perp:
     case MarketType::Future:
-        // reduceOnly is rejected outright on SPOT, and posSide is deliberately
-        // absent: the account is assumed to be in net mode, and long/short
-        // mode refuses a derivatives order without it (51000).
+        // reduceOnly is rejected on spot; posSide is omitted on the assumption of net mode (else 51000)
         if (has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
             json.boolean("reduceOnly", true);
         }
         break;
     case MarketType::Option:
-        // Unreachable: td_mode_of refused above. Named anyway so the arm has
-        // to be revisited the day options gain a tick size and a price type.
+        // unreachable: td_mode_of already refused options
         return std::unexpected{BuildError::UnsupportedMarket};
     }
     json.obj_end();
@@ -390,8 +373,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::create_order(
 
 std::expected<net::RestRequest, BuildError> RequestBuilder::cancel_order(
     const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now) {
-    // A cancel names an existing order, so it needs no trade mode and options
-    // would be cancellable if we could ever have opened one.
+    // a cancel needs no trade mode
     const auto symbol = table.exchange_symbol(cmd.instrument);
     if (symbol.empty()) {
         return std::unexpected{BuildError::UnknownInstrument};
@@ -431,9 +413,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::amend_order(
         json.str("clOrdId", cmd.exchange_client_order_id.view());
     }
     if (!cmd.qty.is_undef()) {
-        // newSz is the order's new TOTAL size, not its new remainder: on a
-        // partially filled order, passing the remainder shrinks it by
-        // everything already done.
+        // newSz is the new total size, not the remainder
         json.decimal("newSz", base.lots_to_qty(cmd.qty));
     }
     if (!cmd.price.is_undef()) {
@@ -452,7 +432,7 @@ std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
     if (cmds.empty()) {
         return std::unexpected{BuildError::NothingToSend};
     }
-    // OKX caps a cancel batch at 20 and rejects an oversized frame whole.
+    // okx caps a cancel batch at 20 and rejects an oversized one whole
     constexpr std::size_t k_max_per_batch = 20;
     const auto batch = std::min(cmds.size(), k_max_per_batch);
 
@@ -463,8 +443,7 @@ std::expected<RequestBuilder::Batch, BuildError> RequestBuilder::cancel_batch(
         const auto& cmd = cmds[i];
         const auto symbol = table.exchange_symbol(cmd.instrument);
         if (symbol.empty()) {
-            // Dropping it silently would leave the order live with nobody
-            // waiting for a verdict; the caller reports the tail as rejected.
+            // the caller reports the tail as rejected
             break;
         }
         json.obj_begin().str("instId", symbol);

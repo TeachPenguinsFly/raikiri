@@ -4,8 +4,7 @@ namespace raikiri::venues::kraken {
 
 namespace {
 
-// The name up to the first ':'. "invalidArgument: symbol" and
-// "invalidArgument: orderType" are one condition reported against two fields.
+// the name up to the first ':'
 std::string_view name_of(std::string_view error) noexcept {
     if (const auto colon = error.find(':'); colon != std::string_view::npos) {
         error.remove_suffix(error.size() - colon);
@@ -18,7 +17,7 @@ std::string_view name_of(std::string_view error) noexcept {
 exec::ErrorClass classify(std::string_view error) noexcept {
     const auto name = name_of(error);
 
-    // VERIFIED: unauthenticated GET /accounts answers this under HTTP 200.
+    // unauthenticated reads answer this under http 200
     if (name == "authenticationError" || name == "invalidAccount" || name == "accountInactive" ||
         name == "insufficientPermissions") {
         return exec::ErrorClass::AuthFailure;
@@ -33,7 +32,7 @@ exec::ErrorClass classify(std::string_view error) noexcept {
         name == "temporarilyUnavailable") {
         return exec::ErrorClass::Retryable;
     }
-    // Routing-layer failures: a `status`, not an `error`, and no verdict.
+    // routing-layer failures carry status, not error
     if (name == "INTERNAL_SERVER_ERROR" || name == "SERVICE_UNAVAILABLE" ||
         name == "GATEWAY_TIMEOUT") {
         return exec::ErrorClass::Retryable;
@@ -48,9 +47,7 @@ bool is_benign_cancel_failure(std::string_view error) noexcept {
 }
 
 bool is_send_accepted(std::string_view status) noexcept {
-    // An IOC or market order can be filled or partially filled before the
-    // response is written; neither is a refusal, and the fills feed carries
-    // the trades themselves.
+    // an ioc or market order may fill before the response; that is not a refusal
     return status == "placed" || status == "filled" || status == "partiallyFilled";
 }
 

@@ -8,7 +8,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// Exactly these four bytes after inflation; the answer is "Pong", also bare.
+// exactly these bytes after inflation; answered with "Pong"
 constexpr std::string_view k_ping = "Ping";
 
 EventKind kind_from_channel(std::string_view channel) noexcept {
@@ -21,8 +21,6 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "markPrice") {
         return EventKind::MarkPrice;
     }
-    // "ticker", never "bookTicker": the compare above it takes that one, and
-    // the two channels answer different questions.
     if (channel == "ticker") {
         return EventKind::Ticker;
     }
@@ -48,10 +46,7 @@ std::string_view symbol_of(std::string_view data_type) {
     return at == std::string_view::npos ? std::string_view{} : data_type.substr(0, at);
 }
 
-// raw_json() on a scalar returns the token plus whitespace up to the next one,
-// so quotes come off after trimming. Contents stay escaped: BingX symbols,
-// order ids and decimal tokens cannot contain an escape, and letting simdjson
-// unescape would move every field into a buffer that cannot be rebased.
+// quotes come off after trimming; contents stay escaped so views stay in the caller's buffer
 std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
@@ -117,7 +112,6 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
         }
         EventInfo info{};
         if (data_type->empty()) {
-            // Its code is the only thing separating an ack from a refusal.
             const auto code = req_i64(*root, "code");
             if (!code.has_value()) {
                 return std::unexpected(code.error());
@@ -164,8 +158,7 @@ std::expected<PrivateKind, WireError> parse_private_event(std::string_view frame
             return PrivateKind::ListenKeyExpired;
         }
         if (*event == "ACCOUNT_UPDATE" || *event == "ACCOUNT_CONFIG_UPDATE") {
-            // GatewaySink carries no channel for a balance or a leverage
-            // change; the reconciler asks for positions instead.
+            // the sink has no balance or leverage channel; positions are reconciled instead
             return PrivateKind::Ignorable;
         }
         const auto data_type = wire::opt_str(*root, "dataType");
@@ -179,9 +172,7 @@ std::expected<PrivateKind, WireError> parse_private_event(std::string_view frame
             return PrivateKind::Ignorable;
         }
         if (data_type->empty()) {
-            // Its code is the only thing separating a subscribe ack from a
-            // refusal, and a refusal read as an ack looks exactly like a
-            // stream that is merely quiet.
+            // the code alone separates an ack from a refusal
             const auto code = wire::opt_i64(*root, "code");
             if (!code.has_value()) {
                 return std::unexpected(code.error());

@@ -1,7 +1,6 @@
 #pragma once
 
-// A sliding-window log: never more than `max` units of cost inside ANY window
-// of `window_ns`, so it is also safe against a venue that counts fixed windows.
+// at most `max` cost inside any window of `window_ns`
 
 #include <algorithm>
 #include <cstddef>
@@ -16,8 +15,8 @@ public:
     SlidingLog(std::uint32_t max, std::uint64_t window_ns, std::uint32_t reserve = 0)
         : ring_(max), max_{max}, window_ns_{window_ns}, reserve_{std::min(reserve, max)} {}
 
-    // Zero when `cost` may be spent now, else how long until it may. Only a
-    // caller allowed the reserve may spend the last `reserve` units.
+    // zero when `cost` may be spent now, else the wait; only a reserve-allowed caller spends the
+    // last `reserve` units
     [[nodiscard]] std::uint64_t
     wait_ns(std::uint32_t cost, std::uint64_t now_ns, bool may_use_reserve = true) noexcept {
         if (now_ns < held_until_) {
@@ -56,7 +55,6 @@ public:
         used_ += cost;
     }
 
-    // The venue refused: nothing more until `backoff_ns` has passed.
     void hold(std::uint64_t now_ns, std::uint64_t backoff_ns) noexcept {
         held_until_ = std::max(held_until_, now_ns + backoff_ns);
     }

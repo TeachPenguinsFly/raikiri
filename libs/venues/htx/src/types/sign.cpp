@@ -14,9 +14,7 @@ constexpr std::string_view k_hex = "0123456789ABCDEF";
            c == '.' || c == '_' || c == '~';
 }
 
-// Days since 1970-01-01 -> proleptic Gregorian y/m/d (Hinnant's civil_from_days).
-// gmtime_r would answer the same question through a locale-aware path that is
-// neither noexcept nor free of global state.
+// hinnant's civil_from_days; avoids gmtime_r's locale and global state
 struct Civil {
     std::int64_t year{0};
     unsigned month{0};
@@ -43,8 +41,6 @@ void put_two(char* out, unsigned value) noexcept {
     out[1] = static_cast<char>('0' + value % 10);
 }
 
-// Appends into a fixed buffer, marking overflow rather than truncating: a
-// half-written canonical string authenticates as a bad key.
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -133,7 +129,6 @@ std::string_view Query::render(std::span<char> out) noexcept {
     if (overflow_) {
         return {};
     }
-    // Parameter names are distinct constants, so ordering by name is total.
     std::sort(params_.begin(),
               params_.begin() + static_cast<std::ptrdiff_t>(count_),
               [](const Param& a, const Param& b) { return a.name < b.name; });

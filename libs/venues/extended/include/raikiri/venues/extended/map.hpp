@@ -40,8 +40,7 @@ struct FundingMemo {
 // only where they have not spoken yet.
 void note_market(const WireMarket& wire, const InstrumentBase& base, FundingMemo& memo) noexcept;
 
-// `rate` is the hour now accruing, which is what settles next; predicted_rate
-// stays UNDEF. A next settlement already past is left UNDEF, not published.
+// rate is the hour now accruing; a next settlement already past stays undef
 [[nodiscard]] FundingUpdate
 merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init);
 

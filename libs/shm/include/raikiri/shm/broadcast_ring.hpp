@@ -1,18 +1,6 @@
 #pragma once
 
-// Broadcast ring: single producer, many independent readers, each with a
-// process-private cursor.
-//
-//   md_events   -> count the gap, jump to head, request a book resync (lossy
-//                  by declared policy, but never silently)
-//   exec_events -> trading halt for the venue + REST reconciliation (sized so
-//                  this never fires; the policy exists so overflow is loud)
-//
-// A seqlock per slot: item with 1-based sequence s lives
-// in slot (s-1) & mask with version 2s when complete, 2s-1 while being
-// written. A reader validates the version, word-copies the payload with
-// relaxed atomics (see seqlock_table.hpp for why), and re-validates. Any
-// mismatch means the producer lapped mid-copy -> overrun, never torn data.
+// single producer, many readers; a per-slot seqlock turns a lap mid-copy into an overrun
 
 #include <raikiri/common/cacheline.hpp>
 

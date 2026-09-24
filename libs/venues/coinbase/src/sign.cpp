@@ -94,8 +94,7 @@ std::string_view prehash(std::string_view timestamp,
                          std::string_view body,
                          std::span<char> out) noexcept {
     Appender text{out};
-    // No separators anywhere: the four parts are concatenated, and inserting
-    // a newline the way Deribit and HTX do yields a valid-looking 401.
+    // no separators between the four parts
     text << timestamp << method_text(method) << request_path << body;
     return text.view();
 }

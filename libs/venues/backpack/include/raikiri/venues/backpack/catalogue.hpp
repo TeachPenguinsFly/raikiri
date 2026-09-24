@@ -19,7 +19,7 @@ struct WireMarket {
     std::string_view order_book_state;
     std::string_view tick_size; // filters.price.tickSize
     std::string_view step_size; // filters.quantity.stepSize
-    // Null on spot; 0 means unstated and stays 0 all the way to the board.
+    // null on spot; 0 means unstated
     std::uint64_t funding_interval_ms{0};
 };
 

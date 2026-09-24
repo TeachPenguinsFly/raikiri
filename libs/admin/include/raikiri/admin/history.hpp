@@ -1,16 +1,5 @@
 #pragma once
 
-// The cold half of admind: what persisterd has written to Postgres.
-//
-// Nothing live comes through here. A gateway's shared memory answers "now",
-// this answers "what happened", and mixing them would put a database on the
-// path of a question that has a faster true answer.
-//
-// The shapes below are the CONTRACT's, not the tables': a price stops being a
-// tick count and an id stops being a packed word, because both are past 2^53
-// and a browser holds integers exactly only to there. schema/admin-api.yaml
-// describes every field, and is the only place that describes them.
-
 #include <raikiri/admin/types.hpp>
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
@@ -28,11 +17,7 @@ namespace raikiri::admin {
 inline constexpr std::size_t k_default_page = 200;
 inline constexpr std::size_t k_max_page = 1000;
 
-// One row's ticks and lots resolved through the instrument that gives them
-// meaning: the raikiri.instruments row whose generation window holds the row's
-// time. Undefined when there is none, and then the row renders no price and no
-// size at all. A tick count emitted as a price is wrong by whatever the
-// tick size is, and wrong by four orders of magnitude is the usual case.
+// undefined when no raikiri.instruments window holds the row; then no price or size is rendered
 struct Scales {
     FixedE9 tick_size{FixedE9::undef()};
     FixedE9 lot_size{FixedE9::undef()};
@@ -40,33 +25,25 @@ struct Scales {
     [[nodiscard]] std::optional<std::string> price(PriceTicks ticks) const;
     [[nodiscard]] std::optional<std::string> size(QtyLots lots) const;
 
-    // Each undefined half taken from `other`.
+    // each undefined half taken from `other`
     [[nodiscard]] Scales or_from(const Scales& other) const noexcept;
 };
 
-// The attached gateways' catalogue, asked only when no raikiri.instruments
-// window holds the row: rows journalled before gateways recorded their
-// catalogue, where today's numbering is the best guess there is.
+// fallback to the attached gateways' catalogue when no raikiri.instruments window holds the row
 using ScaleLookup = std::function<Scales(InstrumentId)>;
 
-// Keyset pagination. CURSORS, NOT OFFSETS: rows arrive continuously and an
-// offset walks a moving list, so a page boundary names the last row it emitted
-// and the next page resumes strictly after it.
+// keyset pagination; a page resumes strictly after the last row emitted
 struct Cursor {
     std::uint64_t ts{0}; // the ordering timestamp of the last row emitted
     std::string key;     // that row's tiebreak, as text
     std::string key2;    // a second tiebreak, empty where one suffices
 
-    // Opaque by contract, so encoded rather than readable: a client that learns
-    // to read a cursor starts constructing one, and the day the ordering key
-    // changes its pages move without anyone saying so.
+    // opaque by contract
     [[nodiscard]] std::string encode() const;
     [[nodiscard]] static std::optional<Cursor> decode(std::string_view text);
 
     friend bool operator==(const Cursor&, const Cursor&) = default;
 };
-
-// ------------------------------------------------------------ trading ----
 
 struct Order {
     std::string client_order_id;
@@ -81,18 +58,10 @@ struct Order {
     bool reduce_only{false};
     std::optional<std::string> price; // absent on a market order
     std::string qty;
-    // What is still working. The filled amount is the DROP in this between two
-    // events, never an event's own qty: a venue that resends a fill
-    // notification would otherwise book it twice.
+    // the filled amount is the drop in leaves between events, so a resent fill is not booked twice
     std::optional<std::string> leaves;
     std::string status;
-    // WHY, when the status is a rejection. Absent on every other order, and on
-    // one refused before the journal carried a reason — which is not the same
-    // as the venue having given none, and a reader can tell them apart because
-    // these are absent rather than empty.
-    //
-    // `reject_code` is the VENUE'S OWN number, unchanged. -1058 is a thing a
-    // person can look up; "terminal" alone is not.
+    // set only on a rejection; reject_code is the venue's own number
     std::optional<std::string> reject_class;
     std::optional<std::int64_t> reject_code;
     std::string ts_created;
@@ -125,8 +94,6 @@ struct Fill {
     std::string ts_event;
 };
 
-// --------------------------------------------------------- analytics ----
-
 struct PnlIncrement {
     std::string source_id; // the idempotency key the ledger dedupes on
     std::string account;
@@ -137,18 +104,14 @@ struct PnlIncrement {
     std::string ts_event;
 };
 
-// The contract's FundingObservation, which is deliberately not the live
-// Funding of types.hpp: a stored observation is mostly holes — few venues
-// publish a predicted rate and none of them publish all of these — and the
-// answer for a field with no answer is absence, not an empty string.
+// absent fields mean the venue did not publish them
 struct FundingObservation {
     std::string instrument_id;
     std::string rate; // a ratio per interval, not a percent and not an APR
     std::optional<std::string> predicted_rate;
     std::optional<std::string> mark_price;
     std::optional<std::string> next_funding_time;
-    // The rate's own interval. Annualising without it is wrong by a factor of
-    // eight where a venue quotes hourly, so it is absent rather than assumed.
+    // the rate's own interval; absent rather than assumed
     std::optional<std::int64_t> interval_seconds;
     std::optional<std::string> accrual;
     std::string ts_event;
@@ -158,14 +121,12 @@ struct ReconBreak {
     std::string venue;
     std::optional<std::string> instrument_id;
     std::string symbol;
-    std::string verdict; // break | unknown; `unknown` is NOT agreement
+    std::string verdict; // break | unknown; unknown is not agreement
     std::optional<std::string> local_qty;
     std::optional<std::string> venue_qty;
     std::string detail;
     std::string ts_seen;
 };
-
-// ------------------------------------------------------------- pages ----
 
 template <typename T> struct Page {
     std::vector<T> items;
@@ -178,18 +139,14 @@ using PnlPage = Page<PnlIncrement>;
 using FundingPage = Page<FundingObservation>;
 using ReconBreakPage = Page<ReconBreak>;
 
-// The cursor that continues a page after `last`, derived from the row that was
-// emitted rather than from the query that produced it — so a cursor and the
-// ORDER BY it resumes cannot drift apart.
+// derived from the emitted row so the cursor matches the order by
 [[nodiscard]] Cursor cursor_after(const Order& last);
 [[nodiscard]] Cursor cursor_after(const Fill& last);
 [[nodiscard]] Cursor cursor_after(const PnlIncrement& last);
 [[nodiscard]] Cursor cursor_after(const FundingObservation& last);
 [[nodiscard]] Cursor cursor_after(const ReconBreak& last);
 
-// ----------------------------------------------------------- queries ----
-
-// What every listing takes. An empty field is not a filter.
+// an empty field is not a filter
 struct PageQuery {
     std::optional<AccountId> account;
     std::optional<InstrumentId> instrument;
@@ -210,28 +167,23 @@ public:
     History(const History&) = delete;
     History& operator=(const History&) = delete;
 
-    // False when the database is unreachable. Not fatal: a terminal that can
-    // show live state without history is more useful than one that refuses to
-    // start because Postgres is down.
+    // false when the database is unreachable; not fatal
     [[nodiscard]] bool connected() const noexcept;
 
     [[nodiscard]] DatabaseHealth health() const;
 
     void set_catalogue(ScaleLookup lookup);
 
-    // Newest first. Every read below answers with what it has: a database that
-    // went away yields an empty page and reopens on the next call, because the
-    // live half of admind must keep answering while it is down.
+    // newest first; an unreachable database yields an empty page and reconnects on the next call
     [[nodiscard]] OrderPage orders(const PageQuery& query, std::optional<bool> open) const;
     [[nodiscard]] std::optional<Order> order(ClientOrderId id) const;
 
-    // Oldest first, and the truth the order row above is a projection of. Not
-    // paged, because the contract gives it no cursor; capped at k_max_page.
+    // oldest first; not paged, capped at k_max_page
     [[nodiscard]] std::vector<OrderEvent> order_events(ClientOrderId id) const;
 
     [[nodiscard]] FillPage fills(const PageQuery& query) const;
 
-    // Not paged: one row per (strategy, venue, symbol) that has ever traded.
+    // not paged: one row per (strategy, venue, symbol) that has traded
     [[nodiscard]] std::vector<Position> positions(std::optional<AccountId> account,
                                                   std::optional<std::uint16_t> strategy) const;
 

@@ -1,13 +1,6 @@
 #pragma once
 
-// Bitget v2 websocket protocol: channel naming, subscription frames, and the
-// private-stream handshake.
-//
-// Keepalive is the bare text "ping", answered with the bare text "pong", on
-// the private socket as much as the public one. VERIFIED live on both, and
-// verified in the other direction too: "ping\n" comes back as
-// {"event":"error","code":30002,"msg":"Unrecognized request:ping\n"}, so it
-// must be exactly those four bytes.
+// keepalive is the bare text "ping" answered by "pong", exactly those four bytes
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -31,31 +24,20 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// One host and one path for live and demo alike: Bitget switches products
-// with the instType/productType parameter rather than a separate endpoint,
-// so nothing here takes a testnet flag.
+// one host for live and demo; the product parameter switches them
 [[nodiscard]] std::string_view stream_host() noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;
 [[nodiscard]] std::string_view private_stream_path() noexcept;
 
-// instType names a PRODUCT, not a market: the demo product answers on the
-// same host with S-prefixed symbols (SBTCSUSDT), so the catalogue and the
-// socket must agree on which one they asked for. Empty for a market Bitget
-// does not carry, which subscribe_frame then refuses rather than sending.
+// demo answers on the same host with S-prefixed symbols; empty for an unsupported market
 [[nodiscard]] std::string_view inst_type(MarketType market, bool testnet) noexcept;
 
-// Returns empty for a kind Bitget does not stream under these names.
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
 
-// The one private channel this adapter reads. `orders` carries fills as well
-// as lifecycle — the separate `fill` channel repeats the same trade, and its
-// spot element carries no clientOid, so subscribing both would double-count
-// every fill and leave half of them unattributed. Positions are pulled rather
-// than subscribed: GatewaySink has no channel a position push could reach.
+// orders carries fills too, so fill is not subscribed; positions are polled
 inline constexpr std::string_view k_channel_orders = "orders";
 
-// The account-wide instId, which is the only useful scope for order events.
 inline constexpr std::string_view k_all_instruments = "default";
 
 struct Subscription {
@@ -77,16 +59,11 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
 
-    // The private handshake is its own signature scheme, unrelated to REST:
-    // the signed message is timestamp + "GET" + "/user/verify", and the
-    // timestamp is in SECONDS. Bitget's own page says milliseconds in prose
-    // while its example value ("1538054050") and its Java sample both use
-    // seconds; ccxt sends seconds. The same string must appear in the frame
-    // and in the digest, or the answer is 30015 with a correct key.
+    // signs timestamp + "GET" + "/user/verify" with the timestamp in seconds, same string in frame and digest
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     login_frame(const net::Signer& signer, std::string_view passphrase, UnixNanos now);
 
-    // Exposed for tests: the exact bytes the last login_frame signed.
+    // for tests: the bytes the last login_frame signed
     [[nodiscard]] std::string_view last_login_message() const noexcept;
 
     [[nodiscard]] static std::string_view ping_frame() noexcept { return "ping"; }

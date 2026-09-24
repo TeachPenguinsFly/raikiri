@@ -13,7 +13,7 @@ std::expected<WireTrade, WireError> read_futures_trade(wire::ondemand::object& o
     WireTrade out{};
     const auto trade_id = num_u64(obj, "id");
     const auto size = req_num(obj, "size");
-    // create_time_ms, not create_time: the latter is whole seconds.
+    // create_time is whole seconds
     const auto ts = num_u64(obj, "create_time_ms");
     const auto price = req_num(obj, "price");
     const auto contract = wire::req_str(obj, "contract");
@@ -21,7 +21,7 @@ std::expected<WireTrade, WireError> read_futures_trade(wire::ondemand::object& o
         !contract.has_value()) {
         return std::unexpected(WireError::MissingField);
     }
-    // The SIGN of the size is the side; there is no side field.
+    // the sign of size is the side
     const auto signed_size = split_sign(*size);
     out.trade_id = static_cast<std::int64_t>(*trade_id);
     out.qty = signed_size.magnitude;
@@ -32,10 +32,7 @@ std::expected<WireTrade, WireError> read_futures_trade(wire::ondemand::object& o
     return out;
 }
 
-// Spot renames every field the futures print uses and says the side outright:
-// `amount` for size, `currency_pair` for the symbol, and `side` naming the
-// TAKER — so no sign to split. Its create_time_ms is a decimal STRING with a
-// fractional part ("1787832783276.263"), which whole_u64 truncates at the dot.
+// spot names the taker side outright; its create_time_ms is a fractional string, truncated
 std::expected<WireTrade, WireError> read_spot_trade(wire::ondemand::object& obj) {
     WireTrade out{};
     const auto trade_id = num_u64(obj, "id");
@@ -70,7 +67,7 @@ parse_trades(std::string_view frame, TradeBuffer& storage, MarketType market) {
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // Futures batch prints into an array; spot sends one object.
+        // futures batches prints in an array; spot sends one object
         if (spot) {
             auto obj = wire::req_object(*root, "result");
             if (!obj.has_value()) {
@@ -146,9 +143,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             out.funding_interval_s = static_cast<std::uint32_t>(*interval);
             out.funding_next_apply_s = *next_apply;
             out.index_price = *index;
-            // OPTIONAL, unlike the rest: a contract that has not traded in the
-            // window carries no volume field at all, and refusing the whole
-            // frame over it would drop its funding rate too.
+            // optional: an untraded contract omits volume, and its funding must survive
             out.volume_24h_base = opt_num(obj, "volume_24h_base").value_or(std::string_view{});
             out.volume_24h_quote = opt_num(obj, "volume_24h_quote").value_or(std::string_view{});
             out.ts_ms = *ts;

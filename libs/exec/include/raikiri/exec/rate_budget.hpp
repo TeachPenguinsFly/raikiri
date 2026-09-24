@@ -1,11 +1,6 @@
 #pragma once
 
-// One venue's REST limits, as config/venues.yaml declares them: named sliding
-// windows, each metering the paths it matches, and per-path costs. A request
-// spends from every limit that matches it, or from none if any would refuse.
-//
-// SHARED, AND THEREFORE LOCKED: the order path, the account poller and the
-// market-data pools spend one per-IP allowance together.
+// one venue's rest limits from config/venues.yaml; locked, since all clients share the per-ip allowance
 
 #include <raikiri/common/sliding_log.hpp>
 #include <raikiri/common/time.hpp>
@@ -44,15 +39,15 @@ public:
                std::vector<RateCost> costs,
                std::uint32_t default_cost = 1);
 
-    // The most specific cost rule that matches, else the default.
+    // the most specific matching cost rule, else the default
     [[nodiscard]] std::uint32_t cost(std::string_view target) const noexcept;
 
     [[nodiscard]] std::expected<void, RateDenied>
     take(std::string_view target, MonoNanos now, RateClass cls) noexcept;
 
-    // The venue refused: hold every limit the target spends from.
+    // the venue refused: hold every limit the target spends from
     void penalize(std::string_view target, MonoNanos now, std::uint64_t backoff_ns) noexcept;
-    // An IP-wide refusal (a ban) holds every limit.
+    // an ip-wide refusal holds every limit
     void penalize_all(MonoNanos now, std::uint64_t backoff_ns) noexcept;
 
     [[nodiscard]] std::uint64_t denials() noexcept;
@@ -83,8 +78,7 @@ private:
     std::uint64_t denials_{0};
 };
 
-// The admit gate a market-data REST client asks before each send. No budget
-// is unlimited.
+// the admit gate a market-data rest client asks before each send; a null budget is unlimited
 [[nodiscard]] inline std::function<bool(std::string_view)> market_data_gate(RateBudget* budget,
                                                                            const Clock& clock) {
     return [budget, clock = &clock](std::string_view target) {

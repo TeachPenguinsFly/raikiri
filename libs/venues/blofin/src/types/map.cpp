@@ -123,7 +123,7 @@ std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init) {
     TickerStats out{};
     if (base.kind == ContractKind::Inverse) {
-        // Both columns count one-dollar contracts here; neither is the base coin.
+        // both columns count one-dollar contracts here
         const auto contracts = parse_amount_e9(wire.vol_contracts);
         if (!contracts.has_value() || base.contract_value.raw % k_e9 != 0) {
             return std::nullopt;
@@ -135,7 +135,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
             return std::nullopt;
         }
         out.volume_24h_base = *volume;
-        // No turnover column on this venue; the day's coins at the last print.
+        // no turnover column; the day's coins at the last print
         if (const auto last = parse_amount_e9(wire.last); last.has_value()) {
             out.volume_24h_quote = turnover_e6(*volume, *last);
         }
@@ -147,7 +147,7 @@ map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos t
 }
 
 bool note_funding(FundingMemo& memo, const WireFundingRow& row) noexcept {
-    // Up to twenty decimals of double noise; the exact reader would refuse every one.
+    // the rate carries up to twenty decimals of double noise; the exact reader would refuse it
     const auto rate = parse_rate_e9(row.funding_rate);
     if (!rate.has_value()) {
         return false;

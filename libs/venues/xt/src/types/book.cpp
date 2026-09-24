@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is ["64152.1","71044"]: price and a count of contracts. XT appends
-// nothing after those two, unlike okx's four-element form.
+// [price, contracts] with nothing after
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry) {
     wire::ondemand::array pair;
     if (const auto ec = entry.get_array().get(pair); ec != simdjson::SUCCESS) {
@@ -81,10 +80,7 @@ parse_depth(std::string_view frame, LevelBuffer& storage, MarketType market) {
                     return std::unexpected(symbol.error());
                 }
                 out.symbol = *symbol;
-                // Futures stamp the snapshot as digit-string "id"; spot as a
-                // JSON number "i". Reading only the futures spelling refused
-                // every spot snapshot, and the refusal was silent: the socket
-                // stayed up and the book simply never appeared.
+                // futures stamps digit-string id, spot numeric i
                 const auto update_id = spot ? wire::opt_u64(data, "i") : req_digits(data, "id");
                 if (!update_id.has_value()) {
                     return std::unexpected(update_id.error());

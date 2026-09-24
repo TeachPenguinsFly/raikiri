@@ -1,25 +1,7 @@
 #pragma once
 
-// Logging facade over quill: nanosecond-scale binary enqueue on the calling
-// thread, one background thread formats and writes. Hot threads never block
-// on I/O or formatting.
-//
-//   const raikiri::log::Scope logging{"gatewayd-bybit"}; // once, first in main
-//   RLOG_INFO("connected to {} in {}ms", venue, ms);
-//
-// RLOG_* macros compile to quill's deferred-format macros; the format string
-// is checked at compile time. Swapping the backend means rewriting this
-// header and log.cpp only — no call sites.
-//
-// RECORDS GO TO STDERR. Stdout carries what a process produces for a person to
-// read — strategyd's end-of-run table, replay's decoded stream, which golden
-// tests compare byte for byte — and a backend thread writing to that same
-// stream lands its lines in the middle of a row.
-//
-// Arguments are copied into the queue and formatted later, so every one must
-// be a type quill can encode: arithmetic, const char*, std::string,
-// std::string_view. A type that only has an fmt::formatter does not compile —
-// format it at the call site and log the string.
+// records go to stderr; every argument must be a type quill can encode, so format others at the
+// call site
 
 #include <quill/LogMacros.h>
 #include <quill/Logger.h>
@@ -28,14 +10,10 @@
 
 namespace raikiri::log {
 
-// Starts the backend thread and creates the process logger. Idempotent, but
-// racy against a concurrent init: call it from main before the second thread
-// exists.
+// call from main before a second thread exists
 void init(std::string_view process_name);
 
-// Flush pending records and stop the backend. NOT optional — records are
-// handed to a background thread, so a process that exits without this drops
-// whatever it logged last, which is the part worth reading after a crash.
+// flush and stop the backend; skipping it drops the last records
 void shutdown();
 
 // Hands queued records to the backend now instead of at its next wake.
@@ -44,9 +22,7 @@ void wake() noexcept;
 // Null until init() has run, and the RLOG_* macros dereference it.
 [[nodiscard]] quill::Logger* logger() noexcept;
 
-// init() on construction, shutdown() on destruction. Declared first in main it
-// outlives everything that logs, and every early return still flushes — which
-// hand-written shutdown calls in front of a dozen `return 1`s do not.
+// init() on construction, shutdown() on destruction; declare it first in main
 class Scope {
 public:
     explicit Scope(std::string_view process_name) { init(process_name); }

@@ -47,15 +47,9 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
 
 namespace {
 
-// Credentials arrive as environment-variable NAMES; a reference that does not
-// resolve leaves the field empty, and the adapter then runs market-data only
-// rather than signing with half a key.
+// credentials are env var names; an unresolved one leaves the adapter market-data only
 void load_credentials(VenueState& state, const exec::VenueConfig& config) {
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
-    // OKX is the venue VenueConfig::passphrase_env exists for: without it every
-    // signed request comes back 50104, which reads like a bad secret.
+    // okx needs the passphrase; without it signed requests get 50104
     (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
         .key([&](std::string_view value) { state.signer.set_api_key(value); })
         .secret(state.signer.secret())

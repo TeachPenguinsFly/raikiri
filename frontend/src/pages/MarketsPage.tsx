@@ -19,13 +19,7 @@ import { useBook, useFunding, useQuotes, useTicker } from '@/lib/stream'
 const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) : v.toFixed(5))
 
 
-/** What the board can be ordered by. Funding is the reason the sort exists:
- *  the venue paying the most and the venue charging the most are the two ends
- *  of a carry, and finding them by eye across sixteen rows is the work this
- *  removes. */
-// Volume is the QUOTE column, never the base one: ranking sixteen venues by
-// coins traded puts an inverse contract on top, because its base is the coin
-// the contract is priced in rather than the one it settles.
+// volume ranks by quote turnover; base volume puts inverse contracts on top
 type MarketType = components['schemas']['MarketType']
 
 const k_market_order: MarketType[] = ['perp', 'spot', 'future', 'option']
@@ -34,8 +28,7 @@ const venueCount = (m: Market) => new Set(m.listings.map((l) => l.venue)).size
 
 type SortKey = 'venue' | 'bid' | 'ask' | 'spread' | 'funding' | 'volume'
 
-/** A venue that has not quoted sorts LAST whichever way the column runs, so a
- *  silent venue never displaces a live one at the top of the board. */
+/** a venue that has not quoted sorts last in either direction */
 const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
   switch (key) {
     case 'venue':
@@ -49,9 +42,7 @@ const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
       const mid = (l.bid + l.ask) / 2
       return mid === 0 ? null : ((l.ask - l.bid) / mid) * 10_000
     }
-    // Normalised to eight hours before comparing. okx funds every four and
-    // hyperliquid every hour; two raw rates side by side compare different
-    // things.
+    // normalised to eight hours; venues fund every 1, 4 or 8 hours
     case 'funding':
       return l.fundingRate === null || l.fundingIntervalHours === null ||
              l.fundingIntervalHours === 0
@@ -62,12 +53,7 @@ const sortValue = (l: LiveListing, key: SortKey): number | string | null => {
   }
 }
 
-/** The pairs a desk actually watches, kept in the browser.
- *
- *  Per-viewer, not per-desk: which markets one person keeps an eye on is a
- *  convenience, not a position, and putting it on the server would make two
- *  people on one account fight over the list. A read that throws — a private
- *  window, cleared site data — starts empty rather than breaking the screen. */
+/** favourites are per viewer in localstorage; a failed read starts empty */
 const k_favorites = 'raikiri.favorites'
 
 function useFavorites() {
@@ -82,7 +68,6 @@ function useFavorites() {
     try {
       localStorage.setItem(k_favorites, JSON.stringify([...favorites]))
     } catch {
-      // A viewer with site data blocked keeps their list for the session only.
     }
   }, [favorites])
 
@@ -105,12 +90,8 @@ export function MarketsPage() {
   const { favorites, toggle } = useFavorites()
   const [onlyFavorites, setOnlyFavorites] = useState(false)
 
-  // The catalogue: names and which venues list them. Refreshed slowly — a
-  // listing appearing is a rare event, and the numbers arrive on the socket.
   const catalogue = useQuery(() => api.markets({ q: query || undefined }), [query], 30_000)
   const found: Market[] = catalogue.state === 'ready' ? catalogue.data : []
-  // Starred pairs float to the top rather than into a separate list: a desk
-  // watching six markets still wants the seventh to be one scroll away.
   const markets = useMemo(() => {
     const kept = onlyFavorites ? found.filter((m) => favorites.has(m.symbol)) : found
     return [...kept].sort(
@@ -134,8 +115,6 @@ export function MarketsPage() {
     () => (selected?.listings ?? []).filter((l) => l.market === shownMarket),
     [selected, shownMarket],
   )
-  // Only the open market is subscribed. Subscribing to the whole catalogue
-  // would be thousands of instruments to read sixteen rows.
   const shown = useMemo(() => listings.map((l) => l.instrument_id), [listings])
   const quotes = useQuotes(shown)
   const funding = useFunding(shown)
@@ -156,9 +135,6 @@ export function MarketsPage() {
           ask: num(q?.ask),
           volume24h: num(t?.volume_24h_quote),
           fundingRate: num(f?.rate),
-          // NULL, not a default of eight: a venue that does not state its
-          // interval cannot have its rate normalised, and guessing one is how
-          // hyperliquid's hourly rate reads as eight times itself.
           fundingIntervalHours: seconds === null || seconds === 0 ? null : seconds / 3600,
         }
       }),
@@ -166,9 +142,6 @@ export function MarketsPage() {
   }, [selected, listings, quotes, funding, ticker])
   const entering = useEntranceOnce(live !== null, live?.symbol)
 
-  // The row you clicked is what the ticket writes against and what the ladder
-  // shows. Falling back to the first listing means the right column is never
-  // empty on a market you just opened.
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'venue', desc: false })
 
   const chosenVenue = live?.listings.find((l) => l.venue === venue) ?? live?.listings[0] ?? null
@@ -177,7 +150,6 @@ export function MarketsPage() {
   const ordered = [...(live?.listings ?? [])].sort((a, b) => {
     const x = sortValue(a, sort.key)
     const y = sortValue(b, sort.key)
-    // A venue that has said nothing sinks, whichever way the column runs.
     if (x === null && y === null) return 0
     if (x === null) return 1
     if (y === null) return -1
@@ -260,10 +232,6 @@ export function MarketsPage() {
           </div>
         </section>
 
-        {/* Three to two in favour of the board: it is what the screen is for,
-            and the log below it is read a row at a time rather than scanned. */}
-        {/* Balances are not a market's business — they live in Treasury, and
-            a fourth tab here only widens the strip you tab across. */}
         <div className="flex min-h-0 flex-[2] flex-col">
           <Blotter tabs={['positions', 'orders', 'trades']} />
         </div>
@@ -298,18 +266,7 @@ export function MarketsPage() {
   )
 }
 
-/** The active market, stated once and compactly.
- *
- *  Three facts on two lines rather than five chips on one: what the pair is,
- *  what kind of contract it is, and how many venues are answering. */
-/** The quote half of a pair, dimmed so the eye reads down the base column.
- *
- *  READ OFF THE SYMBOL, never assumed. This used to strip a literal '/USDT'
- *  and print one back, which is right only while every listing is USDT-quoted
- *  — and the moment spot gateways joined, AAVE/BTC was drawn "AAVE/BTC/USDT",
- *  AAVE/EUR "AAVE/EUR/USDT", and hyperliquid's bare AAVE "AAVE/USDT". A label
- *  that names the wrong quote currency names a different market.
- */
+/** read the quote currency off the symbol; listings are not all usdt-quoted */
 function quote(symbol: string): string {
   const cut = symbol.lastIndexOf('/')
   return cut < 0 ? '' : symbol.slice(cut)
@@ -379,8 +336,7 @@ function MarketList({
   query: string
   entering: boolean
   favorites: Set<string>
-  /** The catalogue before the favorites filter. The All tab has to count what
-   *  it would show, not what the current tab is showing. */
+  /** count before the favourites filter, for the all tab */
   total: number
   onFavorite: (symbol: string) => void
   onlyFavorites: boolean
@@ -390,9 +346,6 @@ function MarketList({
 }) {
   return (
     <section className="panel flex w-68 shrink-0 flex-col">
-      {/* Two views of one list rather than a toggle: a filter you switch on
-          and forget looks like an empty catalogue the next time you open the
-          screen, where a tab tells you which of the two you are in. */}
       <div className="flex h-7 shrink-0 items-center gap-4 px-3">
         {([false, true] as const).map((only) => (
           <button
@@ -428,9 +381,6 @@ function MarketList({
             className={cn(
               'h-7 w-full rounded-sm bg-raised pr-2.5 pl-7 text-xs text-fg outline-none',
               'transition-shadow duration-150 placeholder:text-fg-dim',
-              // Focus is marked at 55% of the accent. A full-strength ring on a
-              // field that is focused for most of a session makes the filter
-              // the brightest thing on a screen of market data.
               'focus:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_55%,transparent)]',
             )}
           />
@@ -443,8 +393,6 @@ function MarketList({
             const starred = favorites.has(m.symbol)
             return (
             <li key={m.symbol} className="group relative">
-              {/* The star sits over the row rather than in a column of its own:
-                  a column that is empty on most rows is a column of nothing. */}
               <button
                 type="button"
                 onClick={() => onFavorite(m.symbol)}
@@ -466,11 +414,6 @@ function MarketList({
                   'relative flex h-7 w-full items-center justify-between overflow-hidden rounded-sm pr-2 pl-5',
                   'transition-colors duration-150',
                   entering && 'enter-fade-up',
-                  // Selected is a raised surface plus a two-pixel accent edge,
-                  // not a bright block: the list is scanned continuously and a
-                  // filled slab in it pulls the eye off the board. The same
-                  // edge marks the selected row on the board, so one mark
-                  // means one thing across the screen.
                   active
                     ? 'bg-active text-fg before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-accent'
                     : 'text-fg-mid hover:bg-hover hover:text-fg',
@@ -481,12 +424,7 @@ function MarketList({
                   <span className="text-fg-dim">{quote(m.symbol)}</span>
                 </span>
                 <span className="flex shrink-0 items-baseline gap-3">
-                  {/* The count is why this view exists: a market four venues
-                      quote is worth opening, a market one venue lists is not.
-                      NO PRICE HERE. Only the open market is subscribed —
-                      quoting the whole catalogue would be thousands of live
-                      instruments to fill a sidebar — and a stale or invented
-                      figure beside a name is worse than none. */}
+                  {/* no price here: only the open market is subscribed */}
                   <span className="num w-3 text-right text-2xs text-fg-dim">
                     {venueCount(m)}
                   </span>
@@ -519,9 +457,7 @@ function VenueRow({
   style: React.CSSProperties | undefined
   entering: boolean
 }) {
-  // Basis points of the mid, not currency: two venues quoting one market at
-  // different tick sizes are not comparable in their own units. Null until
-  // BOTH sides have quoted — half a spread is not a narrow one.
+  // spread in basis points of the mid; null until both sides quote
   const spread =
     listing.bid === null || listing.ask === null || listing.bid + listing.ask === 0
       ? null
@@ -533,9 +469,6 @@ function VenueRow({
       className={cn(
         'row cursor-pointer',
         entering && 'enter-fade-up',
-        // The selected row is what the ticket and the ladder are pointed at, so
-        // it is marked on the left edge rather than by a fill: a whole row of
-        // accent colour fights the up/down colours the prices carry.
         selected && 'bg-active shadow-[inset_2px_0_0_0_var(--color-accent)] hover:bg-active',
       )}
     >
@@ -543,7 +476,6 @@ function VenueRow({
         <Venue venue={listing.venue} />
       </td>
       <td className="px-3 text-xs text-fg-mid">{listing.exchange_symbol}</td>
-      {/* An em-dash where the venue has not quoted. A zero would be a price. */}
       <td className="px-3 text-right">
         {listing.bid === null ? (
           <Silent />
@@ -561,17 +493,11 @@ function VenueRow({
       <td className="num px-3 text-right text-fg-mid">
         {spread === null ? <Silent /> : spread.toFixed(1)}
       </td>
-      {/* The quote-currency column. Dimmed, because it is context for the two
-          numbers a trade is decided on rather than one of them. */}
       <td className="num px-3 text-right text-fg-mid">
         {listing.volume24h === null ? <Silent /> : compact(listing.volume24h)}
       </td>
       <td className="num px-3 text-right">
-        {/* The sign is always printed, so a positive rate occupies the same
-            width as a negative one and the column's digits line up.
-            Colour marks only the negative: paying to be long is the exception
-            worth finding, and a column that is mostly green is a column the
-            eye stops reading. */}
+        {/* the sign is always printed so digits line up; colour marks only negatives */}
         {listing.fundingRate === null ? (
           <Silent />
         ) : (
@@ -581,10 +507,7 @@ function VenueRow({
           </span>
         )}
       </td>
-      {/* The interval travels with the rate, in a column of its own. okx funds
-          every four hours and hyperliquid every one where the others fund every
-          eight; two identical rates side by side without it compare different
-          things. */}
+      {/* venues fund every 1, 4 or 8 hours, so the interval sits beside the rate */}
       <td className="num px-3 text-right text-fg-dim">
         {listing.fundingIntervalHours === null ? <Silent /> : `${listing.fundingIntervalHours}h`}
       </td>
@@ -592,24 +515,16 @@ function VenueRow({
   )
 }
 
-/** A book level as the ladder draws it. The wire carries decimal STRINGS —
- *  a price and a size are exact there and must not be compared as text — and a
- *  level that will not parse is dropped to zero size rather than dropped from
- *  the book, so the ladder's depth stays monotonic. */
+/** an unparseable level gets zero size so depth stays monotonic */
 const toLevel = (l: { price: string; size: string }) => ({
   price: Number(l.price),
   size: Number(l.size) || 0,
 })
 
-/** What a venue that has published nothing looks like. One component, so the
- *  distinction between "no figure" and "a figure of zero" is drawn the same
- *  way everywhere rather than re-invented per column. */
 function Silent() {
   return <span className="text-fg-dim" title="the venue has published no figure">—</span>
 }
 
-/** A column header that sorts. The caret shows only on the active column —
- *  eight carets in a header row is a row of decoration. */
 function SortHead({
   k,
   sort,

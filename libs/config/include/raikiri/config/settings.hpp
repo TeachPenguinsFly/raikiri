@@ -1,14 +1,5 @@
 #pragma once
 
-// Everything an operator tunes, read from files rather than compiled in.
-//
-// NO OPERATIONAL NUMBER BELONGS IN THE BINARY. A venue's budget changes when
-// the venue changes it, not when we ship; a database moves without the trading
-// code being touched. Both were hardcoded once and both were wrong within a
-// day of the venue's own headers being read.
-//
-// Everything here is COLD PATH: read once at startup, never on the order path.
-
 #include <raikiri/domain/identifiers.hpp>
 
 #include <cstdint>
@@ -20,14 +11,7 @@
 
 namespace raikiri::config {
 
-// One limit a venue states. `kind` says what it counts:
-//   rest         REST cost in a sliding window, over the paths in `match`
-//   ws_messages  outbound socket frames in a window, per `scope` socket or ip
-//   ws_connects  connection attempts in a window, per ip
-//   ws_streams   subscriptions one socket may carry
-//   ws_sockets   sockets one ip may hold
-//   ws_channels  subscriptions across every socket of the ip
-//   ws_frame     subscriptions one subscribe frame may carry
+// `kind` is rest, ws_messages, ws_connects, ws_streams, ws_sockets, ws_channels or ws_frame
 struct RateLimitSettings {
     std::string name;
     std::string kind{"rest"};
@@ -45,39 +29,15 @@ struct RateCostSettings {
 };
 
 struct VenueSettings {
-    // Zero means "never expire", which is the wrong default for money: a
-    // gateway that never notices an unanswered order holds it silently.
+    // zero disables the timeout
     std::uint64_t order_answer_timeout_ms{15'000};
 
-    // Which of the venue's book tiers to subscribe. Zero keeps the adapter's
-    // own choice, and an unknown tier is refused rather than approximated —
-    // venues publish a FIXED set and answer anything else with an error that
-    // costs the whole subscription.
-    //
-    // A TIER IS A CADENCE AS WELL AS A DEPTH, and the two move in opposite
-    // directions. Measured against bybit's whole linear catalogue on
-    // 2026-09-18, 811 symbols over two minutes: orderbook.50 pushes at 20 ms
-    // for 4394 messages a second, orderbook.200 at 100 ms for 2244 — half the
-    // messages and 65% of the bytes, still carrying 90% of the level updates,
-    // because five 20 ms deltas on one symbol overlap and collapse into one.
-    //
-    // So it is a deployment decision and not a default. A recorder sampling
-    // on a one-second grid should take the deeper, slower tier; anything
-    // quoting off the top of the book should not, because the same setting
-    // slows ITS bbo to 100 ms — bybit serves both from one topic.
+    // zero keeps the adapter's tier and an unknown tier is refused; on bybit a deeper tier is also
+    // a slower cadence, bbo included
     std::uint32_t book_depth{0};
 
-    // Which of a venue's market-data feeds to take, where it publishes more
-    // than one. Empty keeps the adapter's own choice, which is what every
-    // venue here did before any of them had a second.
-    //
-    // kucoin: "uta" takes the unified account's `obu` channel instead of the
-    // classic /contractMarket/level2. Measured on all 683 contracts,
-    // 2026-09-19: 4.76x fewer messages and 4.18x fewer bytes for the same
-    // symbols, because the venue conflates at 10 ms rather than publishing
-    // every level that moves. It also needs no REST seed at all, which
-    // removes the class of bug that had 677 books asking for a snapshot
-    // 27,391 times in seven minutes.
+    // empty keeps the adapter's feed; kucoin "uta" takes the unified account's obu channel, which
+    // needs no rest seed
     std::string market_data_feed;
 
     std::vector<RateLimitSettings> limits;
@@ -90,8 +50,7 @@ struct VenuesFile {
 };
 
 struct DatabaseSettings {
-    // A REFERENCE, not a value: "env:NAME", "file:/path", "exec:cmd". A DSN
-    // carries a password, and this file is committed.
+    // a reference such as env:NAME, since a dsn carries a password
     std::string dsn;
 };
 
@@ -99,9 +58,7 @@ struct DatabaseFile {
     DatabaseSettings database;
 };
 
-// Reads the file, or says why it could not. A MISSING FILE IS AN ERROR HERE
-// and a tolerable condition for the caller: only the caller knows whether the
-// thing it configures is required. Neither of these decides that.
+// a missing file is an error here; the caller decides whether it is required
 [[nodiscard]] std::expected<VenuesFile, std::string> load_venues(std::string_view path);
 [[nodiscard]] std::expected<DatabaseFile, std::string> load_database(std::string_view path);
 

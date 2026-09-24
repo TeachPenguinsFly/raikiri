@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -25,16 +24,12 @@
 
 namespace raikiri::venues::okx::internal {
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string channel;
     std::string inst_id;
 };
 
-// State every okx connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single threaded by contract
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -45,9 +40,7 @@ struct VenueState {
     bool testnet;
     std::uint64_t order_answer_timeout_ns{0};
 
-    // What each instrument's two funding channels have said so far. OKX splits
-    // the rate and the mark across them and the record is written whole — see
-    // market_data.hpp.
+    // okx splits rate and mark across two channels; the record is written whole
     std::unordered_map<std::uint32_t, FundingMemo> funding_memo;
 
     net::IoContext io;
@@ -55,13 +48,11 @@ struct VenueState {
     config::Secret passphrase;
     exec::InstrumentTable instruments;
     Protocol protocol;
-    // The private socket builds its frames from the same class; giving it its
-    // own instance keeps one socket's scratch buffer out of the other's.
+    // its own instance so the private socket's scratch stays separate
     Protocol private_protocol;
     RequestBuilder builder;
 
-    // Which markets this process was configured for. The private order
-    // channel subscribes by instrument type, so it needs to be told.
+    // the private order channel subscribes by instrument type
     bool spot_enabled{false};
     bool perp_enabled{true};
 
@@ -82,8 +73,7 @@ struct VenueState {
         return signer.has_credentials() && !passphrase.empty();
     }
 
-    // OKX refuses a signature more than 30 s from ITS clock (50102), so a
-    // laptop drifting a minute looks exactly like a bad key.
+    // okx refuses a signature more than 30 s off its clock (50102)
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
         return UnixNanos{
@@ -93,7 +83,7 @@ struct VenueState {
     void add_subscription(std::string_view channel, std::string_view inst_id) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.inst_id == inst_id) {
-                return; // refcounting lives in the gateway core; this is a set
+                return; // refcounting lives in the gateway core
             }
         }
         desired.emplace_back(std::string{channel}, std::string{inst_id});
@@ -116,8 +106,6 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::okx::internal

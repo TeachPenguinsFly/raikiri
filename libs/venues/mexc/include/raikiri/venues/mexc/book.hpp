@@ -1,7 +1,6 @@
 #pragma once
 
-// The order book on both sockets: the futures depth channels, and the spot
-// protobuf feed that is the only book MEXC still serves for spot.
+// futures depth channels and the protobuf spot feed, the only spot book mexc serves
 
 #include <raikiri/venues/mexc/envelope.hpp>
 #include <raikiri/venues/mexc/errors.hpp>
@@ -20,9 +19,6 @@ struct WireLevel {
     std::string_view qty; // "0" means delete this level
 };
 
-// depth.full offers 200 a side and the widest incremental frame observed
-// carried 33; the ceiling is headroom against a resync burst rather than a
-// measured maximum, and past it a frame is an attempt to make us allocate.
 inline constexpr std::size_t k_max_levels = 1024;
 
 struct LevelBuffer {
@@ -30,15 +26,8 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// One parser for both depth channels: the payloads are the same object, and
-// `snapshot` records which channel delivered it. That distinction is load
-// bearing — a push.depth delta is a set of CHANGED levels in no particular
-// order (verified: a BTC_USDT delta led with a bid 1900 away from the touch),
-// so only a snapshot's first entry is the touch.
-//
-// Continuity on the incremental channel is the version chain: a delta applies
-// when its `begin` follows the previous frame's `end`. Snapshots carry
-// `version` alone.
+// a push.depth delta lists changed levels unordered, so only a snapshot's
+// first entry is the touch; deltas chain `begin` to the previous `end`
 struct WireDepth {
     std::string_view symbol;
     bool snapshot{false};
@@ -53,7 +42,6 @@ struct WireDepth {
 [[nodiscard]] std::expected<WireDepth, WireError> parse_depth(std::string_view frame,
                                                               LevelBuffer& storage);
 
-// parse_event, and parse_depth on a push.depth.full frame, off one open of it.
 struct DepthEvent {
     EventInfo event;
     std::optional<WireDepth> depth;
@@ -62,10 +50,7 @@ struct DepthEvent {
 [[nodiscard]] std::expected<DepthEvent, WireError> parse_event_and_depth(std::string_view frame,
                                                                          LevelBuffer& storage);
 
-// The spot socket, whose payloads are protobuf submessages the envelope has
-// already located. FIELD NUMBERS ARE STATED, NOT DERIVED — see envelope.hpp.
-
-// #1 bid price, #2 bid qty, #3 ask price, #4 ask qty — all decimal strings.
+// #1 bid price, #2 bid qty, #3 ask price, #4 ask qty, all decimal strings
 struct StreamQuote {
     std::string_view bid_price;
     std::string_view bid_qty;
@@ -75,10 +60,7 @@ struct StreamQuote {
 
 [[nodiscard]] std::expected<StreamQuote, WireError> parse_stream_quote(std::string_view payload);
 
-// #1 repeated asks, #2 repeated bids, each a submessage of #1 price, #2 qty.
-// Both sides arrive best-first. It is a WHOLE BOOK every time: the limit-depth
-// channel republishes rather than sending changes, so there is no seed to
-// fetch and no chain that can silently fall behind.
+// #1 asks, #2 bids, each #1 price and #2 qty, best first; a whole book every frame
 struct StreamBook {
     std::span<const WireLevel> bids;
     std::span<const WireLevel> asks;

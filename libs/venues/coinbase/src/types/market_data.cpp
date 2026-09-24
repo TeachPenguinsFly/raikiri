@@ -40,9 +40,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.sequence = *sequence;
         out.trade_id = *trade_id;
-        // OPTIONAL, unlike the quote columns above: a product that has not
-        // traded in the window is still a product with a book, and refusing
-        // the frame over an absent volume would drop its top of book too.
+        // optional: a product with no trades in the window still has a book
         out.volume_24h = wire::opt_str(*root, "volume_24h").value_or(std::string_view{});
         return out;
     });

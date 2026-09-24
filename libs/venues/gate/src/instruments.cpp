@@ -25,7 +25,7 @@ namespace raikiri::venues::gate::internal {
 
 namespace {
 
-// Cold-start only, and sized against a measurement — see GateInstruments.
+// cold-start only; see GateInstruments
 constexpr std::uint32_t k_catalogue_timeout_ms = 20'000;
 
 class GateInstruments final : public exec::InstrumentSource {
@@ -52,8 +52,7 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "gate delivery contracts are not loaded")};
         case MarketType::Option:
-            // /api/v4/options/contracts is keyed by underlying and expiry, and
-            // nothing here builds an OptionInstrument out of one.
+            // options contracts are keyed by underlying and expiry; nothing maps them
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "gate options contracts are not loaded")};
         }

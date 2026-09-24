@@ -41,8 +41,7 @@ public:
             return load_spot();
         case MarketType::Future:
         case MarketType::Option:
-            // Neither tree lists them, so an empty vector would be a claim
-            // about a market BingX does not have.
+            // neither tree lists dated futures
             return std::unexpected{exec::not_implemented(to_string(*market_refusal(market)))};
         }
         return std::unexpected{exec::not_implemented("bingx: unknown market")};
@@ -88,8 +87,7 @@ private:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
-        // RECORDED WHILE THE ROW IS IN HAND. The mapped Instrument carries no
-        // room for this, and the venue states it nowhere else.
+        // the instrument has no orderable flag, so it is recorded here
         for (const auto& row : *wire) {
             if (!row.api_open || !row.api_close) {
                 state_->not_orderable.emplace(row.symbol);
@@ -126,9 +124,7 @@ private:
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                // BingX spells a spot pair and a perpetual IDENTICALLY, so one
-                // table holds whichever market loaded first. Reported by count
-                // rather than by throw, as a duplicate or a full table is.
+                // spot and perp share symbols, so the table keeps whichever loaded first
                 continue;
             }
             loaded.push_back(*state_->instruments.find(*id));

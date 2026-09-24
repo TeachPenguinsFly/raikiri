@@ -1,7 +1,6 @@
 #pragma once
 
-// APPLICATION: when to ask a venue for its time, and what to make of the
-// answers. The asking is a port; the pacing runs off an injected clock.
+// when to probe a venue's clock and how to read the answers; the clock is injected
 
 #include <raikiri/introspect/latency.hpp>
 
@@ -33,9 +32,9 @@ struct ProbeSchedule {
 class ProbeClock {
 public:
     using MonoClock = std::function<std::uint64_t()>;
-    // A false refuses this round; it is asked again on the next.
+    // false skips this round
     using Admit = std::function<bool()>;
-    // Uniform in [lo, hi].
+    // uniform in [lo, hi]
     using Jitter = std::function<std::uint64_t(std::uint64_t lo, std::uint64_t hi)>;
 
     ProbeClock(ServerTimeSource& source,
@@ -44,7 +43,7 @@ public:
                Jitter jitter,
                ProbeSchedule schedule = {});
 
-    // Probes when due. Returns the monotonic instant of the next attempt.
+    // probes when due; returns the monotonic time of the next attempt
     std::uint64_t tick();
 
     [[nodiscard]] ClockEstimate estimate() const noexcept { return estimator_.estimate(); }

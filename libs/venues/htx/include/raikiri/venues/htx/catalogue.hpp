@@ -15,11 +15,7 @@
 
 namespace raikiri::venues::htx {
 
-// contract_size is what one contract is worth in base units, and the only
-// quantity unit HTX publishes: an order is an integer count of contracts, so
-// there is no separate step. settlement_period is the funding interval in
-// HOURS as a digit string ("8", "4" and "1" are all live), which okx has to
-// infer from consecutive funding frames.
+// an order is an integer count of contracts; settlement_period is funding hours as a digit string
 struct WireContract {
     std::string_view contract_code;
     std::string_view symbol;
@@ -34,7 +30,7 @@ struct WireContract {
     std::uint64_t settlement_ms{0};
 };
 
-inline constexpr std::size_t k_max_instruments = 1024; // 276 rows live today
+inline constexpr std::size_t k_max_instruments = 1024;
 
 struct ContractBuffer {
     std::array<WireContract, k_max_instruments> contracts{};
@@ -43,10 +39,7 @@ struct ContractBuffer {
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError>
 parse_contracts(std::string_view body, ContractBuffer& storage);
 
-// From GET /v1/common/symbols on api.huobi.pro. Precisions are DIGIT COUNTS,
-// not steps: `price-precision` is price decimals and `amount-precision` is
-// quantity decimals, so the steps are 10^-n. `api-trading` is a separate gate
-// from `state` — a pair can be online for the web UI and closed to keys.
+// precisions are digit counts (step 10^-n); api-trading gates key access apart from state
 struct WireSpotSymbol {
     std::string_view symbol;
     std::string_view state;       // online, offline, suspend, pre-online, transfer-board
@@ -56,7 +49,6 @@ struct WireSpotSymbol {
     std::uint32_t amount_precision{0};
 };
 
-// 2159 pairs live on 2026-08 and the count only grows.
 inline constexpr std::size_t k_max_spot_symbols = 8192;
 
 struct SpotSymbolBuffer {

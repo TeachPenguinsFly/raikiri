@@ -13,7 +13,6 @@ namespace raikiri::venues::extended {
 
 using WireError = wire::Error;
 
-// One row of GET /api/v1/info/markets.
 struct WireMarket {
     std::string_view name; // "BTC-USD": the wire name, and what every frame keys by
     std::string_view type; // "PERPETUAL" or "SPOT"
@@ -25,7 +24,7 @@ struct WireMarket {
     std::string_view min_size; // tradingConfig.minOrderSize, in base units
     std::string_view funding_rate;
     std::string_view mark_price;
-    // `nextFundingRate` on the wire, and a millisecond TIMESTAMP despite the name.
+    // nextFundingRate on the wire, though it is a millisecond timestamp
     std::uint64_t next_funding_ms{0};
     std::string_view volume_quote; // dailyVolume
     std::string_view volume_base;  // dailyVolumeBase

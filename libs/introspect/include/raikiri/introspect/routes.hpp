@@ -1,7 +1,6 @@
 #pragma once
 
-// PRESENTATION: the /cache/ namespace of schema/admin-api.yaml. Debug views
-// read from what the processes already know, never from Postgres.
+// the /cache/ routes of schema/admin-api.yaml; never read postgres
 
 #include <raikiri/http/server.hpp>
 #include <raikiri/introspect/queries.hpp>
@@ -19,7 +18,7 @@ public:
     CacheRoutes(const GetMachineStats& machine, const GetGatewayStats& gateway)
         : machine_{&machine}, gateway_{&gateway} {}
 
-    // Empty for a path outside /cache/, so a composed router can fall through.
+    // empty outside /cache/ so a composed router can fall through
     [[nodiscard]] std::optional<http::Response> operator()(const http::Request& req) const;
 
 private:
@@ -29,9 +28,7 @@ private:
 
 inline constexpr std::string_view k_metrics_path = "/metrics";
 
-// Prometheus text exposition 0.0.4: latency as cumulative histograms with
-// fixed log buckets, so they add up across gateways and machines; clock
-// offsets as gauges. The windowed quantiles stay in /cache/latency.
+// prometheus text 0.0.4: latency as fixed log-bucket histograms, clock offsets as gauges
 [[nodiscard]] std::string prometheus_text(const MachineStats& machine);
 
 class MetricsRoute {

@@ -59,10 +59,7 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
     pqxx::work tx{impl_->conn};
 
     for (const auto& r : batch.order_events) {
-        // NULL RATHER THAN A BLANK on everything that is not a rejection, and
-        // on any record older than schema version 2: "not recorded" and "the
-        // venue gave no reason" are different answers and the column keeps them
-        // apart.
+        // null on non-rejections and on pre-version-2 records
         tx.exec("INSERT INTO raikiri.order_events (journal, journal_seq, client_order_id,"
                 " event_type, instrument_id, price_ticks, qty_lots, leaves_lots, fee_e9,"
                 " exec_id, ts_event, ts_recorded, reject_class, reject_code)"
@@ -104,9 +101,7 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                 "  status = CASE WHEN EXCLUDED.status IS NULL OR EXCLUDED.status = ''"
                 "                THEN raikiri.orders.status ELSE EXCLUDED.status END,"
                 "  ts_updated = GREATEST(raikiri.orders.ts_updated, EXCLUDED.ts_updated),"
-                // KEPT ONCE WRITTEN. A later event on the same order — a cancel
-                // acknowledgement, a recon close — carries no reason, and
-                // overwriting with null would erase the only answer there is.
+                // keep the reason once written; later events carry none
                 "  reject_class = COALESCE(EXCLUDED.reject_class, raikiri.orders.reject_class),"
                 "  reject_code  = COALESCE(EXCLUDED.reject_code,  raikiri.orders.reject_code)"
                 " WHERE EXCLUDED.ts_updated >= raikiri.orders.ts_updated",
@@ -148,10 +143,7 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
     }
 
     for (const auto& r : batch.pnl_increments) {
-        // DO NOTHING, never DO UPDATE: the venue's own (venue, exec_id) already
-        // decided this increment, so a replay that sees it twice must be a
-        // no-op rather than a recomputation from whatever the instrument table
-        // says today.
+        // do nothing on conflict so a replay is a no-op
         tx.exec("INSERT INTO raikiri.pnl_increments (source_id, account_id, kind, amount_e9,"
                 " ts_event, strategy_id, venue, exchange_symbol, instrument_id, client_order_id,"
                 " settle_side)"
@@ -183,10 +175,7 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.detail});
     }
 
-    // UPSERT, not insert: a position is a current state. Two replays of the
-    // same journal must leave one row per key holding the last thing that
-    // happened, and the ts_updated guard makes an out-of-order replay land on
-    // the newer row rather than the later-read one.
+    // upsert; the ts_updated guard keeps the newer row under out-of-order replay
     for (const auto& r : batch.positions) {
         tx.exec("INSERT INTO raikiri.positions (strategy_id, venue, exchange_symbol,"
                 " instrument_id, net_qty_lots, cost_e9, realized_e9, fees_e9, settle_side,"
@@ -231,9 +220,8 @@ void PgSink::commit(const std::string& journal, const RowBatch& batch) {
                              r.accrual});
     }
 
-    // A generation closes every other window holding this id at its start and
-    // takes its own end from any later one already here, so a replay in any
-    // order lands on the same windows.
+    // a generation closes other windows holding this id at its start, so replay order does not
+    // matter
     for (const auto& r : batch.instruments) {
         tx.exec("UPDATE raikiri.instruments SET valid_to = $3"
                 " WHERE instrument_id = $1 AND generation <> $2 AND valid_from < $3"

@@ -1,12 +1,7 @@
--- 0001_init: core persistence schema.
--- Everything the persister writes is idempotent by natural key so a journal
--- can be replayed from zero at any time (golden-replay invariant: replaying
--- twice yields byte-identical tables).
+-- everything is keyed so a journal can be replayed from zero
 
 CREATE SCHEMA IF NOT EXISTS raikiri;
 
--- Instrument reference data (loaded by ops tooling / gateway instrument
--- pollers later; strategyd warm-starts from here).
 CREATE TABLE IF NOT EXISTS raikiri.instruments (
     instrument_id    BIGINT PRIMARY KEY,          -- packed {venue|market|symbol}
     venue            TEXT        NOT NULL,
@@ -23,8 +18,7 @@ CREATE TABLE IF NOT EXISTS raikiri.instruments (
     UNIQUE (venue, market_type, exchange_symbol)
 );
 
--- One row per order; upserted as lifecycle events arrive. The full event
--- history lives in order_events; this is the current-state projection.
+-- current state; the history is in order_events
 CREATE TABLE IF NOT EXISTS raikiri.orders (
     client_order_id           BIGINT PRIMARY KEY,  -- packed {strategy|seq}
     exchange_client_order_id  TEXT UNIQUE,         -- ULID sent to the venue
@@ -46,8 +40,7 @@ CREATE INDEX IF NOT EXISTS orders_status_idx ON raikiri.orders (status)
     WHERE status IN ('submitted', 'accepted', 'partially_filled',
                      'pending_update', 'pending_cancel', 'triggered');
 
--- Append-only order event log. Natural key = (journal, journal_seq): one
--- journal record maps to at most one row, which is what makes replay safe.
+-- keyed on (journal, journal_seq) so replay is safe
 CREATE TABLE IF NOT EXISTS raikiri.order_events (
     journal          TEXT        NOT NULL,
     journal_seq      BIGINT      NOT NULL,
@@ -65,7 +58,7 @@ CREATE TABLE IF NOT EXISTS raikiri.order_events (
 );
 CREATE INDEX IF NOT EXISTS order_events_coid_idx ON raikiri.order_events (client_order_id);
 
--- Executions dedupe on what the VENUE says is unique: (venue, exec_id).
+-- dedupe on the venue's (venue, exec_id)
 CREATE TABLE IF NOT EXISTS raikiri.executions (
     venue            TEXT   NOT NULL,
     exec_id          TEXT   NOT NULL,
@@ -81,7 +74,6 @@ CREATE TABLE IF NOT EXISTS raikiri.executions (
     PRIMARY KEY (venue, exec_id)
 );
 
--- Fills the reconciler could not attribute to a known order (drained later).
 CREATE TABLE IF NOT EXISTS raikiri.unattributed_fills (
     venue            TEXT   NOT NULL,
     exec_id          TEXT   NOT NULL,
@@ -90,7 +82,6 @@ CREATE TABLE IF NOT EXISTS raikiri.unattributed_fills (
     PRIMARY KEY (venue, exec_id)
 );
 
--- Idempotent PnL ledger: increments keyed by source_id, rollups separate.
 CREATE TABLE IF NOT EXISTS raikiri.pnl_increments (
     source_id        TEXT PRIMARY KEY,             -- e.g. 'fill:bybit:12345'
     account_id       TEXT   NOT NULL,
@@ -101,7 +92,6 @@ CREATE TABLE IF NOT EXISTS raikiri.pnl_increments (
 CREATE INDEX IF NOT EXISTS pnl_increments_account_idx
     ON raikiri.pnl_increments (account_id, ts_event);
 
--- Funding observations (partitioned later if volume demands; plain for v1).
 CREATE TABLE IF NOT EXISTS raikiri.funding_observations (
     instrument_id    BIGINT NOT NULL,
     ts_event         BIGINT NOT NULL,
@@ -113,7 +103,6 @@ CREATE TABLE IF NOT EXISTS raikiri.funding_observations (
     PRIMARY KEY (instrument_id, ts_event)
 );
 
--- Connectivity + latency telemetry.
 CREATE TABLE IF NOT EXISTS raikiri.connectivity_events (
     journal          TEXT   NOT NULL,
     journal_seq      BIGINT NOT NULL,
@@ -138,8 +127,7 @@ CREATE TABLE IF NOT EXISTS raikiri.latency_samples (
     PRIMARY KEY (journal, journal_seq)
 );
 
--- Tail cursors: advanced in the SAME transaction as each batch, giving
--- exactly-once effect on top of idempotent writes.
+-- advanced in the same transaction as each batch
 CREATE TABLE IF NOT EXISTS raikiri.persist_cursors (
     journal          TEXT PRIMARY KEY,             -- e.g. 'gatewayd-bybit'
     last_seq         BIGINT NOT NULL,

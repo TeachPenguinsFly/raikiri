@@ -1,9 +1,5 @@
 #pragma once
 
-// The account's own money: what it holds, what mode it holds it under, and
-// every row that moved it — of which funding and trading fees are the two this
-// process reads.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/wire/error.hpp>
@@ -16,12 +12,7 @@
 
 namespace raikiri::venues::okx {
 
-// One row of GET /api/v5/account/bills.
-//
-// `type` says what the row IS — "8" funding, "2" a trade — and the two put
-// their money in DIFFERENT COLUMNS: a funding row states it in `balChg` and
-// leaves `fee` at zero, a trade row the reverse. Reading the wrong column
-// books a zero over a real charge, which is the whole reason both are carried.
+// type 8 is funding and books into balChg, type 2 is a trade and books into fee
 struct WireBill {
     std::string_view bill_id;
     std::string_view inst_id;
@@ -41,14 +32,7 @@ struct BillBuffer {
 [[nodiscard]] std::expected<std::span<const WireBill>, WireError> parse_bills(std::string_view body,
                                                                               BillBuffer& storage);
 
-// The account mode, from `acctLv` on GET /api/v5/account/config.
-//
-// It is not a curiosity: OKX computes margin PER CURRENCY in the first two
-// modes and ACROSS THE ACCOUNT in the last two, so the same per-currency
-// available figure answers "what may I commit" in one pair of modes and
-// answers nothing in the other. Unknown is the honest state for a config read
-// that failed or named a level this does not know — never assumed to be one
-// of the four.
+// okx margins per currency in modes 1-2 and across the account in 3-4; unknown when the read failed
 enum class AccountMode : std::uint8_t {
     Unknown = 0,
     Spot = 1,          // acctLv 1
@@ -59,16 +43,7 @@ enum class AccountMode : std::uint8_t {
 
 [[nodiscard]] std::expected<AccountMode, WireError> parse_account_mode(std::string_view body);
 
-// One currency of GET /api/v5/account/balance, from data[0].details[].
-//
-// The two totals are NOT interchangeable: `cashBal` is the currency's own
-// balance and `eq` is that plus the open pnl, so publishing `eq` as the total
-// beside `upl` would count the same money twice.
-//
-// OKX ships an absent value as an EMPTY STRING rather than omitting the key,
-// so an empty view here is the venue declining to answer and not a parse that
-// missed the field. `upl` is empty in spot mode, where there is no position to
-// carry pnl.
+// cashBal is the currency's own balance and eq adds open pnl; absent values arrive as empty strings
 struct WireCurrencyBalance {
     std::string_view ccy;
     std::string_view cash_bal;
@@ -77,7 +52,7 @@ struct WireCurrencyBalance {
     std::uint64_t u_time_ms{0};
 };
 
-// A row per currency the account has touched, not per currency OKX lists.
+// a row per currency the account has touched
 inline constexpr std::size_t k_max_currencies = 128;
 
 struct BalanceBuffer {

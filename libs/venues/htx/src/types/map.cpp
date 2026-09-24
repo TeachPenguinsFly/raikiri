@@ -13,12 +13,9 @@ namespace raikiri::venues::htx {
 
 namespace {
 
-// 1 is listed and tradable; 3 is a row on its way out that still ships usable
-// numbers, so only the status keeps it out.
+// status 3 rows are delisting but still carry usable numbers
 constexpr std::int64_t k_contract_listed = 1;
 
-// Guards the int128 accumulator and the power-of-ten loops; no live HTX token
-// comes close.
 constexpr int k_max_mantissa_digits = 30;
 constexpr int k_max_shift = 30;
 
@@ -30,9 +27,7 @@ struct Decomposed {
     bool negative{false};
 };
 
-// Splits a JSON numeric token into an exact mantissa and a base-10 exponent.
-// HTX spells price_tick both ways within ONE response, so reading only plain
-// decimals would silently lose whichever rows took the other form.
+// htx spells price_tick both plain and with an exponent in one response
 std::optional<Decomposed> decompose(std::string_view text) noexcept {
     if (text.empty()) {
         return std::nullopt;
@@ -104,8 +99,6 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
     return out;
 }
 
-// mantissa * 10^exponent -> 1e9 fixed point. `exact` decides what happens to
-// significance below 1e-9: refuse it, or truncate toward zero.
 std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
     int shift = parts.exponent + 9;
     if (shift > k_max_shift || shift < -k_max_shift) {
@@ -131,10 +124,7 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
     return FixedE9::from_raw(static_cast<std::int64_t>(value));
 }
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means HTX changed an instrument's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// drops values that do not divide the step instead of rounding to a neighbouring tick
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (step.raw <= 0) {
         return std::nullopt;
@@ -156,11 +146,8 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// What FixedE9 carries, and therefore the finest spot precision this adapter
-// can represent.
 constexpr std::uint32_t k_e9_digits = 9;
 
-// A step of 10^-digits, in e9 fixed point.
 std::int64_t power_of_ten(std::uint32_t digits) noexcept {
     std::int64_t step = k_e9;
     for (std::uint32_t i = 0; i < digits; ++i) {
@@ -169,10 +156,6 @@ std::int64_t power_of_ten(std::uint32_t digits) noexcept {
     return step;
 }
 
-// HTX names the order type and the time in force in ONE token on both APIs:
-// the swap's order_price_type ("limit", "post_only", "opponent_ioc") and
-// spot's type ("buy-limit-maker", "sell-ioc"). Reading them apart is this
-// file's job, not the wire parser's.
 OrderType order_type_of(std::string_view spelling) noexcept {
     if (spelling.find("market") != std::string_view::npos || spelling.starts_with("opponent") ||
         spelling.starts_with("optimal") || spelling.starts_with("lightning")) {
@@ -195,12 +178,7 @@ bool post_only(std::string_view spelling) noexcept {
     return spelling == "post_only" || spelling.ends_with("limit-maker");
 }
 
-// Fees are neither a price nor a size, so they truncate at 1e-9 where those
-// refuse: a fee padded past nine decimals must not cost us the whole fill.
-//
-// The swap API writes a CHARGE as a negative number and a maker rebate as a
-// positive one; spot writes a charge positive. One convention reaches the OMS,
-// so the swap's is flipped here rather than at every call site.
+// fees truncate at 1e-9; the swap writes a charge negative and is flipped here
 FixedE9 fee_e9(std::string_view text, MarketType market) noexcept {
     const auto value = rate_e9(text);
     if (!value.has_value()) {
@@ -324,7 +302,7 @@ map_funding(const WireFunding& wire, const exec::InstrumentTable& table, UnixNan
     if (const auto predicted = rate_e9(wire.estimated_rate); predicted.has_value()) {
         out.predicted_rate = *predicted;
     }
-    // settlement_time, not funding_time — see wire.hpp.
+    // settlement_time is the next funding; funding_time is the message time
     out.next_funding_time = ms_to_unix(wire.settlement_ms, UnixNanos{0});
     if (const auto* perp = std::get_if<PerpInstrument>(instrument); perp != nullptr) {
         out.interval_s = perp->funding_interval_s;
@@ -345,7 +323,6 @@ map_ticker_stats(const WireDetail& wire, const exec::InstrumentTable& table, Uni
     }
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
-    // `vol` on the same tick is the contract count and is not read here.
     out.volume_24h_base = rate_e9(wire.amount).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.trade_turnover).value_or(FixedE6::from_raw(0));
     out.ts_event = ms_to_unix(wire.ts_ms, ts_init);
@@ -370,8 +347,7 @@ map_depth(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos t
             }
             const auto price = to_ticks(level.price, base);
             const auto qty = to_lots(level.qty, base);
-            // Truncating is safe on a snapshot venue and only there: the next
-            // whole book lands 100 ms later, so a refused level heals itself.
+            // truncating is safe only because the next full book replaces this one
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -448,9 +424,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     base.tick_size = *tick;
     base.lot_size = FixedE9::from_raw(k_e9);
     base.contract_value = *size;
-    // Unconditional because the catalogue comes from /linear-swap-api. HTX's
-    // coin-margined swaps live under /swap-api and are inverse; reaching for
-    // them means deciding this per row.
+    // /linear-swap-api only; coin-margined swaps are inverse and live under /swap-api
     base.kind = ContractKind::Linear;
     std::uint32_t interval_s = 0;
     if (wire.settlement_period_h > 0) {
@@ -463,9 +437,7 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     if (wire.state != "online" || wire.api_trading != "enabled") {
         return std::nullopt;
     }
-    // Nine is what FixedE9 carries. A pair asking for a tenth decimal — atpbtc
-    // does, live — cannot be represented, and a step rounded up to 1e-9 would
-    // put every order on that pair one tick off the grid it was priced on.
+    // FixedE9 holds nine decimals; a coarser step would put orders off the grid
     if (wire.price_precision > k_e9_digits || wire.amount_precision > k_e9_digits) {
         return std::nullopt;
     }
@@ -484,16 +456,11 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     if (const auto min_value = exact_e9(wire.min_order_value); min_value.has_value()) {
         base.min_notional = *min_value;
     }
-    // A spot pair has no contract: one unit of base is one unit of base.
-    // Linear is nonetheless what the kind must say — `validate` refuses
-    // ContractKind::Unknown, so leaving it there had InstrumentTable::add
-    // reject all 587 listed pairs and the gateway load a catalogue of zero.
+    // validate refuses ContractKind::Unknown, so spot is marked Linear
     base.contract_value = FixedE9::from_raw(k_e9);
     base.kind = ContractKind::Linear;
     return SpotInstrument{base};
 }
-
-// Order entry ------------------------------------------------------------
 
 std::optional<OrderIdentity>
 map_identity(std::string_view client_order_id, std::string_view order_id, MarketType market) {
@@ -509,8 +476,7 @@ map_identity(std::string_view client_order_id, std::string_view order_id, Market
             std::uint64_t raw = 0;
             const auto* const end = client_order_id.data() + client_order_id.size();
             const auto [stop, ec] = std::from_chars(client_order_id.data(), end, raw);
-            // HTX writes 0 for an order placed without a client id, and any
-            // non-numeric spelling is a field we did not put there.
+            // 0 means no client id was given
             if (ec == std::errc{} && stop == end && raw != 0) {
                 out.client_order_id = ClientOrderId{raw};
             }
@@ -540,8 +506,7 @@ std::optional<QtyLots> order_leaves(const WireOrder& wire, const exec::Instrumen
     if (!total.has_value()) {
         return std::nullopt;
     }
-    // An absent trade_volume is zero filled, which is what an untouched order
-    // reports; a present one that will not convert is a schema event.
+    // absent trade_volume means nothing filled
     if (!filled.has_value()) {
         return wire.filled_qty.empty() ? total : std::nullopt;
     }
@@ -572,8 +537,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         break;
     case WireOrderState::PartiallyFilled:
     case WireOrderState::Filled:
-        // The fill that moved leaves already said this, with the exec id and
-        // the fee attached. Saying it twice attributes one fill to two events.
+        // the fill event already reported this
         return std::nullopt;
     case WireOrderState::Unknown:
         return std::nullopt;
@@ -598,7 +562,6 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         out.qty = *qty;
     }
     out.leaves_qty = order_leaves(wire, table).value_or(QtyLots::from_raw(0));
-    // A cancel leaves nothing working whatever the last quantity frame said.
     if (type == OrderEventType::Canceled || type == OrderEventType::Rejected) {
         out.leaves_qty = QtyLots::from_raw(0);
     }
@@ -665,9 +628,7 @@ std::optional<OrderEvent> map_user_trade(const WireUserTrade& wire,
     out.instrument = base.id;
     out.side = wire.sell ? Side::Sell : Side::Buy;
     out.liquidity = wire.fill.maker ? Liquidity::Maker : Liquidity::Taker;
-    // The caller's cache first, then whatever the frame states: a REST match
-    // row carries no client id at all on spot, and an event with none routes
-    // by the venue order id or not at all.
+    // spot rest match rows carry no client id, so the caller's cache comes first
     out.client_order_id = known_client_id;
     out.exchange_client_order_id = known_ulid;
     if (!copy_ids(wire.client_order_id, wire.order_id, base.id.market(), out) ||
@@ -708,9 +669,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     if (!identity.has_value()) {
         return std::nullopt;
     }
-    // A perp report carries no exchange_client_order_id at all: the ULID the
-    // OMS minted was never on the wire, and the venue order id is what the
-    // reconciler matches on there.
+    // perp reports have no exchange client id; the reconciler matches on venue order id
     out.exchange_client_order_id = identity->exchange_client_order_id;
     out.exchange_order_id = identity->exchange_order_id;
     switch (wire.state) {
@@ -748,8 +707,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
-    // HTX states the size as a MAGNITUDE and the side as a word beside it, so
-    // a reader that forgets `direction` reports every short as a long.
+    // size is a magnitude; the side comes from direction
     const auto size = to_lots(wire.volume, base);
     if (!size.has_value()) {
         return std::nullopt;
@@ -775,13 +733,12 @@ std::optional<LedgerEntry> map_financial_record(const WireFinancialRecord& wire,
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // rate_e9, not exact_e9: HTX pads this to eighteen fractional digits and an
-    // exact read would refuse the whole row over a tail no order divides by.
+    // rate_e9: htx pads the amount to 18 digits
     const auto amount = rate_e9(wire.amount);
     if (!amount.has_value() || amount->raw == 0) {
         return std::nullopt; // an unreadable or absent figure is not a zero charge
     }
-    // The two statements of direction must agree — see map.hpp.
+    // type and sign must agree; see map.hpp
     const bool expenditure = wire.type == k_type_funding_expenditure;
     if (expenditure != (amount->raw < 0)) {
         return std::nullopt;
@@ -792,9 +749,7 @@ std::optional<LedgerEntry> map_financial_record(const WireFinancialRecord& wire,
     charge.amount = *amount;
     charge.kind = LedgerKind::Funding;
     charge.settled_at = ms_to_unix(wire.ts_ms, UnixNanos{});
-    // query_id, not `id`: HTX documents `id` as unique per CONTRACT, so two
-    // contracts can carry the same one and a ledger keyed on it would drop the
-    // second as a replay.
+    // query_id: htx's id is unique only per contract
     std::array<char, 24> buf{};
     if (const auto [stop, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), wire.query_id);
         ec == std::errc{}) {

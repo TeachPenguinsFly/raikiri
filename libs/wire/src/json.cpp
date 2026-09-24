@@ -27,17 +27,14 @@ namespace {
 
 constexpr std::size_t k_initial_scratch = 64 * 1024;
 
-// /fapi/v1/exchangeInfo for all USD-M contracts is roughly 1 MiB, so the
-// ceiling has real headroom; past it a frame is a venue incident or an
-// attempt to make us allocate.
+// a ceiling far above the largest real response
 constexpr std::size_t k_max_frame = 64 * 1024 * 1024;
 
 [[nodiscard]] constexpr bool is_space(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-// The session whose document is open on this thread, as a plain pointer:
-// session()'s lazily built thread_local costs a guard on every lookup.
+// plain pointer to skip the thread_local guard
 thread_local const Session* t_current = nullptr;
 
 } // namespace
@@ -138,11 +135,7 @@ std::string_view trim(std::string_view s) noexcept {
     return s;
 }
 
-// raw_json() on a scalar returns the token plus whitespace up to the next one,
-// so quotes come off after trimming. Contents stay escaped: binance symbols,
-// client order ids and decimal strings cannot contain an escape, and letting
-// simdjson unescape would move every field into a buffer that cannot be
-// rebased.
+// quotes come off after trimming; contents stay escaped so views can be rebased
 std::expected<std::string_view, Error> str_of(ondemand::value value, const Session& s) {
     if (!s.alive()) {
         return std::unexpected(Error::NotJson);

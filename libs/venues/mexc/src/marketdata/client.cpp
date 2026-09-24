@@ -27,20 +27,13 @@ namespace raikiri::venues::mexc::internal {
 
 namespace {
 
-// MEXC closes a socket that has sent nothing for 60 s and counts only CLIENT
-// messages toward that timer — verified: a connection receiving a push every
-// three seconds was still dropped at 62 s. Ten seconds leaves room for a
-// missed ping and a reconnect inside the window.
+// the venue closes a socket after 60 s without client messages; inbound data does not count
 constexpr std::uint64_t k_app_ping_interval_ns = 10'000'000'000ULL;
 
 constexpr std::uint64_t k_spot_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
-// One spot frame. Protobuf, so nothing here is text and the JSON classifier
-// never sees it: what the frame is is decided by WHICH payload field number is
-// present, and an unknown one is skipped rather than guessed at.
-//
-// The subscription acks are JSON on the same socket. They start with '{' and
-// no protobuf message can, so they cost one byte to tell apart.
+// the payload field number decides the kind; json acks start
+// with '{', which no protobuf message can
 void handle_spot_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     if (frame.empty() || frame.front() == '{') {
         return; // a control frame; the subscribe path already reports refusals
@@ -164,9 +157,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// A pool key is one channel on one symbol, joined by a byte neither can
-// contain. The pool stores keys as opaque strings and hands them back when a
-// socket reconnects, so this is the only place that knows the shape.
+// pool key is channel and symbol joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view channel, std::string_view symbol) {
@@ -176,10 +167,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The level count belongs to the CHANNEL, not to the kind that asked for it: a
-// key names a channel and a symbol, and the frame rebuilt from that key when a
-// socket reopens must carry the limit the first ask carried. One rule, read by
-// subscribe() and by split_key().
+// the level count belongs to the channel so a rebuilt frame carries the original limit
 [[nodiscard]] std::uint32_t limit_for(std::string_view channel, MarketType market) noexcept {
     if (market == MarketType::Spot) {
         return channel == spot_channel_for(exec::SubKind::Depth) ? k_spot_book_depth : 0;
@@ -187,9 +175,7 @@ constexpr char k_key_sep = '\x1f';
     return channel == channel_for(exec::SubKind::Bbo) ? k_book_depth : 0;
 }
 
-// The inverse of key_of, and the only decode: two copies of where the cut is is
-// one copy that drifts. Views into the key, which the pool owns for as long as
-// the connection holds it.
+// views into the key, owned by the pool while the connection holds it
 [[nodiscard]] std::optional<Subscription> split_key(std::string_view key, MarketType market) {
     const auto cut = key.find(k_key_sep);
     if (cut == std::string_view::npos) {
@@ -200,9 +186,7 @@ constexpr char k_key_sep = '\x1f';
         .channel = channel, .symbol = key.substr(cut + 1), .limit = limit_for(channel, market)};
 }
 
-// The channel carrying the top of book. On futures depth.full carries the
-// ladder with it — one channel feeds both the Bid/Ask columns and the depth
-// panel, because the incremental `depth` channel is parsed and dropped.
+// on futures depth.full feeds both the quote and the ladder
 [[nodiscard]] std::string_view quote_channel(MarketType market) noexcept {
     return market == MarketType::Spot ? spot_channel_for(exec::SubKind::Bbo)
                                       : channel_for(exec::SubKind::Bbo);
@@ -212,17 +196,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its own
-    // keys when it opens; replaying the whole desired set on every one of them
-    // is the flood the pool exists to avoid, and this one handler is shared by
-    // every connection so it cannot tell which of them called.
-    //
-    // NOTHING IS INVALIDATED HERE EITHER, and no OnConnectionOpen hook does it
-    // elsewhere: the only book this adapter publishes is depth.full, which is a
-    // limit-50 SNAPSHOT on every push, so a reopened socket's next frame is
-    // already whole. The channel with a version chain is the incremental
-    // `depth` one, and its frames are dropped — nothing here holds a chain a
-    // reconnect could break, and there is no REST seed a resync could burst.
+    // each pool socket resubscribes its own keys on open; depth.full snapshots need no resync
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -256,10 +230,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path(state_->market)}},
                 handler_,
-                // The per-connection ceiling here is this adapter's share of a
-                // socket rather than a number MEXC states; ws.hpp records what
-                // one connection was measured to carry and why the share is
-                // what bounds the ask.
+                // the per-connection ceiling is this adapter's share; see ws.hpp
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
         spot_rest_.set_admit(exec::market_data_gate(state_->budget, *state_->clock));
@@ -282,8 +253,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -291,8 +260,7 @@ public:
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
-            // One pool, one tree, and the trees do not even share an
-            // encoding — a frame from the other one would not parse here.
+            // one pool per market; the trees use different encodings
             return std::unexpected{exec::not_implemented("mexc: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
@@ -312,21 +280,15 @@ public:
             return DataClient::subscribe(kind, instrument);
         }
         if (!spot && kind == exec::SubKind::Depth) {
-            // The ladder arrives on depth.full, a whole snapshot per push, and
-            // handle_frame drops every frame MEXC's incremental `depth` channel
-            // sends. Asking for it anyway was a quarter of the pool — 1183 keys
-            // and about two and a half sockets — spent on frames that are
-            // parsed and thrown away.
+            // the ladder comes from depth.full, so the incremental depth channel is not subscribed
             channel = channel_for(exec::SubKind::Bbo);
         }
         const auto before = state_->desired.size();
         state_->add_subscription(channel, symbol, limit_for(channel, state_->market));
         if (state_->desired.size() == before) {
-            return {}; // funding and the mark are ONE `ticker` channel, not two
+            return {}; // funding and the mark share one `ticker` channel
         }
-        // THE POOL PLACES IT. A key that fits on no existing socket opens
-        // another, and only the pool's own ceiling refuses — which is said out
-        // loud rather than leaving the instrument silently unwatched.
+        // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -349,9 +311,7 @@ public:
         if (now.ns < state_->next_app_ping_ns) {
             return;
         }
-        // EVERY socket. MEXC's 60 s idle timer counts only CLIENT messages and
-        // runs per connection, so pinging one of sixteen has the venue close
-        // the other fifteen a minute later.
+        // ping every socket; the idle timer is per connection and counts only client messages
         pool_.broadcast(Protocol::ping_frame());
         if (state_->private_client != nullptr && state_->private_client->connected()) {
             (void)state_->private_client->send(Protocol::ping_frame());
@@ -401,14 +361,7 @@ private:
         }
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the ordering lives here
-    // rather than at subscribe time: on a reconnect the order that matters is
-    // the order the venue is asked in.
-    //
-    // ONE FRAME PER KEY. `param` names a single symbol on futures and `params`
-    // a single channel on spot, so a connection's set costs its key count in
-    // sends — which is what the venues table's ws_streams bounds.
+    // runs on every open of the socket, so ordering is decided here; one frame per key
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         const bool spot = state_->market == MarketType::Spot;
         std::vector<Subscription> views;
@@ -418,10 +371,7 @@ private:
                 views.push_back(*one);
             }
         }
-        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
-        // goes last effectively does not go at all — and on futures depth.full
-        // is both the Bid/Ask columns and the only ladder this adapter
-        // publishes, so it is the one that must not end up behind 400 others.
+        // quote first, since paced sends at the tail may never go out
         const auto quote = quote_channel(state_->market);
         std::ranges::stable_partition(
             views, [quote](const Subscription& one) { return one.channel == quote; });

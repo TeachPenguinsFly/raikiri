@@ -4,9 +4,7 @@ namespace raikiri::wire::pb {
 
 namespace {
 
-// Ten groups of seven bits is 70, which covers a u64 with room to spare; an
-// eleventh group means the encoder is not writing a u64 and the message is not
-// one we can read.
+// ten 7-bit groups cover a u64
 constexpr std::size_t k_max_varint_bytes = 10;
 
 } // namespace
@@ -90,8 +88,7 @@ std::optional<Field> Reader::next() noexcept {
         return out;
     }
     default:
-        // Groups (3 and 4) were removed from the language, and 6 and 7 were
-        // never assigned. Any of them means this is not the message we think.
+        // groups (3, 4) and the unassigned 6 and 7 mean this is not a message we can read
         return std::nullopt;
     }
 }

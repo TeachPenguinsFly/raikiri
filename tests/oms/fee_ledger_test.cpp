@@ -32,8 +32,6 @@ TEST(FeeLedger, ADifferenceIsABreakAndCarriesBothFiguresToSayItWith) {
 
     const auto checked = ledger.reconcile(charge("exec-2", -7'236'999));
     EXPECT_EQ(checked.verdict, FeeVerdict::Disagreed);
-    // Both halves, because a break that reports only the venue's number tells
-    // nobody which side is wrong.
     EXPECT_EQ(checked.booked.raw, -7'236'500);
 }
 
@@ -41,9 +39,6 @@ TEST(FeeLedger, AChargeAgainstNoFillWeHoldIsNotAZeroWeClaimed) {
     FeeLedger ledger;
     const auto checked = ledger.reconcile(charge("exec-nobody", -1'000));
     EXPECT_EQ(checked.verdict, FeeVerdict::Unmatched);
-    // Either a fill this process never saw, or the venue quotes a different id
-    // here than on the execution. UNDEF rather than zero, because zero is a
-    // figure and this is the absence of one.
     EXPECT_TRUE(checked.booked.is_undef());
 }
 

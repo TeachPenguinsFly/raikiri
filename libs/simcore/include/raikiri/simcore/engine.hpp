@@ -1,16 +1,7 @@
 #pragma once
 
-// Sim venue execution engine: per-instrument Books plus a client-order
-// registry (sim exchange id -> the three-ID tuple and working state).
-//
-// Client OrderCmds go through handle() and come back as the same OrderEvent
-// stream a live venue adapter would produce — ack before prints, prints
-// before remainder expiry. Background (owner 0) liquidity moves the book and
-// prints TradeTicks but is scenery: it never emits OrderEvents of its own.
-// Fills where a CLIENT order rests on the maker side always produce the
-// maker's Filled event, regardless of who the aggressor was.
-//
-// Determinism: no wall clock — every timestamp is the caller's `now`.
+// client commands come back as the event stream a live adapter would produce; background liquidity
+// emits no order events
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
@@ -28,8 +19,7 @@
 
 namespace raikiri::simcore {
 
-// Everything one call produced. bbo_changed lets the caller publish a Bbo
-// update only when the top of book actually moved.
+// bbo_changed lets the caller publish only when the top of book moved
 struct SimResult {
     std::vector<OrderEvent> events;
     std::vector<TradeTick> trades;
@@ -78,11 +68,7 @@ public:
 
     bool cancel_background(InstrumentId instrument, std::uint64_t sim_id, SimResult* out = nullptr);
 
-    // The venue's own book: signed lots per instrument, folded from the fills
-    // this engine printed for client orders. Background liquidity is the rest
-    // of the market and never counts. Derived here, from fills, and not from
-    // the event stream a consumer sees — a reconciliation where both sides run
-    // the same arithmetic checks nothing.
+    // the venue's positions, folded independently from the client fills it printed
     [[nodiscard]] const std::unordered_map<InstrumentId, QtyLots>& positions() const noexcept {
         return positions_;
     }
@@ -102,7 +88,6 @@ private:
     void handle_create(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_cancel(const OrderCmd& cmd, UnixNanos now, SimResult& out);
     void handle_amend(const OrderCmd& cmd, UnixNanos now, SimResult& out);
-    // taker == nullptr for background aggressors (no taker events emitted).
     void fold_position(InstrumentId instrument, Side side, QtyLots qty);
     void emit_fills(const ClientOrderMeta* taker,
                     QtyLots taker_leaves_start,

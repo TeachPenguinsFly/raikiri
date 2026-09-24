@@ -14,20 +14,14 @@ namespace raikiri::admin {
 
 namespace {
 
-// Which statuses can still fill. The same set as the partial index in
-// sql/migrations/0001_init.sql, spelled the same way so the `open` filter uses
-// it; `initialized` is absent because nothing was sent to a venue yet.
+// statuses that can still fill; matches the partial index in sql/migrations/0001_init.sql
 constexpr std::string_view k_open_statuses =
     "('submitted','accepted','partially_filled','pending_update','pending_cancel','triggered')";
 
-// persisterd writes this exact sentence for the Unknown verdict
-// (libs/persist/src/mapper.cpp). recon_breaks has no verdict column, so the
-// verdict is recovered from it — and `unknown` is the venue not answering,
-// which is NOT agreement.
+// persisterd's detail text for the unknown verdict (libs/persist/src/mapper.cpp)
 constexpr std::string_view k_unknown_detail = "venue could not report";
 
-// Every instrument of one (venue, market) falls in a span this wide: the packed
-// word puts the market byte at bit 48 and everything below it names the symbol.
+// the market byte sits at bit 48; lower bits name the symbol
 constexpr std::uint64_t k_symbol_span = 1ULL << 48;
 
 constexpr char k_cursor_separator = '\x1F';
@@ -75,8 +69,6 @@ constexpr char k_cursor_separator = '\x1F';
     return as_unsigned(text).value_or(0);
 }
 
-// A condition and the values it binds are appended by one call, so a
-// placeholder number cannot drift away from the value it stands for.
 class Where {
 public:
     // `expr op $n`, or `expr op ($n,$n+1,…)` for a row-value comparison.
@@ -104,13 +96,7 @@ public:
         }
     }
 
-    // The (venue, market) prefix of a packed instrument id, as a half-open
-    // range. A range predicate can use the index on instrument_id; the shift
-    // expression that reads the same bits cannot.
-    //
-    // `nullable` keeps a row whose instrument this system never learned: it is
-    // not excluded by a market filter it cannot be tested against, because
-    // dropping it would hide a position rather than fail to classify one.
+    // a range predicate can use the instrument_id index; `nullable` keeps rows with no instrument
     void add_account(std::string_view column, AccountId account, bool nullable) {
         const auto lo = InstrumentId::make(account.venue, account.market, SymbolId{0}).packed;
         begin();
@@ -129,8 +115,7 @@ public:
         sql_ += ')';
     }
 
-    // A condition with no parameters. Only ever built from literals in this
-    // file, never from anything a client sent.
+    // literals only, never client input
     void raw(std::string_view condition) {
         begin();
         sql_ += condition;
@@ -172,16 +157,12 @@ private:
     return field.is_null() ? std::nullopt : std::optional{field.as<std::int64_t>()};
 }
 
-// Ids and nanosecond timestamps, which are the same problem: both are past
-// 2^53 and both are stored in a BIGINT. Read as signed and rendered unsigned,
-// because the packed word of every venue this system knows sits well below
-// 2^63 and reading it as unsigned would throw on a row that somehow did not.
+// read signed, rendered unsigned
 [[nodiscard]] std::string digits_of(pqxx::field_ref field) {
     return digits(static_cast<std::uint64_t>(int_of(field)));
 }
 
-// Zero is absence, not an id: venue 0 is Invalid and a client order id of zero
-// never left a strategy, and both are what persisterd writes for "unknown".
+// zero is what persisterd writes for unknown
 [[nodiscard]] std::optional<std::string> opt_id(pqxx::field_ref field) {
     const auto value = opt_int(field);
     if (!value.has_value() || *value == 0) {
@@ -190,8 +171,7 @@ private:
     return digits(static_cast<std::uint64_t>(*value));
 }
 
-// A NULL tick or lot count is no value, not a count of zero: a market order
-// carries no price, and rendering the zero would put one on it.
+// null is no value, not zero
 [[nodiscard]] PriceTicks ticks_of(pqxx::field_ref field) {
     const auto value = opt_int(field);
     return value.has_value() ? PriceTicks::from_raw(*value) : PriceTicks::undef();
@@ -202,9 +182,7 @@ private:
     return value.has_value() ? QtyLots::from_raw(*value) : QtyLots::undef();
 }
 
-// Money is already 1e9 fixed-point and needs no instrument. Zero is a real
-// amount — a fee of nothing is a fee — so only the undefined sentinel is
-// absent.
+// only the undefined sentinel is absent; zero is a real amount
 [[nodiscard]] std::optional<std::string> opt_amount(pqxx::field_ref field) {
     const auto raw = opt_int(field);
     if (!raw.has_value()) {
@@ -307,15 +285,7 @@ private:
     out.strategy_id = int_of(row.at("strategy_id"));
     out.qty = scales.size(lots_of(row.at("net_qty_lots"))).value_or(std::string{});
     out.realized = opt_amount(row.at("realized_e9")).value_or(std::string{});
-    // avg_entry_price stays unset: cost over quantity is arithmetic that
-    // raikiri::portfolio::Position already owns, and this library does not link
-    // it. A second derivation of an entry price is how two views of one book
-    // start disagreeing.
-    //
-    // venue_qty and venue_reported_at stay unset for a stronger reason: NOTHING
-    // RECORDS THEM. recon_breaks holds what a venue said only when it
-    // disagreed, and reading a stale disagreement as "what the venue holds"
-    // would answer a question the tables cannot.
+    // avg_entry_price belongs to portfolio::Position; venue_qty is not recorded anywhere
     out.ts_updated = digits_of(row.at("ts_updated"));
     return out;
 }
@@ -335,9 +305,7 @@ private:
 [[nodiscard]] FundingObservation read_funding(pqxx::row_ref row, const ScaleLookup& live) {
     const auto scales =
         complete({.tick_size = scale_of(row.at("tick_size_e9"))}, row.at("instrument_id"), live);
-    // Zero is not a time and not an interval: the journal writes zero where the
-    // venue said nothing, and a next funding time of zero is a date in 1970
-    // while an interval of zero divides.
+    // the journal writes zero where the venue said nothing
     const auto next = int_of(row.at("next_funding_ts"));
     const auto interval = int_of(row.at("interval_s"));
     return {
@@ -354,9 +322,7 @@ private:
 }
 
 [[nodiscard]] ReconBreak read_recon_break(pqxx::row_ref row) {
-    // (venue, exchange_symbol) is unique per market_type and a break records no
-    // market, so two listings of one symbol leave the instrument unresolvable.
-    // Naming one of them would be a coin toss written down as a fact.
+    // a break records no market, so two listings of one symbol stay unresolved
     const bool resolved = int_of(row.at("matches")) == 1;
     const Scales scales{.lot_size = resolved ? scale_of(row.at("lot_size_e9")) : FixedE9::undef()};
     const auto detail = text_of(row.at("detail"));
@@ -376,8 +342,7 @@ private:
     return std::clamp<std::size_t>(asked, 1, k_max_page);
 }
 
-// One row past the page is asked for, and it is the proof that a next page
-// exists rather than part of the answer.
+// asks one row past the page to detect a next page
 [[nodiscard]] std::string limit_clause(std::size_t limit) {
     return " LIMIT " + digits(limit + 1);
 }
@@ -406,14 +371,11 @@ template <typename T, typename Read>
 
 } // namespace
 
-// -------------------------------------------------------------- units ----
-
 std::optional<std::string> Scales::price(PriceTicks ticks) const {
     if (tick_size.is_undef() || tick_size.raw <= 0 || ticks.is_undef()) {
         return std::nullopt;
     }
-    // The domain's arithmetic aborts on overflow, which is right for numbers
-    // this system computed and wrong for a catalogue row it merely read.
+    // saturate here; the domain's arithmetic aborts on overflow
     const auto magnitude = ticks.raw < 0 ? -ticks.raw : ticks.raw;
     if (magnitude > std::numeric_limits<std::int64_t>::max() / tick_size.raw) {
         return std::nullopt;
@@ -441,8 +403,6 @@ std::optional<std::string> Scales::size(QtyLots lots) const {
     return admin::size(lots, base);
 }
 
-// ------------------------------------------------------------- cursors ----
-
 std::string Cursor::encode() const {
     std::string raw = digits(ts);
     raw += k_cursor_separator;
@@ -466,9 +426,7 @@ std::optional<Cursor> Cursor::decode(std::string_view text) {
     if (second == std::string_view::npos) {
         return std::nullopt;
     }
-    // A separator inside a key would split the cursor into four parts. No venue
-    // symbol or execution id holds a control byte, so that is a forged cursor
-    // and it is refused rather than half-read.
+    // a separator inside a key means a forged cursor
     if (view.find(k_cursor_separator, second + 1) != std::string_view::npos) {
         return std::nullopt;
     }
@@ -526,8 +484,6 @@ std::optional<PnlKind> pnl_kind_from_string(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-// ------------------------------------------------------------ database ----
-
 struct History::Impl {
     std::string dsn;
     ScaleLookup catalogue;
@@ -535,8 +491,7 @@ struct History::Impl {
 
     explicit Impl(std::string d) : dsn{std::move(d)} { (void)open(); }
 
-    // Opened on demand and left absent while Postgres is down, so admind keeps
-    // answering from shared memory and picks history back up by itself.
+    // opened on demand; absent while postgres is down
     pqxx::connection* open() noexcept {
         if (conn != nullptr && conn->is_open()) {
             return conn.get();
@@ -549,8 +504,7 @@ struct History::Impl {
         return conn.get();
     }
 
-    // Every read is best-effort. A handler that threw would become a 500 for a
-    // question the live half of the API could still have answered.
+    // best-effort: a failed read returns the fallback
     template <typename T, typename Fn> T read(T fallback, Fn&& fn) {
         auto* live = open();
         if (live == nullptr) {
@@ -578,9 +532,7 @@ bool History::connected() const noexcept {
 DatabaseHealth History::health() const {
     return impl_->read(DatabaseHealth{}, [](pqxx::connection& conn) {
         pqxx::read_transaction tx{conn};
-        // How long since persisterd last committed a batch. That is not lag on
-        // an idle journal, and it is the closest this side can measure: the
-        // journal head is a file on the gateway's host, not a row here.
+        // time since persisterd last committed; the journal head is not visible from here
         const auto rows = tx.exec("SELECT EXTRACT(EPOCH FROM (now() - MAX(updated_at)))"
                                   " FROM raikiri.persist_cursors");
         tx.commit();
@@ -593,12 +545,9 @@ DatabaseHealth History::health() const {
     });
 }
 
-// ------------------------------------------------------------- trading ----
-
 namespace {
 
-// The instrument row whose generation window holds `ts`, so an id a gateway
-// restart gave to another symbol still prices an old row with its own tick.
+// the instrument row whose generation window holds `ts`
 [[nodiscard]] std::string instrument_at(std::string_view id, std::string_view ts) {
     return std::string{" LEFT JOIN LATERAL (SELECT tick_size_e9, lot_size_e9"
                        " FROM raikiri.instruments w WHERE w.instrument_id = "} +
@@ -651,8 +600,7 @@ OrderPage History::orders(const PageQuery& query, std::optional<bool> open) cons
                   static_cast<std::int64_t>(*key));
     }
 
-    // ts_created, never ts_updated: a keyset cursor over a column that moves
-    // under a live order would skip the rows that moved past it.
+    // ts_created: ts_updated moves under a live order and would break the keyset
     const auto sql = std::string{k_order_select} + where.text() +
                      " ORDER BY o.ts_created DESC, o.client_order_id DESC" + limit_clause(limit);
     return impl_->read(OrderPage{}, [&](pqxx::connection& conn) {
@@ -675,9 +623,7 @@ std::optional<Order> History::order(ClientOrderId id) const {
 }
 
 std::vector<OrderEvent> History::order_events(ClientOrderId id) const {
-    // Oldest first, and by the journal that recorded them rather than by the
-    // venue's clock alone: two events of one order can share a nanosecond, and
-    // (journal, journal_seq) is the order they were durably written in.
+    // (journal, journal_seq) orders events that share a nanosecond
     const auto sql =
         "SELECT e.client_order_id, e.instrument_id, e.event_type, e.price_ticks, e.qty_lots,"
         " e.leaves_lots, e.fee_e9, e.exec_id, e.ts_event, i.tick_size_e9, i.lot_size_e9"
@@ -761,14 +707,11 @@ std::vector<Position> History::positions(std::optional<AccountId> account,
     });
 }
 
-// ----------------------------------------------------------- analytics ----
-
 PnlPage History::pnl(const PageQuery& query, std::optional<PnlKind> kind) const {
     const auto limit = clamp_limit(query.limit);
     Where where;
     if (query.account.has_value()) {
-        // account_id holds the venue, which is what persisterd writes into it;
-        // the market is only recoverable from the nullable instrument_id.
+        // account_id holds the venue; the market comes only from instrument_id
         where.add("p.venue", "=", std::string{to_string(query.account->venue)});
         where.add_account("p.instrument_id", *query.account, true);
     }
@@ -835,8 +778,7 @@ ReconBreakPage History::recon_breaks(const PageQuery& query) const {
     const auto limit = clamp_limit(query.limit);
     Where where;
     if (query.account.has_value()) {
-        // A break records (venue, symbol) and no market, so an account narrows
-        // this to its venue and no further.
+        // a break has no market, so an account narrows only to its venue
         where.add("b.venue", "=", std::string{to_string(query.account->venue)});
     }
     if (query.since.has_value()) {

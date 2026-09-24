@@ -154,7 +154,7 @@ map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init
     if (const auto next = parse_rate_e9(wire.next_funding); next.has_value()) {
         out.predicted_rate = *next;
     }
-    // The mark carries more places than the tick, so it is truncated onto it.
+    // the mark has more places than the tick, so it is truncated onto it
     if (const auto mark = parse_amount_e9(wire.mark); mark.has_value() && base.tick_size.raw > 0) {
         out.mark_price = PriceTicks::from_raw(mark->raw / base.tick_size.raw);
     }

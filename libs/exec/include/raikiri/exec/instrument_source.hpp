@@ -1,8 +1,6 @@
 #pragma once
 
-// Cold reference-data pull: the venue's full instrument catalog, already
-// converted to fixed-point and validated. Feeds symbol interning, the
-// in-memory instrument tables, and Postgres. Never on any hot path.
+// cold pull of the venue's full instrument catalogue, converted and validated
 
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/exec/error.hpp>
@@ -31,11 +29,8 @@ struct CatalogueBackoff {
     std::chrono::milliseconds cap{60'000};
 };
 
-// Retries fetch_all until it succeeds, fails in a way no retry can fix
-// (Terminal, AuthFailure), or `stopping` turns true; the last two return the
-// error. `on_retry` hears each failure that will be retried, with its attempt
-// number and the wait before the next one. `stopping` also abandons a request
-// in flight, through an AbandonScope held for the whole load.
+// retries fetch_all until success, a Terminal or AuthFailure error, or `stopping`
+// `stopping` also abandons the request in flight
 [[nodiscard]] std::expected<std::vector<Instrument>, VenueError> load_catalogue(
     InstrumentSource& source,
     MarketType market,

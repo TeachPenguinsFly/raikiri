@@ -53,18 +53,10 @@ namespace ssl = boost::asio::ssl;
 namespace websock = boost::beast::websocket;
 using tcp = boost::asio::ip::tcp;
 
-// The io_context's own executor type, not any_io_executor: every composed
-// operation holds a work guard on its stream's executor, and the type-erased
-// one is constructed, moved and destroyed at each step of a read.
+// the concrete executor type; any_io_executor is rebuilt at each read step
 using Executor = asio::io_context::executor_type;
 #ifdef __linux__
-// THE KERNEL'S ARRIVAL TIME, read beside the bytes. With SO_TIMESTAMPING's
-// software RX stamp on, every recvmsg carries the CLOCK_REALTIME at which the
-// last segment it copied entered the stack; asio's own read has nowhere to put
-// the control message, so this read replaces it under the TLS layer. Like
-// asio's, it tries the socket first and waits for readiness only when it is
-// empty, and a result found at once completes on the handler's immediate
-// executor, so the inline-read budget above still governs recursion.
+// reads under the tls layer with recvmsg to get the SO_TIMESTAMPING software rx stamp
 class StampedSocket : public asio::basic_stream_socket<tcp, Executor> {
 public:
     using asio::basic_stream_socket<tcp, Executor>::basic_stream_socket;
@@ -104,7 +96,7 @@ private:
                    });
     }
 
-    // False when the socket is empty and the caller must wait.
+    // false when the socket is empty and the caller must wait
     template <typename MutableBuffers>
     bool attempt(const MutableBuffers& into, boost::system::error_code& ec, std::size_t& got) {
         std::array<::iovec, 4> iov{};
@@ -152,7 +144,7 @@ private:
     std::uint64_t last_arrival_ns_{0};
     bool stamps_{false};
 };
-// Closing is the plain socket's business; beast finds these by ADL.
+// closing is the plain socket's job; beast finds these by adl
 [[maybe_unused]] void teardown(beast::role_type role, StampedSocket& socket, beast::error_code& ec) {
     websock::teardown(role, static_cast<asio::basic_stream_socket<tcp, Executor>&>(socket), ec);
 }
@@ -175,24 +167,16 @@ using Timer = asio::basic_waitable_timer<std::chrono::steady_clock,
                                          asio::wait_traits<std::chrono::steady_clock>,
                                          Executor>;
 
-// Reads whose synchronous completion runs inline instead of through the
-// reactor queue: a frame already in beast's buffer, bytes OpenSSL has already
-// decrypted, a speculative recv that found data. Every k-th read posts, which
-// keeps the recursion shallow and gives the other sockets their turn.
+// inline reads before one posts, keeping recursion shallow and letting other sockets run
 constexpr std::uint32_t k_inline_reads = 8;
 
-// A link that stayed up this long was not a fluke, so the next outage starts
-// its backoff from the floor instead of inheriting the previous storm's
-// ceiling. Without this a venue that flaps once an hour ends up permanently
-// reconnecting at reconnect_max_ms.
+// a link up this long resets the backoff to the floor
 constexpr std::uint64_t k_stable_connection_ns = 30'000'000'000ULL;
 
-// Never empty: extended refuses a request or handshake without one (403).
+// extended refuses a request or handshake without one (403)
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
-// RFC 6066 forbids IP literals in SNI and OpenSSL refuses to set one, so the
-// extension is skipped for them. Venues are always DNS names; only loopback
-// test servers take this branch.
+// rfc 6066 forbids ip literals in sni; only loopback test servers hit this
 [[nodiscard]] bool is_ip_literal(const std::string& host) noexcept {
     boost::system::error_code ec;
     static_cast<void>(asio::ip::make_address(host, ec));
@@ -244,25 +228,8 @@ std::string_view to_string(WsCloseReason reason) noexcept {
 
 namespace internal {
 
-// Lifetime, stated once because every handler below depends on it.
-//
-// Two guards, for two different hazards:
-//
-//  1. shared_ptr<WsSession> in every completion handler. WsClient's destructor
-//     drops its reference while Asio may still hold queued completions; those
-//     handlers keep the session alive until the reactor drains them (or until
-//     the io_context is destroyed, which destroys them). No use-after-free.
-//     A `dead_` flag makes every one of them a no-op, because the WsHandler
-//     reference they would call back into belongs to the caller and may well
-//     have died with the client.
-//
-//  2. A generation counter plus a shared_ptr<Conn> per attempt. Closing a
-//     socket does not retract handlers already queued for it, and a write
-//     issued on a dying socket still points at the buffer it was handed. So
-//     each connection attempt gets a fresh Conn that owns its own read and
-//     write buffers; abandoning a connection bumps the generation, and stale
-//     handlers recognise themselves and return. The Conn dies with the last
-//     handler that referenced it, never while the kernel still has its bytes.
+// handlers hold a shared_ptr to the session and `dead_` makes them no-ops after the client dies
+// each attempt gets a fresh Conn and generation, so stale handlers return
 class WsSession : public std::enable_shared_from_this<WsSession> {
 public:
     WsSession(asio::io_context& ioc, WsConfig config, WsHandler& handler)
@@ -306,7 +273,7 @@ public:
         running_ = false;
         reconnect_timer_.cancel();
         if (state_ == State::Idle) {
-            // Idempotent: a second stop() must not synthesize a second on_close.
+            // idempotent: a second stop() must not synthesize a second on_close
             ++generation_;
             return;
         }
@@ -367,7 +334,7 @@ private:
         websock::response_type response;
     };
 
-    // Handed back to async_read by on_read, so a read copies no shared_ptr.
+    // reused by on_read so a read copies no shared_ptr
     struct ReadHandler {
         std::shared_ptr<WsSession> self;
         std::shared_ptr<Conn> conn;
@@ -415,8 +382,7 @@ private:
             return;
         }
         state_ = State::Connecting;
-        // WsConfig carries no connect deadline. The ping timer is idle until
-        // the socket opens, so it bounds connect and TLS together.
+        // WsConfig has no connect deadline; the idle ping timer bounds connect and tls
         ping_timer_.expires_after(std::chrono::milliseconds{cfg_.pong_timeout_ms});
         ping_timer_.async_wait([self = shared_from_this(), gen](const beast::error_code& timer_ec) {
             self->on_handshake_deadline(gen, timer_ec);
@@ -599,7 +565,7 @@ private:
         do_read(std::move(handler));
     }
 
-    // Beast forbids overlapping writes, and async_ping is a write.
+    // beast forbids overlapping writes, and async_ping is a write
     void drain_writes() {
         if (dead_ || state_ != State::Open || writing_ || !conn_) {
             return;
@@ -715,7 +681,7 @@ private:
         const std::uint32_t base = backoff_ms_;
         backoff_ms_ = base >= cfg_.reconnect_max_ms / 2 ? cfg_.reconnect_max_ms : base * 2;
 
-        // Jitter over a quarter of the window.
+        // jitter over a quarter of the window
         const std::uint32_t spread = base / 4 + 1;
         const auto jitter = static_cast<std::uint32_t>(rng_() % spread);
 

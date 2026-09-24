@@ -1,11 +1,5 @@
 #pragma once
 
-// What the public feed says a market did: its prints, the mark and index it
-// quotes, and the funding it charges.
-//
-// The 24-hour window is NOT here. KuCoin states no turnover on any stream this
-// adapter subscribes to; it rides the catalogue row instead, on WireContract.
-
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -18,9 +12,7 @@
 
 namespace raikiri::venues::kucoin {
 
-// `side` is already the AGGRESSOR's side — KuCoin states the taker direction
-// directly, so nothing is inverted here or in the mapper. Binance's `m` says the
-// opposite thing, and reading the two alike is how signed flow comes out backwards.
+// side is already the aggressor's; binance's m means the opposite
 struct WireTrade {
     std::string_view symbol;
     std::string_view trade_id;
@@ -45,13 +37,7 @@ struct WireMarkPrice {
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view frame);
 
-// The websocket form carries no settlement time; the REST form does but names
-// the funding INDEX (".XBTUSDTMFPI8H") in `symbol`, useless for lookup — hence
-// one DTO, two parsers, and a `symbol` only the websocket form fills.
-//
-// `granularity` means DIFFERENT THINGS on the two transports, so the mapper
-// trusts neither: the stream republishes the live rate once a minute and says
-// 60000, while REST says the 28800000 settlement period (verified live).
+// rest names the funding index in symbol; granularity differs between ws and rest, so it is ignored
 struct WireFundingRate {
     std::string_view symbol;
     std::string_view rate;
@@ -63,19 +49,11 @@ struct WireFundingRate {
 
 [[nodiscard]] std::expected<WireFundingRate, WireError> parse_funding_rate(std::string_view frame);
 
-// GET /api/v1/funding-rate/{symbol}/current. Seeds funding at subscribe time and
-// is the only source that states the venue's own next settlement.
+// seeds funding at subscribe; the only source of the next settlement time
 [[nodiscard]] std::expected<WireFundingRate, WireError>
 parse_funding_current(std::string_view body);
 
-// What the two subjects have said SO FAR about one contract's funding.
-//
-// KUCOIN SPLITS WHAT `FundingUpdate` FUSES: `funding.rate` and
-// `mark.index.price` share the /contract/instrument topic and arrive as
-// separate frames, and the shm cell is written whole. Publishing straight from
-// either frame writes UNDEF over whatever the other one said, so the venue
-// keeps both and publishes the merge. A field never stated stays UNDEF, which
-// is not zero.
+// funding.rate and mark.index.price arrive separately and the shm cell is written whole, so both are kept and merged
 struct FundingMemo {
     FixedE9 rate{};
     FixedE9 predicted{};

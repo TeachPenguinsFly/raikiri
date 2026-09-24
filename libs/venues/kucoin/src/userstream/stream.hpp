@@ -1,10 +1,6 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It subscribes and turns each frame into an event on the sink. It sends no
-// orders: an order goes out over REST and is ANSWERED here, and joining those
-// two halves is the execution client's job, not this one's.
+// the private socket: subscribes and turns frames into sink events
 
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/kucoin/envelope.hpp>
@@ -24,9 +20,7 @@ namespace raikiri::venues::kucoin::internal {
 
 class PrivateStream final : public net::WsHandler, public Pumped {
 public:
-    // The socket cannot mint its own ticket: it comes from a signed REST call
-    // and it expires, so every reopen has to ask for a new one. Handed in as a
-    // callable so this class still knows nothing but the socket.
+    // the ticket comes from a signed rest call and expires, so every reopen asks for a new one
     using Minter = std::function<std::expected<PrivateTicket, exec::VenueError>()>;
 
     PrivateStream(VenueState& state, MarketType market, std::uint32_t stream_id, Minter mint)
@@ -74,8 +68,7 @@ public:
         const auto topic = private_order_topic(market_);
         const auto frame = protocol_.private_subscribe_frame(topic);
         if (!frame.has_value() || !client_->send(*frame)) {
-            // A socket that carries no order topic reports nothing at all,
-            // which is indistinguishable from a quiet account.
+            // a socket without the order topic would look like a quiet account
             schedule_reopen();
             return;
         }
@@ -123,8 +116,7 @@ public:
 
     void on_close(net::WsCloseReason reason) override {
         if (reason != net::WsCloseReason::Requested) {
-            // The token is in the URL and expires, so the reconnect has to
-            // start from a fresh bullet rather than from the same target.
+            // the token expires, so reconnect from a fresh bullet
             schedule_reopen();
         }
         state_->sink->on_connectivity({.state = exec::ConnState::Disconnected,
@@ -142,8 +134,7 @@ private:
         const auto ticket = mint_();
         if (!ticket.has_value()) {
             if (ticket.error().cls == exec::ErrorClass::AuthFailure) {
-                // Retrying a refused key at full speed is how an account earns
-                // a lockout, so this one failure does not reschedule.
+                // an auth failure does not reschedule
                 report_auth_failure();
                 return;
             }

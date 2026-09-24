@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// anonymous types in a header differ per includer
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>
@@ -40,13 +39,13 @@ struct VenueState {
     // Bbo and Depth are one book key; every perp's funding is one pack key.
     std::unordered_set<std::string> channels;
     std::unordered_set<std::uint64_t> funding_wanted;
-    // The book is also the quote, so one asked for BBO alone must not publish its ladder.
+    // the book is also the quote, so bbo-only subscribers must not get the ladder
     std::unordered_set<std::uint64_t> depth_wanted;
 
     std::unordered_set<std::uint64_t> quoted;
     std::unordered_set<std::uint64_t> traded;
     std::unordered_set<std::uint64_t> funded;
-    // Live on an all-symbol feed but absent from the (CDN-stale) catalogue.
+    // on an all-symbol feed but missing from the cdn-stale catalogue
     std::unordered_set<std::string> unlisted;
 
     PackColumns pack_columns;

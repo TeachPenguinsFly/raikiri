@@ -9,14 +9,12 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// "B" bids, "A" asks — the venue's spelling everywhere a side appears, on both
-// the account reads and the public trade prints.
+// "B" bids, "A" asks
 [[nodiscard]] bool is_buy(std::string_view side) noexcept {
     return side == "B";
 }
 
-// An optional STRING field: absent reads as empty, which is what `cloid` does
-// on an order placed without one. A present JSON null reads as empty too.
+// absent or null reads as empty
 [[nodiscard]] std::expected<std::string_view, WireError> soft_str(wire::ondemand::object& obj,
                                                                   std::string_view key) {
     const auto value = wire::opt_str(obj, key);
@@ -74,8 +72,7 @@ std::expected<WireOpenOrder, WireError> read_open_order(wire::ondemand::object& 
     if (word == "success") {
         return ExchangeOutcome::Success;
     }
-    // A TP/SL order answers with this bare string rather than an object, so a
-    // reader that assumes every element is an object drops it as malformed.
+    // tp/sl orders answer this bare string
     if (word == "waitingForTrigger") {
         return ExchangeOutcome::WaitingForTrigger;
     }
@@ -100,8 +97,7 @@ std::expected<WireExchangeStatus, WireError> read_status(wire::ondemand::value e
     if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(ec));
     }
-    // The outcome IS the key, and there is exactly one. Walking the fields is
-    // the only way to read it: On-Demand cannot try one name and then another.
+    // the single key is the outcome; on-demand cannot probe names, so walk the fields
     for (auto field : obj) {
         std::string_view key;
         if (const auto ec = field.unescaped_key().get(key); ec != simdjson::SUCCESS) {
@@ -253,8 +249,7 @@ std::expected<WireOrderStatus, WireError> parse_order_status(std::string_view bo
         if (!order.has_value()) {
             return std::unexpected(order.error());
         }
-        // Read AFTER the nested object: On-Demand cannot revisit a field it
-        // has already walked past, and `status` here shadows the outer one.
+        // read after the nested object; on-demand cannot revisit fields
         const auto status = wire::req_str(*wrapper, "status");
         const auto ts = opt_number_ms(*wrapper, "statusTimestamp");
         if (!status.has_value() || !ts.has_value()) {
@@ -291,7 +286,7 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
             return std::unexpected(wire::map_error(ec));
         }
         if (kind == wire::ondemand::json_type::string) {
-            // The same key, another type: a top-level refusal answers prose.
+            // a top-level refusal makes `response` a string
             const auto text = wire::str_of(response);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
@@ -312,7 +307,7 @@ std::expected<WireExchangeReply, WireError> parse_exchange_reply(std::string_vie
 
         auto data = wire::req_object(envelope, "data");
         if (!data.has_value()) {
-            // Several actions answer {"type":"default"} with nothing beside it.
+            // several actions answer {"type":"default"} alone
             return data.error() == WireError::MissingField
                        ? std::expected<WireExchangeReply, WireError>{out}
                        : std::unexpected(data.error());

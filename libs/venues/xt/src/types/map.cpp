@@ -15,12 +15,7 @@ namespace {
 // SymbolText's capacity; the fold buffer must not outgrow what the table holds.
 constexpr std::size_t k_max_symbol_text = 24;
 
-// AssetCode's capacity; the fold buffer must not outgrow what the row holds.
-
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means XT changed an instrument's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// drops values that do not divide the step instead of rounding to a neighbouring tick
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -66,9 +61,7 @@ const InstrumentBase* base_for(std::string_view symbol, const exec::InstrumentTa
     return instrument == nullptr ? nullptr : &base_of(*instrument);
 }
 
-// The private tree echoes `BTC_USDT` where the catalogue said `btc_usdt`, so a
-// straight lookup misses every private record. Folding here rather than at load
-// keeps the table keyed by the spelling that goes back out on an order.
+// private rows echo BTC_USDT and the catalogue btc_usdt; fold here so the table keeps the outgoing spelling
 const InstrumentBase*
 base_for_private(std::string_view symbol, const exec::InstrumentTable& table, MarketType market) {
     if (symbol.empty() || symbol.size() > k_max_symbol_text) {
@@ -82,25 +75,18 @@ base_for_private(std::string_view symbol, const exec::InstrumentTable& table, Ma
     if (base == nullptr) {
         base = base_for(symbol, table);
     }
-    // XT names a spot pair and a perpetual identically, so one table holds at
-    // most one of them. Booking a spot fill against a perpetual's contract size
-    // is a position error nothing downstream can detect.
+    // spot and perp share a symbol, so check the market
     return (base != nullptr && base->id.market() == market) ? base : nullptr;
 }
 
-// Fees are neither a price nor a size, so they truncate at 1e-9 where those
-// refuse: dropping a whole fill over a rounding in the eleventh decimal place
-// would lose the fill, and the fee is the only field that can afford it.
+// fees truncate at 1e-9 where prices and sizes refuse
 FixedE9 fee_e9(std::string_view text) noexcept {
     const auto value = parse_rate_e9(text);
     return value.has_value() ? *value : FixedE9::from_raw(0);
 }
 
 void copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
-    // XT's own web orders carry ids like `myOrder123`, which is not one of our
-    // encodings. Leaving the field UNSET is right: an order we did not place is
-    // still one the reconciler has to see, and a foreign id must never be
-    // decoded into a lookalike of one we minted.
+    // foreign ids such as web orders' myOrder123 stay unset
     if (const auto id = decode_client_id(text); id.has_value()) {
         out = *id;
     }
@@ -130,9 +116,7 @@ bool copy_exec_id(std::string_view text, ExecId& out) {
     return true;
 }
 
-// Ordered minus executed, floored at zero. A venue reporting more executed than
-// ordered is a schema event; reading the difference as unsigned would turn it
-// into an enormous resting size.
+// floored at zero so an overfill does not become a huge resting size
 QtyLots leaves_from(std::string_view ordered, std::string_view done, const InstrumentBase& base) {
     const auto total = to_lots(ordered, base);
     if (!total.has_value()) {
@@ -143,8 +127,7 @@ QtyLots leaves_from(std::string_view ordered, std::string_view done, const Instr
     return QtyLots::from_raw(left > 0 ? left : 0);
 }
 
-// New is the only working state XT reports as an event of its own; a fill is
-// the trade record's to announce, and restating it here doubles the volume.
+// New is the only working state reported here; fills come from the trade record
 std::optional<OrderEventType> lifecycle_of(WireOrderStatus status) noexcept {
     switch (status) {
     case WireOrderStatus::New:
@@ -183,7 +166,7 @@ std::optional<OrderStatus> status_of(WireOrderStatus status, bool partially_fill
     return std::nullopt;
 }
 
-// The record's own word wins; the memo answers only when the record is silent.
+// the record's own side wins; the memo answers only when it is silent
 std::optional<Side> side_of(std::string_view stated, const OrderContext& context) noexcept {
     if (stated == "SELL") {
         return Side::Sell;
@@ -195,28 +178,19 @@ std::optional<Side> side_of(std::string_view stated, const OrderContext& context
 }
 
 Liquidity liquidity_of(bool known, bool maker) noexcept {
-    // A fill whose side of the book XT did not state stays Unknown: guessing
-    // Taker is how a maker strategy scores itself against a number it invented.
+    // unstated liquidity stays Unknown
     if (!known) {
         return Liquidity::Unknown;
     }
     return maker ? Liquidity::Maker : Liquidity::Taker;
 }
 
-// Top of one side of a snapshot. XT sorts bids descending and asks ascending
-// (verified across 528 frames), so element zero is the touch.
+// bids descending, asks ascending, so element zero is the touch
 const WireLevel* top(std::span<const WireLevel> side) noexcept {
     return side.empty() ? nullptr : &side.front();
 }
 
-// XT names the pair nowhere but the symbol, lowercase `btc_usdt` on both
-// catalogues; split_symbol folds the case. A row whose pair cannot be read is
-// DROPPED rather than carried with the exchange symbol standing in — an
-// instrument nothing can group is one a cross-venue view would show as a market
-// of its own.
-//
-// A dated contract is spelled `btc_usdt_261225` and would be refused for its
-// second separator, but productType turns it away before this is reached.
+// a row whose pair cannot be read is dropped; dated contracts are filtered by productType first
 std::optional<SymbolText> canonical_of(std::string_view symbol) {
     const auto pair = split_symbol(symbol, '_');
     if (!pair.has_value()) {
@@ -227,10 +201,7 @@ std::optional<SymbolText> canonical_of(std::string_view symbol) {
 
 } // namespace
 
-// Defined below beside the balance readers, and declared here because a
-// turnover wants the same forgiving parse a wallet figure does: the exact
-// readers refuse a number with too many fractional digits, which would show
-// a market that traded as one that did not.
+// declared here for turnover, which needs the forgiving wallet parse
 std::optional<FixedE9> to_amount(std::string_view text);
 
 UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
@@ -300,9 +271,7 @@ map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts
             }
             const auto price = to_ticks(level.price, *base);
             const auto qty = to_lots(level.qty, *base);
-            // A level that does not divide by the instrument's step truncates
-            // the book here rather than being rounded into a price XT never
-            // quoted.
+            // a level off the step truncates the book
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -341,9 +310,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-// One record out of everything both sources have said. Fields nobody has
-// stated yet stay UNDEF: the reader checks for that, and a zero would be a
-// number this process invented.
+// fields neither source stated stay UNDEF
 [[nodiscard]] FundingUpdate
 merged(const InstrumentBase& base, const FundingMemo& memo, UnixNanos ts_event, UnixNanos ts_init) {
     FundingUpdate out{};
@@ -375,7 +342,7 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
     if (wire.interval_h > 0 && wire.interval_h <= 24) {
         memo.interval_s = static_cast<std::uint32_t>(wire.interval_h * 3600);
     }
-    // XT states no publish time on this endpoint.
+    // no publish time on this endpoint
     return merged(*base, memo, ts_init, ts_init);
 }
 
@@ -397,8 +364,7 @@ std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. A frame that restated neither column says nothing
-    // about the window, and a zero written here erases what the board had.
+    // absent is not zero; a frame with neither column leaves the board alone
     if (wire.volume_24h_base.empty() && wire.volume_24h_quote.empty() &&
         wire.contracts_24h.empty()) {
         return std::nullopt;
@@ -463,7 +429,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!tick.has_value() || !lot.has_value() || !contract_size.has_value()) {
         return std::nullopt;
     }
-    // twlo_usdt states minStepPrice 0.1 beside pricePrecision 2 and rests at 269.21.
+    // minStepPrice can be coarser than pricePrecision (twlo_usdt: 0.1 vs 2)
     if (const auto finer = step_from_precision(wire.price_precision);
         finer.has_value() && finer->raw < tick->raw && tick->raw % finer->raw == 0) {
         tick = finer;
@@ -494,8 +460,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
 }
 
 std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire) {
-    // The two switches are the real gate: a pair listed and priced for the web
-    // is not necessarily open to the API, and an order on one is refused.
+    // the two switches gate api trading
     if (wire.state != "ONLINE" || !wire.trading_enabled || !wire.openapi_enabled) {
         return std::nullopt;
     }
@@ -550,8 +515,7 @@ std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
     if (wire.time_in_force == "GTX") {
         out.flags = OrderFlags::PostOnly;
     }
-    // The socket push carries no clientOrderId at all, so the caller's memo is
-    // the only thing that can attribute it.
+    // the socket push has no clientOrderId; the memo attributes it
     out.exchange_client_order_id = fallback_client_id;
     copy_client_id(wire.client_order_id, out.exchange_client_order_id);
     if (!copy_id(wire.order_id, out.exchange_order_id)) {
@@ -563,8 +527,7 @@ std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
     if (const auto qty = to_lots(wire.orig_qty, *base); qty.has_value()) {
         out.qty = *qty;
     }
-    // Nothing rests after a terminal event, PARTIALLY_CANCELED included: the
-    // volume it took was reported by its own trade and the rest is gone.
+    // nothing rests after a terminal event
     out.leaves_qty = *type == OrderEventType::Accepted ? out.qty : QtyLots::from_raw(0);
     out.ts_event = ms_to_unix(wire.updated_ms != 0 ? wire.updated_ms : wire.created_ms, ts_init);
     out.ts_init = ts_init;
@@ -584,9 +547,7 @@ std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
     }
-    // /order/trade-list states no side at all; the socket push does. When
-    // neither the record nor the memo says, the fill is dropped — booking it
-    // to a guessed direction moves the position by twice the fill.
+    // trade-list has no side; without one from the memo the fill is dropped
     const auto side = side_of(wire.order_side, context);
     if (!side.has_value()) {
         return std::nullopt;
@@ -646,9 +607,7 @@ std::optional<exec::OrderStatusReport> map_futures_open_order(const WireFuturesO
     return out;
 }
 
-// A wallet figure, not a price: XT pads a balance well past nine fractional
-// digits and the exact reader refuses the whole number, which shows as an
-// account holding nothing at all.
+// wallet figures exceed nine decimals; truncate instead of refusing
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
@@ -666,8 +625,7 @@ std::optional<exec::PositionReport> map_futures_position(const WireFuturesPositi
 
     exec::PositionReport out{};
     out.instrument = base->id;
-    // positionSize is UNSIGNED and positionSide is the only field that says
-    // which way the position points; dropping the sign reads a short as a long.
+    // positionSize is unsigned; positionSide gives the sign
     out.net_qty = QtyLots::from_raw(wire.position_side == "SHORT" ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.entry_price, *base); entry.has_value()) {
         out.avg_entry = *entry;
@@ -683,16 +641,14 @@ map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_
     } else if (wire.type == "FEE") {
         kind = LedgerKind::Fee;
     } else {
-        // CLOSE_POSITION is realised PnL, which the fill that closed the
-        // position already booked; anything else is not trading money.
+        // CLOSE_POSITION is pnl the closing fill already booked
         return std::nullopt;
     }
     const auto* base = base_for(wire.symbol, table);
     if (base == nullptr) {
         return std::nullopt;
     }
-    // VERBATIM. XT signs the amount itself and `side` restates that sign, so
-    // applying `side` here would flip every SUB row — see account.hpp.
+    // verbatim: xt signs the amount and side only restates it
     const auto amount = to_amount(wire.amount);
     if (!amount.has_value() || amount->raw == 0) {
         return std::nullopt; // an unreadable or absent figure is not a zero charge
@@ -703,8 +659,7 @@ map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_
     charge.amount = *amount;
     charge.kind = kind;
     charge.settled_at = ms_to_unix(wire.created_ms, UnixNanos{0});
-    // XT mints an id per row, which is what tells two settlements on one
-    // instrument apart when the stamps collide.
+    // xt's per-row id separates settlements with equal timestamps
     if (const auto id = ExecId::from(wire.id); id.has_value()) {
         charge.reference = *id;
     }
@@ -720,18 +675,14 @@ std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire)
 
     BalanceReport out{};
     out.asset = *asset;
-    // Each figure left UNDEF where XT omitted it or sent something this cannot
-    // read. Undef is what a reader checks; a zero here would be a claim that the
-    // account holds nothing.
+    // left UNDEF where xt omitted or garbled a figure
     if (const auto total = to_amount(wire.wallet_balance); total.has_value()) {
         out.total = *total;
     }
     if (const auto available = to_amount(wire.available_balance); available.has_value()) {
         out.available = *available;
     }
-    // `unrealized` and `ts_venue` stay unset: /balance/list carries neither a
-    // PnL field nor a clock, and walletBalance minus a deposit history is our
-    // arithmetic, not XT's.
+    // /balance/list has no pnl or timestamp
     return out;
 }
 
@@ -764,7 +715,7 @@ std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
     }
     const auto qty = to_lots(wire.orig_qty, *base);
     if (!qty.has_value()) {
-        return std::nullopt; // an UNDEF quantity must never reach the sink
+        return std::nullopt; // an undef quantity must not reach the sink
     }
     out.qty = *qty;
     out.leaves_qty = *type == OrderEventType::Accepted ? out.qty : QtyLots::from_raw(0);
@@ -783,9 +734,7 @@ std::optional<exec::OrderStatusReport> map_spot_open_order(const WireSpotOrder& 
     if (!qty.has_value()) {
         return std::nullopt;
     }
-    // XT states the remainder outright, so nothing is derived where it does.
-    // The field is documented as 0 on a cancelled or rejected order, which is
-    // why the subtraction is only the fallback.
+    // xt states leaves outright; it is 0 on cancelled or rejected orders, so subtraction is the fallback
     const auto stated = to_lots(wire.leaving_qty, *base);
     const auto leaves =
         stated.has_value() ? *stated : leaves_from(wire.orig_qty, wire.executed_qty, *base);
@@ -824,8 +773,7 @@ std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
     }
-    // The socket push states no side — `b` is about the print's buyer, not
-    // about us — so /v4/trade's `orderSide` or the memo is the only source.
+    // the socket push has no side (b is the print's buyer); use orderSide or the memo
     const auto side = side_of(wire.side, context);
     if (!side.has_value()) {
         return std::nullopt;

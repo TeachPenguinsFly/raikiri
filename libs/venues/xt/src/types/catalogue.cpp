@@ -120,8 +120,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
             out.qty_precision = *qty_precision;
             out.trading_enabled = *trading;
             out.openapi_enabled = *openapi;
-            // `filters` is a heterogeneous list keyed by a `filter` tag, so the
-            // minimum notional is found by walking it rather than by name.
+            // filters is a tagged list, so the minimum notional is found by walking it
             if (auto filters = wire::req_array(obj, "filters"); filters.has_value()) {
                 for (auto filter : *filters) {
                     wire::ondemand::object row;

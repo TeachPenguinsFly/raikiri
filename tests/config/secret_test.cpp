@@ -28,14 +28,11 @@ TEST(SecretRef, ParsesEveryScheme) {
     EXPECT_EQ(file->scheme, SecretRef::Scheme::File);
     EXPECT_EQ(file->payload, "/run/credentials/bybit.key");
 
-    // The 1Password / vault path: everything after "exec:" is the command,
-    // colons and all.
     const auto exec = SecretRef::parse("exec:op read op://trading/bybit/api-key");
     ASSERT_TRUE(exec.has_value());
     EXPECT_EQ(exec->scheme, SecretRef::Scheme::Exec);
     EXPECT_EQ(exec->payload, "op read op://trading/bybit/api-key");
 
-    // Bare name is a convenience alias for env.
     const auto bare = SecretRef::parse("BYBIT_API_KEY");
     ASSERT_TRUE(bare.has_value());
     EXPECT_EQ(bare->scheme, SecretRef::Scheme::Env);
@@ -59,8 +56,6 @@ TEST(Secret, AssignViewAndClear) {
 }
 
 TEST(Secret, TrimsExactlyOneTrailingNewline) {
-    // Every secret manager and editor appends one; an HMAC over "key\n"
-    // fails in a way that looks like a permissions bug for hours.
     Secret s;
     ASSERT_TRUE(s.assign("key\n").has_value());
     EXPECT_EQ(s.view(), "key");
@@ -119,7 +114,7 @@ TEST(DefaultProvider, FileScheme) {
 }
 
 TEST(DefaultProvider, ExecSchemeIsHowSecretManagersPlugIn) {
-    // Stands in for `op read op://vault/item/field`.
+    // stands in for `op read op://vault/item/field`
     DefaultSecretProvider provider;
     Secret s;
     ASSERT_TRUE(provider.resolve(*SecretRef::parse("exec:printf exec-secret"), s).has_value());
@@ -131,9 +126,6 @@ TEST(DefaultProvider, ExecSchemeIsHowSecretManagersPlugIn) {
 }
 
 TEST(SecretRef, LiteralCarriesTheValueItself) {
-    // The escape hatch for someone evaluating the framework without a secret
-    // manager. It has to be asked for by name — a bare string stays an env
-    // var reference, so nobody lands here by pasting a key.
     const auto ref = SecretRef::parse("literal:sk_test_abc123");
     ASSERT_TRUE(ref.has_value());
     EXPECT_EQ(ref->scheme, SecretRef::Scheme::Literal);
@@ -147,8 +139,6 @@ TEST(SecretRef, LiteralCarriesTheValueItself) {
 }
 
 TEST(SecretRef, LiteralKeepsColonsInTheValue) {
-    // Only the first colon separates the scheme; keys containing ':' are
-    // ordinary and must survive intact.
     const auto ref = SecretRef::parse("literal:a:b:c");
     ASSERT_TRUE(ref.has_value());
     EXPECT_EQ(ref->payload, "a:b:c");
@@ -162,15 +152,11 @@ TEST(SecretRef, EveryOtherSchemeIsNotPlaintext) {
     }
 }
 
-// --- 1Password -------------------------------------------------------------
-
 TEST(OnePassword, ReferencesAreValidatedBeforeAnyProcessIsSpawned) {
     EXPECT_TRUE(is_valid_op_reference("trading/binance/api-key"));
     EXPECT_TRUE(is_valid_op_reference("op://trading/binance/api-key"));
-    // A section between item and field is legal.
     EXPECT_TRUE(is_valid_op_reference("trading/binance/creds/api-key"));
 
-    // Wrong shape: op needs vault/item/field.
     EXPECT_FALSE(is_valid_op_reference("trading/binance"));
     EXPECT_FALSE(is_valid_op_reference("a/b/c/d/e"));
     EXPECT_FALSE(is_valid_op_reference(""));
@@ -179,9 +165,6 @@ TEST(OnePassword, ReferencesAreValidatedBeforeAnyProcessIsSpawned) {
 }
 
 TEST(OnePassword, ShellMetacharactersAreRefused) {
-    // The reference reaches a shell. A config that names a vault is one thing;
-    // a config that runs a command is another, and the difference is this
-    // check — not the reader's good intentions.
     for (const auto* evil : {"trading/binance/key; rm -rf /",
                              "trading/$(whoami)/key",
                              "trading/`id`/key",
@@ -197,17 +180,11 @@ TEST(SecretRef, OnePasswordSchemeParses) {
     EXPECT_EQ(ref->scheme, SecretRef::Scheme::OnePassword);
     EXPECT_EQ(ref->payload, "trading/binance/api-key");
     EXPECT_EQ(to_string(ref->scheme), "1password");
-    // It names a location, so it is not plaintext.
     EXPECT_FALSE(is_plaintext(ref->scheme));
 }
 
 TEST(SecretRef, TheFormTheOnePasswordUiCopiesParsesToTheSameThing) {
-    // "Copy Secret Reference" in the 1Password UI yields the "op://" form, so
-    // it is the one a person actually pastes into a config. It has to reach
-    // the resolver as the same payload as the documented "op:" form —
-    // is_valid_op_reference refuses anything containing "//", so a payload
-    // that kept the slashes would be rejected as malformed and the gateway
-    // would run read-only over two characters.
+    // the op:// form the 1password ui copies must parse to the same payload as op:
     const auto slashes = SecretRef::parse("op://trading/binance/api-key");
     ASSERT_TRUE(slashes.has_value());
     EXPECT_EQ(slashes->scheme, SecretRef::Scheme::OnePassword);
@@ -223,14 +200,7 @@ TEST(SecretRef, AnOnePasswordReferenceThatIsOnlySlashesIsRefused) {
 }
 
 TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
-    // The probe reads no secret, so it is safe to run anywhere — including a
-    // box with no 1Password at all, which is the case this asserts.
-    //
-    // THAT IT RETURNS AT ALL IS THE FIRST ASSERTION. `op whoami` blocks
-    // forever when the desktop app is waiting on a prompt nobody will answer,
-    // and this test used to hang the entire suite on exactly that; every op
-    // call now runs under a deadline, so an unanswerable prompt becomes a
-    // diagnostic instead of a process that never comes back.
+    // op whoami can block on a desktop prompt, so the probe runs under a deadline
     const auto status = probe_one_password();
     if (!status.installed) {
         EXPECT_FALSE(status.diagnostic.empty()) << "an unusable state must say why";
@@ -238,8 +208,6 @@ TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
         return;
     }
     EXPECT_FALSE(status.version.empty());
-    // Authenticated or not, the mode is always nameable: that is what makes a
-    // server which silently fell back to a stale developer session visible.
     EXPECT_FALSE(to_string(status.auth).empty());
     if (!status.usable()) {
         EXPECT_FALSE(status.diagnostic.empty());
@@ -247,8 +215,6 @@ TEST(OnePassword, ProbeReportsWhyRatherThanJustFailing) {
 }
 
 TEST(OnePassword, AnUnauthenticatedManagerIsNotAFailedRead) {
-    // Distinct causes need distinct answers: absent credentials are not fixed
-    // by retrying or by correcting the path.
     OpStatus status{};
     status.installed = true;
     status.auth = OpAuth::None;

@@ -1,20 +1,11 @@
 #pragma once
 
-// One execution, as the VENUE'S TRADE HISTORY states it.
-//
-// Domain vocabulary rather than exec's, for the same reason PositionReport is:
-// the adapters parse it, an shm channel transports it, and the strategy process
-// applies it, and transport must not depend on the adapter layer.
-//
-// WHAT IT DOES NOT CARRY IS THE POINT. An order event off a private socket
-// states the ORDER's remaining quantity, and the drop in that is the fill. This
-// states the EXECUTION and says nothing about the order it belonged to — so a
-// reader must take `qty` as the size and may not infer leaves from it. See
-// oms::filled_delta, which is where the two shapes meet.
+// one execution from the venue's trade history; `qty` is the fill size and says nothing of leaves
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/order.hpp>
+#include <raikiri/domain/order_events.hpp>
 
 namespace raikiri {
 

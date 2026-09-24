@@ -16,8 +16,7 @@ struct WireCurrency {
     std::uint32_t value_scale{0};
 };
 
-// A row of `products`: spot pairs and the coin-margined perps, whose numbers
-// are integers scaled by 10^priceScale / 10^valueScale.
+// spot pairs and coin-margined perps, scaled by 10^priceScale / 10^valueScale
 struct WireProduct {
     std::string_view symbol;
     std::string_view type; // "Spot" or "Perpetual"
@@ -28,11 +27,11 @@ struct WireProduct {
     std::uint32_t price_scale{0};
     std::uint32_t ratio_scale{0};
     std::uint32_t funding_interval_s{0};
-    // Perpetual: raw JSON numbers (0.1, 1.0), kept as text so no double is made.
+    // perpetual: raw json numbers kept as text
     std::string_view tick_size;
     std::string_view contract_size;
     std::int64_t lot_size{0};
-    // Spot: already in scaled units.
+    // spot: already scaled
     std::int64_t quote_tick_ev{0};
     std::int64_t base_tick_ev{0};
     std::int64_t min_order_value_ev{0};
@@ -41,8 +40,7 @@ struct WireProduct {
     bool has_fees{false};
 };
 
-// A row of `perpProductsV2`: the USDT- and USDC-margined perps, whose numbers
-// are decimal strings.
+// usdt- and usdc-margined perps, as decimal strings
 struct WirePerp {
     std::string_view symbol;
     std::string_view status;

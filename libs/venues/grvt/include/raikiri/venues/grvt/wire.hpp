@@ -20,11 +20,11 @@ struct WireInstrument {
     std::string_view kind;
     std::string_view status;
     std::string_view tick_size;
-    // The size step as well as its floor.
+    // the size step as well as its floor
     std::string_view min_size;
     std::string_view min_notional;
     std::uint32_t funding_interval_hours{0};
-    // Percent per interval.
+    // percent per interval
     std::string_view funding_cap;
     std::string_view funding_floor;
 };
@@ -45,7 +45,7 @@ struct WireRestError {
 
 [[nodiscard]] std::optional<WireRestError> parse_rest_error(std::string_view body);
 
-// Plain decimals, not the SDK's 9-decimal integers.
+// plain decimals, not the sdk's 9-decimal integers
 struct WireLevel {
     std::string_view price;
     std::string_view size; // "0.0" deletes the level
@@ -58,7 +58,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// Absent means unchanged; "" means the venue nulled it.
+// absent means unchanged; "" means the venue nulled it
 struct WireQuote {
     std::optional<std::string_view> bid_price;
     std::optional<std::string_view> bid_size;
@@ -77,7 +77,7 @@ struct WirePrint {
     bool taker_bought{false};
 };
 
-// Funding figures are percent: "0.01" is one basis point.
+// funding figures are percent: "0.01" is one basis point
 struct WireTicker {
     std::string_view mark_price;
     std::string_view funding_rate;
@@ -91,7 +91,7 @@ struct WireTicker {
 
 enum class FeedKind : std::uint8_t { Quote, Trade, Book, Ticker, Unknown };
 
-// Only the payload `kind` names is filled.
+// only the payload kind names is filled
 struct WireFeed {
     FeedKind kind{FeedKind::Unknown};
     std::string_view stream;

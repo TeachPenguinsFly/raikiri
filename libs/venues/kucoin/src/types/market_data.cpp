@@ -39,9 +39,7 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
                              out.qty = *qty;
                              out.aggressor_bought = *side == "buy";
                              if (spot) {
-                                 // `time` is nanoseconds as a digit STRING here, where the
-                                 // futures print puts nanoseconds in a numeric `ts`. There
-                                 // is no sequence field on the spot print at all.
+                                 // spot time is nanoseconds as a digit string; spot prints have no sequence
                                  const auto ns = opt_u64(obj, "time");
                                  if (!ns.has_value()) {
                                      return std::unexpected(WireError::WrongType);

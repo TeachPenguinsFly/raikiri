@@ -1,28 +1,4 @@
-// admind — the read side of a running raikiri deployment.
-//
-//   admind [--address 127.0.0.1] [--port 8787] [--stream-port 8788]
-//          [--upstream <name>=<port>]...
-//          [--dsn <postgres-dsn>]
-//
-// Attaches to every gateway segment it finds and serves
-// schema/admin-api.yaml: HTTP on --port, the live WebSocket on --stream-port.
-// Two ports rather than one because an upgrade served from the HTTP acceptor
-// needs a hand-off Server does not have; when it does, the second port goes
-// away without the protocol changing.
-//
-// It is a READER: every write — halting an instrument, cancelling an order,
-// moving a risk limit — needs a path into a running strategyd, and the command
-// rings are SPSC with strategyd as their single producer. A second producer is
-// a decision to be made deliberately, not a POST added quietly.
-//
-// The DSN falls back to $RAIKIRI_PG_DSN, and is OPTIONAL: without it the live
-// half still serves and every path that reads Postgres answers 503. Starting
-// without a database is a normal way to run this — refusing to start would
-// take the gateway view down with the history.
-//
-// It binds LOOPBACK by default and there is no authentication. That is not an
-// oversight to be fixed by a flag: shipping an identity story that "works for
-// now" is how a terminal ends up with a static token in a repository.
+// admind: read-only http and websocket view of a running deployment; binds loopback, no auth
 
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
@@ -76,8 +52,7 @@ int main(int argc, char** argv) {
 
     std::string address = "127.0.0.1";
     std::uint16_t port = 8787;
-    // name -> loopback port. Empty means this admind proxies nothing, and every
-    // /v1/x/ path is a 404.
+    // name -> loopback port, proxied under /v1/x/<name>/
     std::map<std::string, std::uint16_t> upstreams;
     std::uint16_t stream_port = 0;
     std::string dsn;
@@ -86,8 +61,6 @@ int main(int argc, char** argv) {
         if (arg == "--address" && i + 1 < argc) {
             address = argv[++i];
         } else if (arg == "--upstream" && i + 1 < argc) {
-            // name=port. A service this repository knows nothing about, whose
-            // answers are forwarded under /v1/x/<name>/.
             const std::string_view spec{argv[++i]};
             if (const auto eq = spec.find('='); eq != std::string_view::npos) {
                 upstreams.emplace(std::string{spec.substr(0, eq)},
@@ -118,9 +91,6 @@ int main(int argc, char** argv) {
     const auto shm_dir = platform::runtime_dir() + "/shm";
     auto attached = registry.discover(shm_dir, ::getpid());
     if (attached == 0) {
-        // Not fatal, and not final: the loop below rescans, so a gateway that
-        // is still starting — or started tomorrow — is picked up rather than
-        // missed for the life of the process.
         RLOG_INFO("admind: no gateway segments under {} yet", shm_dir);
     }
     for (const auto& account : registry.accounts(clock.mono(), clock.wall())) {
@@ -150,9 +120,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // One desk for the process. It mints client order ids and remembers
-    // idempotency keys, so it has to outlive a request and be the only thing
-    // doing either — two would mint colliding ids.
+    // one desk per process; two would mint colliding client order ids
     admin::ManualDesk desk{registry};
 
     const introspect::FileStatsSource stats_source{
@@ -192,17 +160,11 @@ int main(int argc, char** argv) {
 
     admin::Stream stream{io, registry, clock, address, stream_port};
     if (!stream.start()) {
-        // Fatal, unlike a missing database: a terminal that silently has no
-        // live half looks like a terminal whose markets have stopped moving.
         RLOG_ERROR("admind: cannot bind stream on {}:{}", address, stream_port);
         return 1;
     }
     RLOG_INFO("admind: stream on ws://{}:{}/v1/stream", address, stream.port());
 
-    // Gateways come and go, and one starting a second after this process is a
-    // gateway a single scan would never see again. Two seconds is far below
-    // the pace anyone starts one at and far above the cost of a directory
-    // listing.
     constexpr std::uint64_t k_rescan_ns = 2ULL * 1'000'000'000ULL;
     constexpr std::uint64_t k_idle_ns = 250ULL * 1'000'000ULL;
     auto rescan_due = clock.mono().ns;
@@ -220,8 +182,6 @@ int main(int argc, char** argv) {
             }
         }
         (void)stream.poll();
-        // Both sockets share `io`, so this wakes for a request or a stream
-        // client at once and otherwise sleeps until a feed is due.
         const auto mono = clock.mono().ns;
         const auto until = std::min({stream.next_due().ns, rescan_due, mono + k_idle_ns});
         if (until > mono) {

@@ -16,18 +16,18 @@ namespace raikiri::venues::backpack {
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The touch of a REST snapshot, for an instrument whose bookTicker has not spoken yet.
+// for an instrument whose bookTicker has not sent a frame yet
 [[nodiscard]] std::optional<Bbo>
 map_touch(const WireDepthSnapshot& wire, const InstrumentBase& base, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// Nullopt for a frame that states no rate — every spot pair's markPrice.
+// nullopt when the frame states no rate, as on every spot pair
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The row carries no timestamp of its own, so `received` is the event time.
+// the row has no timestamp, so received is the event time
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos received);
 

@@ -13,8 +13,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level is a two-element array of strings, ["79375.3","2.5048"], on the socket
-// and in the REST body alike.
+// a level is ["price","qty"] strings on the socket and in rest
 std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
                                                   std::span<WireLevel> into) {
     wire::ondemand::array array;
@@ -58,8 +57,6 @@ std::expected<std::size_t, WireError> read_levels(wire::ondemand::value side,
     return count;
 }
 
-// The venue's own reader: WEEX writes plain decimals on every price and size.
-// The exact-or-refuse rule itself is book::exact_steps.
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -178,9 +175,7 @@ std::optional<DepthBook::Level> DepthBook::convert(const WireLevel& wire) const 
 
 void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
-        // Quantity "0" is WEEX's delete, and it is how the venue keeps the
-        // window at its subscribed width: a level pushed out of the window
-        // arrives once more at zero and never again.
+        // quantity "0" deletes; it is also how levels leave the subscribed window
         side.remove(level.price);
         return;
     }
@@ -203,16 +198,14 @@ BookResult DepthBook::apply(const WireDepth& frame) {
 }
 
 BookResult DepthBook::seed(const WireDepth& frame) {
-    // A snapshot REPLACES. It arrives when the channel opens and after any
-    // resubscribe, and either way what came before it belongs to a chain this
-    // frame does not continue.
+    // a snapshot replaces the whole book
     ladders_.clear();
     apply_wire(frame.bids, ladders_.bids());
     apply_wire(frame.asks, ladders_.asks());
     last_id_ = frame.last_id;
     live_ = true;
     if (ladders_.bids().empty() || ladders_.asks().empty()) {
-        // One-sided is not a book, and it cannot be published or chained from.
+        // a one-sided book cannot be published or chained from
         invalidate();
         return BookResult::Unseeded;
     }
@@ -226,10 +219,7 @@ BookResult DepthBook::advance(const WireDepth& frame) {
     if (frame.last_id <= last_id_) {
         return BookResult::Stale; // duplicate or reordered; already applied
     }
-    // THE BOUNDARY IS SHARED, not successive: `U` equals the PREVIOUS frame's
-    // `u`, on 478 of 478 consecutive deltas measured live. Testing for
-    // `last_id_ + 1` here would count every valid frame as a gap and leave the
-    // book permanently dark.
+    // the chain shares its boundary: U equals the previous frame's u
     if (frame.first_id != last_id_) {
         ++gaps_;
         invalidate();

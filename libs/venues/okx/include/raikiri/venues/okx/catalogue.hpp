@@ -1,8 +1,5 @@
 #pragma once
 
-// What the venue lists, and the numbers that decide whether an order it
-// accepts is an order it will fill.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/wire/error.hpp>
@@ -31,11 +28,7 @@ struct WireInstrument {
     std::string_view inst_category; // 1 crypto, 3 stocks, 4 commodities, 5 forex
 };
 
-// Sized for the SPOT catalogue, which is roughly triple the swap one: 1383
-// rows live today against 457 swaps. Sized for the swaps alone, a spot
-// gateway refused its whole catalogue with TooManyEntries and started with
-// nothing. The buffer is static thread_local, so this is one allocation for
-// the process and not a stack frame.
+// the spot catalogue is about three times the swap one
 inline constexpr std::size_t k_max_instruments = 4096;
 
 struct InstrumentBuffer {

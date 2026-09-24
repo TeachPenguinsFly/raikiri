@@ -58,17 +58,12 @@ TEST(Instrument, ValidateCatchesBadLoads) {
     no_id.id = {};
     EXPECT_FALSE(validate(no_id));
 
-    // A zero-initialised kind is the shape of an adapter that forgot to set it,
-    // and it must not load as a plausible-looking linear contract.
     auto no_kind = btc_perp_base();
     no_kind.kind = ContractKind::Unknown;
     EXPECT_FALSE(validate(no_kind));
 }
 
 TEST(Instrument, VariantForcesOptionHandling) {
-    // Compile-time property: the Option alternative exists in the variant, so
-    // every std::visit over Instrument must already handle it. This is the
-    // options extension seam.
     const Instrument instrument = PerpInstrument{btc_perp_base(), 28'800};
     EXPECT_EQ(market_of(instrument), MarketType::Perp);
     EXPECT_EQ(base_of(instrument).local_symbol.view(), "BTC/USDT");

@@ -23,8 +23,7 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
                 WireTrade out{};
                 const auto symbol = wire::req_str(data, "s");
                 const auto price = wire::req_str(data, "p");
-                // The two trees name the size differently — "a" on futures,
-                // "q" on spot — and say the aggressor differently too.
+                // size is a on futures and q on spot
                 const auto qty = wire::req_str(data, spot ? "q" : "a");
                 if (!symbol.has_value() || !price.has_value() || !qty.has_value()) {
                     return std::unexpected(WireError::MissingField);
@@ -33,13 +32,7 @@ std::expected<WireTrade, WireError> parse_trade(std::string_view frame, MarketTy
                 out.price = *price;
                 out.qty = *qty;
                 if (spot) {
-                    // `b` says the BUYER WAS THE MAKER, so the aggressor is on
-                    // the opposite side — the inverse of the futures tree's
-                    // `m`, which names the taker directly. VERIFIED against 53
-                    // live prints matched to the concurrent book: 52 agreed, 1
-                    // disagreed on a quote that had already moved. Reading the
-                    // two trees the same way is how a signed flow series comes
-                    // out backwards on one of them.
+                    // spot b means the buyer was maker, so the aggressor is the other side; futures m names the taker
                     const auto buyer_is_maker = wire::opt_bool(data, "b");
                     if (!buyer_is_maker.has_value()) {
                         return std::unexpected(WireError::WrongType);
@@ -111,14 +104,10 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame, Market
                     return std::unexpected(ts.error());
                 }
                 out.ts_ms = *ts;
-                // OPTIONAL, both of them: a frame that states neither column
-                // is still a well-formed ticker, and refusing it would refuse
-                // the whole channel over a market that has not traded.
+                // both optional; a ticker with neither column is still valid
                 out.volume_24h_quote = opt_scalar(data, "v").value_or(std::string_view{});
                 if (spot) {
-                    // `q` ONLY ON SPOT. The futures tree fills that slot with
-                    // `a`, a CONTRACT count, and reading it here would put a
-                    // number measured in contracts in a base-volume column.
+                    // q only on spot; futures puts a contract count in that slot
                     out.volume_24h_base = opt_scalar(data, "q").value_or(std::string_view{});
                 } else {
                     out.contracts_24h = opt_scalar(data, "a").value_or(std::string_view{});

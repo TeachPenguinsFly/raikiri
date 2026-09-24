@@ -1,7 +1,5 @@
 #pragma once
 
-// The public extension point: everything a plugged-in strategy can see and do.
-
 #include <raikiri/domain/identifiers.hpp>
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -55,20 +53,12 @@ public:
     [[nodiscard]] virtual const portfolio::Position*
     position(InstrumentId instrument) const noexcept = 0;
 
-    // Deliberately takes an explicit mark rather than defaulting to the mid:
-    // which price marks a position is a strategy decision, and a stored
-    // unrealized number can only answer "as of when?" wrongly.
+    // takes an explicit mark; choosing it is the strategy's decision
     [[nodiscard]] virtual FixedE9 unrealized(InstrumentId instrument,
                                              PriceTicks mark) const noexcept = 0;
 
-    // Declare what to hold and let the kernel work out the difference from
-    // what is held and what is already working. Idempotent by construction:
-    // calling it every tick with the same target sends one order, not one per
-    // tick, and a fill that goes missing is repaired by the next call rather
-    // than lost with the order that carried it.
-    //
-    // Returns the order it sent, or nullopt when the book already agrees with
-    // the target — which is the ordinary case, not an error.
+    // declares the position to hold; idempotent, so repeated calls send one order
+    // nullopt when the book already agrees
     [[nodiscard]] virtual std::optional<ClientOrderId>
     set_target(const portfolio::PortfolioTarget& target) noexcept = 0;
 

@@ -178,7 +178,7 @@ TEST(BackpackMap, BookTickerBecomesBboOnTheMicrosecondClock) {
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->bid.raw, 11'688);
     EXPECT_EQ(bbo->ask.raw, 11'689);
-    // T is microseconds, not ms.
+    // T is microseconds
     EXPECT_EQ(bbo->ts_event.ns, 1'790'280'896'113'106'000ULL);
 }
 
@@ -204,7 +204,7 @@ TEST(BackpackMap, PerpetualMarkPriceCarriesRateNextSettlementAndInterval) {
     EXPECT_EQ(funding->rate.raw, 12'500); // 0.0000125
     EXPECT_TRUE(funding->predicted_rate.is_undef());
     EXPECT_EQ(funding->mark_price.raw, 11'682);
-    // `n` is milliseconds on the same frame whose E is microseconds.
+    // n is milliseconds while E is microseconds
     EXPECT_EQ(funding->next_funding_time.ns, 1'790'283'600'000'000'000ULL);
     EXPECT_EQ(funding->interval_s, 3600U);
 }
@@ -304,7 +304,7 @@ TEST(BackpackMap, ASnapshotTouchIsTheHighestBidWhereverTheVenuePutsIt) {
     ASSERT_TRUE(snapshot.has_value());
     const auto bbo = map_touch(*snapshot, base, k_ingest);
     ASSERT_TRUE(bbo.has_value());
-    EXPECT_EQ(bbo->bid.raw, 11'672); // 116.72, the LAST bid on the wire
+    EXPECT_EQ(bbo->bid.raw, 11'672); // 116.72, the last bid on the wire
     EXPECT_EQ(bbo->ask.raw, 11'673); // 116.73, the first ask
     EXPECT_EQ(bbo->bid_qty.raw, 3'347);
     EXPECT_EQ(bbo->ts_event.ns, 1'790'281'845'333'409'000ULL);

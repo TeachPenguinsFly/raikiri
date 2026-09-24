@@ -1,10 +1,6 @@
 #pragma once
 
-// A venue adapter is one bundle: capabilities + the three client objects,
-// built by a registered factory. Explicit constructor wiring — the Go
-// predecessor's 2,500-line DI factory file is exactly the ceremony this
-// registry replaces. Adding a venue: implement the three interfaces, add a
-// VenueCaps row, register the factory. Nothing else changes anywhere.
+// a venue adapter: caps plus the three clients, built by a registered factory
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/exec/caps.hpp>
@@ -21,16 +17,9 @@
 
 namespace raikiri::exec {
 
-// Runtime configuration for one gateway process. Credentials arrive as
-// environment-variable NAMES (resolved by the adapter at start()), never as
-// values — config files and journals must stay secret-free.
+// credentials arrive as environment variable names, resolved at start()
 struct VenueConfig {
     VenueId venue{VenueId::Invalid};
-    // ONE MARKET. It used to be two booleans, which could say "both" and
-    // "neither" — neither of which an adapter can serve, since every one of
-    // them collapses to a single MarketType and never looks again. make_venue
-    // grew two error arms to refuse those combinations; one field cannot
-    // express either, so the refusals are gone with them.
     MarketType market{MarketType::Perp};
     bool testnet{false};
     std::string api_key_env;    // e.g. "BYBIT_API_KEY"
@@ -38,25 +27,16 @@ struct VenueConfig {
     std::string passphrase_env; // venues that need it (okx); empty otherwise
     std::string url_override{}; // testing/proxying; empty = venue default
 
-    // The venue's published budget, owned by the process and SHARED by every
-    // adapter pointed at this venue — the order path and the account poller
-    // both spend it, because the venue counts them together against one IP.
-    // Null means unlimited, which is the honest reading of a venue nobody has
-    // measured; the numbers live in config/venues.yaml, never in the binary.
+    // the venue's budget, shared by every adapter on this venue; null is unlimited
     RateBudget* budget{nullptr};
 
-    // How long an order may go unanswered before the adapter reports it as a
-    // gap. Zero disables the sweep, which is the wrong setting for money.
+    // how long an order may go unanswered before it is reported; zero disables
     std::uint64_t order_answer_timeout_ns{0};
 
-    // Which book tier to subscribe, or zero for the adapter's own. An adapter
-    // that does not offer tiers ignores it; one that does refuses a tier the
-    // venue does not publish rather than sending it and losing the whole
-    // subscription to an error frame. config/venues.yaml, never the binary.
+    // book tier to subscribe, zero for the adapter default; unsupported tiers are refused
     std::uint32_t book_depth{0};
 
-    // Which market-data feed to take where a venue publishes more than one.
-    // Empty is the adapter's own choice. config/venues.yaml, never the binary.
+    // which feed to take where the venue publishes several; empty is the adapter default
     std::string market_data_feed;
 };
 
@@ -78,17 +58,10 @@ enum class MakeError : std::uint8_t {
 
 using VenueFactory = VenueAdapter (*)(const VenueConfig&, GatewaySink&, const Clock&);
 
-// Registration is EXPLICIT: gatewayd's main() calls each shipped venue's
-// exported register function (e.g. venues::bybit::register_adapter()).
-// Deliberately no static-initialization self-registration — with static
-// libraries the linker silently drops unreferenced registration objects,
-// and a venue that vanishes at link time without a diagnostic is exactly
-// the class of magic this codebase refuses. Single-threaded at startup.
+// explicit registration from gatewayd's main(); the linker drops static self-registration
 void register_venue(VenueId venue, VenueFactory factory) noexcept;
 
-// Builds the adapter after validating config against the caps row —
-// including the ULID length gate, enforced here so a misdeclared venue
-// fails at startup, loudly, not mid-trade.
+// validates config against the caps row, including the ulid length
 [[nodiscard]] std::expected<VenueAdapter, MakeError>
 make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock);
 

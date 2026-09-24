@@ -31,48 +31,19 @@ namespace raikiri::venues::binance::internal {
 
 namespace {
 
-// State every binance connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
-// Binance settles funding every eight hours and republishes the running rate
-// continuously; a poll a minute is far finer than the fact changes.
+// the running rate is republished continuously; a minute is fine enough
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
-// weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
-// the queue from arriving as one burst; what actually bounds it is the admit
-// gate installed in the constructor.
-//
-// That was a claim and not a fact until the seed pool was widened: two warm
-// connections bounded it at seven a second instead, and the gate never refused
-// anything. See VenueState::depth_rest for the measurement.
+// spacing only smooths the burst; the admit gate bounds the rate
 constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
 
-// How often a gateway whose books are still cold says so. Long enough to be
-// silence on a healthy start, short enough to answer someone who is looking at
-// an empty depth column and about to go hunting for a bug.
+// how often still-cold books are reported
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
-// A 24-hour rolling figure barely moves in a minute, and the whole table
-// costs weight 40 against the funding read's 1. Slow on purpose.
+// the 24h table costs weight 40, so it is polled slowly
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
-// THE VENUE'S OWN REFUSAL, APPLIED TO THE POOL EVERY MARKET-DATA CALL DRAWS
-// FROM.
-//
-// The private half of this adapter has always done this — see rest/api.hpp —
-// and the market-data half never did, so a 429 on a book seed was read as one
-// failed snapshot and the budget went on believing it had weight to sell. That
-// is the path that earned this IP a ban twice on 2026-09-06: binance sends 429
-// before it sends 418, and nothing here was listening to the first.
-//
-// The STATUS is read as well as the body, because a ban arrives as 418 with a
-// body carrying a deadline rather than a code this parser knows, and an unread
-// ban is the whole failure.
-//
-// One second, matching what the private half holds for. It drains the bucket,
-// so what resumes afterwards is the refill rate — forty weight a second, or
-// eight seeds — which is the pace binance will actually sell.
+// applies a 429 or 418 to the shared market-data pool; a ban arrives as 418 with a deadline body
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget == nullptr) {
         return;
@@ -86,10 +57,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
     state.budget->penalize_all(state.clock->mono(), 1'000'000'000ULL);
 }
 
-// Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises; a send that the
-// pool or the rate budget refuses is left alone, because the next delta asks
-// again.
+// fires the rest read that seeds one book; a refused send is left for the next delta
 [[nodiscard]] bool request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
@@ -137,18 +105,13 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
             return;
         }
         const auto ts_event = ms_to_unix(wire->transaction_ms, response.received);
-        // NOT `book`: the enclosing function takes a DepthBook& by that name,
-        // and shadowing it here reads as the ladder rather than the snapshot
-        // taken from it.
         if (const auto seeded = target.snapshot(ts_event, response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
     };
     if (!state.depth_rest.send(
             state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
-        // Refused — a full pool, or a budget with no weight left to sell. The
-        // caller marked the book in flight when it queued the seed, so that has
-        // to be undone or the book waits for a request nobody made.
+        // refused: undo the in-flight mark or the book waits forever
         book.seed_failed();
         return false;
     }
@@ -170,24 +133,18 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     const auto entry =
         state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
-    // Asked before the delta is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
+    // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
-        // QUEUED, not fired. The pacing lives in poll(); see state.hpp for what
-        // firing them all at once cost.
+        // queued; poll() paces the sends
         if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
             state.pending_seeds.push_back(base.id);
         }
         book.seed_requested();
     }
     if (book.apply(*wire) != BookResult::Applied) {
-        return; // unseeded, stale or resynchronising: silence, never a guess
+        return; // unseeded, stale or resynchronising: publish nothing
     }
-    // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
-    // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and the
-    // cell it lands in keeps only the latest value. Measured on kucoin,
-    // 2026-09-19: the same guard took that gateway from 44.5% to 37.6% of a
-    // core.
+    // checked before building the snapshot, which is the expensive part
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
@@ -198,18 +155,14 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
 }
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    // UNWRAPPED ONCE, not twice. Every unwrap and every open is a memcpy of
-    // the frame into the session's scratch plus a full structural scan of it;
-    // reading the event kind and then the payload used to cost four of them
-    // per message. Order matters here — the payload must come first so the
-    // event can be read out of it rather than out of the frame again.
+    // unwrap once and read the event from the payload
     const auto data = unwrap(frame);
     if (!data.has_value()) {
         return;
     }
     const auto event = parse_event_payload(*data);
     if (!event.has_value()) {
-        return; // unknown shapes are ignored, never fatal: venues add frames
+        return; // unknown shapes are ignored: venues add frames
     }
     switch (event->kind) {
     case EventKind::BookTicker: {
@@ -266,9 +219,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
-    // own streams when it opens; replaying the whole desired set on every one
-    // of them is the flood the pool exists to avoid.
+    // each socket in the pool re-asks for its own streams when it opens
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -293,9 +244,7 @@ public:
         : state_{std::move(state)}, handler_{*state_},
           pool_{make_pool(stream_path(exec::SubKind::Bbo))},
           market_pool_{make_pool(stream_path(exec::SubKind::MarkPrice))} {
-        // The seeds, the funding pull and the 24-hour table all ride this one
-        // pool, and binance counts every one of them against the same weight
-        // the order path spends.
+        // seeds, funding and the 24h table share this pool and the order path's weight
         meter_market_data(*state_, state_->depth_rest);
     }
 
@@ -319,8 +268,6 @@ public:
         return pool_.connected() || market_pool_.connected();
     }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -351,9 +298,7 @@ public:
         if (state_->desired_streams.size() == before) {
             return {}; // already placed on a socket; a stream is asked for once
         }
-        // THE POOL PLACES IT. A stream that does not fit on any existing socket
-        // opens another, and only the pool's own ceiling refuses — which is
-        // said out loud rather than leaving the instrument silently unwatched.
+        // the pool places it, opening another socket when needed
         const std::array<std::string, 1> one{std::string{stream}};
         auto& pool = stream_path(kind) == stream_path(exec::SubKind::Bbo) ? pool_ : market_pool_;
         if (!pool.subscribe(one)) {
@@ -384,28 +329,13 @@ public:
     }
 
 private:
-    // A BOOK THAT NEVER SEEDS IS SILENT, AND SILENCE READS AS A DEAD VENUE.
-    //
-    // The whole catalogue is 571 seeds at weight 5 — 2855 against an allowance
-    // of 2400 a minute — so a full-catalogue start CANNOT have its books up
-    // inside one minute's allowance whatever it does, and spends that minute
-    // with most instruments publishing no ladder. That is what the venue
-    // sells and not a fault. What WAS a fault is that nothing said so: every
-    // depth column on the board was blank, `depth=` in the shutdown line was
-    // already in the hundreds of thousands from the handful of books that had
-    // come up, and gaps() and reseeds() were counted here and read by nobody.
-    // A warming gateway and a stopped one looked identical.
+    // a full-catalogue start cannot seed every book within a minute's allowance; this reports progress
     void report_books(UnixNanos now) noexcept {
         if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
             return;
         }
         report_due_ns_ = now.ns + k_book_report_interval_ns;
-        // BEHIND, NOT MERELY RESYNCHRONISING. A book that lost its chain is
-        // cold for one round trip, and saying so every fifteen seconds is the
-        // check that cries wolf — and an ignored check is worse than none. The
-        // venue is BEHIND when seeds are still queued, or when something was
-        // cold at the previous look too and has therefore been cold for a
-        // quarter of a minute.
+        // behind when seeds are still queued or something was cold at the previous look too
         const auto cold = cold_books();
         const auto refused = refused_books();
         const bool behind = cold != 0 && (!state_->pending_seeds.empty() || cold_before_ != 0);
@@ -428,7 +358,7 @@ private:
                   refused);
     }
 
-    // The last word on the books, and the only reader gaps() and reseeds() have.
+    // the only reader of gaps() and reseeds()
     void report_final() const noexcept {
         if (state_->books.empty() || !has_logger()) {
             return;
@@ -470,16 +400,10 @@ private:
             state_->books, [](const auto& entry) { return entry.second.refused(); }));
     }
 
-    // A LIBRARY MAY NOT ASSUME THE PROCESS INSTALLED A LOGGER, and RLOG_*
-    // dereferences it. Every other library here reports through a callback the
-    // app hands it, and there is none for this: the gateway asks an adapter to
-    // subscribe, hears the refusal, and then never asks it anything again.
+    // a library may run without a logger installed
     [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }
 
-    // One book seed per tick, and only while the budget will still sell one.
-    // A refused seed keeps its place in the queue AND leaves `next_seed_ns`
-    // where it was, so the next tick asks again rather than the book waiting
-    // for a request nobody made.
+    // a refused seed keeps its queue place and next_seed_ns, so the next tick asks again
     void drain_seeds(UnixNanos now) noexcept {
         if (state_->pending_seeds.empty() || now.ns < state_->next_seed_ns) {
             return;
@@ -502,9 +426,7 @@ private:
         state_->next_seed_ns = now.ns + k_seed_spacing_ns;
     }
 
-    // One call covers every symbol, so there is no cursor and no per-symbol
-    // fan-out: the whole table refreshes on each poll and only the instruments
-    // somebody subscribed reach the sink.
+    // one call covers every symbol; only subscribed instruments reach the sink
     void poll_funding(UnixNanos now) noexcept {
         if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns ||
             in_flight_) {
@@ -522,13 +444,11 @@ private:
             in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next minute.
+        // only a call actually sent advances the schedule
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
     }
 
-    // Rides the funding subscription's instrument list: binance has no
-    // separate way to say "I want turnover for this symbol", and a gateway
-    // that subscribed to neither should not be paying weight for either.
+    // polled only for instruments subscribed to funding
     void poll_ticker(UnixNanos now) noexcept {
         if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ ||
             ticker_in_flight_) {
@@ -546,7 +466,6 @@ private:
             ticker_in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next five minutes.
         next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
     }
 
@@ -610,9 +529,7 @@ private:
         }
     }
 
-    // Binance caps one CONNECTION at 1024 streams; the pool turns that into a
-    // per-socket number instead of the process's, which is what left 342 of
-    // 571 listings subscribed and 229 refused outright.
+    // binance caps one connection at 1024 streams
     net::WsPool make_pool(std::string_view target) {
         return net::WsPool{
             state_->io,
@@ -624,24 +541,14 @@ private:
             [this](std::span<const std::string> keys) { return build_frames(keys); }};
     }
 
-    // A pool key is one stream string. Binance's desired set is already a flat
-    // list of stream names, so nothing is encoded into the key and taken apart
-    // here.
-    //
-    // Called on every open of ONE socket, which is why the ordering lives here
-    // rather than at subscribe time: on a reconnect the order that matters is
-    // the order the venue is asked in. One frame carries at most the table's
-    // ws_frame, so a full socket is 32 frames and eight seconds.
+    // called on every socket open, so the order here is the order the venue is asked in
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams;
         streams.reserve(keys.size());
         for (const auto& key : keys) {
             streams.push_back(key);
         }
-        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
-        // goes last effectively does not go at all — and `@bookTicker` is this
-        // venue's top of book: it is the suffix stream_name() builds for
-        // SubKind::Bbo, and it feeds the Bid/Ask columns every screen shows.
+        // bookTicker first: with paced sends the last streams go out late
         std::ranges::stable_partition(
             streams, [](std::string_view stream) { return stream.ends_with("@bookTicker"); });
 

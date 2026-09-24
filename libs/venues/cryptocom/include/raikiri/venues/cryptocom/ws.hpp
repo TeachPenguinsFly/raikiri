@@ -23,7 +23,7 @@ inline constexpr std::string_view k_mark_prefix = "mark.";
 
 inline constexpr std::size_t k_max_channel_len = 64;
 
-// Empty when the name does not fit `out`.
+// empty when the name does not fit out
 [[nodiscard]] std::string_view
 channel_name(std::string_view prefix, std::string_view symbol, std::span<char> out) noexcept;
 
@@ -42,8 +42,7 @@ public:
         std::size_t consumed{0};
     };
 
-    // As many channels as fit under ep::k_max_frame_bytes. The book mode rides
-    // on every frame; without it a book channel gets the venue's default mode.
+    // packs channels under ep::k_max_frame_bytes; without the book mode a book channel gets the venue default
     [[nodiscard]] std::expected<Frame, WsBuildError>
     subscribe_frame(std::span<const std::string_view> channels);
 

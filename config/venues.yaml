@@ -1,28 +1,11 @@
-# What each venue lets us ask of it, and what each request costs there.
-#
-# `limits` is a table of named sliding windows. A REST request spends from EVERY
-# limit whose `match` prefixes its path (an empty match meters every request),
-# and from none if any would refuse. A sliding window never lets more than `max`
-# into any stretch of `window_ms`, so it is safe against a venue counting fixed
-# windows too, and a limit can be declared at about 90% of what the venue states.
-# `reserve` is the part only order traffic may spend, so a reconciliation sweep
-# never takes the allowance a cancel needs. `costs` prices paths in the venue's
-# own units; the longest matching rule wins, `?k=v` must appear in the query,
-# and anything unmatched costs `default_cost` (1).
-#
-# A VENUE NOT LISTED, or listed without limits, is unlimited.
-
 venues:
   binance:
     order_answer_timeout_ms: 15000
     limits:
-      # 2400 weight a minute per IP, measured 2026-09-01 from X-MBX-USED-WEIGHT-1M.
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
-      # 300 streams a socket survive the 100 ms depth diffs, measured; five messages a second a socket less the pings.
       - { name: ws_streams, kind: ws_streams, max: 300 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
-      # 32 streams a frame; a SUBSCRIBE too large is rejected whole.
       - { name: ws_frame, kind: ws_frame, max: 32 }
     default_cost: 40
     costs:
@@ -48,13 +31,10 @@ venues:
   aster:
     order_answer_timeout_ms: 15000
     limits:
-      # 2400 weight a minute, as its exchangeInfo states; past it a 418 and an IP ban.
       - { name: weight, window_ms: 60000, max: 2160, reserve: 216 }
-      # 200 streams a socket, measured; 180 held, twelve sockets, a subscribe every 250 ms per socket.
       - { name: ws_streams, kind: ws_streams, max: 180 }
       - { name: ws_sockets, kind: ws_sockets, max: 12 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
-      # 32 streams a frame; a SUBSCRIBE too large is rejected whole.
       - { name: ws_frame, kind: ws_frame, max: 32 }
     default_cost: 40
     costs:
@@ -80,39 +60,30 @@ venues:
   bybit:
     order_answer_timeout_ms: 15000
     limits:
-      # 50 a second per endpoint, measured 2026-09-01 from X-Bapi-Limit; the transaction log 25.
       - { name: orders, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/create", "/v5/order/cancel", "/v5/order/amend"] }
       - { name: account, window_ms: 1000, max: 45, reserve: 9, match: ["/v5/order/realtime", "/v5/position/list", "/v5/account/wallet-balance", "/v5/execution/list"] }
       - { name: ledger, window_ms: 1000, max: 22, match: ["/v5/account/transaction-log"] }
-      # 512 topics keep a socket's args under the stated 21,000 characters; eight sockets for 855 listings.
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 10 topics a frame; an oversized subscribe is rejected whole.
       - { name: ws_frame, kind: ws_frame, max: 10 }
 
   gate:
     order_answer_timeout_ms: 15000
     limits:
-      # 200 a second, measured 2026-09-06 from X-Gate-RateLimit-Limit and its reset.
       - { name: requests, window_ms: 1000, max: 180, reserve: 18 }
-      # 1024 channels a socket, stated; eight sockets for 979 contracts at four channels.
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 64 contracts a frame, one channel each; depth goes one a frame.
       - { name: ws_frame, kind: ws_frame, max: 64 }
 
   kucoin:
     order_answer_timeout_ms: 15000
     limits:
-      # 2000 weight per 30 s, measured 2026-09-06 from gw-ratelimit-limit and gw-ratelimit-reset.
       - { name: requests, window_ms: 30000, max: 1800, reserve: 180 }
-      # 100 topics a socket, the rest dropped in silence, measured; about ten messages a second a socket, stated.
       - { name: ws_streams, kind: ws_streams, max: 100 }
       - { name: ws_sockets, kind: ws_sockets, max: 32 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 120, max: 1 }
-    # Weight, measured 2026-09-26 as the fall in gw-ratelimit-remaining per call.
     costs:
       - { match: "/api/v1/level2/snapshot", cost: 3 }
       - { match: "/api/v1/contracts/active", cost: 3 }
@@ -123,30 +94,23 @@ venues:
   xt:
     order_answer_timeout_ms: 15000
     limits:
-      # 1000 a second, measured 2026-09-06 from X-RateLimit-Burst-Capacity and Replenish-Rate.
       - { name: requests, window_ms: 1000, max: 900, reserve: 90 }
-      # 192 keys a socket is the largest that held, measured 2026-09-08; 24 sockets stayed up on one IP.
       - { name: ws_streams, kind: ws_streams, max: 192 }
       - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 32 a frame, self-imposed: none documented and none refused up to five, so one bad batch costs 32.
       - { name: ws_frame, kind: ws_frame, max: 32 }
 
   htx:
     order_answer_timeout_ms: 15000
     limits:
-      # 240 per 3 s, measured 2026-09-06 from ratelimit-limit and ratelimit-interval.
       - { name: requests, window_ms: 3000, max: 216, reserve: 21 }
-      # No socket ceiling at this scale but an unspaced burst lost 81%, measured; 250 topics at 20 ms drain in seconds.
       - { name: ws_streams, kind: ws_streams, max: 250 }
       - { name: ws_sockets, kind: ws_sockets, max: 12 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 20, max: 1 }
 
-  # bingx and bitget state a REST remainder but no ceiling, so their REST stays unlimited.
   bingx:
     order_answer_timeout_ms: 15000
     limits:
-      # 200 topics a socket and 60 sockets an IP, stated; no message rate stated.
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
@@ -154,23 +118,18 @@ venues:
   bitget:
     order_answer_timeout_ms: 15000
     limits:
-      # 500 channels a socket served whole and 1000 dropped some, measured; ten messages a second a socket, stated.
       - { name: ws_streams, kind: ws_streams, max: 500 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 50 args a frame.
       - { name: ws_frame, kind: ws_frame, max: 50 }
 
   weex:
     order_answer_timeout_ms: 15000
     limits:
-      # 500 weight per 10 s per IP, measured 2026-09-07 from x-used-weight-10s; placements cost none.
       - { name: weight, window_ms: 10000, max: 450, reserve: 45 }
-      # 600 channels a socket accepted (100 stated), measured; 16 sockets under the stated 20 an IP.
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 16 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 25 channels a frame, a pacing choice: 600 in one frame were taken live.
       - { name: ws_frame, kind: ws_frame, max: 25 }
     costs:
       - { match: "/capi/v3/openOrders", cost: 2 }
@@ -183,49 +142,36 @@ venues:
   backpack:
     order_answer_timeout_ms: 15000
     limits:
-      # 2000 a minute, stated in the support FAQ; no limit header.
       - { name: requests, window_ms: 60000, max: 1800 }
-      # 1000 streams a socket and a subscribe every 100 ms, from ws.hpp.
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
-      # 50 streams a frame.
       - { name: ws_frame, kind: ws_frame, max: 50 }
 
   extended:
     order_answer_timeout_ms: 15000
     limits:
-      # 1000 requests a minute per IP, stated.
       - { name: requests, window_ms: 60000, max: 900, reserve: 90 }
 
   okx:
     order_answer_timeout_ms: 15000
     limits:
-      # 20 per 2 s per public endpoint, stated.
       - { name: market, window_ms: 2000, max: 18, match: ["/api/v5/public/", "/api/v5/market/"] }
-      # 60 per 2 s on order entry and order reads, stated.
       - { name: orders, window_ms: 2000, max: 54, reserve: 10, match: ["/api/v5/trade/"] }
-      # 10 per 2 s on positions and balance, stated.
       - { name: account, window_ms: 2000, max: 9, match: ["/api/v5/account/positions", "/api/v5/account/balance"] }
-      # 5 a second on bills, stated.
       - { name: bills, window_ms: 1000, max: 4, match: ["/api/v5/account/bills"] }
-      # 3 subscribe ops a second per socket and 3 connects a second per IP, stated; 1024 channels a socket.
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 350, max: 1 }
       - { name: ws_connects, kind: ws_connects, window_ms: 1000, max: 3 }
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_sockets, kind: ws_sockets, max: 6 }
-      # 64 args a frame, sixteen frames a full socket.
       - { name: ws_frame, kind: ws_frame, max: 64 }
 
   mexc:
     order_answer_timeout_ms: 15000
     limits:
-      # 10 per 2 s on contract detail, stated.
       - { name: detail, window_ms: 2000, max: 9, match: ["/api/v1/contract/detail"] }
-      # 20 per 2 s per futures endpoint, stated; code 510 past it.
       - { name: market, window_ms: 2000, max: 18, match: ["/api/v1/contract/"] }
       - { name: private, window_ms: 2000, max: 18, reserve: 4, match: ["/api/v1/private/"] }
-      # 512 keys a futures socket and 30 a spot one, measured; a subscribe every 100 ms per socket.
       - { name: ws_streams_perp, kind: ws_streams, market: perp, max: 512 }
       - { name: ws_streams_spot, kind: ws_streams, market: spot, max: 30 }
       - { name: ws_sockets, kind: ws_sockets, max: 16 }
@@ -234,13 +180,10 @@ venues:
   hyperliquid:
     order_answer_timeout_ms: 15000
     limits:
-      # 1200 weight a minute per IP, stated; meta and spotMeta weigh 20, an action 1.
       - { name: weight, window_ms: 60000, max: 1080, reserve: 108 }
-      # 1000 subscriptions a socket and a subscribe every 100 ms held, measured 2026-09-08; 100 sockets an IP stated.
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 6 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }
-      # 1000 channels an IP: past it a second socket was refused whole in 3 of 5 runs, measured 2026-09-26.
       - { name: ws_channels, kind: ws_channels, max: 1000 }
     costs:
       - { match: "/info", cost: 20 }
@@ -249,20 +192,14 @@ venues:
   bitfinex:
     order_answer_timeout_ms: 15000
     limits:
-      # 10 to 90 a minute per endpoint per IP, tickers 30, stated; past it a 60 s ban.
       - { name: requests, window_ms: 60000, max: 27, reserve: 3 }
-      # 549 subscribes at eight a second on one socket were never refused for pace, measured 2026-09-08.
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 150, max: 1 }
-      # 25 and 30 stated; nine sockets measured 2026-09-08, six served exactly 36 and three 56, the rest 10305.
-      # The server decides the tier, so the floor. Sockets stay in code: every one is its own pool.
       - { name: ws_streams, kind: ws_streams, max: 36 }
 
   kraken:
     order_answer_timeout_ms: 15000
     limits:
-      # 500 cost per 10 s on /derivatives, stated; public endpoints cost nothing.
       - { name: derivatives, window_ms: 10000, max: 450, reserve: 45, match: ["/derivatives/api/v3/"] }
-      # 1024 subscriptions on its one socket and 64 products a frame, from ws.hpp.
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_frame, kind: ws_frame, max: 64 }
     costs:
@@ -280,9 +217,7 @@ venues:
   grvt:
     order_answer_timeout_ms: 15000
     limits:
-      # 500 reads a minute (1500 for instruments), from endpoints.hpp.
       - { name: reads, window_ms: 60000, max: 450 }
-      # 400 keys a socket, under the venue's; a subscribe every 250 ms stays under the stated 300 a minute.
       - { name: ws_streams, kind: ws_streams, max: 400 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 250, max: 1 }
@@ -291,9 +226,7 @@ venues:
   lighter:
     order_answer_timeout_ms: 15000
     limits:
-      # 60 requests a minute per IP, from endpoints.hpp; a 429 throttles the sockets too.
       - { name: requests, window_ms: 60000, max: 54 }
-      # 200 socket messages a minute per IP, stated, answered 30009 past it; one socket carries 500.
       - { name: ws_minute, kind: ws_messages, scope: ip, window_ms: 60000, max: 180 }
       - { name: ws_burst, kind: ws_messages, scope: ip, window_ms: 2000, max: 6 }
       - { name: ws_streams, kind: ws_streams, max: 500 }
@@ -302,9 +235,7 @@ venues:
   cryptocom:
     order_answer_timeout_ms: 15000
     limits:
-      # 100 a second per method per IP, from endpoints.hpp.
       - { name: requests, window_ms: 1000, max: 90 }
-      # 400 channels a socket, refused with 40107 past it; 100 socket requests a second per IP, stated.
       - { name: ws_streams, kind: ws_streams, max: 400 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
@@ -312,10 +243,8 @@ venues:
   blofin:
     order_answer_timeout_ms: 15000
     limits:
-      # 500 a minute and 1500 per 5 minutes per IP, from endpoints.hpp.
       - { name: minute, window_ms: 60000, max: 450 }
       - { name: five_minutes, window_ms: 300000, max: 1350 }
-      # 1000 keys a socket and a subscribe every 50 ms, from ws.hpp.
       - { name: ws_streams, kind: ws_streams, max: 1000 }
       - { name: ws_sockets, kind: ws_sockets, max: 3 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
@@ -323,21 +252,16 @@ venues:
   apex:
     order_answer_timeout_ms: 15000
     limits:
-      # 600 a minute per IP, from endpoints.hpp; the 403 ban may be permanent.
       - { name: requests, window_ms: 60000, max: 540 }
-      # 256 subscriptions a socket and a subscribe every 50 ms, from ws.hpp.
       - { name: ws_streams, kind: ws_streams, max: 256 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
-      # 4 topics a frame, one instrument's: one refused topic refuses its whole frame.
       - { name: ws_frame, kind: ws_frame, max: 4 }
 
   edgex:
     order_answer_timeout_ms: 15000
     limits:
-      # No stated limit; 135 a second measured without a refusal, from endpoints.hpp.
       - { name: requests, window_ms: 1000, max: 60 }
-      # 3601 subscriptions on one socket without a refusal, measured; 200 a socket, 5 ms apart.
       - { name: ws_streams, kind: ws_streams, max: 200 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 5, max: 1 }
@@ -345,9 +269,7 @@ venues:
   dydx:
     order_answer_timeout_ms: 15000
     limits:
-      # 100 per 10 s per IP, from endpoints.hpp.
       - { name: requests, window_ms: 10000, max: 90 }
-      # 32 subscriptions per channel per socket, stated.
       - { name: ws_streams, kind: ws_streams, max: 32 }
       - { name: ws_sockets, kind: ws_sockets, max: 4 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 50, max: 1 }
@@ -355,9 +277,7 @@ venues:
   phemex:
     order_answer_timeout_ms: 15000
     limits:
-      # 300 a minute per IP on /public, from endpoints.hpp.
       - { name: public, window_ms: 60000, max: 270, match: ["/public/"] }
-      # The 102nd subscription on a socket is refused with 6015, measured; the stated 20 is not enforced.
       - { name: ws_streams, kind: ws_streams, max: 90 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 60, max: 1 }
@@ -365,33 +285,25 @@ venues:
   deribit:
     order_answer_timeout_ms: 15000
     limits:
-      # Burst 100 refilled at 20 a second per IP, shared with the sockets, from endpoints.hpp.
       - { name: requests, window_ms: 1000, max: 10, reserve: 1 }
-      # The same per-IP bucket as REST (20 a second), half of it for sockets; 1024 channels a socket.
       - { name: ws_messages, kind: ws_messages, scope: ip, window_ms: 1000, max: 10 }
       - { name: ws_streams, kind: ws_streams, max: 1024 }
       - { name: ws_sockets, kind: ws_sockets, max: 16 }
-      # 256 channels a frame, well inside the 32 KiB frame deribit accepts.
       - { name: ws_frame, kind: ws_frame, max: 256 }
 
   coinbase:
     order_answer_timeout_ms: 15000
     limits:
-      # 10 a second public and 15 per profile private, stated.
       - { name: requests, window_ms: 1000, max: 9, reserve: 1 }
-      # 8 subscribes a second per IP, stated: each of eight sockets takes an eighth, a fifth held back.
       - { name: ws_streams, kind: ws_streams, max: 512 }
       - { name: ws_sockets, kind: ws_sockets, max: 8 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 1200, max: 1 }
-      # 64 a frame, so eight subscribes a second cover more than eight symbols.
       - { name: ws_frame, kind: ws_frame, max: 64 }
 
   pacifica:
     order_answer_timeout_ms: 15000
     limits:
-      # 100 credits a minute for an unidentified IP, stated (1 a GET, 3-12 a heavy one).
       - { name: credits, window_ms: 60000, max: 90, reserve: 9 }
-      # 20 subscriptions per channel per socket and 100 sockets an IP, stated.
       - { name: ws_streams, kind: ws_streams, max: 20 }
       - { name: ws_sockets, kind: ws_sockets, max: 24 }
       - { name: ws_subscribe, kind: ws_messages, scope: socket, window_ms: 100, max: 1 }

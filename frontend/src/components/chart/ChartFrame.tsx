@@ -6,35 +6,23 @@ export interface LegendEntry {
   key: string
   label: string
   color: string
-  /** Already formatted. The frame renders numbers, it does not format them. */
   value?: string | undefined
   muted?: boolean | undefined
 }
 
 interface ChartFrameProps {
   title: string
-  /** One line under the title. Say what the number IS, especially when it is
-   *  not the number a reader would assume. */
   note?: string | undefined
   legend?: LegendEntry[] | undefined
   onLegendHover?: ((key: string | null) => void) | undefined
-  /** The headline figure, right-aligned against the title. */
   readout?: ReactNode | undefined
   height?: number | undefined
-  /** Shown instead of the plot. A chart with nothing in it must say which
-   *  nothing: not loaded, or loaded and empty. */
   placeholder?: string | undefined
   footer?: ReactNode | undefined
   className?: string | undefined
   children: (size: { width: number; height: number }) => ReactNode
 }
 
-/** The frame every plot in the terminal draws inside.
- *
- *  It owns the border, the header, the legend, the measured plot box and the
- *  empty state — so a donut and a line chart are the same object at a glance,
- *  and a new plot is a `children` function rather than another copy of this
- *  chrome. Nothing here knows what is being drawn. */
 export function ChartFrame({
   title,
   note,

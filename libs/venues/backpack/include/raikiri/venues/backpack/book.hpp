@@ -28,8 +28,7 @@ struct WireBookTicker {
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view data);
 
-// Floored to whole lots, never refused: some spot books rest sizes finer than a
-// since-raised step. Prices are never read this way.
+// floored to whole lots: some spot books rest sizes finer than the current step
 [[nodiscard]] std::optional<std::int64_t> tradable_steps(std::string_view text,
                                                          FixedE9 step) noexcept;
 
@@ -77,11 +76,10 @@ enum class BookResult : std::uint8_t {
 
 inline constexpr std::size_t k_max_buffered_deltas = 64;
 
-// Matched to a BookSnapshot; the venue takes only 5, 10, 20, 50, 100, 500 or 1000.
+// the venue takes only 5, 10, 20, 50, 100, 500 or 1000
 inline constexpr std::uint32_t k_seed_depth = 100;
 
-// Seeded from REST, then chained: each frame's U is the previous frame's u + 1, and
-// the snapshot's lastUpdateId is on the same counter.
+// each frame's U is the previous frame's u + 1; the snapshot's lastUpdateId shares the counter
 class DepthBook {
 public:
     using Level = book::Level;

@@ -31,7 +31,7 @@ struct VenueState {
     exec::InstrumentTable instruments;
     Protocol protocol;
 
-    // One book channel feeds both the quote and the ladder.
+    // one book channel feeds both the quote and the ladder
     std::unordered_map<std::uint64_t, Book> books;
     std::unordered_set<std::uint64_t> wants_bbo;
     std::unordered_set<std::uint64_t> wants_depth;

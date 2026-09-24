@@ -13,23 +13,16 @@ namespace raikiri::venues::bitfinex {
 
 namespace {
 
-// Guards the int128 accumulator and the power-of-ten loops below. No live
-// Bitfinex token comes close: the longest observed mantissa is 14 digits and
-// the largest exponent shift is 8.
+// guards the int128 accumulator; live mantissas stay well inside
 constexpr int k_max_mantissa_digits = 30;
 constexpr int k_max_shift = 30;
 
 constexpr std::string_view k_symbol_prefix = "t";
 
-// Bitfinex serves its PAPER-TRADING pairs from the same production /conf
-// endpoint as the real ones, under a TEST prefix on both legs
-// (TESTBTC:TESTUSD, TESTBTCF0:TESTUSDTF0 — 28 of 272 rows). They quote
-// simulated prices and are reachable only from a paper sub-account, so
-// admitting one puts a fabricated book in a live catalogue.
+// paper-trading pairs share the production /conf endpoint under a "TEST" prefix
 constexpr std::string_view k_paper_prefix = "TEST";
 
-// Futures pairs are F0-suffixed on both legs (BTCF0:USTF0, ETHF0:BTCF0);
-// no spot pair contains F0 at all, across all 272 rows.
+// futures pairs carry "F0" on both legs; no spot pair contains it
 constexpr std::string_view k_futures_marker = "F0";
 
 struct Decomposed {
@@ -38,10 +31,7 @@ struct Decomposed {
     bool negative{false};
 };
 
-// Splits a JSON numeric token into an exact mantissa and a base-10 exponent.
-// Bitfinex spells the same field both ways — a trades frame carried 0.00011
-// and 1e-8 in the same payload — so reading only plain decimals silently loses
-// whichever prints took the other form.
+// bitfinex sends the same field as plain decimal or scientific notation
 std::optional<Decomposed> decompose(std::string_view text) noexcept {
     if (text.empty()) {
         return std::nullopt;
@@ -113,8 +103,7 @@ std::optional<Decomposed> decompose(std::string_view text) noexcept {
     return out;
 }
 
-// mantissa * 10^exponent -> 1e9 fixed point. `exact` decides what happens to
-// significance below 1e-9: refuse it, or truncate toward zero.
+// exact refuses digits below 1e-9; otherwise they truncate toward zero
 std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept {
     int shift = parts.exponent + 9;
     if (shift > k_max_shift || shift < -k_max_shift) {
@@ -128,7 +117,7 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
         if (exact && value % 10 != 0) {
             return std::nullopt;
         }
-        value /= 10; // int128 division truncates toward zero, which is what we want
+        value /= 10; // truncates toward zero
     }
     if (parts.negative) {
         value = -value;
@@ -140,10 +129,7 @@ std::optional<FixedE9> scale_to_e9(const Decomposed& parts, bool exact) noexcept
     return FixedE9::from_raw(static_cast<std::int64_t>(value));
 }
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means Bitfinex published finer precision than the derived
-// 1e-8 grid, so the message is dropped rather than rounded — rounding is how
-// an order ends up one tick away from the intended price.
+// values off the 1e-8 grid are dropped unrounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -165,10 +151,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks. Truncating below 1e-9 leaves
-// eight significant figures of a dimensionless number nothing divides an order
-// by; prices and quantities stay exact.
+// rates stay at 1e9 scale; truncation below 1e-9 is harmless for them
 std::optional<FixedE9> to_rate_e9(std::string_view text) noexcept {
     if (text.empty()) {
         return std::nullopt;
@@ -177,16 +160,12 @@ std::optional<FixedE9> to_rate_e9(std::string_view text) noexcept {
     return parts.has_value() ? scale_to_e9(*parts, /*exact=*/false) : std::nullopt;
 }
 
-// A 24-hour turnover, which is an AMOUNT and not a price: it is reported at
-// the venue's own resolution and an exact read would refuse the whole figure
-// rather than its tail, leaving a traded market showing nothing at all.
+// an amount, so it truncates below 1e-9 rather than refusing
 std::optional<FixedE9> to_amount_e9(std::string_view text) noexcept {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// A trade's AMOUNT and a book level's AMOUNT are both signed, and in neither
-// case is the sign part of the quantity. Splitting it here keeps a negative
-// number from ever reaching QtyLots.
+// both amounts are signed; the sign never reaches QtyLots
 struct SignedToken {
     std::string_view magnitude;
     bool negative{false};
@@ -201,8 +180,7 @@ SignedToken split_sign(std::string_view text) noexcept {
     return out;
 }
 
-// Ids are FixedString and an oversize one is refused rather than truncated: a
-// truncated venue order id names a different order.
+// oversize ids are refused; a truncated id names another order
 bool copy_id(std::string_view text, ExchangeOrderId& out) {
     if (text.empty()) {
         return true;
@@ -227,13 +205,7 @@ bool copy_exec_id(std::string_view text, ExecId& out) {
     return true;
 }
 
-// Fees are neither a price nor a size, so they truncate at 1e-9 where those
-// refuse: dropping a whole fill over a rounding in the eleventh decimal place
-// would lose the fill, and the fee is the only field that can afford it.
-//
-// A Bitfinex fee is NEGATIVE when charged and positive when rebated, which is
-// the opposite of every other venue here, so the sign is flipped once — a
-// charge is a cost.
+// fees truncate at 1e-9; bitfinex signs a charge negative, so it is flipped
 FixedE9 fee_e9(std::string_view text) noexcept {
     const auto value = to_rate_e9(text);
     return value.has_value() ? FixedE9::from_raw(-value->raw) : FixedE9::from_raw(0);
@@ -244,9 +216,7 @@ const InstrumentBase* base_for(std::string_view symbol, const exec::InstrumentTa
     return instrument == nullptr ? nullptr : &base_of(*instrument);
 }
 
-// AMOUNT_ORIG, never AMOUNT. A fully executed order carries AMOUNT 0, and zero
-// has no sign — a reader taking the side from the remaining amount reports
-// every completed sale as a buy.
+// the side comes from amount_orig; amount is 0 once filled
 Side side_of(std::string_view amount_orig) noexcept {
     return split_sign(amount_orig).negative ? Side::Sell : Side::Buy;
 }
@@ -314,9 +284,7 @@ std::optional<TickerStats> map_ticker_stats(const WireTicker& wire,
     TickerStats out{};
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = *volume;
-    // NOT DERIVED. The channel states no quote-side figure, and last_price
-    // times volume would be an average this process invented, published beside
-    // a column every other venue takes from the venue itself.
+    // the channel states no quote volume
     out.volume_24h_quote = FixedE6::from_raw(0);
     out.ts_event = ts_event.ns == 0 ? ts_init : ts_event;
     out.ts_init = ts_init;
@@ -409,7 +377,7 @@ std::optional<Instrument> map_instrument(const WirePairInfo& wire, MarketType ma
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Bitfinex, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *symbol;
@@ -444,8 +412,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
         break;
     case WireOrderStatus::PartiallyFilled:
     case WireOrderStatus::Executed:
-        // The `te`/`tu` execution is what reports a fill; restating it from
-        // the order record would count the same volume twice.
+        // fills come from te/tu
         return std::nullopt;
     case WireOrderStatus::Unknown:
         return std::nullopt;
@@ -473,7 +440,7 @@ std::optional<OrderEvent> map_order_event(const WireOrder& wire,
         out.price = *price;
     }
     out.qty = *qty;
-    // Nothing rests after a cancel or a rejection, whatever AMOUNT still says.
+    // nothing rests after a cancel or rejection
     out.leaves_qty = QtyLots::from_raw(0);
     if (type == OrderEventType::Accepted) {
         const auto left = to_lots(split_sign(wire.amount).magnitude, *base);
@@ -543,8 +510,7 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     if (base == nullptr) {
         return std::nullopt;
     }
-    // EXEC_AMOUNT is signed and the sign is OUR side here — not the
-    // aggressor's, the way it is on the public trades channel.
+    // exec_amount's sign is our side
     const auto executed = split_sign(wire.amount);
     const auto qty = to_lots(executed.magnitude, *base);
     const auto price = to_ticks(wire.price, *base);
@@ -564,8 +530,7 @@ std::optional<OrderEvent> map_execution(const WireExecution& wire,
     out.qty = *qty;
     out.leaves_qty = context.leaves;
     out.fee = fee_e9(wire.fee);
-    // MAKER is 1 or -1; a fill whose liquidity Bitfinex did not state stays
-    // Unknown rather than being guessed into a maker strategy's scorecard.
+    // maker is 1 or -1; otherwise liquidity stays Unknown
     out.liquidity = wire.liquidity_known ? (wire.maker ? Liquidity::Maker : Liquidity::Taker)
                                          : Liquidity::Unknown;
     out.ts_event = ms_to_unix(wire.mts, ts_init);
@@ -582,10 +547,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
     if (base == nullptr) {
         return std::nullopt;
     }
-    // Bitfinex also keeps MARGIN positions on spot pairs, and this adapter
-    // opens none — every spot order it sends is an EXCHANGE order. Reporting
-    // one against a Spot instrument id would claim a position on a market that
-    // has no such concept here, so the row is left to whoever opened it.
+    // margin positions on spot pairs are not this adapter's; only perps are reported
     if (base->id.market() != MarketType::Perp) {
         return std::nullopt;
     }
@@ -597,8 +559,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
 
     exec::PositionReport out{};
     out.instrument = base->id;
-    // The sign IS the position: negative is short, and dropping it reports a
-    // short book as a long one of the same size.
+    // negative is short
     out.net_qty = QtyLots::from_raw(amount.negative ? -size->raw : size->raw);
     if (const auto entry = to_ticks(wire.base_price, *base); entry.has_value()) {
         out.avg_entry = *entry;

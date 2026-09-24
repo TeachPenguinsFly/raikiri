@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/deribit/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -13,9 +11,7 @@
 
 namespace raikiri::venues::deribit {
 
-// `size` is SIGNED and denominated the same way `amount` is: positive long,
-// negative short. average_price is the position's entry, in the instrument's
-// own price unit.
+// size is signed: positive long, negative short
 struct WirePosition {
     std::string_view instrument;
     std::string_view size;

@@ -10,9 +10,7 @@ namespace {
 
 constexpr std::string_view k_scheme = "wss://";
 
-// KuCoin's own SDKs put the token on the request line unencoded, and the
-// tokens observed are base64url plus '=' and '.'. Anything that would end the
-// target or start another parameter is refused rather than sent.
+// the token goes on the request line unencoded; refuse anything that would break the query
 [[nodiscard]] bool safe_in_query(std::string_view text) noexcept {
     return !text.empty() && std::ranges::none_of(text, [](char c) {
         return c <= ' ' || c == '#' || c == '&' || c == '?' || c == '"' || c == '\\';
@@ -39,29 +37,16 @@ std::string_view topic_for(exec::SubKind kind, MarketType market) noexcept {
     const bool spot = market == MarketType::Spot;
     switch (kind) {
     case exec::SubKind::Bbo:
-        // TRIED AND REVERTED: serving perp's quote from the book's touch, the
-        // way bybit does, costs 7.2 points of a core less and lost 127 of 677
-        // contracts. KuCoin is right that tickerV2 duplicates the book's
-        // sequence — but the touch only exists once a book reaches Live, and
-        // that needs a REST seed which is asked for only when a level2 frame
-        // arrives. A contract whose book never moves never seeds, never goes
-        // Live, and had its quote from tickerV2 alone. Coverage measured
-        // 97% → 78% within minutes, flat, with zero rate refusals.
-        //
-        // The change belongs with the UTA v2 migration, where the book channel
-        // opens with a snapshot per symbol and every subscribed contract is
-        // Live from its first frame. Not before it.
+        // perp keeps tickerV2: a classic book without a rest seed has no touch
         return spot ? "/market/ticker" : "/contractMarket/tickerV2";
     case exec::SubKind::Trades:
         return spot ? "/market/match" : "/contractMarket/execution";
     case exec::SubKind::Depth:
-        // Spot takes the depth-50 SNAPSHOT topic, not the change stream: it
-        // republishes a whole book, so there is no seed to fetch and no chain
-        // to lose. Both topics carry the subject "level2".
+        // spot uses the depth-50 snapshot topic; both topics carry subject level2
         return spot ? "/spotMarket/level2Depth50" : "/contractMarket/level2";
     case exec::SubKind::Funding:
     case exec::SubKind::MarkPrice:
-        // A spot pair has neither, and /contract/instrument is a futures topic.
+        // /contract/instrument is futures only
         return spot ? std::string_view{} : "/contract/instrument";
     case exec::SubKind::Kline:
         return {}; // needs a bar size in the topic; no consumer yet
@@ -155,7 +140,7 @@ Protocol::op_frame(std::string_view type, std::span<const Subscription> subscrip
         put(i == 0 ? ":" : ",");
         put(subscriptions[i].symbol);
     }
-    // response:true asks for the ack that proves the topic exists.
+    // response:true asks for the ack
     put(R"(","response":true})");
     if (overflow) {
         return std::unexpected{WsBuildError::BufferTooSmall};
@@ -198,8 +183,7 @@ Protocol::uta_subscribe_frame(std::span<const Subscription> subscriptions) {
     if (ec != std::errc{}) {
         return std::unexpected{WsBuildError::BufferTooSmall};
     }
-    // The id is a STRING here where the classic frame numbers it, and the verb
-    // is `action` rather than `type`.
+    // the id is a string here and the verb is action
     put(R"({"id":")");
     put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     put(R"(","action":"SUBSCRIBE","channel":")");
@@ -241,8 +225,7 @@ Protocol::private_subscribe_frame(std::string_view topic) {
     put(std::string_view{id.data(), static_cast<std::size_t>(stop - id.data())});
     put(R"(,"type":"subscribe","topic":")");
     put(topic);
-    // KuCoin's own examples render this as the string "true"; every SDK sends
-    // the boolean and is accepted, so the boolean is what goes out here.
+    // sent as a boolean; kucoin's examples show the string "true"
     put(R"(","privateChannel":true,"response":true})");
     if (overflow) {
         return std::unexpected{WsBuildError::BufferTooSmall};

@@ -4,7 +4,8 @@ How the framework is put together and how to work with it. The
 [project README](../README.md) is the short version.
 
 - [Architecture](#architecture): processes, channels, invariants
-- [Running a gateway](#running-a-gateway): flags, credentials, the smoke test
+- [Running a gateway](#running-a-gateway): flags and credentials
+- [Configuration](#configuration): venue rate limits
 - [Venue table](#venue-table): column meanings, adding a venue
 - [Performance](#performance): measured numbers
 - [Build and test](#build-and-test): presets and sanitizers
@@ -71,7 +72,7 @@ Each channel uses the structure that fits its data:
 | order commands                                  | SPSC ring, lossless             | cancels have to arrive even when the system is under stress                                         |
 
 <details>
-<summary><b>Invariants the code is built on</b></summary>
+<summary>Invariants the code relies on</summary>
 
 <br>
 
@@ -116,6 +117,42 @@ gatewayd --venue=bybit --market=perp \
 
 ---
 
+## Configuration
+
+`config/venues.yaml` sets each venue's rate limits; `RAIKIRI_CONFIG_DIR` points at
+the directory holding it. A venue that is not listed, or has no `limits`, is not
+limited. Each entry under `limits` has these keys:
+
+| key | meaning |
+| :-- | :-- |
+| `name` | label used in logs and metrics |
+| `kind` | what is counted, default `rest`; see below |
+| `window_ms` | sliding window length for `rest`, `ws_messages` and `ws_connects` |
+| `max` | most allowed in any stretch of `window_ms`, or the count ceiling for the other kinds |
+| `reserve` | part of `max` only order traffic may spend (`rest` only) |
+| `match` | path prefixes the limit meters (`rest` only); omitted means every request |
+| `scope` | `socket` or `ip`, for `ws_messages` only |
+| `market` | `perp` or `spot`; omitted applies to both |
+
+| kind | counts |
+| :-- | :-- |
+| `rest` | REST cost per window over the paths in `match` |
+| `ws_messages` | outbound socket frames per window, per `scope` |
+| `ws_connects` | connection attempts per window, per ip |
+| `ws_streams` | subscriptions one socket may carry |
+| `ws_sockets` | sockets one ip may hold |
+| `ws_channels` | subscriptions across all sockets of the ip |
+| `ws_frame` | subscriptions one subscribe frame may carry |
+
+A REST request spends from every `rest` limit whose `match` prefixes its path, and
+from none if any of them would refuse. A sliding window also holds against a venue
+that counts fixed windows, so limits are set at about 90% of the venue's figure.
+`costs` lists `{ match, cost }` rules in the venue's own units: the longest match
+wins, a `?k=v` in a rule must appear in the query, and an unmatched request costs
+`default_cost` (1 unless set).
+
+---
+
 ## Venue table
 
 The table in the [project README](../README.md#venues) is generated from
@@ -129,13 +166,13 @@ The table in the [project README](../README.md#venues) is generated from
 | `funding ledger` | the adapter reads funding the venue actually charged from the account ledger, not from the public rate. |
 
 <details>
-<summary><b>Adding a venue</b></summary>
+<summary>Adding a venue</summary>
 
 <br>
 
-A market-data adapter is roughly 3,500 lines: catalogue, symbol map, book, envelope
-dispatch, REST builder and the websocket client. Order entry adds a signer, an
-execution client and the reconciliation pulls.
+A market-data adapter is about 3,500 lines: catalogue, symbol map, book, envelope
+dispatch, REST builder and websocket client. Order entry adds a signer, an execution
+client and the reconciliation pulls.
 
 Capture fixtures from the live venue first (`tests/venues/<name>/fixtures`, with a
 README naming the endpoint and capture date), write the parsers against those bytes,

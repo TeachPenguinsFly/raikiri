@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -13,8 +11,7 @@
 
 namespace raikiri::venues::kraken {
 
-// GET /openpositions. `price` is a full-precision average entry that no tick
-// size divides — see map.cpp for what that costs.
+// price is a full-precision average entry off the tick grid
 struct WirePosition {
     std::string_view symbol;
     std::string_view price;

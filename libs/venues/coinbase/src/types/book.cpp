@@ -9,8 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// ["price","size"], both decimal strings. Reading stops at the buffer rather
-// than failing: see the header on why truncating this particular array is safe.
+// ["price","size"] decimal strings; reading stops at the buffer
 std::expected<std::size_t, WireError>
 read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLevel> into) {
     auto array = wire::req_array(root, key);
@@ -32,9 +31,7 @@ read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLe
             if (const auto ec = element.get(value); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            // str_of, never get_string: the unescaping reader writes into a
-            // buffer that cannot be rebased onto the caller's frame, and what
-            // comes back from that is an empty view rather than a price.
+            // str_of, not get_string: the unescaping reader's buffer cannot be rebased onto the frame
             const auto text = wire::str_of(value);
             if (!text.has_value()) {
                 return std::unexpected(text.error());
@@ -54,7 +51,7 @@ read_levels(wire::ondemand::object& root, std::string_view key, std::span<WireLe
     return count;
 }
 
-// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
+// the exact-or-refuse rule is book::exact_steps
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -177,7 +174,7 @@ std::optional<Book::Level> Book::convert(const WireLevel& wire) const {
 
 void Book::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
-        // Size zero is Coinbase's delete: 1924 of 4092 live changes carry one.
+        // size zero deletes the level
         side.remove(level.price);
         return;
     }
@@ -197,8 +194,7 @@ BookResult Book::reset(const WireL2Snapshot& wire) {
         }
         return true;
     };
-    // A snapshot with one level we cannot read is not one to chain onto: the
-    // stream only sends changes, so the hole would never heal.
+    // an unreadable snapshot level is refused; changes alone never heal the hole
     if (!take(wire.bids, ladders_.bids()) || !take(wire.asks, ladders_.asks()) ||
         ladders_.bids().empty() || ladders_.asks().empty()) {
         invalidate();
@@ -212,14 +208,12 @@ BookResult Book::reset(const WireL2Snapshot& wire) {
 
 BookResult Book::apply(const WireL2Update& update) {
     if (!synced_) {
-        // Changes before the snapshot have no book to change.
         return BookResult::Ignored;
     }
     for (const auto& change : update.changes) {
         const auto level = convert({.price = change.price, .qty = change.qty});
         if (!level.has_value()) {
-            // A level we cannot convert is not one we may skip: from here the
-            // book would disagree with Coinbase's permanently, and invisibly.
+            // an unconvertible level invalidates the book
             invalidate();
             return BookResult::BadLevel;
         }
@@ -230,8 +224,7 @@ BookResult Book::apply(const WireL2Update& update) {
         upsert(change.bid ? ladders_.bids() : ladders_.asks(), *level);
     }
     if (ladders_.bids().empty() || ladders_.asks().empty()) {
-        // The price walked clean out of the band, so what is left is no longer
-        // the top of the venue's book.
+        // the price left the band, so the top is no longer known
         invalidate();
         return BookResult::BadLevel;
     }
@@ -242,9 +235,7 @@ std::optional<BookSnapshot> Book::snapshot(UnixNanos ts_event, UnixNanos ts_init
     if (!synced_) {
         return std::nullopt;
     }
-    // The sequence is left at zero on purpose: level2_batch publishes no
-    // ordering token, and a number we invented would read as one Coinbase
-    // stood behind.
+    // sequence 0: level2_batch has no ordering token
     return ladders_.snapshot(instrument_, 0, ts_event, ts_init);
 }
 

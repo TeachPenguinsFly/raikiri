@@ -1,12 +1,5 @@
 #pragma once
 
-// How a venue's refusal should be acted on.
-//
-// Domain vocabulary rather than exec's, for the reason PositionReport and
-// FillReport are: the adapters classify it, an order event carries it across
-// shm and the journal, and the screens read it back. Transport must not depend
-// on the adapter layer, so the type cannot live there.
-
 #include <cstdint>
 
 namespace raikiri {

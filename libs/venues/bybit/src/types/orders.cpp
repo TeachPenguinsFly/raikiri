@@ -9,9 +9,7 @@ namespace {
 using wire::guarded;
 namespace ondemand = wire::ondemand;
 
-// Reads one order-shaped object. Shared because /v5/order/realtime returns
-// the same shape as the websocket `order` topic — the venue is consistent
-// here, so the parser is too.
+// /v5/order/realtime rows share the websocket order shape
 std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate& out) {
     auto symbol = wire::req_str(obj, "symbol");
     if (!symbol.has_value()) {
@@ -34,7 +32,7 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
     out.avg_price = field("avgPrice");
     out.reject_reason = field("rejectReason");
     out.status = order_status_from(field("orderStatus"));
-    // Timestamps are milliseconds inside a JSON string on this stream.
+    // timestamps are milliseconds in a json string
     out.updated_ms = wire::digits_to_u64(field("updatedTime"));
     return {};
 }

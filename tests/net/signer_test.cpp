@@ -8,8 +8,7 @@
 namespace raikiri::net {
 namespace {
 
-// RFC 4231 test case 2 — the standard HMAC-SHA256 vector. If this passes,
-// every venue's signature scheme is built on a correct primitive.
+// rfc 4231 test case 2
 constexpr std::string_view k_rfc_key = "Jefe";
 constexpr std::string_view k_rfc_msg = "what do ya want for nothing?";
 constexpr std::string_view k_rfc_hex =
@@ -24,7 +23,6 @@ TEST(Hmac, Base64MatchesTheSameDigest) {
     std::array<char, k_base64_bytes> out{};
     const auto b64 = hmac_sha256_base64(k_rfc_key, k_rfc_msg, out);
     ASSERT_EQ(b64.size(), k_base64_bytes);
-    // 32 bytes always end in exactly one pad character.
     EXPECT_TRUE(b64.ends_with('='));
     EXPECT_EQ(b64, "W9zBRr9gdU5qBCQmCJV1x1oAPwidJzmDnexYuWTsOEM=");
 }
@@ -60,9 +58,6 @@ TEST(Signer, SignsWithTheHeldSecretAndNeverExposesIt) {
 }
 
 TEST(Signer, BybitStyleMessageShape) {
-    // bybit v5 signs timestamp + apiKey + recvWindow + body; the exact
-    // concatenation is the adapter's business, but it must be signable
-    // without allocating.
     Signer signer;
     signer.set_api_key("abc123");
     ASSERT_TRUE(signer.secret().assign("topsecret").has_value());

@@ -43,18 +43,10 @@ using tcp = boost::asio::ip::tcp;
 
 using TlsStream = beast::ssl_stream<beast::tcp_stream>;
 
-// Never empty: extended refuses a request or handshake without one (403).
+// extended refuses a request or handshake without one (403)
 constexpr std::string_view k_user_agent = "raikiri/0.1";
 
-// Header names a venue states its metering under. Matched by PREFIX and
-// case-insensitively, because the spellings differ by venue and by endpoint
-// family within one venue: binance uses `X-MBX-USED-WEIGHT-1M` and
-// `X-MBX-ORDER-COUNT-10S`, bybit `X-Bapi-Limit`, `X-Bapi-Limit-Status` and
-// `X-Bapi-Limit-Reset-Timestamp`, gate `x-gate-ratelimit-*`, bitmex and bingx
-// the conventional `x-ratelimit-*`, kucoin `gw-ratelimit-*`.
-//
-// A prefix list rather than an exact list: a venue that adds a fourth field to
-// its family should be seen, not silently dropped.
+// rate header prefixes, matched case-insensitively; spellings differ by venue and endpoint family
 constexpr std::string_view k_rate_header_prefixes[] = {
     "x-mbx-",
     "x-bapi-limit",
@@ -79,9 +71,7 @@ constexpr std::string_view k_rate_header_prefixes[] = {
     return false;
 }
 
-// Set once at startup, read on the reactor thread that owns every REST
-// completion. Not atomic because there is only ever the one writer and it runs
-// before any client exists; a second writer would be a bug this cannot hide.
+// set once at startup before any client exists; read on the reactor thread
 RateObserver g_rate_observer;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 RequestObserver g_request_observer; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
@@ -96,16 +86,10 @@ void collect_rate_headers(const Response& res, std::vector<RateHeader>& out) {
     }
 }
 
-// Venues reap sockets that have been silent for a minute or so without ever
-// saying that they did. Finding out on an order costs a full connect plus TLS
-// at precisely the moment latency matters, so idle sockets get replaced on
-// our schedule instead of theirs.
+// venues reap silent sockets after about a minute; replace idle ones first
 constexpr std::uint64_t k_idle_reconnect_ns = 30'000'000'000ULL;
 
-// Waiters allowed per pooled connection before send() starts refusing. Deep
-// enough to ride out one slow response, shallow enough that a stalled venue
-// is reported as down instead of silently accumulating orders that will be
-// stale by the time they leave.
+// waiters per pooled connection before send() refuses
 constexpr std::size_t k_queue_depth_per_conn = 8;
 
 constexpr std::size_t k_no_slot = static_cast<std::size_t>(-1);
@@ -136,15 +120,7 @@ constexpr std::size_t k_no_slot = static_cast<std::size_t>(-1);
 
 namespace internal {
 
-// Lifetime works the same way as in WsClient: every completion handler holds a
-// shared_ptr to the pool so the reactor can drain queued handlers after the
-// RestClient is gone, a `dead_` flag makes those handlers no-ops so no
-// callback reaches a destroyed caller, and each connection attempt owns a
-// separate Conn kept alive by its own handlers. The last part matters more
-// here than for websockets: an in-flight request's serialized bytes live in
-// Conn::req, and a socket that failed cannot be reused anyway — an
-// ssl::stream has no way back to a usable state once its handshake or
-// transport breaks — so recovery is always a fresh Conn, never a reset one.
+// handlers hold a shared_ptr to the pool and `dead_` makes them no-ops; a failed Conn is replaced, not reset
 class RestPool : public std::enable_shared_from_this<RestPool> {
 public:
     RestPool(asio::io_context& ioc, RestConfig config)
@@ -194,7 +170,7 @@ public:
         try {
             stop();
         } catch (...) {
-            // Destructor path: nothing left to report to.
+            // destructor path: nothing left to report to
         }
     }
 
@@ -204,7 +180,6 @@ public:
         }
         Pending pending{build_request(request), std::move(on_complete), clock_.wall()};
 
-        // Dispatching straight into async_write keeps the hot path one syscall deep.
         if (const std::size_t idx = find_free_slot(); idx != k_no_slot) {
             dispatch(idx, std::move(pending));
             return true;
@@ -222,12 +197,7 @@ public:
 
     [[nodiscard]] const RestConfig& config() const noexcept { return cfg_; }
 
-    // Whether a send would be taken at all. Asked BEFORE the admission gate,
-    // so a request the pool was always going to refuse never spends a venue's
-    // allowance: a cold depth book re-asks for its seed on every delta frame,
-    // and across hundreds of contracts that is a kilohertz of refused sends
-    // pinning the budget at its reserve floor — starving the calls market data
-    // cannot go without, like a token re-mint.
+    // asked before the admission gate so a request the pool would refuse spends no allowance
     [[nodiscard]] bool has_room() const noexcept {
         return !dead_ && (find_free_slot() != k_no_slot ||
                           queue_.size() < slots_.size() * k_queue_depth_per_conn);
@@ -328,16 +298,7 @@ private:
         slots_[idx].generation = gen;
         auto conn = std::make_shared<Conn>(ioc_, tls_);
         slots_[idx].conn = conn;
-        // THE NAME LOOKUP IS THE ONE LEG NOTHING ELSE BOUNDS. The stream's own
-        // timer only starts at the connect, so a resolver that never answers
-        // parks this slot at ready == false for as long as the system resolver
-        // takes to give up — and everything sent meanwhile queues behind it,
-        // with the pool holding every one of those callbacks the whole time.
-        //
-        // The resolve itself cannot be cancelled: it is a getaddrinfo on a
-        // thread this process does not own. What the timer does is release the
-        // slot, which bumps its generation, so the answer that eventually
-        // arrives is no longer current and is dropped.
+        // bounds the name lookup, which the stream's timer does not cover; a late answer is dropped by generation
         conn->resolve_timer.expires_after(std::chrono::milliseconds{cfg_.connect_timeout_ms});
         conn->resolve_timer.async_wait([self = shared_from_this(), idx, gen, conn](
                                            const beast::error_code& ec) {
@@ -543,16 +504,7 @@ private:
         }
     }
 
-    // A QUEUED REQUEST'S OWN DEADLINE, which nothing else supplies: the
-    // stream's timer starts at the dispatch, so until a slot frees there is no
-    // clock on the request at all. A slot that never becomes ready therefore
-    // held its queue — and the caller's callback with it — for as long as the
-    // venue's name or its socket took to fail, which is how a completion came
-    // to be delivered into a frame that had long since returned.
-    //
-    // Same allowance as the wire: a request may wait timeout_ms for a
-    // connection and then spend timeout_ms on it. RestConfig::max_wait_ms is
-    // that sum, and it is what a blocking caller must outlast.
+    // a queued request's own deadline; RestConfig::max_wait_ms is queue wait plus round trip
     [[nodiscard]] std::uint64_t queue_budget_ns() const noexcept {
         return std::uint64_t{cfg_.timeout_ms} * 1'000'000ULL;
     }
@@ -561,8 +513,7 @@ private:
         return now.ns > item.queued.ns ? now.ns - item.queued.ns : 0;
     }
 
-    // The queue is in arrival order, so its front always holds the nearest
-    // deadline and one timer covers the whole of it.
+    // arrival order, so the front holds the nearest deadline
     void arm_queue_timer() {
         if (dead_ || queue_timer_armed_ || queue_.empty()) {
             return;
@@ -590,8 +541,7 @@ private:
             expired.push_back(std::move(queue_.front()));
             queue_.pop_front();
         }
-        // Drained before the first callback runs: one of them may send again,
-        // and a callback that re-enters this must not find the queue mid-edit.
+        // drained before callbacks run, since one may send again
         for (auto& item : expired) {
             RestResponse response;
             response.status = 0;
@@ -697,9 +647,7 @@ void RestClient::stop() {
 }
 
 bool RestClient::send(const RestRequest& request, RestCallback on_complete) {
-    // ROOM FIRST, THEN THE BUDGET. Spending an allowance on a request that has
-    // nowhere to go is how a retry storm starves the calls that matter; see
-    // RestPool::has_room.
+    // room first, then the budget; see RestPool::has_room
     if (!impl_->pool->has_room()) {
         return false;
     }

@@ -53,9 +53,6 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
         .secret(state->signer.secret())

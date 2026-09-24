@@ -1,7 +1,6 @@
 #pragma once
 
-// Every frame on every stream carries `seq` and `ts` beside its `data`. The
-// sequence counts frames on the SOCKET, across all its markets.
+// seq counts frames on the socket, across all its markets
 
 #include <raikiri/venues/extended/catalogue.hpp>
 
@@ -19,7 +18,7 @@ struct WireLevel {
     std::string_view size; // absolute; "0" deletes the level
 };
 
-// Past BTC's 3826-level snapshot side with room to spare.
+// room above the deepest snapshot side
 inline constexpr std::size_t k_max_levels = 8192;
 
 struct LevelBuffer {
@@ -36,8 +35,7 @@ struct WireBook {
     std::span<const WireLevel> asks;
 };
 
-// Both book streams. A delta's `q` is the CHANGE and `c` the absolute size; a
-// snapshot has only `q`, and there it is absolute.
+// a delta's q is the change and c the absolute size; a snapshot has only q, absolute
 [[nodiscard]] std::expected<WireBook, WireError> parse_book(std::string_view frame,
                                                             LevelBuffer& storage);
 

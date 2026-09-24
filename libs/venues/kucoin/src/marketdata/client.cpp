@@ -30,30 +30,15 @@ namespace raikiri::venues::kucoin::internal {
 
 namespace {
 
-// A day's turnover restated every five minutes. The catalogue endpoint
-// answers with every contract, so this is one call however many symbols
-// the gateway watches.
+// the catalogue call covers every contract at once
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
-// ON THE UNIFIED FEED THE SAME POLL IS THE FUNDING SOURCE, so it runs at the
-// pace funding needs rather than the pace a 24-hour figure does. One call for
-// every contract a minute; the classic feed never reaches this path.
+// on the uta feed this poll is the funding source
 constexpr std::uint64_t k_uta_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// What one REST pool holds before it refuses on its own: two warm connections
-// times eight waiters. It matters here because RestClient asks the admit gate
-// BEFORE the pool answers, so a request the pool was always going to drop
-// still costs one of the 2000 KuCoin allows in 30 s — and a cold book asks
-// again on every level2 frame. Stopping short of that ceiling also leaves the
-// pool room for the bullet mint, the one call market data cannot go without.
+// the rest client asks the rate gate before the pool, so a request the pool drops still spends budget
 constexpr std::size_t k_rest_queue_headroom = 8;
 
-// Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises.
-//
-// THE BOOK IS MARKED IN FLIGHT ONLY IF THE SEND WAS TAKEN. The rate budget
-// refuses a seed as readily as a busy pool does, and a book marked before the
-// refusal waits forever for a request nobody made; left cold, it still wants a
-// seed and the next change frame asks again.
+// mark the book in flight only if the send was taken
 void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
@@ -77,9 +62,6 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        // NOT `book`: the enclosing function takes a DepthBook& by that name,
-        // and shadowing it here reads as the ladder rather than the snapshot
-        // taken from it.
         if (const auto seeded = target.snapshot(UnixNanos{wire->ts_ns}, response.received);
             seeded.has_value()) {
             owner->sink->on_depth(*seeded);
@@ -91,9 +73,7 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
     }
 }
 
-// A whole book off /spotMarket/level2Depth50. No seed, no chain: KuCoin
-// republishes the complete depth there, so the only failure available is a
-// frame that does not parse — silence, never a stale book served as current.
+// spot republishes the whole book, so there is no seed or chain
 void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local LevelBuffer storage;
     const auto wire = parse_book_snapshot(frame, storage);
@@ -116,8 +96,7 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
     }
     const auto& base = base_of(*instrument);
     auto& book = state.book_for(base);
-    // Asked before the change is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
+    // asked before the change is offered, so the triggering frame is buffered behind the seed
     if (book.wants_seed(received.ns)) {
         request_seed(state, book, base);
     }
@@ -125,9 +104,7 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
     const auto ts_event = ms_to_unix(wire->ts_ms, received);
-    // ASKED BEFORE THE SNAPSHOT IS BUILT. The build is the expensive half —
-    // 3.2 KB of arrays value-initialised and filled — and the sink is what
-    // knows whether a reader could resolve the result.
+    // ask the sink before building the snapshot; the build is the expensive part
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
@@ -136,14 +113,7 @@ void handle_book_change(VenueState& state, std::string_view frame, UnixNanos rec
     }
 }
 
-// ONE BOOK AND ONE QUOTE FROM ONE FRAME, which is what this feed is for. The
-// classic tree needed tickerV2 beside the ladder; here the applied book's
-// touch is the same number, and KuCoin says so itself — tickerV2 "shares the
-// sn and sequence fields with the Order Book" and "the values of both fields
-// are identical". The reason it could not be done on classic was that a book
-// only reaches Live once a REST seed lands, and a contract whose book never
-// moves never asks for one. Here every subscribed symbol opens with a
-// snapshot, so every book is Live from its first frame.
+// the applied book's touch is the quote, so one frame yields both
 void handle_uta_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local const auto storage = std::make_unique<LevelBuffer>();
     const auto wire = parse_uta_book(frame, *storage);
@@ -184,7 +154,6 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
     const auto event = parse_event(frame);
     if (!event.has_value()) {
-        // Unknown shapes are ignored, never fatal.
         return;
     }
     switch (event->kind) {
@@ -266,9 +235,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// A pool key is one topic on one symbol, joined by a byte neither can contain.
-// The pool stores keys as opaque strings and hands them back when a socket
-// reconnects, so this is the only place that knows the shape.
+// a pool key is topic and symbol joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view topic, std::string_view symbol) {
@@ -282,13 +249,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE, AND NOTHING IS INVALIDATED HERE. Each
-    // socket in the pool re-asks for its own keys when it opens; replaying the
-    // whole desired set on every one of them is the flood the pool exists to
-    // avoid. The pool forwards this per connection, so a blanket invalidation
-    // would send all ~673 futures books back for a REST seed every time any
-    // one of six sockets blinked — the pool's OnConnectionOpen invalidates the
-    // books that socket actually carries instead.
+    // each pooled socket resubscribes its own keys; OnConnectionOpen invalidates only that socket's books
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -316,13 +277,7 @@ public:
         : state_{std::move(state)}, handler_{*state_},
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host(state_->market)}, .port = "443"}} {
-        // BOTH POOLS, because KuCoin meters one allowance per IP and both
-        // spend it: the seeds and the catalogue poll ride depth_rest, the
-        // bullet token and the funding seed ride this one. Every caller below
-        // treats a refusal as a retry on its next tick, never as a failure.
-        //
-        // The pool's own room is asked FIRST and costs nothing; the budget is
-        // only spent on a request that has somewhere to go.
+        // both pools spend kucoin's per-ip allowance; the pool's room is checked before the budget
         const auto gate = [owner = state_.get()](const net::RestClient& client,
                                                  std::string_view target) {
             return client.in_flight() < k_rest_queue_headroom && owner->admit_poll(target);
@@ -341,8 +296,7 @@ public:
     }
 
     void stop() override {
-        // Dropped, not waited for: the callback co-owns the cell, so an answer
-        // after this writes into something only it still points at.
+        // the callback co-owns the cell, so it is safe to drop
         bullet_.reset();
         if (pool_) {
             pool_->stop();
@@ -358,8 +312,6 @@ public:
         return pool_ != nullptr && pool_->connected();
     }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -367,8 +319,7 @@ public:
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
-            // The bullet this socket connected with belongs to ONE tree, and
-            // the two trees share neither topics nor payload shapes.
+            // a bullet serves one market tree
             return std::unexpected{exec::not_implemented("kucoin: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
@@ -376,18 +327,10 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
-        // ONE CHANNEL SERVES BOTH on the unified feed, so the quote and the
-        // ladder collapse to a single subscription per contract — which is
-        // also what keeps a 683-contract catalogue inside the venue's
-        // 100-messages-per-ten-seconds ceiling.
+        // on uta one channel serves the quote and the ladder
         const auto topic = state_->uta ? uta_topic_for(kind) : topic_for(kind, state_->market);
         if (topic.empty()) {
-            // UTA v2 HAS NO FUNDING TOPIC, and returning here used to be the
-            // whole story: no socket, no seed, and — because the catalogue
-            // poll only runs for instruments on `wanted_` — no 24-hour figure
-            // either. From the migration until 2026-09-24 every kucoin funding
-            // file was 0 bytes. Funding now comes off the catalogue poll, which
-            // states it per contract, so the instrument goes on its list.
+            // uta v2 has no funding topic; funding comes off the catalogue poll, so list the instrument
             if (state_->uta && kind == exec::SubKind::Funding) {
                 wanted_.push_back(instrument);
                 return {};
@@ -396,12 +339,8 @@ public:
         }
         const auto before = state_->desired.size();
         state_->add_subscription(topic, symbol);
-        // Funding and the mark share /contract/instrument, so the second of the
-        // two adds no key — and must still reach the seed below.
+        // funding and mark share /contract/instrument, so the second adds no key but still needs the seed
         if (state_->desired.size() != before && pool_ != nullptr) {
-            // THE POOL PLACES IT. A key that fits on no existing socket opens
-            // another, and only the pool's own ceiling refuses — which is said
-            // out loud rather than leaving the instrument silently unwatched.
             const std::array<std::string, 1> one{key_of(topic, symbol)};
             if (!pool_->subscribe(one)) {
                 return std::unexpected{exec::VenueError::make(
@@ -410,9 +349,7 @@ public:
         }
         if (kind == exec::SubKind::Funding) {
             if (!seed_funding(symbol)) {
-                // Refused, not lost. /contract/instrument states a funding rate
-                // only when KuCoin restates one, so a dropped seed is a blank
-                // column until the next eight-hour settlement.
+                // a dropped funding seed leaves the column blank until the next settlement
                 pending_funding_seeds_.emplace_back(symbol);
             }
             wanted_.push_back(instrument);
@@ -441,9 +378,7 @@ public:
         }
         if (connected() && now.ns >= state_->next_app_ping_ns) {
             if (const auto frame = state_->protocol.ping_frame(); !frame.empty()) {
-                // EVERY socket. KuCoin closes a connection whose application
-                // ping stops arriving, so pinging one of six kills the other
-                // five a ping interval later.
+                // kucoin closes a connection whose application ping stops, so ping every socket
                 pool_->broadcast(frame);
             }
             state_->next_app_ping_ns = now.ns + state_->app_ping_interval_ns;
@@ -456,8 +391,7 @@ public:
         poll_ticker(now);
     }
 
-    // A refused seed is otherwise asked again only by the book's next change
-    // frame, and a quiet contract may not send one for minutes.
+    // otherwise a refused seed is retried only on the book's next change frame
     void reseed_quiet_books(UnixNanos now) noexcept {
         if (now.ns < next_reseed_sweep_ns_) {
             return;
@@ -474,10 +408,7 @@ public:
         }
     }
 
-    // The 24-hour window comes off the CATALOGUE endpoint on futures and
-    // allTickers on spot, the only places kucoin states it — no stream this
-    // adapter subscribes to carries a turnover. Slow, because the figure it
-    // reads covers a day.
+    // 24h window comes from the catalogue on futures and allTickers on spot
     void poll_ticker(UnixNanos now) noexcept {
         if (wanted_.empty() || now.ns < next_ticker_poll_ns_ || ticker_in_flight_) {
             return;
@@ -499,13 +430,12 @@ public:
             ticker_in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next interval.
+        // only a sent call advances the interval
         next_ticker_poll_ns_ =
             now.ns + (state_->uta ? k_uta_funding_poll_interval_ns : k_ticker_poll_interval_ns);
     }
 
-    // Funding seeds the budget refused, one a tick. A loop here would ask for
-    // the same refusal once per pending symbol.
+    // one refused funding seed per tick
     void drain_funding_seeds() noexcept {
         if (pending_funding_seeds_.empty()) {
             return;
@@ -565,8 +495,7 @@ public:
                 stats.has_value()) {
                 state_->sink->on_ticker_stats(*stats);
             }
-            // Only on the unified feed: the classic one has a funding stream,
-            // and two writers of one cell would race each other's merges.
+            // uta only: the classic feed has its own funding stream writing the same cell
             if (state_->uta && !row.funding_fee_rate.empty()) {
                 publish_row_funding(row, received);
             }
@@ -592,15 +521,10 @@ public:
     }
 
 private:
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the ordering lives
-    // here rather than at subscribe time: on a reconnect the order that
-    // matters is the order the venue is asked in.
+    // called on every open of the socket
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         if (state_->uta) {
-            // ONE FRAME PER SYMBOL, never batched: the venue refuses `symbols`
-            // for this channel outright. There is also nothing to rank — the
-            // book carries the quote, so there is one kind of subscription.
+            // one frame per symbol; obu refuses symbols arrays
             std::vector<std::string> out;
             out.reserve(keys.size());
             for (const auto& key : keys) {
@@ -628,11 +552,7 @@ private:
             views.push_back({.topic = std::string_view{key}.substr(0, cut),
                              .symbol = std::string_view{key}.substr(cut + 1)});
         }
-        // GROUPED BY TOPIC so a frame batches, but ordered by what a screen
-        // needs FIRST. Sorted lexicographically, tickerV2 — the top of book —
-        // came last of the four, and once the sends are paced that meant the
-        // one column everybody looks at was the last to arrive and, on a large
-        // catalogue, did not arrive at all.
+        // grouped by topic, quote first so it lands before the slower kinds
         const auto rank = [](std::string_view topic) {
             if (topic.ends_with("tickerV2") || topic.ends_with("/market/ticker")) {
                 return 0; // the quote
@@ -665,12 +585,7 @@ private:
         return frames;
     }
 
-    // The books ONE reopened socket broke, and no others. A depth book is fed
-    // by a single connection, so its delta chain survives every reconnect but
-    // its own — and each futures book that goes cold reseeds over REST against
-    // /api/v1/level2/snapshot, which is the burst this venue cannot afford
-    // ~673 of. Spot subscribes the level2Depth50 SNAPSHOT topic, which
-    // republishes whole books and keeps none here, so the loop finds nothing.
+    // invalidate only the books this reopened socket fed; each cold futures book reseeds over rest
     void invalidate_books(std::span<const std::string> keys) noexcept {
         const auto depth_topic = topic_for(exec::SubKind::Depth, state_->market);
         for (const auto& key : keys) {
@@ -697,16 +612,10 @@ private:
         }
     }
 
-    // BOOT ONLY. Blocking here is the bootstrap case asio documents: nothing is
-    // running yet, and a gateway that streams before it has a socket is worse
-    // than one that takes a second to start. A reopen at RUNTIME must not come
-    // through here — see begin_reopen.
+    // boot only, blocking; runtime reopens go through begin_reopen
     std::expected<void, exec::VenueError> open_stream() {
         if (state_->uta) {
-            // NOTHING TO MINT. This endpoint takes public market data from a
-            // process holding no credentials, so the whole bullet round trip —
-            // and the ten-second blocking wait that used to sit here — is
-            // simply absent on this feed.
+            // this host needs no bullet
             return open_stream_at(
                 StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"});
         }
@@ -719,18 +628,10 @@ private:
         return open_stream_with(*body);
     }
 
-    // A RUNTIME REOPEN MUST NOT STOP THE GATEWAY LOOP. This ran inside poll()
-    // and blocked it for up to ten seconds while KuCoin minted a bullet token —
-    // ten seconds in which no book moved and no cancel could leave, on every
-    // reconnect. It was the only call in the tree that broke the reactor's own
-    // promise that no venue's silence can delay a cancel (io_context.hpp).
-    //
-    // So the mint is asked for here and collected on a later pass. The landing
-    // is a cell the callback co-owns: giving up on the deadline below is not
-    // cancelling, and the pool still holds the callback.
+    // a runtime reopen must not block the gateway loop: request the mint here, collect it later
     void begin_reopen() noexcept {
         if (state_->uta) {
-            // No mint, so a reopen is immediate and cannot block the loop.
+            // no mint, so the reopen is immediate
             (void)open_stream_at(
                 StreamEndpoint{.host = std::string{k_uta_futures_host}, .port = "443", .target = "/"})
                 .has_value();
@@ -751,10 +652,7 @@ private:
         bullet_due_ns_ = state_->clock->mono().ns + k_bullet_deadline_ns;
     }
 
-    // OWN DEADLINE, not the transport's. RestClient ages its queue and bounds
-    // its name lookup, so an answer does arrive — but a venue left waiting on a
-    // mint that never lands is a venue that never reconnects, and that must not
-    // depend on a guarantee made in another library.
+    // own deadline so a lost mint cannot stall reconnection
     void collect_reopen(UnixNanos now) noexcept {
         if (bullet_ == nullptr) {
             return;
@@ -802,34 +700,19 @@ private:
         if (pool_) {
             pool_->stop();
         }
-        // ONE BULLET FOR THE WHOLE POOL, and the token and connect id sit in
-        // the target every socket is built from. KuCoin wants a connect id per
-        // connection, so the sockets here present the same one; giving each its
-        // own needs a per-connection config on net::WsPool, which this venue
-        // cannot add on its own. What keeps it honest meanwhile: the pool opens
-        // its sockets within a second of the mint, and a token the venue
-        // refuses answers 401, which schedules the reopen that mints again.
+        // one bullet and connect id for the whole pool; a refused token answers 401 and remints
         pool_ = std::make_unique<net::WsPool>(
             state_->io,
             net::WsConfig{
                 .host = endpoint.host, .port = endpoint.port, .target = endpoint.target},
             handler_,
-            // ONE HUNDRED, WHICH IS KUCOIN'S OWN CEILING PER CONNECTION, and
-            // it is counted in topic-symbol pairs however they are batched
-            // into frames. Set to 1024
-            // this looked fine and was not: the venue took the first hundred
-            // on each socket and dropped the rest in silence, so with the
-            // quote ranked first every symbol quoted while the ladder — ranked
-            // last — never arrived at all. Measured: 10 instruments gave
-            // depth=13866, 673 gave depth=0.
+            // kucoin accepts 100 topic-symbol pairs per connection and drops the rest silently
             net::WsPoolConfig{},
             [this](std::span<const std::string> keys) { return build_frames(keys); },
             [this](std::span<const std::string> keys) { invalidate_books(keys); });
         pool_->start();
 
-        // The desired set outlives the pool the bullet expiry throws away, so
-        // it is placed again here — including whatever subscribe() recorded
-        // while there was no pool to place it on.
+        // the desired set outlives the pool, so it is placed again here
         std::vector<std::string> keys;
         keys.reserve(state_->desired.size());
         for (const auto& entry : state_->desired) {
@@ -839,10 +722,7 @@ private:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kucoin: connection pool is full")};
         }
-        // The handler's own on_open is NOT called here. The pool forwards it
-        // per connection, and hands the same open to invalidate_books with
-        // that connection's keys; calling it here as well would fire the
-        // connectivity event once per stream on top.
+        // the pool forwards on_open per connection; calling it here would double the event
         return {};
     }
 
@@ -878,7 +758,7 @@ private:
     }
 
     std::shared_ptr<VenueState> state_;
-    // The mint a runtime reopen is waiting on, and when to give up on it.
+    // the mint a runtime reopen is waiting on, and when to give up on it
     std::shared_ptr<std::optional<net::RestResponse>> bullet_;
     std::uint64_t bullet_due_ns_{0};
     PublicHandler handler_;

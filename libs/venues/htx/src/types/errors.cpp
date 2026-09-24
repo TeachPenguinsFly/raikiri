@@ -11,8 +11,6 @@ constexpr int k_http_ok_max = 299;
 constexpr int k_http_too_many_requests = 429;
 constexpr int k_http_server_error = 500;
 
-// Returns false for a word code, which is how the two spellings are told
-// apart without the caller having to know which surface it came from.
 bool as_number(std::string_view code, std::int64_t& out) noexcept {
     if (code.empty()) {
         return false;

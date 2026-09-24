@@ -89,10 +89,7 @@ parse_wallet_balance(std::string_view result, CoinBalanceBuffer& storage) {
                 out.unrealised_pnl = field("unrealisedPnl");
                 storage.coins[count++] = out;
             }
-            // ONE ACCOUNT: the request names a single accountType and bybit
-            // answers with a single row. A second row would be a second wallet
-            // reporting the same coin names, and concatenating the two would
-            // read as one account holding both.
+            // one accountType, one row; a second row would be a second wallet
             break;
         }
         return std::span<const WireCoinBalance>{storage.coins.data(), count};

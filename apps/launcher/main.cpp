@@ -1,6 +1,4 @@
-// launcher — dev/demo supervisor: spawn gatewayd(sim) + strategyd, wait for
-// the strategy run to finish, take the gateway down, report. Production uses
-// systemd units; this exists so `make demo` is one command.
+// launcher: dev/demo supervisor for gatewayd(sim) and strategyd behind `make demo`
 
 #include <raikiri/log/log.hpp>
 
@@ -30,8 +28,7 @@ pid_t spawn(const std::string& path, const std::vector<std::string>& args) {
     }
     argv.push_back(nullptr);
     ::execv(path.c_str(), argv.data());
-    // Between fork and exec, where there is no logger: the process starts one
-    // only after both spawns, and a backend thread would not survive the fork.
+    // no logger between fork and exec
     fmt::print(stderr, "launcher: exec {} failed\n", path);
     ::_exit(127);
 }
@@ -46,7 +43,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Sibling binaries: <build>/apps/launcher/launcher -> ../gatewayd/gatewayd.
     char self[4096];
     std::snprintf(self, sizeof self, "%s", argv[0]);
     const std::string bin_dir = ::dirname(self);
@@ -56,8 +52,7 @@ int main(int argc, char** argv) {
     const pid_t gw = spawn(gatewayd, {"--venue=sim"});
     const pid_t st = spawn(strategyd, {"--duration", duration});
 
-    // AFTER the forks. A child of a multi-threaded parent may call only
-    // async-signal-safe functions until exec, and spawn() allocates.
+    // start logging after the forks; spawn() allocates
     const raikiri::log::Scope logging{"launcher"};
 
     int status = 0;

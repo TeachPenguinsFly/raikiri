@@ -14,7 +14,7 @@ namespace raikiri::venues::apex {
 using WireError = wire::Error;
 
 struct WireContract {
-    // "BTCUSDT", the spelling every stream accepts; `symbol` ("BTC-USDT") is not.
+    // the spelling every stream accepts; symbol (BTC-USDT) is refused
     std::string_view cross_symbol;
     std::string_view base;
     std::string_view settle;
@@ -31,7 +31,7 @@ struct ContractBuffer {
     std::array<WireContract, k_max_contracts> contracts{};
 };
 
-// perpetualContract then stockContract. predictionContract is never read.
+// reads perpetualContract then stockContract
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError>
 parse_symbols(std::string_view body, ContractBuffer& storage);
 
@@ -69,7 +69,6 @@ struct AckBuffer {
 [[nodiscard]] std::expected<WireAck, WireError> parse_ack(std::string_view frame,
                                                           AckBuffer& storage);
 
-// The server's ping value, which the pong must carry back.
 [[nodiscard]] std::expected<std::string_view, WireError> parse_ping(std::string_view frame);
 
 struct WireLevel {
@@ -81,7 +80,7 @@ struct WireOrderbook {
     std::string_view symbol;
     bool is_snapshot{false};
     std::uint64_t update_id{0};
-    std::uint64_t ts_us{0}; // MICROseconds
+    std::uint64_t ts_us{0}; // microseconds
     std::span<const WireLevel> bids;
     std::span<const WireLevel> asks;
 };
@@ -118,7 +117,7 @@ struct WireTrades {
 [[nodiscard]] std::expected<WireTrades, WireError> parse_trades(std::string_view frame,
                                                                 TradeBuffer& storage);
 
-// A delta carries only the fields that changed: empty means unchanged, never zero.
+// deltas carry only changed fields; empty means unchanged
 struct WireTicker {
     std::string_view symbol;
     std::string_view mark_price;

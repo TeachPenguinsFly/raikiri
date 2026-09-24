@@ -1,13 +1,7 @@
 #pragma once
 
-// Hyperliquid public websocket protocol: channel naming and subscription
-// frames.
-//
-// VERIFIED live, and why subscriptions are validated before they are sent: an
-// unknown subscription TYPE earns {"channel":"error",...} and then a CLOSED
-// socket, taking every other subscription with it. An unknown COIN is worse —
-// nothing comes back at all, not even an ack, so a typo'd symbol is
-// indistinguishable from a market that is merely quiet.
+// an unknown type closes the socket and an unknown coin gets no reply,
+// so subscriptions are validated first
 
 #include <raikiri/exec/data_client.hpp>
 
@@ -25,7 +19,6 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// There is a testnet at api.hyperliquid-testnet.xyz carrying its own book.
 [[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path() noexcept;

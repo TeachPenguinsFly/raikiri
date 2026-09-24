@@ -1,11 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers, and the budget they are spent from.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what was charged. None of them belongs to the order path —
-// they run on a poller's schedule and may not spend the allowance a cancel is
-// about to need, which is what the Poll rate class is for.
+// signed reconciliation reads, spent from the poll rate class
 
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -39,22 +34,17 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // the venue reaps idle sockets silently
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
+    // the order path is async; everything else here is a synchronous read
     [[nodiscard]] RequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
         return rest_.send(request, std::move(on_done));
     }
 
-    // Local refusal, before the request exists. RateLimited rather than
-    // Terminal: the caller should come back, and `retry_after_ns` says when.
-    // A second's hold: long enough that a burst cannot immediately repeat,
-    // short enough that one refusal does not stall reconciliation for a minute.
+    // local refusal held for a second; RateLimited so the caller retries after retry_after_ns
     void penalize(std::string_view target) noexcept {
         if (state_->budget != nullptr) {
             state_->budget->penalize(target, state_->clock->mono(), 1'000'000'000ULL);
@@ -77,19 +67,11 @@ public:
             "local rate budget spent; retry after the stated milliseconds")};
     }
 
-    // The envelope's fields are VIEWS INTO `body`, so the caller owns the
-    // body and it outlives every use of them. Returning the two together would
-    // leave the views pointing into a string that a move could relocate, and
-    // returning the envelope alone — which this did — left them pointing into
-    // a response destroyed on the way out. ASan caught it on the first
-    // credentialed position pull; nothing without a key ever reaches here.
+    // the envelope's fields view into `body`, which the caller owns
     [[nodiscard]] std::expected<WireRestEnvelope, exec::VenueError>
     fetch(const net::RestRequest& request,
           std::string& body) {
-        // Poll class: these are reconciliation pulls, and they may not spend
-        // the slice held back for order entry. Refused BEFORE the socket, so
-        // the venue never has to say no — its refusals cost more than ours,
-        // because a 429 on the order path can arrive after the matcher saw it.
+        // poll class, refused before the socket so the venue never has to refuse
         if (const auto allowed = spend(request.target, exec::RateClass::Poll); !allowed.has_value()) {
             return std::unexpected{allowed.error()};
         }
@@ -107,9 +89,7 @@ public:
         if (envelope->ret_code != k_ret_ok) {
             const auto cls = classify(envelope->ret_code);
             if (cls == exec::ErrorClass::RateLimited) {
-                // THE VENUE'S ANSWER OUTRANKS OUR ACCOUNTING, which has just
-                // been proven wrong. Draining the meter it refused on is what
-                // stops the next pass walking into the same wall.
+                // the venue refused: drain the meter so the next pass waits
                 penalize(request.target);
             }
             return std::unexpected{
@@ -219,9 +199,7 @@ public:
         auto& storage = *storage_owner;
         const auto positions = parse_position_list(envelope->result, storage);
         if (!positions.has_value()) {
-            // NOT an empty account. A body we cannot read says nothing about
-            // what is held, and answering with an empty vector here is what
-            // turns "could not tell" into "is flat".
+            // an unreadable body is an error; an empty vector would read as flat
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position list")};
         }
@@ -251,8 +229,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_funding_charges(envelope->result, storage);
         if (!rows.has_value()) {
-            // A body we cannot read is NOT an empty ledger. Saying "no charges"
-            // here would book zero funding against a position that paid some.
+            // an unreadable body is an error, not an empty ledger
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "unreadable transaction log")};
         }
@@ -263,10 +240,7 @@ public:
             if (instrument == nullptr) {
                 continue; // a symbol this gateway does not carry
             }
-            // ONE ROW CARRIES BOTH COLUMNS, and which one is money depends on
-            // the row's type: a TRADE states its fee and leaves funding at
-            // zero, a SETTLEMENT the reverse. Reading the wrong column books a
-            // zero over a real charge.
+            // TRADE rows carry the fee, SETTLEMENT rows the funding
             const bool is_fee = wire.type == "TRADE";
             const auto amount = parse_decimal_e9(is_fee ? wire.fee : wire.funding);
             if (!amount.has_value() || amount->raw == 0) {
@@ -274,14 +248,11 @@ public:
             }
             LedgerEntry charge{};
             charge.instrument = base_of(*instrument).id;
-            // bybit states a FEE as a cost: positive is paid away, which is the
-            // opposite of how the account moved. Flipped here so both kinds
-            // reach the book in one convention.
+            // bybit fees are positive when paid; flip to the account's direction
             charge.amount = is_fee ? FixedE9{-amount->raw} : *amount;
             charge.kind = is_fee ? LedgerKind::Fee : LedgerKind::Funding;
             charge.settled_at = UnixNanos{wire.transaction_ms * 1'000'000};
-            // A fee names the trade it was charged on, which is what the
-            // comparison keys on; the log's own row id is the fallback.
+            // fees key on the trade id; the row id is the fallback
             const auto reference = is_fee && !wire.trade_id.empty() ? wire.trade_id : wire.id;
             if (auto id = ExecId::from(reference); id.has_value()) {
                 charge.reference = *id;
@@ -293,9 +264,7 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
-        // ONE WALLET behind both markets: a unified account funds a spot fill
-        // and a perp's margin out of the same coins, so the answer does not
-        // vary by market and narrowing it to one would be an invention.
+        // one unified wallet backs both markets
         (void)market;
         const auto request = builder_.wallet_balance(state_->venue_now());
         if (!request.has_value()) {
@@ -311,8 +280,7 @@ public:
         auto& storage = *storage_owner;
         const auto coins = parse_wallet_balance(envelope->result, storage);
         if (!coins.has_value()) {
-            // An unreadable wallet is refused rather than reported as an empty
-            // vector, which reads as an account holding nothing.
+            // an unreadable wallet is an error, not an empty account
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(coins.error()))};
         }

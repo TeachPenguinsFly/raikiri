@@ -1,13 +1,4 @@
-// Two-process SPSC ping-pong over a shared-memory segment.
-//
-// Parent and child each own one direction (two SpscRings in one segment).
-// The parent timestamps a message, the child echoes it, and the parent
-// records the round trip. Reported figures are RTT — halve for one-way hop
-// cost. Both sides busy-poll; on Linux pass --cpu A --cpu-child B to pin the
-// two processes to distinct cores (macOS: unpinned, numbers are indicative).
-//
-// This is the transport the order path rides: strategy -> gateway command
-// rings are exactly these primitives.
+// two-process spsc ping-pong over shm; reports round trip, pin with --cpu A --cpu-child B on linux
 
 #include <raikiri/common/platform.hpp>
 #include <raikiri/common/time.hpp>

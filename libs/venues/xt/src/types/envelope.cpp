@@ -88,10 +88,7 @@ std::expected<std::uint64_t, WireError> req_digits(wire::ondemand::object& obj,
     return value;
 }
 
-// raw_json() on a scalar returns the token plus whitespace up to the next one,
-// so quotes come off after trimming. Contents stay escaped: XT symbols, order
-// ids and decimal tokens cannot contain an escape, and letting simdjson
-// unescape would move every field into a buffer that cannot be rebased.
+// raw_json() includes trailing whitespace, so trim before stripping quotes; contents stay escaped
 std::expected<std::string_view, WireError> scalar_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
@@ -131,9 +128,7 @@ opt_i64(wire::ondemand::object& obj, std::string_view key, std::int64_t fallback
     if (field.error() != simdjson::SUCCESS) {
         return std::unexpected(wire::map_error(field.error()));
     }
-    // An explicit null is the venue saying "no value", which is what a fallback
-    // is for. A wrong TYPE is not: XT spells some numbers as strings, and
-    // folding that into the fallback would drop a value the venue did send.
+    // only an explicit null takes the fallback; a wrong type is an error
     if (bool null = false; field.is_null().get(null) == simdjson::SUCCESS && null) {
         return fallback;
     }
@@ -161,10 +156,7 @@ opt_bool_or(wire::ondemand::object& obj, std::string_view key, bool fallback) {
     return out;
 }
 
-// `result` is an ARRAY on the unpaged reads (/v4/open-order, position/list) and
-// an OBJECT wrapping `items` on the paged ones (/v4/trade, order/trade-list).
-// Asking for one shape and getting the other is not an error XT reports — the
-// read simply returns nothing — so the shape is resolved before the walk.
+// result is an array on unpaged reads and an object with items on paged ones; the wrong shape reads empty
 std::expected<wire::ondemand::array, WireError> rows_of(wire::ondemand::object& root,
                                                           std::string_view key) {
     wire::ondemand::value result;
@@ -354,9 +346,7 @@ std::expected<std::string_view, WireError> parse_listen_key(std::string_view bod
         if (const auto ec = result.type().get(type); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
-        // `result` is the key STRING itself. XT's own reference prints it as
-        // `{}` — that is the doc's placeholder for every result, not a shape —
-        // so an object is still read, for the one field it could hold.
+        // result is the key string; the doc's {} is a placeholder, but an object is still read
         if (type != wire::ondemand::json_type::object) {
             const auto key = scalar_of(result);
             if (!key.has_value()) {
@@ -395,8 +385,7 @@ std::expected<PrivateFrame, WireError> parse_private_frame(std::string_view fram
             }
             return PrivateFrame{.topic = topic_of(*topic), .code = 0, .msg = {}};
         }
-        // The subscribe answer, identical in shape on both trees:
-        // 0 accepted, 1 refused, 2 the listen key is no longer valid.
+        // 0 accepted, 1 refused, 2 listen key invalid
         const auto code = opt_i64(*root, "code", -1);
         if (!code.has_value()) {
             return std::unexpected(code.error());

@@ -17,9 +17,7 @@ LevelAction action_from(std::string_view text) noexcept {
     return text == "change" ? LevelAction::Change : LevelAction::New;
 }
 
-// Grouped books ship [price, amount], the incremental feed [action, price,
-// amount]; `expect_action` says which, so a shape change is a refusal rather
-// than a price read out of the action slot.
+// grouped books ship [price, amount], the incremental feed [action, price, amount]
 std::expected<WireLevel, WireError> read_level(wire::ondemand::value entry, bool expect_action) {
     wire::ondemand::array tuple;
     if (const auto ec = entry.get_array().get(tuple); ec != simdjson::SUCCESS) {
@@ -84,8 +82,7 @@ std::expected<std::size_t, WireError> read_levels(wire::ondemand::object& obj,
     return count;
 }
 
-// An empty side is a real state on an illiquid option, so it yields empty
-// views rather than an error; the mapper drops those.
+// an empty side is real on an illiquid option
 std::expected<void, WireError> read_top(wire::ondemand::object& obj,
                                         std::string_view key,
                                         std::string_view& price,
@@ -110,11 +107,7 @@ std::expected<void, WireError> read_top(wire::ondemand::object& obj,
     return {};
 }
 
-// The same exactness rule the mappers apply, through the same reader:
-// Deribit writes sizes as "6.6e3" as readily as "6600.0", so the exponent
-// form has to survive and book::exact_steps, which reads plain decimals,
-// cannot. A remainder means Deribit moved a precision under us, and rounding
-// it would quote a price the venue never published.
+// sizes also arrive as 6.6e3, which book::exact_steps cannot read; a remainder is refused
 std::optional<std::int64_t> exact_steps(std::string_view token, FixedE9 step) {
     if (token.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -189,7 +182,7 @@ std::expected<WireBook, WireError> parse_book(std::string_view frame, LevelBuffe
         }
         const auto ts = opt_ms(*data, "timestamp");
         const auto change = wire::opt_i64(*data, "change_id");
-        // Absent on a snapshot rather than a sentinel: 0 means "chain starts".
+        // absent on a snapshot
         const auto prev = wire::opt_i64(*data, "prev_change_id");
         if (!ts.has_value() || !change.has_value() || !prev.has_value()) {
             return std::unexpected(WireError::WrongType);
@@ -221,9 +214,7 @@ bool Book::apply_side(std::span<const WireLevel> levels, book::Ladder& side) {
         }
         const book::Level level{PriceTicks::from_raw(*price), QtyLots::from_raw(*qty)};
 
-        // The ACTION decides, not the size: `delete` is Deribit's removal and
-        // is what the venue defines, where the zero beside it is only what it
-        // currently sends. A `new` or `change` of zero is no level either.
+        // delete is deribit's removal; a new or change of zero is no level either
         if (wire.action == LevelAction::Delete || level.qty.raw == 0) {
             side.remove(level.price);
             continue;
@@ -247,7 +238,6 @@ BookResult Book::apply(const WireBook& update) {
     }
 
     if (!synced_) {
-        // A delta before any snapshot has no book to chain onto.
         return BookResult::Ignored;
     }
     if (update.prev_change_id != last_change_id_) {

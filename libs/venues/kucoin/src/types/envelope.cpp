@@ -10,8 +10,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// `subject` separates all five shapes, including the two sharing the
-// /contract/instrument topic, so the topic is read only for the symbol.
+// subject separates all five shapes; the topic gives only the symbol
 EventKind kind_from_subject(std::string_view subject) noexcept {
     if (subject == "tickerV2" || subject == "trade.ticker") {
         return EventKind::Bbo;
@@ -19,9 +18,7 @@ EventKind kind_from_subject(std::string_view subject) noexcept {
     if (subject == "match" || subject == "trade.l3match") {
         return EventKind::Trade;
     }
-    // "level2" is BOTH trees' subject and two different payloads: a packed
-    // single-level change on futures, a whole book on spot. Only the socket
-    // knows which, which is why the parsers take a market.
+    // level2 is a packed change on futures and a whole book on spot
     if (subject == "level2") {
         return EventKind::Depth;
     }
@@ -34,8 +31,7 @@ EventKind kind_from_subject(std::string_view subject) noexcept {
     return EventKind::Unknown;
 }
 
-// A batched subscription is echoed one symbol per frame (verified live), so
-// this is never a list.
+// batched subscriptions echo one symbol per frame
 std::string_view symbol_of_topic(std::string_view topic) noexcept {
     const auto colon = topic.rfind(':');
     if (colon == std::string_view::npos) {
@@ -45,7 +41,7 @@ std::string_view symbol_of_topic(std::string_view topic) noexcept {
     return topic;
 }
 
-// Shared body of the opt_/req_ pairs; an absent field reads as empty.
+// shared body of the opt_/req_ pairs; absent reads as empty
 template <typename Read>
 [[nodiscard]] std::expected<std::string_view, WireError>
 lookup(wire::ondemand::object& obj, std::string_view key, Read read) {
@@ -74,10 +70,7 @@ std::expected<std::string_view, WireError> topic_symbol(wire::ondemand::object& 
     return symbol;
 }
 
-// raw_json() returns the token plus whitespace up to the next one. Contents
-// stay escaped: KuCoin symbols, order ids and decimal strings cannot contain an
-// escape, and letting simdjson unescape would move every field into a buffer
-// that cannot be rebased.
+// raw token, still escaped; kucoin ids and decimals carry no escapes
 std::expected<std::string_view, WireError> raw_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {
@@ -225,8 +218,7 @@ std::expected<EventInfo, WireError> parse_private_event(std::string_view frame) 
         if (!subject.has_value()) {
             return std::unexpected(subject.error());
         }
-        // The all-symbols topic says orderChange; the per-symbol form of the
-        // same futures topic says symbolOrderChange, and the payloads match.
+        // orderChange and symbolOrderChange carry the same payload
         if (*subject == "orderChange" || *subject == "symbolOrderChange") {
             info.kind = EventKind::OrderChange;
         }

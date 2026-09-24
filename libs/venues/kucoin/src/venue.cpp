@@ -35,22 +35,14 @@ using internal::make_instrument_source;
 
 namespace {
 
-// Credentials arrive as references to WHERE the secret lives; the value never
-// enters the config. The passphrase is sealed last on purpose: key version 2
-// signs it with the api secret, so sealing before the secret is loaded would
-// produce a digest keyed by nothing.
+// credentials are references to where secrets live; seal the passphrase after the secret loads
 void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // a bad reference is dropped here and reads downstream as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state.credentials.signer().set_api_key(value); })
         .secret(state.credentials.signer().secret())
         .resolve();
-    // THE PASSPHRASE IS SEALED WITH THE SECRET, so an unresolved secret leaves
-    // nothing to seal it with: kucoin's header carries the passphrase encrypted
-    // under the api secret, and sealing against an empty one produces a value
-    // the venue rejects rather than an absent header it tolerates.
+    // the passphrase is sealed with the secret, so skip sealing without one
     if (!state.credentials.signer().secret().view().empty()) {
         (void)config::Credentials{{}, {}, config.passphrase_env}
             .passphrase(
@@ -64,11 +56,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    // THE FEED IS A DEPLOYMENT'S CHOICE, not this library's. "uta" takes the
-    // unified account's `obu` channel — 4.76x fewer messages than the classic
-    // tree for the same 683 contracts, measured 2026-09-19 — and needs no REST
-    // seed at all. Anything else keeps classic, which is what every deployment
-    // ran before this existed and what one falls back to if this feed misses.
+    // "uta" selects the obu feed; anything else keeps classic
     if (const std::string_view feed = config.market_data_feed;
         feed == "uta" || feed.starts_with("uta:")) {
         state->uta = true;

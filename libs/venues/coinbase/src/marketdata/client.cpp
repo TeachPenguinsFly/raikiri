@@ -29,14 +29,10 @@ namespace raikiri::venues::coinbase::internal {
 
 namespace {
 
-// level2_batch's opening snapshot for BTC-USD measured 1,203,894 bytes —
-// 45,805 levels in one frame — so the transport's 1 MiB default drops the
-// only frame that can start a book. Sized for a book several times that
-// rather than for the one measured; the value is a ceiling, not a buffer.
+// the level2_batch opening snapshot exceeds the 1 MiB transport default; this is a ceiling
 constexpr std::size_t k_max_message_bytes = std::size_t{8} * 1024 * 1024;
 
-// The book's own ts_event: every Coinbase timestamp is ISO-8601 text, and an
-// unreadable one falls back to ingest rather than to zero.
+// an unreadable timestamp falls back to ingest
 UnixNanos book_time(std::string_view text, UnixNanos fallback) {
     const auto parsed = parse_iso8601(text);
     return parsed.has_value() ? *parsed : fallback;
@@ -134,9 +130,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// A pool key is one channel on one product, joined by a byte neither can
-// contain. The pool stores keys as opaque strings and hands them back when a
-// socket reconnects, so this is the only place that knows the shape.
+// pool key: channel and product joined by a byte neither can contain
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view channel, std::string_view product_id) {
@@ -146,9 +140,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The inverse, and the only decode: two readers of a key that disagree about
-// where the cut falls drift apart in silence. Views into the key, which the
-// pool owns for as long as the connection holds it.
+// the only decoder of key_of; views into the pool-owned key
 [[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
     const auto cut = key.find(k_key_sep);
     if (cut == std::string_view::npos) {
@@ -161,12 +153,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
-    // re-asks for its own keys when it opens; replaying the whole desired set
-    // on every one of them is the flood the pool exists to avoid. This handler
-    // is shared by every connection and so cannot tell WHICH one reopened —
-    // the books a reopen actually broke are invalidated by the pool's own open
-    // hook, which is handed that socket's keys.
+    // each socket resubscribes its own keys on open; the pool's open hook invalidates that socket's books
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -195,10 +182,7 @@ public:
                               .target = std::string{stream_path()},
                               .max_message_bytes = k_max_message_bytes},
                 handler_,
-                // The ceiling is a CONNECTION's, not the process's — reading
-                // it as the process's left 342 of 522 products watched and the
-                // other 180 rows blank. ws.hpp has what one socket was
-                // measured to serve and why the share it is given is smaller.
+                // the ceiling is per connection
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {}
@@ -230,9 +214,7 @@ public:
         if (!state_->add_subscription(channel, symbol)) {
             return {}; // already asked for, and a second key would cost a socket's room
         }
-        // THE POOL PLACES IT. A key that fits on no existing socket opens
-        // another, and only the pool's own ceiling refuses — which is said out
-        // loud rather than leaving the instrument silently unwatched.
+        // the pool opens another socket when none has room
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -241,9 +223,7 @@ public:
         return {};
     }
 
-    // No application keepalive, unlike the other pooled venues: Coinbase's
-    // feed has no ping message at all, and the transport's own ping/pong runs
-    // per socket already.
+    // coinbase has no application ping; the transport pings per socket
     std::size_t wait(std::uint32_t timeout_ms) noexcept override {
         return started_ ? state_->io.run_for(timeout_ms) : 0;
     }
@@ -257,14 +237,7 @@ public:
     }
 
 private:
-    // ONLY THE BOOKS THIS SOCKET FEEDS. level2_batch carries no sequence, so a
-    // book that misses frames leaves no arithmetic trace — a reopened socket's
-    // books are worthless until the venue's fresh snapshot lands, and the
-    // books on every OTHER socket are still being fed. Blanking all of them
-    // would silence a few hundred products until their own socket happened to
-    // blink. The channel is checked as well as the product: a product's ticker
-    // may sit on a different socket from its level2_batch, and only the latter
-    // holds a book.
+    // only this socket's level2_batch books: without a sequence they stay stale until the next snapshot
     void invalidate_books(std::span<const std::string> keys) {
         const auto depth = channel_for(exec::SubKind::Depth);
         for (const auto& key : keys) {
@@ -276,8 +249,7 @@ private:
             if (instrument == nullptr) {
                 continue;
             }
-            // find, not book_for: a key with no book yet has nothing stale in
-            // it, and seeding one here would invent a book nothing feeds.
+            // find, not book_for: a key with no book has nothing stale
             if (const auto entry = state_->books.find(base_of(*instrument).id.packed);
                 entry != state_->books.end()) {
                 entry->second.invalidate();
@@ -285,10 +257,7 @@ private:
         }
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered here rather than at subscribe time: on a reconnect the order that
-    // matters is the order the venue is asked in.
+    // called on every socket open
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
         views.reserve(keys.size());
@@ -297,10 +266,7 @@ private:
                 views.push_back(*one);
             }
         }
-        // THE QUOTE FIRST. Once the sends are paced, whatever goes last
-        // effectively does not go at all — and `ticker` is the Bid/Ask column
-        // every screen shows, while level2_batch answers a subscription with a
-        // megabyte of ladder before it says anything else.
+        // ticker first; level2_batch answers with a megabyte of ladder
         const auto quote = channel_for(exec::SubKind::Bbo);
         std::ranges::stable_partition(
             views, [quote](const Subscription& one) { return one.channel == quote; });

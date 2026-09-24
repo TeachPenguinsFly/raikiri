@@ -15,24 +15,13 @@ constexpr std::string_view k_hdr_key = "KEY";
 constexpr std::string_view k_hdr_sign = "SIGN";
 constexpr std::string_view k_hdr_timestamp = "Timestamp";
 
-// Gate's own spelling of the spot account type. A UNIFIED account refuses
-// "spot" and wants "unified"; there is no VenueConfig field for that yet, so a
-// unified-account key will see every spot order refused rather than routed to
-// the wrong sub-account.
+// unified accounts want "unified" here; no config field exists for that yet
 constexpr std::string_view k_spot_account = "spot";
 
-// Both list endpoints cap at 1000 and default to 100; reconciliation wants the
-// whole picture, not a paginated approximation of it.
-// Gate caps these listings at 100 and answers INVALID_PARAM_VALUE above it —
-// measured against the live futures positions endpoint, which refused 1000 and
-// accepted 100. The orders and fills listings are the same family; they have no
-// caller yet and would have failed the same way the day they got one.
+// gate refuses page sizes above 100 with INVALID_PARAM_VALUE
 constexpr std::string_view k_page_limit = "100";
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long contract name yields a
-// request Gate refuses with CONTRACT_NOT_FOUND instead of one that names a
-// different contract.
+// a part that would overflow is dropped whole so the request names no other contract
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -64,8 +53,7 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed body authenticates as something we did not mean to send.
+// reports overflow rather than truncating a signed body
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -118,8 +106,7 @@ private:
     return "GET";
 }
 
-// Gate spells post-only as a TIME IN FORCE (`poc`), not as a separate flag.
-// Sending post_only alongside tif=gtc is ignored and the order crosses.
+// post-only is tif poc on gate; a separate flag is ignored
 [[nodiscard]] std::string_view tif_text(TimeInForce tif, OrderFlags flags) noexcept {
     if (has_flag(flags, OrderFlags::PostOnly)) {
         return "poc";
@@ -135,9 +122,7 @@ private:
     return "gtc";
 }
 
-// Whole contracts from lots. Gate's futures `size` is a JSON integer count of
-// contracts, so a quantity that is not a whole number of them cannot be sent —
-// and must not be rounded into one that can.
+// futures size is an integer contract count; partial contracts are refused
 [[nodiscard]] std::optional<std::int64_t> whole_contracts(QtyLots lots,
                                                           const InstrumentBase& base) noexcept {
     const auto qty = base.lots_to_qty(lots);
@@ -202,8 +187,7 @@ std::string_view client_id_from_text(std::string_view text) noexcept {
     return text.substr(k_client_id_prefix.size());
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One catalogue load at a time is the only use.
+// builders share one buffer: send each request before building the next
 net::RestRequest RequestBuilder::contracts(std::string_view settle) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_futures_prefix);
@@ -239,14 +223,10 @@ net::RestRequest RequestBuilder::order_book(std::string_view settle,
     writer.put(contract);
     writer.put("&limit=");
     writer.put(depth);
-    // with_id is what makes this a seed rather than a picture: without it the
-    // body has no `id` and there is no way to say where in the update chain
-    // these levels belong. Verified live — the field is absent by default.
+    // with_id gives the seed its place in the update chain
     writer.put("&with_id=true");
     return writer.get();
 }
-
-// -------------------------------------------------------------- signed ----
 
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
@@ -266,8 +246,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
         return std::unexpected{BuildError::BufferTooSmall};
     }
 
-    // A GET signs SHA512 of the EMPTY string, not an empty field: the term is
-    // always present and always 128 hex characters.
+    // a get signs sha512 of the empty string
     const auto body_hash = net::sha512_hex(body, body_hash_);
     if (body_hash.empty()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -307,11 +286,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     return request;
 }
 
-// Gate serves spot and perpetuals here; dated futures live under /delivery and
-// options under /options, each with its own model. Callers ask BEFORE reading
-// the instrument table, which resolves an id by its whole value and would
-// otherwise answer UnknownInstrument — blaming the catalogue for a market this
-// adapter never served.
+// only spot and perps are served here; asked before the table lookup so the error names the market
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -353,12 +328,10 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         }
         json.obj_begin()
             .str("contract", base.exchange_symbol.view())
-            // The SIDE lives in the sign of `size`: positive bids, negative
-            // asks. There is no side field to disagree with it.
+            // the side is the sign of size
             .num("size", cmd.side == Side::Sell ? -*contracts : *contracts);
         if (is_market) {
-            // Gate has no market order type on futures: price "0" with tif ioc
-            // IS the market order, and any other tif is refused.
+            // futures has no market type: price 0 with ioc is a market order
             json.str("price", "0").str("tif", "ioc");
         } else {
             const auto price = base.ticks_to_price(cmd.price);
@@ -391,16 +364,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             .str("side", cmd.side == Side::Sell ? "sell" : "buy")
             .decimal("amount", amount);
         if (is_market) {
-            // A market order carries no price, and Gate accepts only ioc/fok
-            // for one; gtc on a market order is refused outright.
+            // a market order takes only ioc or fok
             json.str("time_in_force", cmd.tif == TimeInForce::Fok ? "fok" : "ioc");
         } else {
             const auto price = base.ticks_to_price(cmd.price);
             if (price.is_undef() || price.raw <= 0) {
                 return std::unexpected{BuildError::BadPrice};
             }
-            // ReduceOnly is deliberately not forwarded: a spot balance cannot
-            // be short, so Gate has no field for it.
+            // reduce-only is not forwarded: spot has no field for it
             json.decimal("price", price).str("time_in_force", tif_text(cmd.tif, cmd.flags));
         }
         json.obj_end();
@@ -410,8 +381,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        // Gate lists options under /api/v4/options with its own underlying and
-        // expiry model; nothing here maps an OptionInstrument to it yet.
+        // nothing maps an OptionInstrument onto /api/v4/options yet
         return std::unexpected{BuildError::OptionsUnsupported};
     }
     if (!json.ok() || !path.ok()) {
@@ -435,10 +405,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
     Appender query{query_};
     switch (cmd.instrument.market()) {
     case MarketType::Perp:
-        // A `t-` id resolves only while the order is in the book, and for 60
-        // seconds after it finishes. Past that Gate answers ORDER_NOT_FOUND
-        // for an order that very much existed, which is why a cancel prefers
-        // the venue id whenever the order store has one.
+        // a t- id resolves only while the order is live and for 60 s after, so a cancel prefers the venue id
         path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders << "/" << target;
         break;
     case MarketType::Spot: {
@@ -489,8 +456,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
             if (!contracts.has_value()) {
                 return std::unexpected{BuildError::BadQuantity};
             }
-            // An amend re-states the SIGNED size, so a resize that forgot the
-            // sign would flip a short into a long.
+            // an amend restates the signed size
             json.num("size", cmd.side == Side::Sell ? -*contracts : *contracts);
         }
         if (!cmd.price.is_undef()) {
@@ -501,7 +467,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
         break;
     }
     case MarketType::Spot: {
-        // The one PATCH here: Gate offers no PUT for a spot amend.
+        // spot amend uses patch; gate has no put for it
         method = net::HttpMethod::Patch;
         json.obj_begin();
         if (!cmd.qty.is_undef()) {
@@ -533,8 +499,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
     }
     const auto market = cmds.front().instrument.market();
 
-    // A batch that straddles markets would go to one endpoint and silently
-    // lose the other market's cancels.
+    // a batch must not straddle markets
     for (const auto& cmd : cmds) {
         if (cmd.instrument.market() != market) {
             return std::unexpected{BuildError::UnknownInstrument};
@@ -596,8 +561,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
         query << "status=open&limit=" << k_page_limit;
         break;
     case MarketType::Spot:
-        // /spot/open_orders answers with one entry PER CURRENCY PAIR, each
-        // holding its own `orders` array; `limit` counts pairs, not orders.
+        // one entry per currency pair; limit counts pairs
         path << ep::k_spot_open_orders;
         query << "limit=100&account=" << k_spot_account;
         break;
@@ -626,8 +590,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
         path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_orders << "/" << target;
         break;
     case MarketType::Spot:
-        // /spot/orders/{id} demands currency_pair, and a client order id does
-        // not carry one. The caller answers from the open-order sweep instead.
+        // spot order lookup needs currency_pair, which a client id lacks
         return std::unexpected{BuildError::UnknownInstrument};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -642,15 +605,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::query_order(
 
 std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::my_trades(MarketType market, UnixNanos since, UnixNanos now) {
-    // SECONDS, unlike the millisecond stamps the same responses carry back.
+    // seconds, unlike the response timestamps
     const auto from_s = static_cast<std::int64_t>(since.ns / 1'000'000'000ULL);
 
     Appender path{path_};
     Appender query{query_};
     switch (market) {
     case MarketType::Perp:
-        // The plain /my_trades pages by order id and cannot answer "since";
-        // only the _timerange variant takes from/to.
+        // only the timerange variant takes from/to
         path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_my_trades;
         query << "limit=" << k_page_limit;
         if (from_s > 0) {
@@ -682,13 +644,11 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     switch (market) {
     case MarketType::Perp:
         path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_positions;
-        // holding=true drops the size-0 rows Gate keeps for every contract the
-        // account ever touched; absent then means flat, as PositionReport reads.
+        // holding=true drops size-0 rows, so absent means flat
         query << "holding=true&limit=" << k_page_limit;
         break;
     case MarketType::Spot:
-        // A spot balance is not a position, and reporting one as flat would be
-        // a claim about a concept Gate does not have here.
+        // spot has no positions
         return std::unexpected{BuildError::UnknownInstrument};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -701,13 +661,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     return sign(net::HttpMethod::Get, path.view(), query.view(), {}, now);
 }
 
-// The account book: settlements AND commissions.
-//
-// `change` is SIGNED the way the account moved, which is already the domain's
-// convention. `from` is in SECONDS — gate states every timestamp in this ledger
-// in seconds, unlike the millisecond stamps its order endpoints use, and
-// passing milliseconds here silently asks for a window fifty thousand years
-// wide, which the venue answers by returning nothing.
+// settlements and commissions; from is in seconds
 std::expected<net::RestRequest, BuildError>
 SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos now) {
     if (market != MarketType::Perp) {
@@ -716,9 +670,7 @@ SignedRequestBuilder::funding_book(MarketType market, UnixNanos since, UnixNanos
     Appender path{path_};
     Appender query{query_};
     path << ep::k_futures_prefix << k_settle_usdt << ep::k_futures_account_book;
-    // NO type FILTER. `fund` and `fee` share this endpoint, and the fee rows
-    // are what a fee reconciliation compares against; asking twice would pay
-    // for one answer twice.
+    // no type filter: fund and fee rows share this endpoint
     query << "limit=" << k_page_limit;
     if (since.ns != 0) {
         char buf[24];

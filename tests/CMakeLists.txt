@@ -6,7 +6,7 @@ function(raikiri_add_test name)
   target_link_libraries(${name}
     PRIVATE ${ARG_LIBS} GTest::gtest_main raikiri::warnings)
   if(ARG_POSTGRES)
-    # One at a time: a migration's DDL deadlocks against another test's.
+    # run one at a time; concurrent migration ddl deadlocks
     gtest_discover_tests(${name} DISCOVERY_TIMEOUT 30 PROPERTIES RESOURCE_LOCK postgres)
   else()
     gtest_discover_tests(${name} DISCOVERY_TIMEOUT 30)
@@ -61,9 +61,7 @@ raikiri_add_test(gatewayd_private_pulls_test SRCS gatewayd/private_pulls_test.cp
 target_include_directories(gatewayd_private_pulls_test PRIVATE ${PROJECT_SOURCE_DIR}/apps/gatewayd)
 
 raikiri_add_test(settings_test SRCS config/settings_test.cpp LIBS raikiri::config raikiri::exec)
-# The committed config files ARE the fixture: this test exists to catch a file
-# the shipped loader cannot read, so it must point at the real ones rather than
-# at a copy that can drift away from them.
+# uses the committed config files so a file the shipped loader cannot read fails here
 target_compile_definitions(settings_test PRIVATE RAIKIRI_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
 
 raikiri_add_test(signer_test SRCS net/signer_test.cpp LIBS raikiri::net)

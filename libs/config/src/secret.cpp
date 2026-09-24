@@ -17,8 +17,7 @@ namespace raikiri::config {
 
 namespace {
 
-// Through a volatile function pointer so the compiler cannot prove the
-// write dead and elide it — exactly what a plain memset risks here.
+// through a volatile function pointer so the write cannot be elided
 using MemsetFn = void* (*)(void*, int, std::size_t);
 volatile MemsetFn const secure_memset = std::memset;
 
@@ -28,9 +27,6 @@ void wipe(char* p, std::size_t n) noexcept {
     }
 }
 
-// Drops one trailing newline (and a preceding CR). Every secret manager and
-// text editor appends one, and an HMAC computed over "key\n" fails in a way
-// that looks like a permissions bug for hours.
 std::string_view trim_eol(std::string_view s) noexcept {
     if (s.ends_with('\n')) {
         s.remove_suffix(1);
@@ -157,12 +153,7 @@ std::expected<SecretRef, SecretError> SecretRef::parse(std::string_view spec) {
         return SecretRef{.scheme = Scheme::Exec, .payload = std::string{payload}};
     }
     if (scheme == "op") {
-        // "op://vault/item/field" is what the 1Password UI copies and
-        // "op:vault/item/field" is what the docs write; both name one secret.
-        // Canonicalised HERE so everything downstream sees one shape — the
-        // reference validator refuses a payload containing "//", so without
-        // this the form a person actually has in their clipboard is rejected
-        // as malformed and the gateway runs read-only for want of two slashes.
+        // the reference validator refuses "//", so the op:// form is canonicalised here
         auto path = payload;
         if (path.starts_with("//")) {
             path.remove_prefix(2);

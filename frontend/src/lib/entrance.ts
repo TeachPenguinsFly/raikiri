@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
-/** How long entrance classes stay applied after content first renders — long
- *  enough for the longest stagger+duration, short enough that later data
- *  refreshes (rows keyed in fresh) never animate. */
+/** covers the longest stagger plus duration; later refreshes do not animate */
 const ENTRANCE_WINDOW_MS = 700
 const STAGGER_MS = 25
 const STAGGER_CAP = 10
 
-/**
- * True only during the short window after `ready` first flips true — used to
- * run list/card entrance animations exactly once, on the initial
- * skeleton→content swap, never on subsequent data refreshes. Pass `resetKey`
- * to re-arm for a new context (e.g. a different instrument's quote panel).
- */
+/** true only just after ready first turns true; resetKey re-arms it */
 export function useEntranceOnce(ready: boolean, resetKey?: unknown): boolean {
   const state = useRef<{ key: unknown; armedAt: number | null }>({ key: resetKey, armedAt: null })
   if (state.current.key !== resetKey) state.current = { key: resetKey, armedAt: null }
@@ -21,8 +14,6 @@ export function useEntranceOnce(ready: boolean, resetKey?: unknown): boolean {
   const armedAt = state.current.armedAt
   const active = armedAt !== null && performance.now() - armedAt < ENTRANCE_WINDOW_MS
 
-  // Re-render once at window end so the classes are removed and rows added by
-  // later refreshes mount without any animation.
   const [, bump] = useState(0)
   useEffect(() => {
     if (!active) return
@@ -33,17 +24,12 @@ export function useEntranceOnce(ready: boolean, resetKey?: unknown): boolean {
   return active
 }
 
-/** Stagger delay for row/card `index`, capped at ~10 rows so long lists finish
- *  together instead of trickling. Spread onto the animated element's `style`. */
+/** stagger delay, capped at about ten rows */
 export function enterDelay(index: number): CSSProperties {
   return { '--enter-delay': `${Math.min(index, STAGGER_CAP) * STAGGER_MS}ms` } as CSSProperties
 }
 
-/**
- * True for the first `ms` after mount (or after `resetKey` changes) — the
- * window where an empty feed reads as "warming up" (show skeleton) rather than
- * genuinely absent (show the real no-feed / empty state).
- */
+/** true for the first ms after mount or a resetKey change, while an empty feed means warming up */
 export function useWarmup(ms: number, resetKey?: unknown): boolean {
   const state = useRef<{ key: unknown; start: number }>({ key: resetKey, start: performance.now() })
   if (state.current.key !== resetKey) state.current = { key: resetKey, start: performance.now() }

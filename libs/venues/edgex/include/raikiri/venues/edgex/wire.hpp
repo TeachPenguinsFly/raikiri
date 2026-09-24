@@ -56,13 +56,13 @@ struct EventInfo {
 
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
-// The digits of {"type":"ping","time":"1790314760008"}, to be echoed.
+// the digits of {"type":"ping","time":"1790314760008"}, to be echoed
 [[nodiscard]] std::expected<std::string_view, WireError> parse_ping(std::string_view frame);
 
 struct StreamError {
     std::string_view code; // "GATEWAY_INVALID_CONTRACT_ID"
     std::string_view message;
-    // The frame has no channel field; this is dug out of the echoed request.
+    // the frame has no channel field; this comes from the echoed request
     std::string_view channel;
 };
 
@@ -112,8 +112,7 @@ parse_trades(std::string_view frame, PrintBuffer& storage);
 struct WireTicker {
     std::uint32_t contract_id{0};
     std::string_view mark_price; // "0" on spot
-    // The FORECAST for next_funding_ms, not the last settled rate. The same
-    // name on fundingRate.* and REST getLatestFundingRate is the settled one.
+    // the forecast for next_funding_ms; on fundingRate.* and rest the same name is the settled rate
     std::string_view funding_rate;
     std::uint64_t next_funding_ms{0};
     std::string_view volume_base;  // `size`

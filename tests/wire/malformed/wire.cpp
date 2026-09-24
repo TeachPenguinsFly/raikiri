@@ -72,7 +72,7 @@ void in_order(std::string_view frame) {
     (void)for_each_field(*root, [](std::string_view, ondemand::value& child) { walk(child, 0); });
 }
 
-// Out of wire order on purpose: every lookup after the first rescans.
+// out of wire order on purpose: every lookup after the first rescans
 void by_name(ondemand::object& obj) {
     if (auto levels = req_array(obj, "asks"); levels.has_value()) {
         walk_array(*levels, 0);

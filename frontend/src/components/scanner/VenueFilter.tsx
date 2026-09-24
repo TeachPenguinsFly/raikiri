@@ -2,16 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Venue } from '@/components/shared/Venue'
 import { cn } from '@/lib/utils'
 
-/** Which venues the board may use.
- *
- *  THE SET IS DERIVED FROM THE DATA, never from a list kept here: a venue that
- *  is not attached has no rows, and offering it as a filter would be a control
- *  that does nothing and a claim that the venue is available.
- *
- *  EMPTY MEANS ALL. A filter that started with everything ticked would look
- *  identical to one nobody has touched, and the first click would then have to
- *  be "untick fifteen things" — so nothing selected is the unfiltered state,
- *  and the button says so. */
+/** venues come from the data; an empty selection means all */
 export function VenueFilter({
   available,
   selected,
@@ -24,9 +15,7 @@ export function VenueFilter({
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
-  // Closing on an outside click rather than on blur: blur fires when the
-  // pointer lands on a checkbox inside the panel, which would shut it on every
-  // tick and make multi-select impossible.
+  // close on outside click; blur fires when a checkbox inside is clicked
   useEffect(() => {
     if (!open) return undefined
     const away = (e: MouseEvent) => {

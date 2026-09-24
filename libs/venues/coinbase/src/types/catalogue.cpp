@@ -10,9 +10,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A delisted row still ships every field, so nothing here is optional for
-// structural reasons; `status` and `trading_disabled` are what the mapper
-// refuses on.
+// delisted rows ship every field; the mapper refuses on status and trading_disabled
 std::expected<WireProduct, WireError> read_product(wire::ondemand::object& obj) {
     WireProduct out{};
     for (const auto& [key, field] : {std::pair{"id", &out.id},

@@ -101,20 +101,15 @@ void handle_frame(VenueState& state, EventKind kind, std::string_view frame, Uni
     case EventKind::PrivatePosition:
     case EventKind::SubscribeAck:
     case EventKind::Unknown:
-        break; // the private kinds belong to the exec sockets, not this one
+        break; // private kinds belong to the exec sockets
     }
 }
 
-// The market-data socket: bbo, trades and the step0 book.
 class MarketHandler final : public net::WsHandler {
 public:
     explicit MarketHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE, and nothing is sent in a loop. The pool
-    // re-asks for the keys of the ONE connection that opened, PACED — which is
-    // the whole fix: this used to push the entire catalogue's subscriptions
-    // down a single socket as fast as the loop turned, and HTX answered 65 of
-    // 340 contracts. One socket carries 346 paced topics perfectly well.
+    // the pool resubscribes this connection's keys, paced
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -132,11 +127,7 @@ public:
                 return; // unknown shapes are ignored, never fatal
             }
             if (event->kind == EventKind::MarketPing) {
-                // BACK DOWN THE SOCKET THAT ASKED. HTX pings each connection
-                // separately and wants that ping's own value echoed, so a
-                // broadcast would answer one socket's ping on all of them and
-                // leave the others' unanswered — which is how HTX decides a
-                // socket has gone quiet.
+                // answer on the socket that pinged; htx expects each ping echoed on its own connection
                 if (const auto pong = state_->protocol.market_pong_frame(event->keepalive_ts);
                     pong.has_value()) {
                     (void)pool_->reply(pong->text);
@@ -162,13 +153,12 @@ private:
     net::Inflater inflater_;
 };
 
-// The notification socket: same host and gzip, a different dialect and a
-// different keepalive spelling. Funding only — no other socket carries it.
+// funding only; same host and gzip, different dialect and keepalive
 class NotifyHandler final : public net::WsHandler {
 public:
     explicit NotifyHandler(VenueState& state) : state_{&state} {}
 
-    // Its own pool re-asks for this connection's codes; see the market handler.
+    // its own pool resubscribes this connection's codes
     void on_open() override {}
 
     void on_message(std::string_view payload, UnixNanos received) noexcept override {
@@ -183,11 +173,7 @@ public:
                 return;
             }
             if (event->kind == EventKind::NotifyPing) {
-                // BACK DOWN THE SOCKET THAT ASKED. HTX pings each connection
-                // separately and wants that ping's own value echoed, so a
-                // broadcast would answer one socket's ping on all of them and
-                // leave the others' unanswered — which is how HTX decides a
-                // socket has gone quiet.
+                // answer on the socket that pinged; htx expects each ping echoed on its own connection
                 if (const auto pong = state_->protocol.notify_pong_frame(event->keepalive_ts);
                     pong.has_value()) {
                     (void)pool_->reply(pong->text);
@@ -216,10 +202,7 @@ net::WsConfig socket_config(std::string_view path) {
             .target = std::string{path}};
 }
 
-// The topic is `market.<code>.<suffix>`, and a key here is the half after
-// `market.`. SPLIT ON THE FIRST DOT: a suffix carries dots of its own
-// ("trade.detail", "depth.step0") and a contract code never does, so the last
-// dot would tear `trade.detail` in half.
+// split on the first dot: suffixes contain dots, contract codes do not
 std::string market_key(std::string_view code, std::string_view suffix) {
     return std::string{code} + "." + std::string{suffix};
 }
@@ -258,8 +241,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return market_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -267,11 +248,7 @@ public:
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         if (instrument.market() != MarketType::Perp) {
-            // api.hbdm.com is the futures tree. The spot host this adapter
-            // knows is reached only for the private v2 stream — no public spot
-            // market data is wired, and HTX spells the two markets
-            // differently, so a spot code sent here is simply refused by the
-            // venue after the subscription has been counted as successful.
+            // no public spot market data is wired; a spot code here would be refused after counting as subscribed
             return std::unexpected{exec::not_implemented("htx spot market data")};
         }
         const auto code = state_->instruments.exchange_symbol(instrument);
@@ -280,12 +257,9 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
-            // The 24-hour turnover rides market.{code}.detail on the OTHER
-            // socket: this one subscription covers both, because no SubKind
-            // asks for a ticker and a caller that wanted funding wanted the
-            // venue's own statistics.
+            // turnover comes on market.{code}.detail, so a funding subscription asks for it too
             if (const auto detail = place(code, k_detail_topic); !detail.has_value()) {
-                return detail; // a full pool is a refusal, not a quiet omission
+                return detail; // a full pool refuses
             }
             for (const auto& existing : state_->funding_codes) {
                 if (existing == code) {
@@ -293,10 +267,7 @@ public:
                 }
             }
             state_->funding_codes.emplace_back(code);
-            // THE POOL PLACES IT, paced, on a socket with room or a new one.
-            // A refusal is the pool's ceiling and is said out loud — and the
-            // code comes back out of the desired set, or a reconnect would ask
-            // for something no socket holds.
+            // on refusal the code leaves the desired set so a reconnect does not ask for it
             const std::array<std::string, 1> one{std::string{code}};
             if (!notify_.subscribe(one)) {
                 state_->funding_codes.pop_back();
@@ -321,9 +292,7 @@ public:
             return;
         }
         state_->io.poll();
-        // WHERE THE PACING HAPPENS. Without these two the pools queue every
-        // subscription and send none, which is the same dark board as before
-        // by the opposite route.
+        // these polls do the pacing; without them nothing is sent
         market_.poll(now);
         notify_.poll(now);
     }
@@ -344,7 +313,7 @@ private:
         return {};
     }
 
-    // Called for one connection's keys, on its first open and on every reopen.
+    // called on a connection's first open and every reopen
     [[nodiscard]] std::vector<std::string> market_frames(std::span<const std::string> keys) {
         std::vector<std::string> out;
         out.reserve(keys.size());

@@ -1,21 +1,7 @@
 #pragma once
 
-// Time model:
-// - UnixNanos: wall-clock ns since epoch (CLOCK_REALTIME, chrony/PTP-disciplined
-//   in production). Cross-venue timestamps, funding settlement windows.
-// - MonoNanos: CLOCK_MONOTONIC ns. Timeouts, latency measurement, journal
-//   ordering. Never compared across processes or hosts.
-// Every data object carries ts_event (venue time) and ts_init (local ingest
-// time) as UnixNanos, following the two-timestamp rule.
-//
-// Components never call clock_gettime directly — they take a Clock&. That seam
-// is what lets identical strategy code run live (LiveClock) and in
-// deterministic simulation (TestClock, manually advanced).
-//
-// The virtual call is free here and was measured rather than assumed: dispatch
-// through Clock& costs under a nanosecond, against roughly 8ns for the
-// clock_gettime behind LiveClock. The syscall is the price of asking the time;
-// the seam is not.
+// UnixNanos is CLOCK_REALTIME, MonoNanos is CLOCK_MONOTONIC; components take a Clock& so tests can
+// drive time
 
 #include <atomic>
 #include <compare>
@@ -76,9 +62,6 @@ public:
     }
 };
 
-// Deterministic clock for tests and simulation. Atomics only so that
-// multi-threaded tests may read while a driver advances; the kernel itself is
-// single-threaded and needs no ordering stronger than relaxed.
 class TestClock final : public Clock {
 public:
     explicit TestClock(UnixNanos start_wall = {}, MonoNanos start_mono = {}) noexcept
@@ -96,8 +79,6 @@ public:
         wall_ns_.fetch_add(delta_ns, std::memory_order_relaxed);
         mono_ns_.fetch_add(delta_ns, std::memory_order_relaxed);
     }
-
-    void set_wall(UnixNanos t) noexcept { wall_ns_.store(t.ns, std::memory_order_relaxed); }
 
 private:
     std::atomic<std::uint64_t> wall_ns_;

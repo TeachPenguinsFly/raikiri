@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -14,13 +12,7 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// A row of clearinghouseState.assetPositions[].position.
-//
-// `szi` is SIGNED — positive long, negative short — and there is no side
-// field to disagree with it. It is also serialized from a float: a real
-// response carries "-4216984.4000000004" for a position whose lot size is
-// 0.1, so a reader that demands an exact multiple of the step will refuse
-// rows the venue considers ordinary.
+// `szi` is signed and float-serialised, so it may not be an exact multiple of the lot
 struct WirePosition {
     std::string_view coin;
     std::string_view size;     // szi
@@ -31,8 +23,7 @@ inline constexpr std::size_t k_max_positions = 256;
 
 struct PositionBuffer {
     std::array<WirePosition, k_max_positions> positions{};
-    // clearinghouseState.time — the instant the whole snapshot describes.
-    // There is no per-position timestamp, so every row shares this one.
+    // snapshot time shared by every position row
     std::uint64_t ts_ms{0};
 };
 

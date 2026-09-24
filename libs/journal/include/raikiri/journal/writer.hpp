@@ -9,9 +9,7 @@
 
 namespace raikiri::journal {
 
-// On-disk file header, placement-constructed over the first page of each
-// segment. committed_bytes is the release/acquire handoff point between the
-// writing process and tailing readers.
+// committed_bytes is the release/acquire handoff between writer and readers
 struct FileHeader {
     std::uint64_t magic{0};
     std::uint32_t abi{0};
@@ -33,18 +31,8 @@ public:
     JournalWriter& operator=(JournalWriter&&) = delete;
     ~JournalWriter();
 
-    // HOW MANY SEALED SEGMENTS SURVIVE A ROTATE, this one not counted.
-    //
-    // ZERO — KEEP EVERYTHING — IS THE DEFAULT ON PURPOSE. Rotation without
-    // retention fills a disk, and a gateway seals a segment and opens the next
-    // forever; but this class cannot see how far any reader has drained,
-    // because that cursor lives in the reader's own store. A segment pruned
-    // before it was persisted is gone. So the library keeps what it is given
-    // and the DEPLOYMENT decides what it can afford to drop, which is the only
-    // place that knows whether a persister is running and how far behind it is.
-    //
-    // `pruned()` says how many went, so a process can report it rather than
-    // discover it.
+    // sealed segments kept on rotate; zero keeps all, since only the deployment knows how far
+    // readers have drained
     [[nodiscard]] static std::expected<JournalWriter, JournalError>
     open(std::string dir,
          std::string prefix,
@@ -73,21 +61,15 @@ public:
 private:
     JournalWriter() = default;
 
-    // HOW A SEGMENT FILE IS TAKEN OVER, and Adopt is the one a crash makes
-    // necessary. Rotation creates the next file and then writes its header;
-    // a process killed between those two leaves a sized, all-zero file that
-    // Recover rejects as BadMagic — and the whole journal, history included,
-    // becomes unopenable because the newest file is the one the writer starts
-    // from. Adopt says: this file was never written to, so initialise it.
+    // adopt initialises a blank segment left by a crash between creating a file and writing its
+    // header
     enum class SegmentOpen : std::uint8_t { Create, Recover, Adopt };
 
     [[nodiscard]] std::expected<void, JournalError> open_segment(std::uint64_t segment_seq,
                                                                  SegmentOpen how) noexcept;
     void close_segment() noexcept;
     void prune_sealed() noexcept;
-    // Whole-journal exclusion, held for this writer's life. Not per segment:
-    // the writer rolls segments, and a lock that moves with the current file
-    // leaves a window during the roll where a second writer can take over.
+    // held for the writer's life, across segment rolls
     [[nodiscard]] std::expected<void, JournalError> claim(const std::string& dir,
                                                           const std::string& prefix) noexcept;
 

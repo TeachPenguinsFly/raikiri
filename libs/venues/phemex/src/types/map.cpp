@@ -98,8 +98,7 @@ UnixNanos next_funding_time(UnixNanos now, std::uint32_t interval_s) noexcept {
 }
 
 std::optional<Listed> map_linear_perp(const WirePerp& wire) {
-    // The row's description says "every 8 hours" on contracts that settle
-    // every four; fundingInterval is the only field to believe.
+    // fundingInterval is authoritative; the description text can disagree
     if (wire.status != "Listed" || wire.funding_interval_s == 0) {
         return std::nullopt;
     }

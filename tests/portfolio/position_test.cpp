@@ -51,7 +51,6 @@ Position fold(const InstrumentBase& base, const std::vector<Fill>& fills) {
     return position;
 }
 
-// A position is only its numbers; comparing them all is the determinism claim.
 ::testing::AssertionResult same(const Position& a, const Position& b) {
     if (a.qty().raw == b.qty().raw && a.cost().raw == b.cost().raw &&
         a.realized().raw == b.realized().raw && a.fees().raw == b.fees().raw) {
@@ -83,9 +82,6 @@ TEST(Position, ShortIsTheSameCodeWithTheSignsReversed) {
 }
 
 TEST(Position, FullCloseLeavesNoBasisResidue) {
-    // Three opens at different prices, then one exact close. A pro-rata
-    // release would truncate on each leg and strand a few nanounits in a
-    // position that is flat.
     const auto base = binance_btcusdt();
     const auto p = fold(base,
                         {{Side::Buy, 333, "50000.1"},
@@ -97,8 +93,6 @@ TEST(Position, FullCloseLeavesNoBasisResidue) {
 }
 
 TEST(Position, PartialCloseDoesNotMoveTheAverageEntry) {
-    // The classic bug: releasing basis by a formula that is not exactly
-    // pro-rata walks the average with every partial close.
     const auto base = binance_btcusdt();
     Position p{PositionKey{7, base.id}, UnixNanos{1}};
     const auto at = [&](std::string_view px) {
@@ -118,8 +112,6 @@ TEST(Position, PartialCloseDoesNotMoveTheAverageEntry) {
 }
 
 TEST(Position, FlipSplitsIntoACloseAndAnOpen) {
-    // The property: one crossing fill and the two fills it is equivalent to
-    // must produce the same position, to the unit.
     const auto base = binance_btcusdt();
     const auto flipped = fold(base, {{Side::Buy, 1000, "50000"}, {Side::Sell, 2500, "51000"}});
     const auto split = fold(
@@ -133,8 +125,6 @@ TEST(Position, FlipSplitsIntoACloseAndAnOpen) {
 }
 
 TEST(Position, FlipProRatesTheFeeWithoutLosingAUnit) {
-    // 7 nanounits across a 1000/2500 split does not divide. Rounding both
-    // halves independently would make them sum to something other than 7.
     const auto base = binance_btcusdt();
     Position p{PositionKey{7, base.id}, UnixNanos{1}};
     const auto at = [&](std::string_view px) {
@@ -152,8 +142,6 @@ TEST(Position, FlipProRatesTheFeeWithoutLosingAUnit) {
 }
 
 TEST(Position, ResentFillIsANoOp) {
-    // The caller derives the delta from the drop in leaves_qty, so a venue
-    // resending a fill notification produces zero and must change nothing.
     const auto base = binance_btcusdt();
     Position p{PositionKey{7, base.id}, UnixNanos{1}};
     const auto at = *base.price_to_ticks(*parse_decimal_e9("50000"));
@@ -178,8 +166,6 @@ TEST(Position, FoldIsDeterministic) {
 }
 
 TEST(Position, InverseLongProfitsWhenItsBaseValueShrinks) {
-    // 50 000 contracts of 1 USD: 1.0 BTC at entry, 0.8333 at exit. The long
-    // gains 0.16666667 BTC — and it gains it because the number went DOWN.
     const auto base = bitmex_xbtusd();
     const auto p = fold(base, {{Side::Buy, 50'000, "50000"}, {Side::Sell, 50'000, "60000"}});
 
@@ -204,7 +190,6 @@ TEST(Position, UnrealizedIsAFunctionOfTheMarkArgument) {
     EXPECT_EQ(unrealized_pnl(base, p, at("51000")).raw, 1000 * k_e9);
     EXPECT_EQ(unrealized_pnl(base, p, at("49000")).raw, -1000 * k_e9);
     EXPECT_EQ(unrealized_pnl(base, p, at("50000")).raw, 0);
-    // Asking twice at different prices left the position alone.
     EXPECT_EQ(p.cost().raw, 50'000 * k_e9);
 }
 
@@ -216,8 +201,6 @@ TEST(Position, UnrealizedOnInverseAlsoInverts) {
 }
 
 TEST(Position, RealizedIsGrossAndFeesAreSeparate) {
-    // Netting fees into the basis would make the average entry a number no
-    // venue report can ever be compared against.
     const auto base = binance_btcusdt();
     const auto p =
         fold(base, {{Side::Buy, 1000, "50000", "10"}, {Side::Sell, 1000, "51000", "10.2"}});

@@ -28,9 +28,6 @@ OrderCmd make_cmd(ClientOrderId cid, std::int64_t qty) {
 
 class AttributionTest : public ::testing::Test {
 protected:
-    // Created, sent and acknowledged. The FSM refuses a fill on an order that
-    // never went out, and skipping the local Submitted transition is exactly
-    // how orders once stayed open forever.
     Order* place(std::int64_t qty) {
         const auto cid = ids_.next_client_id();
         wall_.ns += 1'000'000;
@@ -56,10 +53,6 @@ protected:
 };
 
 TEST_F(AttributionTest, AVenueFillNamesTheOrderByOurExchangeIdAndCarriesNoIdOfOurs) {
-    // The bug this exists for: a venue knows an order only by the id we sent
-    // it, so a fill off the private stream leaves client_order_id at zero. A
-    // lookup by that id finds nothing, the delta comes out zero, and the whole
-    // booking is skipped in silence.
     Order* order = place(10);
     ASSERT_NE(order, nullptr);
 
@@ -105,11 +98,7 @@ TEST_F(AttributionTest, AnOrderThisProcessNeverHeldIsSaidSoRatherThanBookedAsZer
 }
 
 TEST_F(AttributionTest, AFillNamingOnlyTheVenuesOwnOrderIdStillFindsTheOrder) {
-    // A private socket echoes the id we sent it; a TRADE HISTORY need not. WEEX
-    // is the venue that forces this — its userTrades names `orderId` and
-    // nothing of ours — and until the store was asked by that id, a fill this
-    // process had placed itself matched no order, the book never took it, and
-    // reconciliation reported our own position as one the venue held alone.
+    // weex user trades name only the venue's orderId
     auto* order = place(10);
     ASSERT_NE(order, nullptr);
 
@@ -136,12 +125,6 @@ TEST_F(AttributionTest, AFillNamingOnlyTheVenuesOwnOrderIdStillFindsTheOrder) {
 }
 
 TEST_F(AttributionTest, APulledFillStatesItsOwnSizeBecauseItKnowsNothingOfTheOrder) {
-    // A socket says what the ORDER has left; the venue's trade history says
-    // what the EXECUTION was and nothing about the order. weex is the venue
-    // that forces the distinction — it publishes no private socket at all, so
-    // every fill on it can only arrive this way.
-    //
-    // Before this, the subtraction ran on UNDEF and overflowed.
     auto* order = place(10);
     ASSERT_NE(order, nullptr);
 
@@ -158,10 +141,6 @@ TEST_F(AttributionTest, APulledFillStatesItsOwnSizeBecauseItKnowsNothingOfTheOrd
 }
 
 TEST_F(AttributionTest, APulledFillCannotTakeMoreThanTheOrderHadLeft) {
-    // The cap is what stops a finished order being filled a second time by a
-    // window the venue re-offers. It is not the whole guard — a PARTIAL
-    // re-offered while the order still has room would pass, which is what
-    // SeenFills is for — but it bounds the damage to what was actually open.
     auto* order = place(10);
     ASSERT_NE(order, nullptr);
 
@@ -177,9 +156,6 @@ TEST_F(AttributionTest, APulledFillCannotTakeMoreThanTheOrderHadLeft) {
 }
 
 TEST(SeenFills, TheSameExecutionIsTakenOnceAndThenRefused) {
-    // A venue's trade history re-offers the same execution on every pass over
-    // the same window, and nothing in the numbers separates the second offer
-    // from the first.
     SeenFills seen;
     const UnixNanos now{1'000};
     EXPECT_TRUE(seen.admit("220574436", now));
@@ -189,9 +165,6 @@ TEST(SeenFills, TheSameExecutionIsTakenOnceAndThenRefused) {
 }
 
 TEST(SeenFills, AnExecutionWithNoIdIsAlwaysAdmitted) {
-    // Some venues mint none. Treating every empty id as one execution would
-    // collapse a whole venue's fills into the first — silently, and for as long
-    // as the process runs.
     SeenFills seen;
     const UnixNanos now{1'000};
     EXPECT_TRUE(seen.admit("", now));
@@ -201,7 +174,6 @@ TEST(SeenFills, AnExecutionWithNoIdIsAlwaysAdmitted) {
 }
 
 TEST(SeenFills, WhatNoPullWindowCanReachBackOverIsForgotten) {
-    // An unbounded set keyed by a venue-supplied id is a leak.
     SeenFills seen;
     EXPECT_TRUE(seen.admit("old", UnixNanos{1'000}));
     EXPECT_TRUE(seen.admit("new", UnixNanos{9'000}));
@@ -219,9 +191,6 @@ TEST(SeenFills, AClockInsideTheWindowDropsNothing) {
 }
 
 TEST_F(AttributionTest, AResentFillMovesNoMoney) {
-    // The reason the delta is the DROP in leaves and never the event's own
-    // qty: a venue that repeats a notification states the same qty again, and
-    // deriving the position from it would book the fill twice.
     Order* order = place(10);
     ASSERT_NE(order, nullptr);
 
@@ -243,9 +212,6 @@ TEST_F(AttributionTest, AResentFillMovesNoMoney) {
 }
 
 TEST_F(AttributionTest, LeavesThatROSEAreAnAmendAndNotAFill) {
-    // An amend that grows an order raises its leaves. The difference is
-    // negative, and reading it as a fill would credit a position the venue
-    // never gave us.
     Order* order = place(10);
     ASSERT_NE(order, nullptr);
 

@@ -26,11 +26,10 @@
 namespace raikiri::venues::gate {
 namespace {
 
-// The depth the adapter subscribes at; gate deletes what falls out of it.
+// the subscribed depth; gate deletes what falls out of it
 constexpr std::uint32_t k_gate_window = 100;
 
-// There is no RAIKIRI_GATE_FIXTURES define: this target is the venue test, so
-// the fixture directory is located from this file rather than from CMake.
+// no fixture define for this target, so the directory is located from this file
 std::string fixture(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
     std::ifstream in{path};
@@ -69,8 +68,7 @@ TEST(GateVenue, RegistersAndBuilds) {
 }
 
 TEST(GateVenue, AnUnbuildableCommandIsRefusedLocally) {
-    // No credentials, no instrument, no order id: nothing about this command
-    // can reach the wire. Silence would leave it open in the store forever.
+    // this command cannot reach the wire, so it must be refused
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -93,9 +91,7 @@ TEST(GateVenue, AnUnbuildableCommandIsRefusedLocally) {
 }
 
 TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
-    // An empty catalogue reads as "this venue lists nothing", which is a very
-    // different claim from "this adapter does not load that market". Both
-    // refusals happen before any socket opens, so this test touches no network.
+    // both refusals happen before any socket opens
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -109,8 +105,6 @@ TEST(GateVenue, MarketsWithNoCatalogueLoaderAreRefusedRatherThanReturnedEmpty) {
     }
 }
 
-// ------------------------------------------------------------- wire ----
-
 TEST(GateWire, EventDispatchResolvesKindFromChannelAndEvent) {
     for (const auto& [file, kind] :
          {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
@@ -121,17 +115,13 @@ TEST(GateWire, EventDispatchResolvesKindFromChannelAndEvent) {
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << file;
         EXPECT_EQ(event->kind, kind) << file;
-        // Data frames carry the contract in four different places; their own
-        // parsers report it rather than paying for the descent twice.
+        // data frames' own parsers report the contract
         EXPECT_TRUE(event->contract.empty()) << file;
     }
 }
 
 TEST(GateWire, ControlFramesAreNotMistakenForData) {
-    // Ack and refusal differ only by the presence of an `error` object — both
-    // keep event:"subscribe". Reading a refusal as an ack turns "the venue
-    // rejected this channel" into "this channel is quiet", which is
-    // indistinguishable from a market with no activity.
+    // ack and refusal differ only by the error object
     const auto ack = fixture("ws_subscribe_ack.json");
     auto event = parse_event(ack);
     ASSERT_TRUE(event.has_value());
@@ -146,14 +136,13 @@ TEST(GateWire, ControlFramesAreNotMistakenForData) {
 
     const auto err = parse_stream_error(bad);
     ASSERT_TRUE(err.has_value());
-    // A NUMBER here, unlike the string label a REST refusal carries.
+    // a number here, unlike rest labels
     EXPECT_EQ(err->code, k_ws_invalid_argument);
     EXPECT_FALSE(err->message.empty());
 }
 
 TEST(GateWire, KeepaliveAnswerIsItsOwnChannelWithAnEmptyEvent) {
-    // futures.pong carries event:"" and result:null, so dispatching on the
-    // event alone would file it as an unknown control frame.
+    // futures.pong has an empty event and a null result
     const auto frame = fixture("ws_pong.json");
     const auto event = parse_event(frame);
     ASSERT_TRUE(event.has_value());
@@ -167,25 +156,21 @@ TEST(GateWire, BookTickerParsesBothSidesAndKeepsSizesUnquoted) {
     EXPECT_EQ(book->contract, "BTC_USDT");
     EXPECT_EQ(book->bid_price, "64155.8");
     EXPECT_EQ(book->ask_price, "64155.9");
-    // Quoted price, BARE INTEGER size, in the same object. A reader that
-    // demanded quotes would drop every quantity Gate sends.
+    // quoted price and bare integer size in one object
     EXPECT_EQ(book->bid_qty, "76800");
     EXPECT_EQ(book->ask_qty, "535");
     EXPECT_GT(book->update_id, 0U);
-    // `t` is milliseconds here even though most other Gate epoch fields are
-    // seconds; reading it as seconds would place the tick in the year 58000.
+    // t is milliseconds here
     EXPECT_GT(book->ts_ms, 1'700'000'000'000U);
     EXPECT_LT(book->ts_ms, 100'000'000'000'000U);
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer
     EXPECT_GE(book->bid_qty.data(), frame.data());
     EXPECT_LE(book->bid_qty.data() + book->bid_qty.size(), frame.data() + frame.size());
 }
 
 TEST(GateWire, TradeSignCarriesTheAggressorSide) {
-    // Gate names no side at all: the sign of `size` is the taker direction and
-    // the magnitude is the quantity. Reading `size` as an unsigned number
-    // flattens every signed flow series to one direction.
+    // the sign of size is the taker side
     auto storage = std::make_unique<TradeBuffer>();
     const auto sell_frame = fixture("ws_trades.json");
     const auto sells = parse_trades(sell_frame, *storage, MarketType::Perp);
@@ -195,7 +180,7 @@ TEST(GateWire, TradeSignCarriesTheAggressorSide) {
     EXPECT_EQ(sell.contract, "BTC_USDT");
     EXPECT_FALSE(sell.aggressor_bought);
     EXPECT_FALSE(sell.price.empty());
-    // The minus is stripped, and what is left is still a view into the frame.
+    // the minus is stripped and qty still views the frame
     EXPECT_EQ(sell.qty.front() == '-', false);
     EXPECT_GE(sell.qty.data(), sell_frame.data());
     EXPECT_GT(sell.trade_id, 0);
@@ -215,20 +200,17 @@ TEST(GateWire, TickerCarriesFundingAndMarkOnOneChannel) {
     ASSERT_TRUE(ticker.has_value());
     EXPECT_EQ(ticker->contract, "BTC_USDT");
     EXPECT_FALSE(ticker->funding_rate.empty());
-    // Unlike okx, one subscription answers both questions.
+    // one subscription carries mark and funding
     EXPECT_FALSE(ticker->mark_price.empty());
     EXPECT_EQ(ticker->funding_interval_s, 28'800U);
-    // SECONDS, and small enough that a millisecond reading is impossible.
+    // seconds
     EXPECT_GT(ticker->funding_next_apply_s, 1'700'000'000U);
     EXPECT_LT(ticker->funding_next_apply_s, 10'000'000'000U);
-    // `t` on the same object is milliseconds. The two units live side by side.
+    // t on the same object is milliseconds
     EXPECT_GT(ticker->ts_ms, 1'700'000'000'000U);
-    // Deprecated per Gate's own SDK and observed equal to funding_rate, which
-    // is why the mapper refuses to publish it as a forecast.
+    // deprecated and equal to funding_rate, so not mapped
     EXPECT_EQ(ticker->funding_rate_indicative, ticker->funding_rate);
-    // The base and quote columns by name. `volume_24h` on the same object
-    // is in CONTRACTS (498618666 against 49861.8666 BTC) and is the one
-    // number here that compares with no other venue.
+    // volume_24h is in contracts; the base and quote columns are read by name
     EXPECT_EQ(ticker->volume_24h_base, "49861.8666");
     EXPECT_EQ(ticker->volume_24h_quote, "3198952872");
 }
@@ -245,10 +227,7 @@ TEST(GateWire, BookUpdateChainsOnUpdateIds) {
     const auto second_frame = fixture("ws_order_book_update_next.json");
     const auto second = parse_book_update(second_frame, *next_storage);
     ASSERT_TRUE(second.has_value());
-    // The chaining rule: U is one past the previous message's u. These are
-    // consecutive frames off one live socket. Gate sends no snapshot on this
-    // channel, so a gap here means re-reading the REST book, not a resync
-    // against anything the stream itself provides.
+    // U is one past the previous u; consecutive live frames
     EXPECT_EQ(second->first_update_id, first->last_update_id + 1);
 }
 
@@ -275,15 +254,13 @@ TEST(GateWire, OrderBookIsOnlyASeedWhenItCarriesAnId) {
     EXPECT_EQ(seed->bids.size(), k_gate_window);
     EXPECT_EQ(seed->asks.size(), k_gate_window);
 
-    // Same endpoint without with_id=true. The levels are fine and the body is
-    // useless: nothing says where in the chain they sit.
+    // without with_id=true the levels cannot be placed in the chain
     auto plain_storage = std::make_unique<LevelBuffer>();
     EXPECT_FALSE(parse_order_book(fixture("rest_order_book.json"), *plain_storage).has_value());
 }
 
 TEST(GateWire, ContractsAreATopLevelArray) {
-    // No envelope: success is a bare JSON array, which is why the session has
-    // to be able to open a document as either shape.
+    // success is a bare json array
     auto storage = std::make_unique<ContractBuffer>();
     const auto body = fixture("rest_contracts.json");
     const auto rows = parse_contracts(body, *storage);
@@ -306,12 +283,9 @@ TEST(GateWire, ContractsAreATopLevelArray) {
     EXPECT_EQ(btc->quanto_multiplier, "0.0001"); // one contract is 0.0001 BTC
     EXPECT_FALSE(btc->in_delisting);
     EXPECT_EQ(btc->funding_interval_s, 28'800U);
-    // SYMMETRIC, and in this fixture since it was captured while nothing read
-    // it. A rate resting on its limit is demand the venue stopped pricing —
-    // and gate's limits are not uniform: 0.3% on BTC against 2% on SATS.
+    // symmetric; limits differ per contract
     EXPECT_EQ(btc->funding_rate_limit, "0.003");
-    // Gate's own SDK documents order_size_min as a string; the live endpoint
-    // sends an integer. Scalars are read from the raw token for exactly this.
+    // the sdk says string; the live endpoint sends an integer
     EXPECT_EQ(btc->order_size_min, "1");
 
     const auto* eth = find("ETH_USDT");
@@ -335,8 +309,7 @@ TEST(GateWire, RestRefusalIsAStringLabelAndMayCarryNoMessage) {
     const auto err = parse_rest_error(bare);
     ASSERT_TRUE(err.has_value());
     EXPECT_EQ(err->label, k_contract_not_found);
-    // Observed live: this refusal ships the label alone, so requiring a
-    // message would turn a classifiable error into an unreadable one.
+    // this refusal has a label and no message
     EXPECT_TRUE(err->message.empty());
 
     const auto detailed = fixture("rest_error_invalid_param.json");
@@ -347,8 +320,7 @@ TEST(GateWire, RestRefusalIsAStringLabelAndMayCarryNoMessage) {
 }
 
 TEST(GateWire, SuccessBodiesAreNotReadAsRefusals) {
-    // A body with no label is a success, and mistaking one for the other in
-    // either direction loses a catalogue or invents an outage.
+    // a body with no label is a success
     EXPECT_FALSE(parse_rest_error(fixture("rest_contracts.json")).has_value());
     EXPECT_FALSE(parse_rest_error(fixture("rest_server_time.json")).has_value());
     EXPECT_FALSE(parse_rest_error(fixture("rest_order_book.json")).has_value());
@@ -380,10 +352,7 @@ TEST(GateWire, GarbageIsRefusedRatherThanPartiallyRead) {
     }
 }
 
-// -------------------------------------------------------------- map ----
-
-// BTC_USDT as Gate publishes it: 0.1 tick, one contract a lot, 0.0001 BTC a
-// contract.
+// btc_usdt: 0.1 tick, one contract a lot, 0.0001 btc a contract
 exec::InstrumentTable table_with_btc() {
     exec::InstrumentTable table;
     table.reserve(1);
@@ -416,7 +385,7 @@ TEST(GateMap, BookTickerBecomesTopOfBook) {
     ASSERT_TRUE(bbo.has_value());
     EXPECT_EQ(bbo->bid.raw, 641'558); // 64155.8 / 0.1
     EXPECT_EQ(bbo->ask.raw, 641'559);
-    // Contracts, one per lot: 76800 contracts is 7.68 BTC at 0.0001 each.
+    // 76800 contracts is 7.68 btc
     EXPECT_EQ(bbo->bid_qty.raw, 76'800);
     EXPECT_EQ(bbo->ask_qty.raw, 535);
     EXPECT_EQ(bbo->ts_event.ns, 1'786'394'633'457ULL * 1'000'000ULL);
@@ -424,9 +393,7 @@ TEST(GateMap, BookTickerBecomesTopOfBook) {
 }
 
 TEST(GateMap, PriceOffTheTickIsDroppedNotRounded) {
-    // A price that does not divide by the tick means Gate changed an
-    // instrument's precision under us. Rounding would put an order one tick
-    // from where it was meant.
+    // a price off the tick is dropped rather than rounded
     const auto table = table_with_btc();
     WireBookTicker wire{};
     wire.contract = "BTC_USDT";
@@ -438,9 +405,7 @@ TEST(GateMap, PriceOffTheTickIsDroppedNotRounded) {
 }
 
 TEST(GateMap, FractionalContractCountIsDroppedNotRounded) {
-    // Public market data quotes integer contracts today. If Gate ever sends a
-    // decimal size on an enable_decimal contract, that one message is dropped
-    // rather than silently truncated to a different quantity.
+    // a decimal size is dropped rather than truncated
     const auto table = table_with_btc();
     WireBookTicker wire{};
     wire.contract = "BTC_USDT";
@@ -492,14 +457,12 @@ TEST(GateMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // Not 1970: a zero timestamp reaching a latency histogram poisons it.
+    // a zero timestamp falls back to ingest time
     EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
 }
 
 TEST(GateMap, FundingSettlementIsSecondsAndTheTickIsMilliseconds) {
-    // The whole point of the two converters. funding_next_apply is seconds and
-    // `t` on the same object is milliseconds; swapping them is silent and puts
-    // the settlement either in 1970 or 30 millennia out.
+    // funding_next_apply is seconds and t is milliseconds
     const auto table = table_with_btc();
     WireTicker wire{};
     wire.contract = "BTC_USDT";
@@ -514,17 +477,14 @@ TEST(GateMap, FundingSettlementIsSecondsAndTheTickIsMilliseconds) {
     EXPECT_EQ(funding->rate.raw, 64'000); // 0.000064 * 1e9
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400ULL * 1'000'000'000ULL);
     EXPECT_EQ(funding->ts_event.ns, 1'786'394'640'101ULL * 1'000'000ULL);
-    // Stated by the venue on this very frame, so nothing has to be derived
-    // from the gap between two settlement times the way okx forces.
+    // the interval is stated on the frame
     EXPECT_EQ(funding->interval_s, 28'800U);
-    // Mark rides the same channel here, unlike okx where it has its own.
+    // mark rides the same channel
     EXPECT_EQ(funding->mark_price.raw, 641'632);
 }
 
 TEST(GateMap, IndicativeRateIsNotPublishedAsAForecast) {
-    // Gate's SDK marks funding_rate_indicative deprecated in favour of
-    // funding_rate, and it was equal to it on every observed frame. Mapping it
-    // would dress a copy of the current rate up as a next-interval estimate.
+    // funding_rate_indicative is deprecated and not mapped as a forecast
     const auto table = table_with_btc();
     WireTicker wire{};
     wire.contract = "BTC_USDT";
@@ -536,10 +496,7 @@ TEST(GateMap, IndicativeRateIsNotPublishedAsAForecast) {
 }
 
 TEST(GateMap, MarkOffTheOrderGridDoesNotCostTheFundingRate) {
-    // Gate quotes mark on mark_price_round, a finer grid than
-    // order_price_round on some contracts, so a mark that will not divide is
-    // normal rather than a schema event — and funding is what this update is
-    // for.
+    // mark sits on a finer grid than the order tick on some contracts, so it may not divide
     const auto table = table_with_btc();
     WireTicker wire{};
     wire.contract = "BTC_USDT";
@@ -560,8 +517,7 @@ TEST(GateMap, ContractWithoutFundingIsNotReportedAsZero) {
 }
 
 TEST(GateMap, ContractValueComesFromQuantoMultiplier) {
-    // A Gate perp quotes in contracts. Pinning contract_value to 1 the way
-    // binance USD-M allows would misprice every BTC_USDT notional by 10000x.
+    // gate perps quote in contracts, so contract_value is not 1
     WireContract wire{};
     wire.name = "BTC_USDT";
     wire.status = "trading";
@@ -570,12 +526,10 @@ TEST(GateMap, ContractValueComesFromQuantoMultiplier) {
     auto instrument = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(instrument.has_value());
     EXPECT_EQ(base_of(*instrument).contract_value.raw, 100'000); // 0.0001 * 1e9
-    // One whole contract per lot: Gate publishes no size step, and public
-    // market data quotes integer contract counts on every contract.
+    // one whole contract per lot
     EXPECT_EQ(base_of(*instrument).lot_size.raw, k_e9);
 
-    // A meme contract is worth ten million base units, and the same field
-    // carries it.
+    // a meme contract is worth ten million base units
     wire.name = "PEPE_USDT";
     wire.quanto_multiplier = "10000000";
     instrument = map_instrument(wire, MarketType::Perp);
@@ -584,9 +538,7 @@ TEST(GateMap, ContractValueComesFromQuantoMultiplier) {
 }
 
 TEST(GateMap, FundingIntervalIsCarriedOntoThePerp) {
-    // 4 h contracts outnumber 8 h ones on 341 of 899 rows, so an assumed
-    // interval would be wrong for a third of the venue and invisible when it
-    // is.
+    // intervals vary per contract, so none is assumed
     WireContract wire{};
     wire.name = "BTC_USDT";
     wire.status = "trading";
@@ -598,13 +550,11 @@ TEST(GateMap, FundingIntervalIsCarriedOntoThePerp) {
     ASSERT_TRUE(instrument.has_value());
     ASSERT_TRUE(std::holds_alternative<PerpInstrument>(*instrument));
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_interval_s, 14'400U);
-    // ONE FIELD, TWO SIDES. Gate states a single limit and means it both ways,
-    // unlike binance and bybit, which each publish the ceiling and the floor.
+    // one limit applies both ways
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_cap.raw, 20'000'000);
     EXPECT_EQ(std::get<PerpInstrument>(*instrument).funding_floor.raw, -20'000'000);
 
-    // UNDEF, NOT ZERO, when the venue says nothing: a floor of zero is a claim
-    // that gate never pays.
+    // undef when absent
     wire.funding_rate_limit = {};
     const auto silent = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(silent.has_value());
@@ -619,8 +569,7 @@ TEST(GateMap, DelistingAndNonTradingRowsAreRefused) {
     wire.quanto_multiplier = "10";
     ASSERT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
 
-    // in_delisting stays true through the reduce-only window while every other
-    // field still looks tradable.
+    // in_delisting stays true through the reduce-only window
     wire.in_delisting = true;
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
@@ -642,9 +591,7 @@ TEST(GateMap, SpotAndDatedMarketsAreRefused) {
 }
 
 TEST(GateMap, TheCanonicalPairIsSplitOutOfTheGateSymbol) {
-    // Gate carries the pair in the symbol and in no field beside it, so this
-    // split is the only thing that lets a cross-venue view put Gate's
-    // `BTC_USDT` beside Bybit's `BTCUSDT`.
+    // the pair is only in the symbol
     auto contracts = std::make_unique<ContractBuffer>();
     const auto contracts_body = fixture("rest_contracts.json");
     const auto rows = parse_contracts(contracts_body, *contracts);
@@ -663,8 +610,7 @@ TEST(GateMap, TheCanonicalPairIsSplitOutOfTheGateSymbol) {
     ASSERT_TRUE(spot.has_value());
     EXPECT_EQ(base_of(*spot).exchange_symbol.view(), "BTC_USDT");
     EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
-    // The spot pair and the perpetual reduce to one name, which is the point:
-    // the table still keys on the exchange symbol, so nothing collides.
+    // spot and perp share a canonical name; the table keys on exchange symbol
     EXPECT_EQ(base_of(*spot).local_symbol.view(), base_of(*perp).local_symbol.view());
 }
 
@@ -676,9 +622,7 @@ TEST(GateMap, ARowWhosePairCannotBeReadIsDropped) {
     wire.quanto_multiplier = "0.0001";
     ASSERT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
 
-    // A dated contract carries a third part and a bare concatenation carries no
-    // quote at all. Either loaded with the exchange symbol standing in would
-    // show in a cross-venue view as a market of its own.
+    // dated or unsplittable symbols are dropped
     for (const char* name : {"BTC_USDT_20261225", "BTCUSDT", "_USDT", "BTC_", ""}) {
         wire.name = name;
         EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value()) << name;
@@ -695,8 +639,7 @@ TEST(GateMap, ARowWhosePairCannotBeReadIsDropped) {
 }
 
 TEST(GateMap, InstrumentWithoutUsableStepsIsRefused) {
-    // Every later conversion divides by these, so a zero step must never reach
-    // the table.
+    // later conversions divide by these, so a zero step is refused
     WireContract wire{};
     wire.name = "BTC_USDT";
     wire.status = "trading";
@@ -704,8 +647,7 @@ TEST(GateMap, InstrumentWithoutUsableStepsIsRefused) {
     wire.quanto_multiplier = "0.0001";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
-    // KNOWN LIMIT: FixedE9 carries nine fractional digits and Gate lists three
-    // contracts at ticks down to 1e-11. Refusing beats rounding.
+    // FixedE9 holds nine fractional digits; finer ticks are refused
     wire.order_price_round = "0.00000000001";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
@@ -715,16 +657,13 @@ TEST(GateMap, InstrumentWithoutUsableStepsIsRefused) {
 }
 
 TEST(GateMap, LiveCaptureFlowsFromFrameToDomain) {
-    // End to end on real bytes: the catalogue builds the table and the three
-    // consumed channels map against it, so a unit change anywhere in the chain
-    // shows up here rather than as a quiet gateway.
+    // end to end on real bytes: catalogue to mapped channels
     auto storage = std::make_unique<ContractBuffer>();
     const auto body = fixture("rest_contracts.json");
     const auto rows = parse_contracts(body, *storage);
     ASSERT_TRUE(rows.has_value());
     exec::InstrumentTable table;
-    // Before any add(): the table's keys are views into its own storage, so a
-    // reallocation mid-load dangles every symbol added so far.
+    // reserve before add(): the table's keys view its own storage
     table.reserve(rows->size());
     for (const auto& row : *rows) {
         if (auto instrument = map_instrument(row, MarketType::Perp); instrument.has_value()) {
@@ -756,13 +695,10 @@ TEST(GateMap, LiveCaptureFlowsFromFrameToDomain) {
     ASSERT_TRUE(ticker.has_value());
     const auto funding = map_funding(*ticker, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
-    // Seconds in, nanoseconds out, and still inside the window a real
-    // settlement lives in.
+    // seconds in, nanoseconds out
     EXPECT_GT(funding->next_funding_time.ns, 1'700'000'000'000'000'000ULL);
     EXPECT_LT(funding->next_funding_time.ns, 4'000'000'000'000'000'000ULL);
 }
-
-// --------------------------------------------------------------- ws ----
 
 TEST(GateWs, SubscribeFrameNamesOneChannelAndListsContracts) {
     Protocol protocol;
@@ -778,8 +714,7 @@ TEST(GateWs, SubscribeFrameNamesOneChannelAndListsContracts) {
 }
 
 TEST(GateWs, BatchingStopsAtAChannelBoundary) {
-    // One frame names one channel, so a mixed span has to be drained in
-    // several calls or the second channel would be silently dropped.
+    // one frame names one channel
     Protocol protocol;
     const std::array<Subscription, 3> subs{
         Subscription{.channel = "futures.book_ticker", .contract = "BTC_USDT"},
@@ -796,8 +731,7 @@ TEST(GateWs, BatchingStopsAtAChannelBoundary) {
 }
 
 TEST(GateWs, DepthChannelSpendsItsPayloadOnIntervalAndLevel) {
-    // [contract, interval, level] leaves no room for a second contract, so it
-    // is one per frame however many are queued.
+    // the depth payload holds one contract per frame
     Protocol protocol;
     const std::array<Subscription, 2> subs{
         Subscription{.channel = "futures.order_book_update", .contract = "BTC_USDT"},
@@ -818,8 +752,7 @@ TEST(GateWs, FundingAndMarkPriceShareOneChannel) {
 }
 
 TEST(GateWs, EmptyChannelIsRefusedRatherThanSent) {
-    // channel_for() declined the kind; sending it would subscribe to the
-    // literal "" and earn a code-2 refusal.
+    // channel_for() declined the kind
     Protocol protocol;
     const std::array<Subscription, 1> subs{Subscription{.channel = {}, .contract = "BTC_USDT"}};
     const auto frame = protocol.subscribe_frame(subs, 1ULL);
@@ -829,8 +762,7 @@ TEST(GateWs, EmptyChannelIsRefusedRatherThanSent) {
 }
 
 TEST(GateWs, PingFrameCarriesATimestamp) {
-    // Not a constant like okx's four-byte "ping": Gate wants a JSON frame on
-    // its own channel, and answers on futures.pong.
+    // gate pings with a json frame and answers on futures.pong
     Protocol protocol;
     EXPECT_EQ(protocol.ping_frame(1'786'394'751ULL),
               R"({"time":1786394751,"channel":"futures.ping"})");
@@ -845,16 +777,9 @@ TEST(GateWs, UnsubscribeMirrorsSubscribe) {
     EXPECT_NE(frame->text.find(R"("event":"unsubscribe")"), std::string_view::npos);
 }
 
-// ------------------------------------------------------------- book ----
-//
-// The three seed fixtures are one capture: `rest_order_book_seed.json` is the
-// snapshot, `ws_order_book_straddle.json` is the frame whose [U, u] contains
-// its id + 1, and `ws_order_book_straddle_next.json` is the frame after it. A
-// seed and a stream from different minutes replay into a crossed book, which
-// is what these tests exist to catch.
+// the three seed fixtures are one capture: seed, frame holding id + 1, next frame
 
-// The parsed views point into the frame text and into the level buffer, so
-// both have to outlive the wire struct that came out of them.
+// the parsed views point into the frame and the level buffer, which must outlive them
 struct BookFrame {
     std::string text;
     std::unique_ptr<LevelBuffer> storage{std::make_unique<LevelBuffer>()};
@@ -881,9 +806,7 @@ WireOrderBook seed_of(BookFrame& frame) {
     return wire.value_or(WireOrderBook{});
 }
 
-// Bids descend, asks ascend, the two never cross and every quantity is real.
-// A book that fails this is not a book, and publishing it would price every
-// strategy reading shared memory.
+// bids descend, asks ascend, no cross, every quantity real
 void expect_coherent(const BookSnapshot& out) {
     ASSERT_GT(out.bid_count, 0U);
     ASSERT_GT(out.ask_count, 0U);
@@ -905,9 +828,7 @@ void expect_coherent(const BookSnapshot& out) {
 }
 
 TEST(GateBook, AnUnseededBookPublishesNothing) {
-    // There is no snapshot on this channel at all, so an adapter that trusted
-    // the first delta would be quoting a book made of one frame's worth of
-    // changes.
+    // this channel has no snapshot
     const auto table = table_with_btc();
     auto book = book_for(table);
     BookFrame first;
@@ -928,16 +849,14 @@ TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
     EXPECT_FALSE(book.snapshot(k_ingest, k_ingest).has_value());
 
     const auto d1 = delta_of(first, "ws_order_book_straddle.json");
-    // The chain is contiguous, so the frame that continues the seed is the one
-    // holding id + 1 — not the one holding id, which is already in the levels.
+    // the continuing frame holds id + 1
     ASSERT_LE(d1.first_update_id, snapshot.update_id + 1);
     ASSERT_GE(d1.last_update_id, snapshot.update_id + 1);
     EXPECT_EQ(book.apply(d1), BookResult::Applied);
 
     const auto d2 = delta_of(second, "ws_order_book_straddle_next.json");
     EXPECT_EQ(d2.first_update_id, d1.last_update_id + 1);
-    // A tenth of the frames carry no levels at all. They still advance the
-    // chain, so refusing them would break every later contiguity check.
+    // empty frames still advance the chain
     EXPECT_TRUE(d2.bids.empty());
     EXPECT_TRUE(d2.asks.empty());
     EXPECT_EQ(book.apply(d2), BookResult::Applied);
@@ -945,22 +864,18 @@ TEST(GateBook, SeedAndStreamMeetInABookSharedMemoryCanTake) {
     const auto out = book.snapshot(k_ingest, k_ingest);
     ASSERT_TRUE(out.has_value());
     expect_coherent(*out);
-    // Gate maintains a fixed subscribed window, so the book holds exactly what
-    // the venue keeps — every subscribed level and not one invented to fill
-    // the array.
+    // the book holds exactly the venue's window
     EXPECT_EQ(out->bid_count, k_gate_window);
     EXPECT_EQ(out->ask_count, k_gate_window);
     static_assert(k_gate_window <= k_book_levels);
     EXPECT_EQ(out->venue_seq, d2.last_update_id) << "u is the forensic handle";
-    // Gate maintains the subscribed window itself, deleting what falls out of
-    // it, so the book neither grows nor erodes.
+    // the window neither grows nor erodes
     EXPECT_EQ(book.bids().size(), k_depth_limit);
     EXPECT_EQ(book.asks().size(), k_depth_limit);
 }
 
 TEST(GateBook, DeltasBufferedBehindTheSeedReplayIntoTheSameBook) {
-    // Which of the REST answer and the websocket frame lands first is a race,
-    // and the book it produces must not depend on who won.
+    // rest and websocket arrival order is a race; the book must not depend on it
     const auto table = table_with_btc();
     BookFrame seed_frame;
     BookFrame first;
@@ -1052,8 +967,7 @@ TEST(GateBook, ALevelOffTheTickIsDroppedNotRounded) {
     const auto before = book.snapshot(k_ingest, k_ingest);
     ASSERT_TRUE(before.has_value());
 
-    // 0.05 past a 0.1 tick, and a fractional contract count where sizes are
-    // whole contracts. Either one alone is enough to refuse the level.
+    // either an off-tick price or a fractional contract refuses the level
     const std::array<WireLevel, 2> bad_levels{WireLevel{.price = "64061.55", .qty = "100"},
                                               WireLevel{.price = "64061.5", .qty = "0.5"}};
     WireBookUpdate bad{};
@@ -1073,9 +987,7 @@ TEST(GateBook, ALevelOffTheTickIsDroppedNotRounded) {
 }
 
 TEST(GateBook, ASeedTheStreamHasRunPastIsDiscarded) {
-    // The chain is contiguous, so a seed the stream has already overtaken can
-    // never be reached — the ids in between are gone. Splicing it in anyway
-    // would produce a book missing every change in that window.
+    // a seed the stream overtook cannot be reached
     const auto table = table_with_btc();
     auto book = book_for(table);
     BookFrame seed_frame;
@@ -1091,16 +1003,13 @@ TEST(GateBook, ASeedTheStreamHasRunPastIsDiscarded) {
     EXPECT_TRUE(book.wants_seed());
 }
 
-// ------------------------------------------------------------- rest ----
-
 TEST(GateRest, TargetsCarryTheSettleCurrency) {
     RequestBuilder builder;
     EXPECT_EQ(builder.contracts(k_settle_usdt).target, "/api/v4/futures/usdt/contracts");
-    // with_id is not optional here: without it the body has no `id` and the
-    // levels cannot be placed in the update chain.
+    // with_id is required
     EXPECT_EQ(builder.order_book(k_settle_usdt, "BTC_USDT", 5).target,
               "/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=5&with_id=true");
-    // The only clock endpoint Gate publishes lives under spot, not futures.
+    // gate's only clock endpoint is under spot
     EXPECT_EQ(builder.server_time().target, "/api/v4/spot/time");
 }
 
@@ -1109,8 +1018,6 @@ TEST(GateRest, TestnetIsADifferentHost) {
     EXPECT_NE(rest_host(true), rest_host(false));
     EXPECT_NE(stream_host(true), stream_host(false));
 }
-
-// ----------------------------------------------------------- errors ----
 
 TEST(GateErrors, AuthLabelsHaltTheVenue) {
     for (const auto label : {k_invalid_key,
@@ -1124,9 +1031,7 @@ TEST(GateErrors, AuthLabelsHaltTheVenue) {
 }
 
 TEST(GateErrors, ClockSkewIsRetryableNotAuthFailure) {
-    // The request was fine, our clock was not. Resync and resend succeeds, and
-    // filing this under AuthFailure — which is where Gate's own docs and ccxt
-    // put it — would halt a venue whose keys are valid.
+    // an expired request is a clock problem; resync and resend
     EXPECT_EQ(classify(k_request_expired), exec::ErrorClass::Retryable);
 }
 
@@ -1142,8 +1047,7 @@ TEST(GateErrors, ServerSideLabelsRetry) {
 }
 
 TEST(GateErrors, UnknownLabelIsTerminalByDefault) {
-    // Deliberate: an unknown refusal retried at full speed earns an IP ban,
-    // while a spuriously terminal order is recovered by reconciliation.
+    // unknown refusals are terminal so they are not retried at full speed
     EXPECT_EQ(classify("SOME_LABEL_GATE_ADDED_LAST_TUESDAY"), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify({}), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_contract_not_found), exec::ErrorClass::Terminal);
@@ -1152,12 +1056,11 @@ TEST(GateErrors, UnknownLabelIsTerminalByDefault) {
 }
 
 TEST(GateErrors, StreamCodesAreNumbersAndClassifySeparately) {
-    // The websocket speaks integers where REST speaks labels; one table cannot
-    // serve both.
+    // the websocket uses integers where rest uses labels
     EXPECT_EQ(classify_stream(k_ws_invalid_argument), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify_stream(k_ws_auth_failed), exec::ErrorClass::AuthFailure);
     EXPECT_EQ(classify_stream(k_ws_invalid_key), exec::ErrorClass::AuthFailure);
-    // A lapsed session is not bad credentials: logging in again is the fix.
+    // a lapsed session needs a new login
     EXPECT_EQ(classify_stream(k_ws_not_logged_in), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify_stream(k_ws_server_error), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify_stream(999), exec::ErrorClass::Terminal);
@@ -1170,11 +1073,7 @@ TEST(GateErrors, BenignCancelRacesAreRecognised) {
     EXPECT_FALSE(is_benign_cancel_failure(k_balance_not_enough));
 }
 
-// ---------------------------------------------------------- signing ----
-
-// Gate's own published worked examples. They pin the two things that make
-// this signature unlike every other venue's: SHA512 rather than SHA256, and a
-// body that appears only as its own hash.
+// gate's documented signing examples
 constexpr std::string_view k_doc_key = "key";
 constexpr std::string_view k_doc_secret = "secret";
 constexpr std::string_view k_empty_sha512 =
@@ -1182,8 +1081,7 @@ constexpr std::string_view k_empty_sha512 =
     "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
 
 TEST(GateSign, AnEmptyBodyIsHashedRatherThanSkipped) {
-    // The term is always present and always 128 characters: a GET that leaves
-    // it blank signs a different string than the venue does.
+    // the body hash term is always present, 128 characters
     std::array<char, net::k_hex512_bytes> out{};
     EXPECT_EQ(net::sha512_hex({}, out), k_empty_sha512);
 }
@@ -1214,9 +1112,7 @@ TEST(GateSign, PublishedVectorsReproduce) {
 }
 
 TEST(GateSign, ClientOrderIdFitsBehindTheRequiredPrefix) {
-    // 26 Crockford characters plus "t-" is 28 bytes, and Gate's limit is 28
-    // bytes AFTER the prefix. If a future id scheme grew, the static_assert in
-    // rest.hpp would fail the build rather than the venue failing the order.
+    // 26 crockford characters fit gate's 28 bytes after the prefix
     const auto ulid = ExchangeClientOrderId::from("01J8ZQ7X4K9M2P5R6T7V8W9XYZ");
     ASSERT_TRUE(ulid.has_value());
     std::array<char, k_client_id_bytes> buf{};
@@ -1227,16 +1123,12 @@ TEST(GateSign, ClientOrderIdFitsBehindTheRequiredPrefix) {
 }
 
 TEST(GateSign, GatesOwnOrderSourcesAreNotMistakenForOurs) {
-    // `api`, `web` and `liq-...` are Gate's reserved values for orders we did
-    // not place. Reading one as a client id attributes a liquidation to a
-    // strategy's order.
+    // api, web and liq-... are gate's own sources
     EXPECT_TRUE(client_id_from_text("api").empty());
     EXPECT_TRUE(client_id_from_text("web").empty());
     EXPECT_TRUE(client_id_from_text("liq-1234").empty());
     EXPECT_TRUE(client_id_from_text({}).empty());
 }
-
-// ---------------------------------------------------- signed requests ----
 
 constexpr UnixNanos k_sign_now{1'541'993'715'000'000'000ULL};
 
@@ -1246,11 +1138,8 @@ ExchangeClientOrderId sample_coid() {
     return id.value_or(ExchangeClientOrderId{});
 }
 
-// BTC_USDT as Gate lists it on spot: price to one decimal, quantity to six.
-// Taken from the live `rest_currency_pairs.json` row, not invented.
 TEST(GateMap, RestTickersSeedTheTouchOfAQuietContract) {
-    // The stream sends only changes, so a contract nobody trades is quoted
-    // once from the bulk tickers call, which states no time.
+    // the stream sends only changes, so a quiet contract is quoted once from the tickers call
     const auto table = table_with_btc();
     auto storage = std::make_unique<TickerQuoteBuffer>();
     const auto body = fixture("rest_futures_tickers.json");
@@ -1353,9 +1242,7 @@ TEST(GateSignedRest, SignatureLayoutIsMethodPathQueryBodyHashSeconds) {
                           std::string{net::sha512_hex(request->body, body_hash)} + "\n1541993715";
     EXPECT_EQ(builder.last_sign_message(), expected);
 
-    // The Timestamp header and the digest's last line must be the same value;
-    // Gate compares the header against its own clock and the digest against
-    // the header.
+    // the Timestamp header and the digest's last line must match
     EXPECT_EQ(header_of(*request, "Timestamp"), "1541993715");
     EXPECT_EQ(header_of(*request, "KEY"), k_doc_key);
     std::array<char, net::k_hex512_bytes> signature{};
@@ -1387,7 +1274,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
     const auto sell = builder.create_order(cmd, table, k_sign_now);
     ASSERT_TRUE(sell.has_value());
     EXPECT_EQ(sell->target, "/api/v4/futures/usdt/orders");
-    // Post-only is a tif on Gate, not a flag beside one.
+    // post-only is a tif on gate
     EXPECT_EQ(sell->body,
               R"({"contract":"BTC_USDT","size":-10,"price":"64000","tif":"poc",)"
               R"("text":"t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ"})");
@@ -1403,8 +1290,7 @@ TEST(GateSignedRest, PerpOrderCarriesTheSideInTheSignOfSize) {
 }
 
 TEST(GateSignedRest, PerpMarketOrderIsPriceZeroWithIoc) {
-    // Gate has no market order TYPE on futures; this pair of fields is it, and
-    // any other tif alongside price 0 is refused by the venue.
+    // futures market orders are price 0 with ioc
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
@@ -1442,8 +1328,7 @@ TEST(GateSignedRest, SpotIsADifferentEndpointAndADifferentShape) {
 }
 
 TEST(GateSignedRest, SpotMarketBuyIsRefusedRatherThanGuessed) {
-    // Gate prices a spot MARKET BUY in the QUOTE currency, and an OrderCmd
-    // carries base lots. Converting would mean guessing the fill price.
+    // a spot market buy is priced in quote currency
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
@@ -1456,7 +1341,7 @@ TEST(GateSignedRest, SpotMarketBuyIsRefusedRatherThanGuessed) {
     ASSERT_FALSE(refused.has_value());
     EXPECT_EQ(refused.error(), BuildError::SpotMarketBuyNotExpressible);
 
-    // The sell side is expressible: `amount` is base there.
+    // a sell is expressible: amount is base
     cmd.side = Side::Sell;
     const auto sell = builder.create_order(cmd, table, k_sign_now);
     ASSERT_TRUE(sell.has_value());
@@ -1470,8 +1355,7 @@ TEST(GateSignedRest, AFractionalContractCountIsRefusedNotRounded) {
     SignedRequestBuilder builder{signer};
     exec::InstrumentTable table;
     {
-        // A perp whose lot step is half a contract cannot render as Gate's
-        // integer `size`; rounding it would send a different order.
+        // a half-contract lot cannot render as an integer size
         WireContract wire{};
         wire.name = "BTC_USDT";
         wire.status = "trading";
@@ -1505,8 +1389,7 @@ TEST(GateSignedRest, CancelPrefersTheVenueIdAndSpotAlsoNeedsThePair) {
     EXPECT_EQ(by_client->method, net::HttpMethod::Delete);
     EXPECT_EQ(by_client->target, "/api/v4/futures/usdt/orders/t-01J8ZQ7X4K9M2P5R6T7V8W9XYZ");
 
-    // Gate resolves a `t-` id only while the order is live and for 60 seconds
-    // after it finishes, so the venue id wins whenever the store has one.
+    // a t- id resolves only while live and for 60 s after, so the venue id wins
     cmd.target_exchange_order_id = ExchangeOrderId::from("123456789").value();
     const auto by_venue = builder.cancel_order(cmd, perp, k_sign_now);
     ASSERT_TRUE(by_venue.has_value());
@@ -1534,7 +1417,7 @@ TEST(GateSignedRest, AmendIsAPutOnFuturesAndAPatchOnSpot) {
     const auto perp = builder.amend_order(cmd, table_with_btc(), k_sign_now);
     ASSERT_TRUE(perp.has_value());
     EXPECT_EQ(perp->method, net::HttpMethod::Put);
-    // An amend re-states the SIGNED size; dropping the sign would flip a short.
+    // an amend restates the signed size
     EXPECT_EQ(perp->body, R"({"size":-7,"price":"65000"})");
 
     auto spot_cmd = limit_cmd(
@@ -1573,8 +1456,7 @@ TEST(GateSignedRest, BatchCancelBodiesDifferPerMarket) {
 }
 
 TEST(GateSignedRest, ABatchStraddlingTwoMarketsIsRefused) {
-    // One endpoint cannot carry both, and sending it anyway loses the other
-    // market's cancels without saying so.
+    // a batch cannot span markets
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
@@ -1595,15 +1477,14 @@ TEST(GateSignedRest, ReconciliationPullsAreScopedPerMarket) {
 
     const auto perp_open = builder.open_orders(MarketType::Perp, k_sign_now);
     ASSERT_TRUE(perp_open.has_value());
-    // limit=100, not 1000: Gate answers INVALID_PARAM_VALUE above a hundred on
-    // these listings, measured against the live futures positions endpoint.
+    // gate refuses page sizes above 100
     EXPECT_EQ(perp_open->target, "/api/v4/futures/usdt/orders?status=open&limit=100");
 
     const auto spot_open = builder.open_orders(MarketType::Spot, k_sign_now);
     ASSERT_TRUE(spot_open.has_value());
     EXPECT_EQ(spot_open->target, "/api/v4/spot/open_orders?limit=100&account=spot");
 
-    // Only the _timerange variant takes a `since`; the plain one pages by id.
+    // only the timerange variant takes since
     const auto fills =
         builder.my_trades(MarketType::Perp, UnixNanos{1'700'000'000'000'000'000ULL}, k_sign_now);
     ASSERT_TRUE(fills.has_value());
@@ -1627,8 +1508,7 @@ TEST(GateSignedRest, ReconciliationPullsAreScopedPerMarket) {
 }
 
 TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
-    // Gate lists options and the endpoints exist; nothing here maps them, and
-    // the refusal has to be visible rather than a default arm's silence.
+    // options are refused visibly
     net::Signer signer;
     load_credentials(signer);
     SignedRequestBuilder builder{signer};
@@ -1649,8 +1529,7 @@ TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
               BuildError::OptionsUnsupported);
     EXPECT_EQ(to_string(BuildError::OptionsUnsupported), "gate options order entry");
 
-    // Dated futures are a separate surface again (/api/v4/delivery), and get
-    // their own name rather than being folded into the options refusal.
+    // dated futures get their own refusal
     auto dated = cmd;
     dated.instrument = InstrumentId::make(VenueId::Gate, MarketType::Future, SymbolId{0});
     EXPECT_EQ(builder.create_order(dated, table, k_sign_now).error(),
@@ -1658,8 +1537,7 @@ TEST(GateSignedRest, OptionsAreRefusedByNameOnEveryPath) {
 }
 
 TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
-    // not_implemented, never an empty vector: a reconciler cannot tell "flat"
-    // from "this adapter has no answer" and reads the second as the first.
+    // not_implemented, since an empty vector reads as flat
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -1674,7 +1552,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
         EXPECT_FALSE(exec_client.position_reports(market).has_value());
         EXPECT_FALSE(exec_client.query_order(sample_coid(), market).has_value());
     }
-    // Spot has balances, not positions; saying "flat" would invent a concept.
+    // spot has no positions
     const auto spot = exec_client.position_reports(MarketType::Spot);
     ASSERT_FALSE(spot.has_value());
     EXPECT_EQ(spot.error().message.view(),
@@ -1682,9 +1560,7 @@ TEST(GateExecClient, EveryPullNamesTheMarketItCannotServe) {
 }
 
 TEST(GateExecClient, TheCapsRowRefusesTheSameSpotPullsTheAdapterDoes) {
-    // The row is read BEFORE the call, so a refusal the row does not know about
-    // is a request sent every pass and failed every pass. These three refuse
-    // here; the two below answer, and dropping them would age out a live book.
+    // refusals must be known before the call; the two below answer
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -1702,17 +1578,13 @@ TEST(GateExecClient, TheCapsRowRefusesTheSameSpotPullsTheAdapterDoes) {
 
     EXPECT_TRUE(caps.order_pull.has(MarketType::Spot));
     EXPECT_TRUE(caps.fill_pull.has(MarketType::Spot));
-    // And nothing perp was given up in the trade.
     EXPECT_TRUE(caps.position_pull.has(MarketType::Perp));
     EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
     EXPECT_TRUE(caps.funding_charge.has(MarketType::Perp));
 }
 
-// ----------------------------------------------------- private wire ----
-
 TEST(GateWirePrivate, FuturesPseudoStatesAreNotTerminalReasons) {
-    // `_new` and `_update` appear only on the socket. Reading them as finish
-    // reasons closes an order that is very much still working.
+    // _new and _update appear only on the socket and are not finish reasons
     OrderBuffer storage;
     const auto created = fixture("ws_futures_order_new.json");
     const auto opened = parse_ws_orders(created, storage, MarketType::Perp);
@@ -1740,8 +1612,7 @@ TEST(GateWirePrivate, FuturesSizeSignBecomesTheSideAndTheMagnitudeSurvives) {
     ASSERT_TRUE(orders.has_value());
     ASSERT_EQ(orders->size(), 1U);
     EXPECT_TRUE(orders->front().sell);
-    // Keeping the sign here is how a short becomes a negative quantity three
-    // layers down.
+    // amount is a magnitude
     EXPECT_EQ(orders->front().amount, "10");
     EXPECT_EQ(orders->front().left, "10");
 }
@@ -1780,8 +1651,7 @@ TEST(GateWirePrivate, TifThatCouldNotBeMetIsAnExpiryNotACancel) {
 }
 
 TEST(GateWirePrivate, UserTradesCarryNoRemainingSize) {
-    // The field genuinely does not exist on either API; the mapper has to get
-    // leaves from the orders channel, and this test is the reason it does.
+    // no left field on either api; leaves come from the orders channel
     UserTradeBuffer storage;
     const auto body = fixture("ws_futures_usertrade.json");
     const auto trades = parse_ws_user_trades(body, storage, MarketType::Perp);
@@ -1797,7 +1667,7 @@ TEST(GateWirePrivate, UserTradesCarryNoRemainingSize) {
 }
 
 TEST(GateWirePrivate, SpotOpenOrdersAreGroupedByPair) {
-    // Reading the body as a flat order list yields nothing at all, silently.
+    // the body is grouped by currency pair
     OrderBuffer storage;
     const auto body = fixture("rest_spot_open_orders.json");
     const auto flat = parse_rest_orders(body, storage, MarketType::Spot);
@@ -1839,8 +1709,7 @@ TEST(GateWirePrivate, RestBodiesAreTopLevelArraysWithNoEnvelope) {
     const auto trades = parse_rest_user_trades(trades_body, trades_storage, MarketType::Perp);
     ASSERT_TRUE(trades.has_value());
     ASSERT_EQ(trades->size(), 2U);
-    // The REST body types create_time as FRACTIONAL seconds where the socket
-    // ships integer milliseconds under a near-identical name.
+    // rest create_time is fractional seconds; the socket sends integer milliseconds
     EXPECT_EQ(trades->front().ts_ms, 1'787'670'001'000ULL);
 }
 
@@ -1851,8 +1720,6 @@ TEST(GateWirePrivate, TheFuturesSocketsUserIdComesFromTheAccountBody) {
     EXPECT_EQ(*user, 12'345'678ULL);
     EXPECT_FALSE(parse_account_user_id(R"({"currency":"USDT"})").has_value());
 }
-
-// ------------------------------------------------------ private map ----
 
 TEST(GateMapPrivate, AcceptanceBecomesAnAcceptedEvent) {
     const auto table = table_with_btc();
@@ -1874,8 +1741,7 @@ TEST(GateMapPrivate, AcceptanceBecomesAnAcceptedEvent) {
 }
 
 TEST(GateMapPrivate, AFillNotificationOnTheOrderChannelEmitsNothing) {
-    // The exec id and the fee live only on the user-trade channel; emitting
-    // from both attributes one fill to two events.
+    // fills are emitted from the user-trade channel only
     const auto table = table_with_btc();
     OrderBuffer storage;
     const auto partial = fixture("ws_futures_order_partial.json");
@@ -1883,8 +1749,7 @@ TEST(GateMapPrivate, AFillNotificationOnTheOrderChannelEmitsNothing) {
     ASSERT_TRUE(updates.has_value());
     EXPECT_FALSE(map_order_event(updates->front(), table, k_ingest).has_value());
 
-    // A finished-and-filled order says nothing new either: the user trade that
-    // took leaves to zero already carried the exec id and the fee.
+    // the user trade that emptied leaves already reported this
     const auto finished = fixture("ws_spot_order_finished.json");
     const auto done = parse_ws_orders(finished, storage, MarketType::Spot);
     ASSERT_TRUE(done.has_value());
@@ -1916,15 +1781,12 @@ TEST(GateMapPrivate, APartialFillStatesTheLeavesTheOrderChannelSupplied) {
     EXPECT_EQ(event->liquidity, Liquidity::Maker);
     EXPECT_EQ(event->exec_id.view(), "3335259");
     EXPECT_EQ(event->exchange_client_order_id.view(), "01J8ZQ7X4K9M2P5R6T7V8W9XYZ");
-    // Fees truncate at 1e-9 where prices refuse: a fee is neither a price nor
-    // a size, and dropping the fill over its eleventh decimal would be worse.
+    // fees truncate at 1e-9
     EXPECT_EQ(event->fee.raw, 3'200'000);
 }
 
 TEST(GateMapPrivate, AFillForAnOrderThisProcessNeverSawIsStillReported) {
-    // Leaves default to zero — the fill reads as final — because losing the
-    // fill entirely is the worse of the two failures, and reconciliation is
-    // what settles the difference.
+    // leaves default to zero; reconciliation settles the difference
     const auto table = table_with_btc();
     UserTradeBuffer storage;
     const auto body = fixture("ws_futures_usertrade.json");
@@ -1953,8 +1815,7 @@ TEST(GateMapPrivate, TerminalReasonsSeparateCancelFromExpiry) {
     ASSERT_TRUE(poc.has_value());
     const auto poc_event = map_order_event(poc->front(), table, k_ingest);
     ASSERT_TRUE(poc_event.has_value());
-    // Nobody asked for the order to go away; the venue could not honour its
-    // terms, and an Expired says so where a Canceled would not.
+    // an unmet tif is Expired
     EXPECT_EQ(poc_event->type, OrderEventType::Expired);
 }
 
@@ -1972,7 +1833,7 @@ TEST(GateMapPrivate, OrdersWeDidNotPlaceStayUnattributed) {
     EXPECT_EQ(mine->leaves.raw, 4);
     EXPECT_EQ(mine->exchange_client_order_id.view(), "01J8ZQ7X4K9M2P5R6T7V8W9XYZ");
 
-    // `api` is Gate's own source label, not a client order id.
+    // api is gate's own source label
     const auto theirs = map_open_order((*orders)[1], table);
     ASSERT_TRUE(theirs.has_value());
     EXPECT_EQ(theirs->status, OrderStatus::Accepted);
@@ -2009,8 +1870,7 @@ TEST(GateMapPrivate, SpotFillsMapThroughTheSameShape) {
 }
 
 TEST(GateMapPrivate, TheSpotFillPullReadsTheSameShapeAsTheSocket) {
-    // Spot REST types create_time_ms as a STRING where the futures REST body
-    // types create_time as fractional seconds; one reader has to survive both.
+    // spot rest create_time_ms is a string; futures rest is fractional seconds
     const auto table = spot_table_with_btc();
     UserTradeBuffer storage;
     const auto body = fixture("rest_spot_my_trades.json");
@@ -2027,8 +1887,7 @@ TEST(GateMapPrivate, TheSpotFillPullReadsTheSameShapeAsTheSocket) {
 }
 
 TEST(GateMapPrivate, SpotCatalogueTurnsPrecisionDigitsIntoSteps) {
-    // Gate states spot precision as a DIGIT COUNT, not a step. Reading it as a
-    // step makes every price 6 ticks wide.
+    // spot precision is a digit count
     CurrencyPairBuffer storage;
     const auto body = fixture("rest_currency_pairs.json");
     const auto pairs = parse_currency_pairs(body, storage);
@@ -2038,8 +1897,7 @@ TEST(GateMapPrivate, SpotCatalogueTurnsPrecisionDigitsIntoSteps) {
     for (const auto& row : *pairs) {
         const auto instrument = map_currency_pair(row);
         if (row.trade_status != "tradable") {
-            // buyable/sellable/untradable are one-sided or closed listings;
-            // trading one places orders on the side Gate refuses.
+            // one-sided or closed listings are not tradable
             EXPECT_FALSE(instrument.has_value()) << row.id;
             continue;
         }
@@ -2058,12 +1916,8 @@ TEST(GateMapPrivate, SpotCatalogueTurnsPrecisionDigitsIntoSteps) {
     EXPECT_EQ(loaded, 3U);
 }
 
-// ------------------------------------------------------- private ws ----
-
 TEST(GateWsPrivate, SubscribeCarriesItsOwnSignature) {
-    // There is no connection-wide login for the push channels: every private
-    // subscribe re-authenticates, and the `time` inside the digest must be the
-    // one the frame carries.
+    // every private subscribe is signed; the digest time must match the frame's
     net::Signer signer;
     load_credentials(signer);
     Protocol protocol;
@@ -2086,8 +1940,7 @@ TEST(GateWsPrivate, SubscribeCarriesItsOwnSignature) {
 }
 
 TEST(GateWsPrivate, TheFuturesPayloadLeadsWithTheUserIdAndSpotDoesNot) {
-    // A futures subscribe that puts the contract where Gate expects the user
-    // id is answered with an empty stream, not an error.
+    // the contract in the user id slot gets an empty stream
     net::Signer signer;
     load_credentials(signer);
     Protocol protocol;
@@ -2105,12 +1958,11 @@ TEST(GateWsPrivate, PrivateEndpointsAndChannelsExistPerMarket) {
     EXPECT_EQ(user_trades_channel(MarketType::Perp), "futures.usertrades");
     EXPECT_EQ(orders_channel(MarketType::Spot), "spot.orders");
     EXPECT_EQ(user_trades_channel(MarketType::Spot), "spot.usertrades");
-    // Gate publishes options.orders; nothing here maps its payload, so no
-    // subscription is offered rather than one that arrives unread.
+    // options orders are not mapped, so no subscription is offered
     EXPECT_TRUE(orders_channel(MarketType::Option).empty());
     EXPECT_TRUE(user_trades_channel(MarketType::Option).empty());
 
-    // Spot is a different HOST as well as a different path.
+    // spot uses another host as well as another path
     EXPECT_EQ(private_host(false, MarketType::Perp), stream_host(false));
     EXPECT_EQ(private_path(false, MarketType::Perp), "/v4/ws/usdt");
     EXPECT_EQ(private_host(false, MarketType::Spot), "api.gateio.ws");
@@ -2133,33 +1985,29 @@ TEST(GateWsPrivate, WithoutCredentialsNoPrivateFrameIsBuilt) {
 }
 
 TEST(GateErrors, OrderEntryLabelsLandInTheRightBucket) {
-    // A post-only that would have crossed, and a fok that could not fill, are
-    // final answers about that order: retrying is how an account earns a ban.
+    // post-only cross and unfilled fok are final
     EXPECT_EQ(classify(k_poc_fill_immediately), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_order_poc_immediate), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_fok_not_fill), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_invalid_client_order_id), exec::ErrorClass::Terminal);
-    // The order WAS placed and only the answer went missing; resending makes
-    // a second one.
+    // the order was placed; resending makes a second one
     EXPECT_EQ(classify(k_duplicate_request), exec::ErrorClass::Terminal);
-    // Mid-operation on an order or a position: the same request works a
-    // moment later.
+    // mid-operation; retry shortly
     EXPECT_EQ(classify(k_order_pending), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_position_in_liquidation), exec::ErrorClass::Retryable);
-    // Trading switched off for this key: no retry turns it back on.
+    // trading disabled for this key
     EXPECT_EQ(classify(k_trade_restricted), exec::ErrorClass::AuthFailure);
 }
 
 TEST(GateErrors, LiveRefusalBodiesClassifyAsCaptured) {
-    // The body must outlive the views the parser hands back.
+    // the body must outlive the parsed views
     const auto invalid_key_body = fixture("rest_error_invalid_key.json");
     const auto invalid_key = parse_rest_error(invalid_key_body);
     ASSERT_TRUE(invalid_key.has_value());
     EXPECT_EQ(invalid_key->label, k_invalid_key);
     EXPECT_EQ(classify(invalid_key->label), exec::ErrorClass::AuthFailure);
 
-    // Our clock, not our credentials: halting the venue here would take a
-    // healthy key offline.
+    // an expired request is a clock problem
     const auto expired_body = fixture("rest_error_request_expired.json");
     const auto expired = parse_rest_error(expired_body);
     ASSERT_TRUE(expired.has_value());
@@ -2167,12 +2015,8 @@ TEST(GateErrors, LiveRefusalBodiesClassifyAsCaptured) {
     EXPECT_EQ(classify(expired->label), exec::ErrorClass::Retryable);
 }
 
-// ------------------------------------------------- spot market data ----
-
 TEST(GateSpotWire, TheSpotPrintNamesItsTakerWhereFuturesSignTheSize) {
-    // Every field is spelled differently: amount for size, currency_pair for
-    // the symbol, and `side` naming the TAKER outright — so there is no sign
-    // to split. Read as a futures frame the same bytes have no size at all.
+    // spot names the taker side outright; there is no sign to split
     auto storage = std::make_unique<TradeBuffer>();
     const auto frame = fixture("ws_spot_public_trades.json");
 
@@ -2183,16 +2027,13 @@ TEST(GateSpotWire, TheSpotPrintNamesItsTakerWhereFuturesSignTheSize) {
     ASSERT_EQ(trades->size(), 1U) << "spot sends one print, not a batch";
     EXPECT_EQ((*trades)[0].contract, "BTC_USDT");
     EXPECT_FALSE((*trades)[0].qty.empty());
-    // create_time_ms arrives as a decimal STRING with a fraction; the
-    // milliseconds are what survives.
+    // create_time_ms is a fractional string
     EXPECT_GT((*trades)[0].ts_ms, 1'000'000'000'000ULL);
     EXPECT_LT((*trades)[0].ts_ms, 100'000'000'000'000ULL);
 }
 
 TEST(GateSpotWire, TheSpotBookIsAWholeBookAndNotADelta) {
-    // Levels are two-element arrays here and objects on the futures deltas.
-    // Both ids are the same number because a snapshot is its own first and
-    // last update — there is no chain for a consumer to join.
+    // spot levels are arrays; both ids are the same
     auto storage = std::make_unique<LevelBuffer>();
     const auto frame = fixture("ws_spot_order_book.json");
     const auto wire = parse_book_snapshot(frame, *storage);
@@ -2212,9 +2053,7 @@ TEST(GateSpotWire, TheSpotBookIsAWholeBookAndNotADelta) {
 }
 
 TEST(GateSpotWs, TheTwoDepthChannelsTakeTheirArgumentsInOppositeOrders) {
-    // Gate refuses the wrong order outright — "incorrect level provided:
-    // 100ms" — so this is a startup failure rather than a quiet one, but only
-    // if the frame is built per channel.
+    // gate refuses swapped depth arguments
     Protocol protocol;
     const std::array<Subscription, 1> one{
         Subscription{.channel = "spot.order_book", .contract = "BTC_USDT"}};

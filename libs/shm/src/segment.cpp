@@ -29,9 +29,7 @@ std::expected<Mapping, SegError> map_file(int fd, std::size_t size) {
     return Mapping{static_cast<std::byte*>(p), size};
 }
 
-// Consumer-side liveness: pid gone OR heartbeat stale reads as dead. The
-// worst case of a false "dead" here is a consumer marking the venue down —
-// recoverable, so the aggressive rule is right.
+// pid gone or heartbeat stale reads as dead; a false dead only marks the venue down
 bool header_owner_alive(const SegmentHeader& header, std::uint64_t now_ns) {
     if (!platform::process_alive(header.creator_pid)) {
         return false;
@@ -40,11 +38,7 @@ bool header_owner_alive(const SegmentHeader& header, std::uint64_t now_ns) {
     return now_ns <= beat + k_owner_stale_ns;
 }
 
-// Takeover-side liveness: only a genuinely dead pid clears the path. An
-// alive pid with a stale heartbeat may be a hung owner that wakes up and
-// keeps writing — and two writers on one segment is the one unrecoverable
-// configuration, while a stuck segment is operator-visible. Conservative
-// beats clever here.
+// only a dead pid clears the path, since a hung owner may wake and keep writing
 bool header_blocks_takeover(const SegmentHeader& header) {
     return platform::process_alive(header.creator_pid);
 }
@@ -71,8 +65,6 @@ std::uint64_t layout_hash(const SegmentHeader& header) noexcept {
     return h;
 }
 
-// ---------------------------------------------------------------- owner --
-
 SegmentOwner::SegmentOwner(SegmentOwner&& other) noexcept
     : header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
       size_{std::exchange(other.size_, 0)}, bump_{other.bump_}, path_{std::move(other.path_)} {
@@ -97,7 +89,6 @@ std::expected<SegmentOwner, SegError> SegmentOwner::create(const std::string& pa
     for (int attempt = 0; attempt < 2; ++attempt) {
         int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
         if (fd < 0 && errno == EEXIST) {
-            // Corpse or live owner? Inspect the existing header.
             const int probe = ::open(path.c_str(), O_RDWR);
             if (probe < 0) {
                 ::unlink(path.c_str());
@@ -186,8 +177,6 @@ void SegmentOwner::publish_refusals(std::uint64_t count) noexcept {
     header_->subscribe_refusals.store(count, std::memory_order_release);
 }
 
-// --------------------------------------------------------------- client --
-
 SegmentClient::SegmentClient(SegmentClient&& other) noexcept
     : header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
       size_{std::exchange(other.size_, 0)} {}
@@ -254,7 +243,6 @@ std::expected<void*, SegError> SegmentClient::find(std::string_view name,
         const auto& ch = header_->channels[i];
         if (std::string_view{ch.name} == name) {
             if (ch.size != expected_size) {
-                // Compiled channel type differs from the owner's build.
                 return std::unexpected{SegError::SizeMismatch};
             }
             if (ch.offset + ch.size > size_) {

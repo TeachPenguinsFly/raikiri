@@ -77,8 +77,7 @@ std::string_view to_string(Side side) noexcept {
 
 std::string_view format_account(AccountId account, char* buf, std::size_t buf_len) noexcept {
     const auto venue = to_string(account.venue);
-    // Perp is the unsuffixed default, so the perpetual gateway keeps the plain
-    // venue name it has always had and only the other markets gain a suffix.
+    // perp is the unsuffixed default
     std::string_view suffix;
     switch (account.market) {
     case MarketType::Perp:
@@ -103,8 +102,7 @@ std::string_view format_account(AccountId account, char* buf, std::size_t buf_le
 }
 
 AccountId account_from_string(std::string_view name) noexcept {
-    // Longest suffix first: no two of these are prefixes of each other today,
-    // but the order is what keeps that from mattering.
+    // longest suffix first
     struct Suffix {
         std::string_view text;
         MarketType market;

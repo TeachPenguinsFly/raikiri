@@ -1,10 +1,6 @@
 #pragma once
 
-// Postgres sink. Cold plane: exceptions are fine here (two-zone error
-// model), and libpqxx stays behind a pimpl so no third-party type appears in
-// this header. One commit() = one transaction containing every row of the
-// batch PLUS the cursor advance — that single fact turns idempotent inserts
-// into exactly-once persistence.
+// one commit() is one transaction holding every row plus the cursor advance
 
 #include <raikiri/persist/rows.hpp>
 
@@ -32,12 +28,7 @@ public:
 
     void commit(const std::string& journal, const RowBatch& batch);
 
-    // How many rows one of our tables holds. Exists so the exactly-once claim
-    // is CHECKABLE: a replay that duplicated every row still advances the
-    // cursor to the same number, so the cursor alone proves nothing.
-    // `table` is an unqualified name in the raikiri schema and is refused
-    // unless it is lowercase letters and underscores — it is interpolated,
-    // because Postgres takes no parameter in an identifier position.
+    // `table` is interpolated, so only lowercase letters and underscores are accepted
     [[nodiscard]] std::int64_t count_rows(const std::string& table);
 
 private:

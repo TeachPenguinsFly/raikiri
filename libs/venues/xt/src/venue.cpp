@@ -43,7 +43,7 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest, RequestBuild
     if (!venue_ms.has_value()) {
         return;
     }
-    // Half the round trip is the usual estimate of one-way delay.
+    // half the round trip estimates one-way delay
     const auto received = state.clock->wall();
     const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
     state.clock_offset_ns =
@@ -73,9 +73,7 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // a venue factory cannot report a bad credential reference, so a typo reads as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
         .secret(state->signer.secret())

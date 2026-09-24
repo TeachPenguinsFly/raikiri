@@ -20,13 +20,11 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_illegal_ip:
     case k_user_locked:
     case k_access_forbidden:
-        // Wrong for every request this process will make, so the gateway halts
-        // rather than spending a budget on a key the venue keeps refusing.
+        // a credential error applies to every request, so halt
         return exec::ErrorClass::AuthFailure;
 
     case k_order_rate_limited:
-        // The venue bans for ten seconds after a breach, so this must back off
-        // rather than repeat.
+        // weex bans for ten seconds after a breach
         return exec::ErrorClass::RateLimited;
 
     case k_system_error:
@@ -35,16 +33,12 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_symbol_not_api_tradable:
     case k_key_not_bound_to_symbol:
     case k_contract_no_permission_pair:
-        // NAMED RATHER THAN LEFT TO THE DEFAULT, because each of these reads as
-        // a permission and none of them is one the gateway may halt on: they
-        // are about ONE contract, and the other nine hundred still trade.
+        // per-contract refusals; halting would silence every other contract
         return exec::ErrorClass::Terminal;
 
     default:
         break;
     }
-    // Everything else — a malformed request, a rejected order, a quantity the
-    // venue would not take — is a refusal that asking again reproduces exactly.
     return exec::ErrorClass::Terminal;
 }
 

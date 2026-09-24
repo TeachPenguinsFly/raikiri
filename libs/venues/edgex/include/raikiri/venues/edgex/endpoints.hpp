@@ -8,11 +8,10 @@
 
 namespace raikiri::venues::edgex::ep {
 
-// V2 only. The V1 host (pro.edgex.exchange/api/v1) still answers "SUCCESS"
-// with empty data on every quote, which looks healthy and is not.
+// v2 only; the v1 host answers SUCCESS with empty data
 inline constexpr std::string_view k_perp_rest = "edgex-prod-v2.edgex.exchange";
 inline constexpr std::string_view k_perp_stream = "edgex-quote-prod-v2.edgex.exchange";
-// Undocumented; the protocol is the perp socket's.
+// undocumented; the protocol is the perp socket's
 inline constexpr std::string_view k_spot_rest = "spot.edgex.exchange";
 inline constexpr std::string_view k_spot_stream = "spot-quote.edgex.exchange";
 
@@ -33,8 +32,6 @@ inline constexpr std::string_view k_spot_meta = "/api/v1/public/meta/getMetaData
     return market == MarketType::Spot ? k_spot_meta : k_perp_meta;
 }
 
-// Measured floors, not the venue's limits: no 429 at either, and the venue
-// states none. The adapter makes one REST call per start.
 inline constexpr std::uint32_t k_rest_rps_without_refusal = 135;
 
 } // namespace raikiri::venues::edgex::ep

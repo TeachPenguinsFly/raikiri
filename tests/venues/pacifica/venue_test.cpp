@@ -231,7 +231,7 @@ TEST(PacificaFunding, TheFixedRateTheEstimateAndTheNextHour) {
 }
 
 TEST(PacificaFunding, TheHourAfterASettlementPublishesTheRateNowAccruing) {
-    // Captured 2026-09-26 across 11:00 UTC: seconds from the hour, funding, next_funding.
+    // captured across 11:00 utc: seconds from the hour, funding, next_funding
     struct Row {
         double at;
         std::string_view funding;
@@ -346,7 +346,7 @@ TEST(PacificaMap, TheLiveListingsEquitiesAreNotReadAsCoins) {
     for (const auto* equity : {"SAMSUNG", "SKHYNIX", "SPCX", "URNM", "DRAM"}) {
         EXPECT_EQ(cls(equity), AssetClass::Equity) << equity;
     }
-    // BP is Backpack's token at $1.24, not the oil major.
+    // BP is backpack's token
     EXPECT_EQ(cls("BP"), AssetClass::Crypto);
 }
 

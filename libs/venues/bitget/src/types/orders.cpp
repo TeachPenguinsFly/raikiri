@@ -10,9 +10,7 @@ using wire::guarded;
 using wire::session;
 namespace ondemand = wire::ondemand;
 
-// feeDetail has three shapes across the endpoints that carry it: an object on
-// spot fills, an ARRAY of the same object on mix fills, and a JSON-encoded
-// STRING on spot orderInfo. Only the first two are money we can read here.
+// feeDetail is an object on spot fills, an array on mix fills, and a json string on spot orderInfo
 std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj) {
     obj.reset();
     ondemand::value value;
@@ -52,7 +50,6 @@ std::expected<std::string_view, WireError> read_total_fee(ondemand::object& obj)
 }
 
 std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate& out) {
-    // The socket names the instrument instId; both REST lists name it symbol.
     out.inst_id = field(obj, "instId");
     if (out.inst_id.empty()) {
         out.inst_id = field(obj, "symbol");
@@ -67,17 +64,14 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrderUpdate
     out.force = field(obj, "force");
     out.price = field(obj, "price");
     if (out.price.empty()) {
-        // Spot's pending list carries no `price` at all: while an order is
-        // live its limit price arrives under priceAvg.
+        // spot's pending list has no price; a live order's limit is under priceAvg
         out.price = field(obj, "priceAvg");
     }
     out.size = field(obj, "size");
     out.new_size = field(obj, "newSize");
     out.acc_base_volume = field(obj, "accBaseVolume");
     if (out.acc_base_volume.empty()) {
-        // The REST lists report the running total under the name the socket
-        // reserves for the latest fill alone. Reading one as the other makes
-        // a reconciliation pull look like a stream of one-lot fills.
+        // the rest lists put the running total under baseVolume, which the socket uses for the latest fill
         out.acc_base_volume = field(obj, "baseVolume");
     } else {
         out.base_volume = field(obj, "baseVolume");
@@ -106,8 +100,7 @@ std::expected<void, WireError> read_fill(ondemand::object& obj, WireFill& out) {
     out.order_id = field(obj, "orderId");
     out.trade_id = field(obj, "tradeId");
     out.side = field(obj, "side");
-    // Mix reports the trade price as `price`; spot reports the same single
-    // trade under `priceAvg`, which on that endpoint averages one fill.
+    // mix reports the trade price as price; spot as priceAvg
     out.price = field(obj, "price");
     if (out.price.empty()) {
         out.price = field(obj, "priceAvg");
@@ -138,8 +131,7 @@ std::expected<void, WireError> read_batch_failure(ondemand::object& obj, WireBat
 } // namespace
 
 WireOrderStatus order_status_from(std::string_view text) noexcept {
-    // "new" is not in the documented enum but Bitget's own spot example
-    // returns it, and reading it as unknown loses the accept.
+    // "new" is undocumented but bitget's own spot example returns it
     if (text == "live" || text == "new") {
         return WireOrderStatus::Live;
     }

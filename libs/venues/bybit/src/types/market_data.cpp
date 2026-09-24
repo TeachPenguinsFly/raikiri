@@ -45,7 +45,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             trade_obj.reset();
             trade.size = wire::opt_str(trade_obj, "v").value_or(std::string_view{});
             trade_obj.reset();
-            // "S" is the TAKER's side: "Buy" means the aggressor lifted the offer.
+            // "S" is the taker's side
             trade.buyer_aggressor =
                 wire::opt_str(trade_obj, "S").value_or(std::string_view{}) == "Buy";
             trade_obj.reset();

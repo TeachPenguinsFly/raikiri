@@ -30,22 +30,14 @@ using internal::make_data_client;
 using internal::make_execution_client;
 using internal::make_instrument_source;
 
-// Bybit refuses signatures outside recvWindow of ITS clock. A laptop drifting
-// two seconds therefore looks exactly like bad credentials, so the offset is
-// measured once at startup and applied to every signed request. Half the
-// round trip is subtracted because the server's timestamp was taken somewhere
-// in the middle of it.
+// bybit checks recvWindow against its own clock; the offset is measured at startup, less half the round trip
 void internal::sync_clock(VenueState& state, net::RestClient& rest) {
     net::RestRequest request{};
     request.method = net::HttpMethod::Get;
     request.target = ep::k_server_time;
 
     const auto before = state.clock->wall();
-    // DERIVED FROM THE TRANSPORT'S OWN BOUND, never a number typed beside it: a
-    // deadline equal to the client's leaves the answer to whichever timer fires
-    // first, and losing that flip calls a venue silent while the pool still
-    // holds its request. The extra second is the wait loop's granularity — it
-    // tests its deadline only between turns of the reactor.
+    // the transport's bound plus the wait loop's one-second granularity
     const auto response = await_response(state, rest, request, rest.max_wait_ms() + 1'000);
     if (!response.has_value() || response->transport_failed()) {
         return; // no correction is better than a wrong one
@@ -67,10 +59,7 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
     auto state = std::make_shared<VenueState>(sink, clock, config.testnet);
     state->budget = config.budget;
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
-    // A TIER BYBIT DOES NOT PUBLISH COSTS THE WHOLE SUBSCRIPTION, not one
-    // topic: the frame comes back `error:handler not found` and every symbol
-    // batched into it goes unwatched. There is nowhere here to refuse a bad
-    // config to, so it is said out loud and the default stands.
+    // an unpublished tier fails the whole subscribe frame; warn and keep the default
     if (config.book_depth != 0) {
         if (is_book_tier(config.book_depth)) {
             state->book_depth = config.book_depth;
@@ -87,9 +76,7 @@ make_bybit(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock
         }
     }
 
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // credential errors are dropped here; a typo reads downstream as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
         .secret(state->signer.secret())

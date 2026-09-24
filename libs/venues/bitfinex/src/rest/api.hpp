@@ -1,12 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held. None of them belongs to the order path — they run on a
-// poller's schedule and pump the reactor until the answer arrives, which an
-// order may never do.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/bitfinex/envelope.hpp>
 #include <raikiri/venues/bitfinex/errors.hpp>
@@ -24,12 +17,7 @@
 
 namespace raikiri::venues::bitfinex::internal {
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. Answered BEFORE the instrument table is read: the table compares
-// the WHOLE id, so an id for a market that was never loaded resolves to nothing
-// and would otherwise be reported as an unknown instrument — blaming a stale
-// catalogue for a market this adapter simply does not serve.
+// exhaustive over markets; checked before the instrument table
 inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -43,10 +31,7 @@ inline std::optional<exec::VenueError> refuse_market(MarketType market) noexcept
     return exec::not_implemented("bitfinex: unknown market");
 }
 
-// A refusal to build is terminal by construction: the same command built again
-// produces the same refusal. Missing credentials are the one exception worth
-// separating — that sends an operator to the config rather than to Bitfinex's
-// status page.
+// build refusals are terminal except missing credentials
 inline exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
@@ -54,8 +39,7 @@ inline exec::VenueError build_failure(BuildError err) noexcept {
                                   to_string(err));
 }
 
-// `["error",10100,"apikey: invalid"]` — an array, like everything else here,
-// so an error body and a data body are told apart by their first element.
+// ["error",code,text]; told apart from data by its first element
 inline std::optional<exec::VenueError> rest_error(std::string_view body) {
     if (!is_rest_error(body)) {
         return std::nullopt;
@@ -78,14 +62,9 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps dead rest connections so an idle gateway does not send into a closed socket
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -119,9 +98,7 @@ public:
             if (!report.has_value()) {
                 continue;
             }
-            // /auth/r/orders is ACCOUNT-WIDE and names no market, so the sweep
-            // for one market must drop the other's rows rather than report
-            // them as belonging to the market that was asked for.
+            // /auth/r/orders is account-wide; drop the other market's rows
             if (report->instrument.market() != market) {
                 continue;
             }
@@ -139,9 +116,7 @@ public:
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
-        // Bitfinex publishes no read keyed by a client id, and its `cid` is a
-        // derived integer this adapter cannot invert, so the open-order sweep
-        // is what answers this question at all.
+        // no read by client id and cid is not invertible, so the open-order sweep answers
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -203,8 +178,6 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot balance is not a position. Answering "flat" would be a
-            // claim about a concept this API does not have.
             return std::unexpected{exec::not_implemented("bitfinex spot position pull")};
         }
         const auto request = builder_.positions(market, state_->clock->wall());

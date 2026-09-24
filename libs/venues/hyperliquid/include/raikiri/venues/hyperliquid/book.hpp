@@ -1,12 +1,6 @@
 #pragma once
 
-// The order book, and the top of it.
-//
-// There is no book class here and no sequencing to hold. VERIFIED against
-// consecutive live frames: every l2Book message is a full snapshot — no action
-// field, no sequence id, no previous-sequence id anywhere in the payload — so
-// there is no continuity chain to maintain and no resync path to get wrong,
-// and the newest frame just replaces what the gateway holds.
+// every l2Book frame is a full snapshot, so there is no sequence to track
 
 #include <raikiri/venues/hyperliquid/errors.hpp>
 #include <raikiri/wire/error.hpp>
@@ -20,7 +14,6 @@
 
 namespace raikiri::venues::hyperliquid {
 
-// {"px":..,"sz":..,"n":..}. `n` is an order count the domain does not model.
 struct WireLevel {
     std::string_view price;
     std::string_view qty;
@@ -35,11 +28,9 @@ struct WireBbo {
     std::uint64_t ts_ms{0};
 };
 
-// `data.bbo` is [bid, ask] and either is null on a side with nothing resting;
-// a null side yields empty views rather than an error, and the mapper drops it.
+// a side with nothing resting is null and yields empty views
 [[nodiscard]] std::expected<WireBbo, WireError> parse_bbo(std::string_view frame);
 
-// l2Book pushes 20 a side; headroom without letting a frame make us allocate.
 inline constexpr std::size_t k_max_levels = 256;
 
 struct LevelBuffer {
@@ -47,7 +38,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// `data.levels` is [bids, asks], bids descending and asks ascending.
+// [bids, asks], bids descending and asks ascending
 struct WireBook {
     std::string_view coin;
     std::uint64_t ts_ms{0};

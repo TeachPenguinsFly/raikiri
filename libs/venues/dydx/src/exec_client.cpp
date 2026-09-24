@@ -1,7 +1,4 @@
-// A dYdX order is a Cosmos chain transaction (MsgPlaceOrder) signed with a
-// wallet's secp256k1 key and broadcast to a validator node, not an HMAC request,
-// so no credential makes these paths work. gatewayd starts this client
-// unconditionally; every call refuses, Terminal so nothing retries a missing signer.
+// orders are chain transactions signed with a secp256k1 wallet key; every call refuses terminal
 
 #include <raikiri/exec/execution_client.hpp>
 

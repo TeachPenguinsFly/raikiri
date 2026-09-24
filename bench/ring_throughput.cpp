@@ -1,6 +1,4 @@
-// Single-process microbenchmarks for the shm primitives (Google Benchmark).
-// Cross-process latency lives in shm_pingpong; these track per-op costs and
-// regressions in the primitives themselves.
+// shm primitive microbenchmarks; cross-process latency is in shm_pingpong
 
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/shm/broadcast_ring.hpp>

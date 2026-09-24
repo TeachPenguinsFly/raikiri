@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers, over both of its deployments.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what the account is long. None of them belongs to the order path — they run
-// on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/htx/account.hpp>
 #include <raikiri/venues/htx/envelope.hpp>
@@ -25,9 +19,7 @@
 
 namespace raikiri::venues::htx::internal {
 
-// HTX's code is a string on spot and a number on the swap, and VenueError
-// carries an integer, so the code travels in the message where an operator can
-// still read it whichever spelling arrived.
+// the code travels in the message since spot spells it as a word
 exec::VenueError rest_failure(std::string_view body) {
     const auto envelope = parse_rest_envelope(body);
     if (!envelope.has_value()) {
@@ -40,8 +32,7 @@ exec::VenueError rest_failure(std::string_view body) {
 }
 
 exec::VenueError build_failure(BuildError err) noexcept {
-    // A refusal to build is terminal by construction: the same command built
-    // again produces the same refusal.
+    // a build refusal is terminal: rebuilding gives the same result
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
                                   0,
@@ -62,8 +53,7 @@ public:
         spot_rest_.start();
         sync_clock(*state_, perp_rest_);
         if (spot_enabled_ && !load_spot_account()) {
-            // Without it every spot order is refused as an invalid parameter,
-            // one at a time, which reads as a broken instrument table.
+            // without the account id every spot order is refused
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::AuthFailure, 0, "htx: spot account id unavailable")};
         }
@@ -75,15 +65,12 @@ public:
         spot_rest_.stop();
     }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // keeps pooled connections alive so an order does not pay a reconnect
     void keepalive(UnixNanos now) noexcept {
         perp_rest_.keepalive(now);
         spot_rest_.keepalive(now);
     }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool
@@ -134,9 +121,7 @@ public:
         if (market != MarketType::Spot) {
             const auto it = state_->swap_targets.find(std::string{id.view()});
             if (it == state_->swap_targets.end()) {
-                // The swap never saw this ULID: its client_order_id is an
-                // int64 and the pairing lives only in this process. Saying so
-                // beats answering about an order we cannot name.
+                // the swap never saw this ulid; the pairing lives only in this process
                 return std::unexpected{exec::VenueError::make(
                     exec::ErrorClass::Terminal, 0, "htx swap: client order id not minted here")};
             }
@@ -175,12 +160,7 @@ public:
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
-        // Both surfaces window their trade history by CONTRACT and this call
-        // names only a market. GET /v1/order/matchresults requires `symbol`,
-        // and swap_cross_matchresults answers err_code 1014 without a
-        // contract_code or a pair. A sweep over the instruments we happen to
-        // know about would be a guess, and an empty vector reads as "no fills"
-        // — the one answer a reconciler must not be handed wrongly.
+        // trade history is per contract on both surfaces, and an empty vector would read as no fills
         return std::unexpected{exec::not_implemented("htx fill pull is per-contract")};
     }
 
@@ -190,9 +170,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot pair pays no funding, and this ledger is the SWAP
-            // account's. Answering with it would book a perpetual's charges
-            // against a spot gateway.
+            // spot pays no funding and this ledger is the swap account's
             return std::unexpected{exec::not_implemented("htx spot funding charges")};
         }
         const auto request = builder_.financial_record(market, since, state_->venue_now());
@@ -209,12 +187,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_financial_records(*body, storage);
         if (!rows.has_value()) {
-            // A ledger we cannot read is NOT an empty one: answering "no
-            // funding" would book zero against a position that paid some. This
-            // is also where a v3 REFUSAL lands: that envelope says `code`
-            // where every other body here says `status`, so the shared check
-            // in fetch() cannot read it and the parser's refusal is what
-            // reports it.
+            // an unreadable ledger is not an empty one; v3 refusals say code instead of status and land here
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
@@ -236,9 +209,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot balance is not a position, and one BTC balance backs
-            // btcusdt, btcusdc and btceth alike. Answering "flat" would be a
-            // claim about a concept HTX does not have on this API.
+            // a spot balance is not a position
             return std::unexpected{exec::not_implemented("htx spot position pull")};
         }
         const auto request = builder_.positions(market, state_->venue_now());
@@ -280,8 +251,7 @@ private:
             return std::unexpected{exec::VenueError::make(
                 classify_http(response->status), response->status, "http error")};
         }
-        // HTTP 200 with status "error" is HTX's ordinary refusal on both
-        // surfaces, so the envelope decides rather than the status line.
+        // htx refuses with http 200 and status "error"
         const auto envelope = parse_rest_envelope(response->body);
         if (envelope.has_value() && !envelope->ok) {
             return std::unexpected{rest_failure(response->body)};

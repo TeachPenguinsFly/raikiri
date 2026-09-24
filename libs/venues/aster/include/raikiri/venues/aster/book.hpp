@@ -1,26 +1,7 @@
 #pragma once
 
-// The order book: what a frame says about it, and what a reader must hold to
-// keep one in step.
-//
-// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
-// rule that decides whether a delta may be applied at all, and the rule means
-// nothing without the field it reads.
-//
-// <sym>@depth@<cadence> carries deltas and no snapshot, so the book is seeded from
-// GET /fapi/v1/depth and then chained. Three rules, all verified against the
-// live stream rather than taken from the docs:
-//
-//   * the futures chain is `pu == the previous event's u`. The spot rule,
-//     `U == previous u + 1`, held on 0 of 105 consecutive frames — it would
-//     reject every valid futures delta.
-//   * the seed is a photograph of one instant, usable only while some delta
-//     still straddles it (U <= lastUpdateId <= u). Ids are not dense per
-//     symbol — consecutive frames left holes of ~100 ids — so a seed nothing
-//     straddles is discarded rather than trusted.
-//   * the stream is full-depth and unbounded: a book seeded with 1000 levels
-//     a side grew past 1400 in seventeen seconds. Levels outside the band the
-//     seed vouched for are dropped, because nothing else can confirm them.
+// deltas only: seed from GET /fapi/v1/depth, chain on pu == previous u,
+// drop levels outside the band the seed covers
 
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
@@ -39,8 +20,7 @@
 
 namespace raikiri::venues::aster {
 
-// <sym>@bookTicker: the top of book alone, pushed on every change rather than
-// on a cadence, which is why it is the quote source and @depth is the ladder.
+// top of book, pushed on every change
 struct WireBookTicker {
     std::string_view symbol;
     std::string_view bid_price;
@@ -66,9 +46,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// first_id/last_id are aster's [U, u]; prev_id is `pu`. The chaining rule
-// on futures is prev_id == the previous event's last_id — NOT last_id + 1,
-// which is the spot rule and would reject every valid futures delta.
+// futures chain: prev_id equals the previous event's last_id
 struct WireDepthUpdate {
     std::string_view symbol;
     std::uint64_t first_id{0};
@@ -82,8 +60,7 @@ struct WireDepthUpdate {
 [[nodiscard]] std::expected<WireDepthUpdate, WireError> parse_depth_update(std::string_view data,
                                                                            LevelBuffer& storage);
 
-// GET /fapi/v1/depth. `last_update_id` is the book state these levels
-// describe, and the seed is usable only while a delta still straddles it.
+// the seed is usable only while a delta still straddles last_update_id
 struct WireDepthSnapshot {
     std::uint64_t last_update_id{0};
     std::uint64_t transaction_ms{0}; // T: when the book was that
@@ -104,33 +81,19 @@ enum class BookResult : std::uint8_t {
     Reseed,   // the seed can no longer be bridged: fetch another
 };
 
-// Deltas held while the REST seed is in flight. One round trip at a 100 ms
-// cadence is a handful of frames; this is sized for a very slow one, and an
-// overflow restarts the buffer rather than growing without bound.
+// an overflow restarts the buffer
 inline constexpr std::size_t k_max_buffered_deltas = 64;
 
-// The seed depth, and so the width of the band the book is trusted inside.
-// MATCHED TO WHAT A BOOK CAN HOLD, which is `k_book_levels` — 100. Seeding
-// 1000 asked aster for ten times what the record has room for and cost
-// weight 20 a call where 100 levels cost 5; 342 instruments seeding at once
-// was 6840 weight against an allowance of 2400 a minute, and it earned this
-// process an IP ban twice in a day.
-//
-// Lower is available and cheaper still — aster charges weight 2 for 50 or
-// fewer — but that would cap the book below what shm carries, and a book that
-// serves fewer levels than it claims is the one failure this file must not
-// have. The terminal draws 12.
+// matches k_book_levels; a deeper seed costs more weight than the book can hold
 inline constexpr std::uint32_t k_seed_depth = 100;
 
-// One symbol's book. Prices and sizes become instrument-scaled integers at
-// ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
 public:
     using Level = book::Level;
 
     DepthBook(InstrumentId instrument, FixedE9 tick_size, FixedE9 lot_size);
 
-    // True while the book cannot publish and no snapshot is outstanding.
+    // true while the book cannot publish and no snapshot is outstanding
     [[nodiscard]] bool wants_seed() const noexcept;
 
     void seed_requested() noexcept { seed_in_flight_ = true; }
@@ -142,8 +105,7 @@ public:
 
     [[nodiscard]] bool live() const noexcept { return state_ == State::Live; }
 
-    // The book as shared memory takes it, or nullopt while it is unseeded or
-    // desynchronised.
+    // nullopt while unseeded or desynchronised
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
     void invalidate() noexcept;

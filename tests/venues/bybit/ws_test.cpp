@@ -14,12 +14,10 @@ constexpr UnixNanos k_now{1'700'000'000'000'000'000ULL}; // 1700000000000 ms
 TEST(BybitWs, TopicNames) {
     std::array<char, 64> buf{};
     EXPECT_EQ(topic_name(exec::SubKind::Bbo, "BTCUSDT", buf), "orderbook.50.BTCUSDT");
-    // Depth and BBO share one stream: bybit's book feed IS the top of book,
-    // and two subscriptions would double the bandwidth for the same bytes.
+    // depth and bbo share one topic
     EXPECT_EQ(topic_name(exec::SubKind::Depth, "BTCUSDT", buf), "orderbook.50.BTCUSDT");
     EXPECT_EQ(topic_name(exec::SubKind::Trades, "ETHUSDT", buf), "publicTrade.ETHUSDT");
-    // Funding and mark price both ride the tickers stream, which is why a
-    // ticker delta must be treated as partial rather than authoritative.
+    // funding and mark price share the tickers stream
     EXPECT_EQ(topic_name(exec::SubKind::Funding, "BTCUSDT", buf), "tickers.BTCUSDT");
     EXPECT_EQ(topic_name(exec::SubKind::MarkPrice, "BTCUSDT", buf), "tickers.BTCUSDT");
     EXPECT_TRUE(topic_name(exec::SubKind::Kline, "BTCUSDT", buf).empty());
@@ -30,8 +28,7 @@ TEST(BybitWs, TopicNameRefusesTooSmallABuffer) {
     EXPECT_TRUE(topic_name(exec::SubKind::Bbo, "BTCUSDT", tiny).empty());
 }
 
-// The tier is a deployment's to choose because it is a CADENCE: 50 pushes
-// every 20 ms and 200 every 100 ms, and bybit serves bbo off the same topic.
+// the tier sets the cadence: 50 every 20 ms, 200 every 100 ms
 TEST(BybitWs, ATopicNamesWhicheverTierWasAskedFor) {
     std::array<char, 64> buf{};
     EXPECT_EQ(topic_name(exec::SubKind::Depth, "BTCUSDT", buf, 200), "orderbook.200.BTCUSDT");
@@ -43,8 +40,7 @@ TEST(BybitWs, ATopicNamesWhicheverTierWasAskedFor) {
 }
 
 TEST(BybitWs, OnlyTheTiersBybitPublishesAreTiers) {
-    // `orderbook.100` comes back "error:handler not found" and takes every
-    // symbol batched into that frame with it.
+    // an unpublished tier fails every symbol in the frame
     EXPECT_TRUE(is_book_tier(50));
     EXPECT_TRUE(is_book_tier(200));
     EXPECT_TRUE(is_book_tier(1000));
@@ -111,9 +107,7 @@ TEST(BybitWs, AuthSignsTheFixedPrefixAndAFutureExpiry) {
     const auto frame = protocol.auth_frame(signer, k_now, 5'000);
     ASSERT_TRUE(frame.has_value()) << to_string(frame.error());
 
-    // The expiry must be AHEAD of bybit's clock when the frame lands;
-    // signing the current instant yields a frame already stale on arrival,
-    // refused in a way that reads as bad credentials.
+    // the expiry must be ahead of bybit's clock on arrival
     EXPECT_EQ(protocol.last_auth_message(), "GET/realtime1700000005000");
 
     std::array<char, net::k_hex_bytes> reference{};
@@ -123,7 +117,7 @@ TEST(BybitWs, AuthSignsTheFixedPrefixAndAFutureExpiry) {
               std::string{R"({"op":"auth","args":["TESTKEY",1700000005000,")"} +
                   std::string{expected} + R"("]})");
 
-    // The expiry travels as a JSON number: bybit rejects the quoted form.
+    // the expiry is a json number; bybit rejects the quoted form
     EXPECT_EQ(frame->find(R"("1700000005000")"), std::string_view::npos);
 }
 
@@ -134,7 +128,7 @@ TEST(BybitWs, AuthRefusedWithoutCredentials) {
 }
 
 TEST(BybitWs, PingIsBybitsOwnApplicationLevelFrame) {
-    // Bybit drops connections that answer only the websocket control ping.
+    // bybit drops connections that answer only the control ping
     Protocol protocol;
     EXPECT_EQ(protocol.ping_frame(), R"({"op":"ping"})");
 }

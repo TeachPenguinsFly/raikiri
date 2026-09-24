@@ -1,38 +1,5 @@
-// strategyd — the strategy kernel (demo wiring).
-//
-//   strategyd [--gateway=<account>]... [--duration <sec>] [--strategy-id=<n>]
-//             [--strategy <type>[:<id>[:<name>[:<config>]]]]... [--port <n>]
-//
-// --gateway is repeatable and takes an account name, which is also the segment
-// name: "bybit" is the perpetual gateway, "bybit-spot" the spot one beside it.
-// --venue is the same flag under its older name. One kernel holds ONE book
-// across every market it attaches to, because a position is a position
-// wherever it was opened; the (venue, market) prefix of an instrument id is
-// what routes a command back to the gateway that can fill it.
-//
-// Attaches each gateway's segment, adopts the instrument numbering it published,
-// runs a strategy through the OMS and prints the latency table at exit — the
-// `make demo` money-shot:
-//   tick-to-callback   BBO publish (gatewayd) -> strategy callback
-//   submit-call        ctx.submit() wall time (risk + store + journal + ring)
-//   order-round-trip   submit -> first venue verdict event back
-//
-// --strategy is repeatable and names a type the process factory knows;
-// `demo-maker` and `observer` are the two this repository carries, and a build
-// that links others lists them at /v1/strategy-types without a line changing
-// here. Everything past the id is the operator's: a name, then the whole
-// remainder as an opaque config handed to the constructor verbatim.
-// --strategy-id names the FIRST instance's id, and every --strategy that
-// states none counts up from there.
-//
-// --port serves that control surface — list, start, stop, positions, pnl — on
-// loopback. admind reaches it with `--upstream <name>=<port>` and forwards
-// /v1/x/<name>/..., so nothing about a strategy needs naming in admind.
-//
-// Single thread, no locks: exec ring, md ring, BBO change-gates, timers, the
-// control surface, all polled in one loop — the same shape the real kernel
-// keeps forever. That single thread is what makes an HTTP handler calling
-// on_start sound: it runs between dispatches, never inside one.
+// strategyd: strategy kernel; attaches gateways, runs strategies and serves a loopback control port
+// single thread: rings, timers and the control surface are polled in one loop
 
 #include <raikiri/journal/internal.hpp>
 #include <raikiri/journal/reader.hpp>
@@ -97,19 +64,9 @@ void on_signal(int) {
 using msgs = raikiri_journal::schema::messages;
 using namespace raikiri;
 
-// Every Strategy callback defaults to a no-op, so observing a live venue
-// needs no separate code path. Registered as a type like any other, because
-// "watch this venue and place nothing" is a real thing to ask for rather than
-// a special case of nothing being configured.
 class Observer final : public strategy::Strategy {};
 
-// One attached gateway — everything that is per-(venue, market).
-//
-// A gateway serves exactly one market, so anything scoped to a segment is
-// scoped to an account: the catalogue that mints the instrument ids, the
-// tables those ids index, the rings, and the change-gate cursors over them.
-// The book, the order store and the risk gate are NOT here: they span venues
-// on purpose, because a position is a position wherever it was opened.
+// per-(venue, market) state; the book, order store and risk gate span gateways
 struct Gateway {
     AccountId account{};
     std::string name;
@@ -125,9 +82,7 @@ struct Gateway {
     std::vector<std::uint32_t> bbo_seen;
     std::vector<std::uint32_t> funding_seen;
     std::uint64_t recon_due{0};
-    // WHETHER THIS GATEWAY'S BOOK IS STILL TRUSTED. One machine per gateway on
-    // purpose: a break on bybit-perp must not stop coinbase-spot, which shares
-    // nothing with it but this process.
+    // one kernel gate per gateway so a break on one does not stop another
     oms::KernelGate kernel;
 
     Gateway(AccountId id,
@@ -143,15 +98,6 @@ struct Gateway {
           funding_seen(std::min<std::size_t>(channels.catalogue->size(), shm::k_funding_cells)) {}
 };
 
-// The machinery every strategy's window looks through: the gateways, the order
-// store, the risk gate, the book and the journal.
-//
-// NOT a strategy::Context, though it implements most of one. A Context is ONE
-// strategy's view and every answer it gives means "yours" — the position, the
-// orders it may cancel, the id it mints. This process runs several, so the
-// window is InstanceContext below and this is what stands behind all of them.
-// While the two were one type, "yours" meant one hardcoded strategy id, and a
-// hand-placed order was risk-checked against a strategy's position.
 class KernelContext {
 public:
     KernelContext(const KernelContext&) = delete;
@@ -166,9 +112,6 @@ public:
         : gateways_{&gateways}, store_{&store}, risk_{&risk}, ids_{&ids}, journal_{&journal},
           clock_{&clock} {}
 
-    // The (venue, market) prefix of an InstrumentId IS the routing key — it is
-    // why the id carries one. Linear over a handful of attached gateways; a
-    // map would cost more than the scan it replaces.
     [[nodiscard]] Gateway* gateway_for(InstrumentId id) const noexcept {
         const AccountId want{.venue = id.venue(), .market = id.market()};
         for (auto& gw : *gateways_) {
@@ -179,15 +122,7 @@ public:
         return nullptr;
     }
 
-    /** Place an order under an id somebody else already minted.
-     *
-     *  The manual desk needs this: admind answered its caller with a client
-     *  order id before the intent ever reached this process, and the book has
-     *  to agree with what that caller was told. Everything else — the risk
-     *  gate, the store, the journal-before-wire, the local Submitted
-     *  transition — is the one path both callers take, because a hand-placed
-     *  order that skipped any of it would be an order the system cannot
-     *  reconcile, halt or replay. */
+    /** place an order under a client order id the desk already minted */
     std::expected<ClientOrderId, strategy::RejectReason> submit_as(const strategy::NewOrder& order,
                                                                    ClientOrderId id) noexcept {
         const auto t0 = clock_->mono();
@@ -207,22 +142,11 @@ public:
 
         auto* gw = gateway_for(order.instrument);
         if (gw == nullptr) {
-            // No gateway is attached for this instrument's market. Refusing as
-            // VenueDown is exact: the venue is not down, but from here it is
-            // unreachable, and both mean the order never gets to the wire.
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        // TWO HALTS, ONE FIELD. `recon_gate` halts a single instrument whose
-        // venue disagreed; `kernel` halts a whole gateway whose picture is no
-        // longer trusted. RiskGate already refuses on this flag, so neither
-        // needs a reject code of its own.
         oms::Exposure exposure{.reconciliation_break =
                                    recon_gate.halted(order.instrument) || !gw->kernel.may_open(),
                                .open_orders = store_->open_count()};
-        // THE BOOK OF WHOEVER IS PLACING IT. The id packs its owner, so a
-        // hand-placed order is banded against the desk's position and a
-        // strategy's against its own. Reading one fixed strategy's book here
-        // priced every desk order off somebody else's exposure.
         if (const auto* held = positions.find({id.strategy_id(), order.instrument});
             held != nullptr) {
             exposure.position_lots = held->qty();
@@ -230,15 +154,10 @@ public:
         const auto working = oms::working_lots(*store_, order.instrument);
         exposure.working_buy_lots = working.buy;
         exposure.working_sell_lots = working.sell;
-        // The mid, where there is one. Left undefined otherwise, which turns
-        // the band off rather than banding against a price nobody published.
         if (const auto quote = bbo(order.instrument);
             quote.has_value() && !quote->bid.is_undef() && !quote->ask.is_undef()) {
             exposure.reference_price = PriceTicks::from_raw((quote->bid.raw + quote->ask.raw) / 2);
         }
-        // The gate knows exactly which rule refused; `RejectReason` has one code
-        // for all ten. Named here because this is the last place the specific
-        // reason exists — past this return it is gone.
         if (const auto allowed = risk_->check(cmd, exposure); !allowed.has_value()) {
             RLOG_WARN("strategyd: risk refused coid={} — {}",
                       cmd.client_order_id.raw,
@@ -248,14 +167,12 @@ public:
         if (!store_->create(cmd, cmd.exchange_client_order_id).has_value()) {
             return std::unexpected{strategy::RejectReason::Capacity};
         }
-        // Intent journaled BEFORE the wire: the crash-recovery invariant.
+        // journal the intent before the wire
         journal_cmd(cmd);
         if (!gw->creates.try_push(cmd).has_value()) {
             return std::unexpected{strategy::RejectReason::VenueDown};
         }
-        // The order is on the wire: apply the local Submitted transition.
-        // Without this the FSM (correctly!) rejects the venue's Accepted —
-        // Initialized has no Accepted arm.
+        // apply the local submitted transition; the fsm has no accepted arm from initialized
         OrderEvent submitted{};
         submitted.type = OrderEventType::Submitted;
         submitted.side = cmd.side;
@@ -316,39 +233,20 @@ public:
 
     [[nodiscard]] const Clock& clock() const noexcept { return *clock_; }
 
-    // --- kernel-side state the main loop reads ---
     portfolio::PositionBook positions;
-    // Instruments this process has stopped opening on. Cleared only by a
-    // restart, never by one agreeing pull: an automatic clear on a single
-    // agreement re-opens the window the break was reporting.
+    // cleared only by a restart
     oms::ReconGate recon_gate;
-    // Last verdict per instrument, so a standing condition is reported once
-    // rather than every read. A break that persists is not new information,
-    // and a line repeated every five seconds trains an operator to skip it.
     std::unordered_map<std::uint64_t, portfolio::ReconVerdict> recon_seen;
-    // Counted per comparison, not per instrument: a run that agrees prints
-    // nothing, and "nothing" has to be distinguishable from "never ran".
     std::uint64_t recon_agreed{0};
     // Orders the venue had dropped while this process still held them open.
     std::uint64_t orders_closed_by_recon{0};
 
-    // What this process booked as a fee, keyed by the venue's own id for the
-    // execution that incurred it — which is what the venue's ledger quotes back
-    // when it states the same fee. Bounded and pruned: a desk that never
-    // reconciles must not grow a map for the life of the process.
     oms::FeeLedger fees;
     std::uint64_t fees_agreed{0};
     std::uint64_t fees_disagreed{0};
     std::uint64_t fees_unmatched{0};
 
-    // The venue's own record of a fee, against what this process wrote.
-    //
-    // NEVER BOOKED. The fill already wrote it; this is the check that the two
-    // agree, and a disagreement is a fact for a human rather than a correction
-    // to apply automatically — the venue's number and ours are both evidence,
-    // and silently overwriting one with the other loses the disagreement.
-    // The verdict comes from the ledger; the saying-out-loud stays here,
-    // because a thing that decides is testable and a thing that prints is not.
+    // compares the venue's fee to the one booked from the fill; books nothing
     void reconcile_fee(const LedgerEntry& charge, const InstrumentBase& base) {
         const auto checked = fees.reconcile(charge);
         switch (checked.verdict) {
@@ -365,9 +263,6 @@ public:
             return;
         case oms::FeeVerdict::Unmatched:
             ++fees_unmatched;
-            // Either a fill this process never saw, or the venue quotes a
-            // different id here than on the execution — both worth a line,
-            // because one is lost money and the other is a wrong join.
             RLOG_WARN("strategyd: FEE {} on {} — venue charged {}.{:09} against no fill we hold",
                       charge.reference.view(),
                       base.exchange_symbol.view(),
@@ -377,26 +272,14 @@ public:
         }
     }
 
-    // The order book, for the reconciliation that compares it against what the
-    // venue still has working. Public for the same reason `positions` is: the
-    // main loop owns the comparison, the context owns the state.
     [[nodiscard]] oms::OrderStore& orders() noexcept { return *store_; }
 
-    // EXECUTIONS ALREADY TAKEN. A pull re-offers its window on every pass and
-    // nothing in the numbers separates the second offer from the first; this is
-    // what does. Pruned on the reconciliation timer beside the fill deltas.
     oms::SeenFills seen_fills;
 
     std::uint64_t recon_unknown{0};
     std::uint64_t recon_broken{0};
 
-    // Signed fill deltas with the venue's own timestamp, kept long enough to
-    // rewind the book to any snapshot still worth comparing against. A venue
-    // snapshot describes an instant; the book has moved since. Comparing the
-    // two directly reports a break on every instrument that traded, which is
-    // an alarm that fires whenever the system is working.
-    // Fills kept only long enough to rewind them out of a comparison against a
-    // snapshot the venue took before it saw them — see oms/recon.hpp.
+    // fill deltas kept to rewind the book to a snapshot's instant; see oms/recon.hpp
     std::unordered_map<std::uint64_t, std::vector<oms::BookedFill>> fills_after;
 
     void record_fill(InstrumentId instrument, Side side, QtyLots delta, UnixNanos ts) {
@@ -409,10 +292,6 @@ public:
 
 private:
 public:
-    // The ledger is written HERE, by the process that did the arithmetic, and
-    // is never re-derived downstream from the execution rows: a re-derivation
-    // depends on instrument data that can change under it, so it would answer
-    // a question about today with numbers from today rather than from the fill.
     void journal_pnl(const OrderEvent& event,
                      const InstrumentBase& base,
                      raikiri_journal::types::pnlKindEnum kind,
@@ -430,10 +309,6 @@ public:
             m.instrument(jt::instrumentId{event.instrument.packed});
             m.symbol().assign_range(base.exchange_symbol.view());
             m.clientOrderIdField(jt::clientOrderId{event.client_order_id.raw});
-            // The fill's identity, not necessarily the venue's id: on a venue
-            // that mints none this is what keeps two increments apart, and it
-            // is written rather than re-derived downstream because
-            // PnlIncrementMsg carries no leaves to derive it from.
             m.execIdField().assign_range(
                 fill_identity(event.client_order_id, event.leaves_qty, event.exec_id.view())
                     .view());
@@ -442,11 +317,6 @@ public:
         });
     }
 
-    // The book after a fill moved it. Written HERE for the same reason the
-    // ledger is: this process owns the arithmetic, and a second one folding
-    // the same fills would answer the same question differently. Downstream
-    // — admind, persisterd, and this process's own restart — read the row
-    // rather than re-deriving it.
     void journal_position(const portfolio::Position& position,
                           const InstrumentBase& base) noexcept {
         (void)schema::append_msg<msgs::PositionMsg>(
@@ -460,8 +330,7 @@ public:
                 m.instrument(jt::instrumentId{position.key().instrument.packed});
                 m.symbol().assign_range(base.exchange_symbol.view());
                 m.netQty(jt::qtyLots{position.qty().raw});
-                // Cost, never the average: an average is cost over size and is
-                // recomputed whenever it is asked for.
+                // store cost; the average is derived
                 m.cost(jt::fixedE9{position.cost().raw});
                 m.realized(jt::fixedE9{position.realized().raw});
                 m.fees(jt::fixedE9{position.fees().raw});
@@ -471,27 +340,12 @@ public:
             });
     }
 
-    // A REFUSAL THE PERSON WHO ASKED CAN FIND.
-    //
-    // The desk answers 202 with a client order id and hands the intent over;
-    // if the risk gate then refuses it, `submit_as` returns before the store
-    // and before the journal, and the order exists NOWHERE. The caller holds
-    // an id for something that never happened, and the reason goes only to a
-    // log they do not read — which is precisely the "a rejected order and a
-    // lost one look identical" this file warns about two hundred lines down
-    // and did not prevent.
-    //
-    // So write both halves the happy path writes: the command, so the order
-    // exists at all, and a terminal event, so it is finished with. A replay
-    // then puts it in Postgres and `/v1/orders/{id}` can answer.
+    // journal a desk order the risk gate refused so /v1/orders/{id} can answer
     void journal_refusal(const OrderCmd& cmd, strategy::RejectReason why) noexcept {
         journal_cmd(cmd);
         (void)schema::append_msg<msgs::OrderEventMsg>(*journal_, clock_->wall().ns, [&](auto m) {
             namespace jt = raikiri_journal::types;
-            // DENIED, NOT REJECTED. The domain separates them and the difference is
-            // who refused: Rejected is the venue's word, and the venue never saw
-            // this order. Writing Rejected here would blame a party that was
-            // not asked.
+            // denied, since the venue never saw it
             m.eventType(static_cast<jt::orderEventTypeEnum>(OrderEventType::Denied));
             m.side(static_cast<jt::sideEnum>(cmd.side));
             m.orderType(static_cast<jt::orderTypeEnum>(cmd.order_type));
@@ -502,9 +356,6 @@ public:
             m.exchangeClientOrderIdField().assign_range(cmd.exchange_client_order_id.view());
             m.price(jt::priceTicks{cmd.price.raw});
             m.qty(jt::qtyLots{cmd.qty.raw});
-            // NOTHING IS WORKING. An order refused before the wire leaves
-            // no quantity behind, and a non-zero leaves here would put a
-            // phantom in every book that replays this.
             m.leavesQty(jt::qtyLots{0});
             m.tsEvent(jt::timestampNs{clock_->wall().ns});
             m.tsInit(jt::timestampNs{clock_->wall().ns});
@@ -539,12 +390,7 @@ private:
     const Clock* clock_;
 };
 
-// Working lots for ONE strategy on one instrument.
-//
-// oms::working_lots answers for the whole process, which is the right question
-// for the risk gate — the venue sees one book and does not care who filled it
-// — and the wrong one for a target, where netting one strategy's orders
-// against another's moves a position nobody asked to move.
+// working lots for one strategy; oms::working_lots nets the whole process
 [[nodiscard]] oms::WorkingLots working_lots_of(const oms::OrderStore& store,
                                                std::uint16_t strategy_id,
                                                InstrumentId instrument) noexcept {
@@ -560,20 +406,9 @@ private:
     return out;
 }
 
-// ONE STRATEGY'S WINDOW onto the kernel above.
-//
-// Everything per-strategy is here — the id mint, the timers, and the slice of
-// the book that belongs to this id. Everything shared stays behind it. The
-// split is what makes strategy.hpp's promise true once a process runs more
-// than one strategy: "the kernel supplies the strategy_id, so a strategy
-// cannot read another's book". It cannot cancel another's orders either, and
-// that is ENFORCED here rather than assumed.
+// one strategy's view of the kernel; it sees and cancels only its own orders
 class InstanceContext final : public strategy::Context {
 public:
-    // The ULID half of IdGen goes unused here: the exchange-side id is minted
-    // once, by the kernel, because what has to be monotone is the process's
-    // stream and not one strategy's. The seed is still per instance so that
-    // two windows can never agree on a sequence.
     InstanceContext(KernelContext& kernel, std::uint16_t strategy_id, std::uint64_t ulid_seed)
         : kernel_{&kernel}, ids_{strategy_id, ulid_seed} {}
 
@@ -584,19 +419,12 @@ public:
         return kernel_->submit_as(order, ids_.next_client_id());
     }
 
-    // ONLY ITS OWN. The id packs its owner, so an id belonging to somebody
-    // else is refused rather than cancelled: a strategy that can pull another
-    // strategy's quotes is a strategy that can be wrong about more than its
-    // own book.
     bool cancel(ClientOrderId id) noexcept override {
         return id.strategy_id() == strategy_id() && kernel_->cancel(id);
     }
 
     void cancel_all(InstrumentId instrument) noexcept override { (void)pull(&instrument); }
 
-    // Everything this strategy has working, on every instrument. What a stop
-    // calls, and the reason a stop can say the market holds none of its orders
-    // afterwards.
     std::size_t pull_all() noexcept { return pull(nullptr); }
 
     std::optional<Bbo> bbo(InstrumentId instrument) const noexcept override {
@@ -631,9 +459,6 @@ public:
         if (move.qty.raw == 0) {
             return std::nullopt;
         }
-        // Market, because a target says WHAT to hold and not at what price. A
-        // strategy that cares about the price is asking for a different thing
-        // and should submit the order itself.
         const auto sent = submit({.instrument = target.instrument,
                                   .side = move.side,
                                   .type = OrderType::Market,
@@ -642,9 +467,6 @@ public:
         return sent.has_value() ? std::optional{*sent} : std::nullopt;
     }
 
-    // TIMERS ARE PER INSTANCE. Two strategies both arming timer 1 arm two
-    // timers; one shared table would have each re-arm silently cancel the
-    // other's.
     void set_timer(std::uint32_t timer_id, std::uint64_t delay_ns) noexcept override {
         const auto deadline = kernel_->clock().mono().ns + delay_ns;
         for (auto& timer : timers_) {
@@ -658,12 +480,7 @@ public:
 
     const Clock& clock() const noexcept override { return kernel_->clock(); }
 
-    // Disarms before it reports, so a strategy re-arming inside the callback
-    // sets the next deadline rather than having it cleared out from under it.
-    //
-    // BY INDEX, over the size as it was on entry: a callback may arm a timer
-    // it has never armed before, and a range-for over a vector that grows
-    // underneath walks freed memory.
+    // disarm before firing; iterate by index because a callback may add timers
     template <typename F> void fire_due_timers(std::uint64_t now_ns, F&& fire) {
         const auto armed = timers_.size();
         for (std::size_t i = 0; i < armed; ++i) {
@@ -682,9 +499,7 @@ private:
         std::uint64_t deadline_ns{0};
     };
 
-    // `only` names one instrument, or is null for every one of them. Collected
-    // before anything is cancelled: `cancel` writes the journal and a ring, and
-    // walking the store while doing so asks it to be re-entrant for no reason.
+    // collect before cancelling; cancel writes the journal and a ring
     std::size_t pull(const InstrumentId* only) noexcept {
         std::vector<ClientOrderId> mine;
         kernel_->orders().for_each_open([&](const oms::Order& order) {
@@ -710,18 +525,10 @@ private:
 
 } // namespace
 
-// How long a published snapshot stays worth comparing against. The gateway
-// pulls every 30s; anything older than two rounds means it stopped answering,
-// and a comparison against a number from five minutes ago is not a check.
 constexpr std::uint64_t k_snapshot_max_age_ns = 90ULL * 1'000'000'000ULL;
 
-// Read every 5s. The pull behind it is far slower, but a break should surface
-// on the first loop after it becomes visible rather than on the next pull.
 constexpr std::uint64_t k_recon_read_interval_ns = 5ULL * 1'000'000'000ULL;
 
-// A break is journalled, not just printed: stderr scrolls away, and the one
-// question asked afterwards is always "when did it start", which only a
-// durable row can answer.
 void journal_break(raikiri::journal::JournalWriter& journal,
                    raikiri::VenueId venue,
                    raikiri::InstrumentId instrument,
@@ -742,29 +549,7 @@ void journal_break(raikiri::journal::JournalWriter& journal,
     });
 }
 
-// Compares what the venue published against the book, and halts what disagrees.
-//
-// This runs HERE and not in the gateway because this process owns the book.
-// The gateway sees the same event stream but has to re-derive a position from
-// it, and its rule for "how much filled" was not this one — so the venue got
-// compared against a number nobody was trading on. The gateway now publishes
-// only what the venue said, and the arithmetic happens once, where the answer
-// already exists.
-//
-// The book is split by strategy and the venue is not, so the local side is the
-// sum across strategies. One gateway has exactly one command producer — the
-// rings are SPSC — so that sum is the whole book for this venue, not a share
-// of it.
-// Orders the book still holds open that the venue no longer has.
-//
-// THE ANSWER TO SILENCE IS NOT "CLOSED". A stale table is a venue that did not
-// answer, and closing a desk's book on that basis is a far worse error than
-// carrying a dead order for another interval — so a pass that is not fresh
-// closes nothing at all.
-//
-// AND A YOUNG ORDER IS NOT A MISSING ONE. The venue answered at some instant;
-// an order sent after that instant was never in its list and is absent for the
-// most ordinary reason there is. Only orders older than the pull are judged.
+// a stale table closes nothing, and orders newer than the pull are not judged
 void reconcile_open_orders(KernelContext& ctx,
                            raikiri::VenueId venue,
                            const raikiri::shm::OpenOrderTable& table,
@@ -772,13 +557,7 @@ void reconcile_open_orders(KernelContext& ctx,
                            raikiri::UnixNanos now) {
     using namespace raikiri;
 
-    // OWNED, NOT VIEWED. `cell` is a stack object rebuilt every iteration, so a
-    // string_view into its id dangles the moment the loop turns over — and the
-    // thousand cleared cells after it reuse that slot. The set then matched
-    // nothing, every working order read as gone, and reconciliation CLOSED
-    // orders the venue was still holding: the book said flat while money rested
-    // at the exchange. Caught with one live order on weex, which the venue
-    // listed and this closed three seconds later.
+    // owned strings: `cell` is rebuilt each iteration
     std::unordered_set<std::string> at_venue;
     UnixNanos pulled{};
     for (std::size_t idx = 0; idx < shm::k_open_order_cells; ++idx) {
@@ -804,10 +583,6 @@ void reconcile_open_orders(KernelContext& ctx,
         if (at_venue.contains(std::string{order.exchange_client_order_id().view()})) {
             return;
         }
-        // `ts_created` is when this process minted the order, which is the
-        // earliest it could possibly have reached the venue. Anything younger
-        // than the pull was never in that list and is absent for the most
-        // ordinary reason there is.
         if (order.ts_created().ns == 0 || order.ts_created().ns > pulled.ns) {
             return;
         }
@@ -834,10 +609,6 @@ void reconcile_open_orders(KernelContext& ctx,
     }
 }
 
-// What one pass over a gateway's catalogue found, for the kernel machine. Not
-// counts: the machine only asks whether the venue confirmed a break, and
-// whether anything agreed at all — an empty book agrees with nothing and must
-// not be read as agreement.
 struct ReconSweep {
     bool confirmed_break{false};
     bool any_agreement{false};
@@ -856,8 +627,6 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
     for (const auto& held : ctx.positions.all()) {
         book[held.key().instrument.packed] += held.qty().raw;
     }
-    // Fills older than any snapshot we would still compare against can never
-    // be rewound past again.
     for (auto& [packed, deltas] : ctx.fills_after) {
         oms::prune_fills(deltas, now, k_snapshot_max_age_ns);
     }
@@ -870,11 +639,7 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
         }
         shm::PositionCell cell{};
         const bool written = table.read(idx, cell) != 0;
-        // The book AS OF THE SNAPSHOT, not as of now: every fill the venue had
-        // not yet seen when it answered is rewound back out. The venue's own
-        // stamp is the boundary where it gave one, since the fills being
-        // rewound carry venue timestamps too and the two clocks must be the
-        // same clock for the subtraction to mean anything.
+        // rewind fills the venue had not seen at the snapshot, using venue timestamps
         const auto boundary =
             cell.report.ts_venue.ns != 0 ? cell.report.ts_venue.ns : cell.ts_pulled.ns;
         auto local_raw = book.contains(id.packed) ? book[id.packed] : 0;
@@ -882,9 +647,6 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
             local_raw = oms::book_as_of(local_raw, it->second, boundary);
         }
         const auto local = QtyLots::from_raw(local_raw);
-        // Never written, or written and gone stale: the venue has said nothing
-        // recent. That is Unknown, and Unknown about a flat instrument is not
-        // worth a line — we are not holding anything for it to be wrong about.
         const bool answered = written && !cell.report.net_qty.is_undef() &&
                               cell.ts_pulled.ns != 0 &&
                               now.ns - cell.ts_pulled.ns <= k_snapshot_max_age_ns;
@@ -919,15 +681,10 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
         const auto seen = ctx.recon_seen.find(id.packed);
         const bool changed = seen == ctx.recon_seen.end() || seen->second != result.verdict;
         ctx.recon_seen[id.packed] = result.verdict;
-        // The moment the halt engages is the one an operator needs, and it is
-        // the SECOND break — where the verdict has not changed — so it has to
-        // survive the gate that keeps a standing condition from repeating.
         if (result.verdict == portfolio::ReconVerdict::Agree || (!changed && !confirmed)) {
             continue;
         }
         journal_break(journal, venue, id, base_of(listed).exchange_symbol.view(), result, now);
-        // A halt is the loudest thing this process does on its own, so it gets
-        // the level someone greps for rather than the one every break shares.
         if (confirmed) {
             RLOG_ERROR("strategyd: RECON {} (halted) {} local={} venue={} — {}",
                        portfolio::to_string(result.verdict),
@@ -947,36 +704,12 @@ ReconSweep reconcile_against_venue(KernelContext& ctx,
     return sweep;
 }
 
-// Rebuilds the book from this process's own journal before it writes another
-// line to it.
-//
-// Without this a restart came up FLAT while the venue still held everything,
-// and the only thing that noticed was reconciliation — correctly, by halting
-// every instrument as a break. That is the right alarm for a real
-// disagreement and the wrong one for an ordinary restart.
-//
-// It replays PositionMsg only, and takes the last row per key rather than
-// folding fills: the rows are already this process's own arithmetic, so
-// reading them back is not a second derivation of anything. Order events are
-// deliberately NOT replayed — the venue is authoritative on what is still
-// open, and reconciliation is what asks it.
-//
-// EVERY attached catalogue, not the first one. A position is restorable when
-// the gateway that lists its instrument is attached, and with more than one
-// gateway that is not a question a single catalogue can answer: consulting
-// only the first silently dropped every position on every other market, and
-// the kernel then came up flat on holdings the venue still had — which
-// reconciliation correctly halts, one instrument at a time, for a reason
-// nobody would look for here.
+// rebuild positions from the last PositionMsg per key in this process's journal, across every attached catalogue
 struct Restoration {
     std::size_t restored{0};
-    // Rows whose gateway is not attached. Not an error — running against a
-    // subset of gateways is ordinary — but never silent, because the kernel is
-    // flat on them and something has to say so.
     std::vector<std::string> unattached;
 };
 
-// One row of the ledger for a funding charge, on one strategy's book.
 void write_funding_row(journal::JournalWriter& writer,
                        const LedgerEntry& charge,
                        const InstrumentBase& base,
@@ -994,11 +727,8 @@ void write_funding_row(journal::JournalWriter& writer,
         m.strategyId(strategy_id);
         m.instrument(jt::instrumentId{base.id.packed});
         m.symbol().assign_range(base.exchange_symbol.view());
-        // No order produced this, so there is no client order id to name — zero
-        // here means "not from an order", not "order zero".
+        // zero means no order
         m.clientOrderIdField(jt::clientOrderId{0});
-        // NOT the venue's own id for the charge, and NOT the symbol text —
-        // oms::funding_identity states why it is neither.
         std::array<char, oms::k_max_funding_identity> buf{};
         m.execIdField().assign_range(
             oms::funding_identity(base.id, charge.settled_at, strategy_id, buf));
@@ -1007,11 +737,6 @@ void write_funding_row(journal::JournalWriter& writer,
     });
 }
 
-// A funding charge, booked onto whoever was carrying the instrument.
-//
-// The split itself — the pro-rating, the exact-sum remainder, and where a
-// charge nobody holds lands — is oms::split_funding, and the reasoning is
-// stated there. This walks the book to name the holders and writes the rows.
 void journal_funding(journal::JournalWriter& writer,
                      const portfolio::PositionBook& book,
                      const LedgerEntry& charge,
@@ -1036,20 +761,14 @@ Restoration restore_book(portfolio::PositionBook& book,
         return {}; // no journal yet: a first run, not a loss
     }
 
-    // Copied out of the frame rather than kept as a view: a decoded message
-    // points into the journal's mapping, and the map outlives the walk.
+    // copied out because decoded messages point into the journal mapping
     struct Row {
         std::uint16_t strategy_id{0};
         InstrumentId instrument{};
         portfolio::Position::Restored state{};
     };
 
-    // KEYED ON THE PAIR, not on the two folded into one integer. This was
-    // `(strategy_id << 48) ^ instrument.packed`, and a strategy id shifted by
-    // 48 lands exactly on the venue and market bits — so strategy 1 holding
-    // bybit PERP and the manual book holding bybit SPOT under the same symbol
-    // slot produced ONE key, and whichever the journal replayed second erased
-    // the other. A pair cannot collide.
+    // keyed on the pair; a shifted strategy id overlaps the venue and market bits
     std::map<std::pair<std::uint16_t, std::uint64_t>, Row> latest;
     journal::FrameView frame{};
     while (reader->next(frame) == journal::ReadResult::Item) {
@@ -1068,7 +787,6 @@ Restoration restore_book(portfolio::PositionBook& book,
                      .fill_count = m.fillCount().value(),
                      .ts_opened = UnixNanos{m.tsOpened().value()},
                      .ts_updated = UnixNanos{m.tsUpdated().value()}};
-        // Last write wins, which is what "the book as it stands" means.
         latest[{row.strategy_id, id.packed}] = row;
     }
 
@@ -1082,8 +800,6 @@ Restoration restore_book(portfolio::PositionBook& book,
             return table != nullptr && table->find(row.instrument) != nullptr;
         });
         if (!listed) {
-            // Named by account rather than counted, so the line says which
-            // gateway to start rather than that some number of them is missing.
             std::array<char, 16> buf{};
             unattached.emplace(format_account(
                 {row.instrument.venue(), row.instrument.market()}, buf.data(), buf.size()));
@@ -1100,9 +816,6 @@ Restoration restore_book(portfolio::PositionBook& book,
 
 namespace {
 
-// What one --strategy said. Colons rather than `=` so the whole thing survives
-// a shell unquoted, and positional because three optional fields is not a
-// syntax worth inventing twice.
 struct Requested {
     std::string type;
     std::string name;
@@ -1110,8 +823,7 @@ struct Requested {
     std::uint16_t strategy_id{0};
 };
 
-// `type[:id[:name[:config]]]`. The config is THE WHOLE REMAINDER, colons and
-// all, because it is JSON as often as not and this process never reads it.
+// the config is the whole remainder, colons included
 [[nodiscard]] std::optional<Requested> parse_strategy_spec(std::string_view spec,
                                                            std::uint16_t default_id) {
     Requested out{};
@@ -1131,8 +843,6 @@ struct Requested {
         std::uint64_t value = 0;
         const auto [stop, ec] =
             std::from_chars(text.data(), text.data() + text.size(), value);
-        // A PARTIAL PARSE IS A REFUSAL: "7x" is not the id 7, it is a typo that
-        // would otherwise start a strategy under an id nobody chose.
         if (ec != std::errc{} || stop != text.data() + text.size() || value > 0xFFFFULL) {
             return std::nullopt;
         }
@@ -1177,29 +887,14 @@ int main(int argc, char** argv) {
         }
     }
     const raikiri::log::Scope logging{"strategyd"};
-    // Stdout carries the end-of-run report and nothing else; the logger writes
-    // to stderr. Line buffered so that a run redirected with 2>&1 keeps the
-    // report in the right place relative to the records around it.
+    // stdout holds the end-of-run report; line buffered
     (void)std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::uint64_t duration_s = 10;
-    // Account names, which are also the segment names: "bybit" is bybit perp,
-    // "bybit-spot" is the spot gateway beside it. Repeatable, because one
-    // kernel holds one book across every market it trades.
     std::vector<std::string> wanted;
-    // Names this strategy's book and rides in the top 16 bits of every
-    // ClientOrderId, so it reaches the ledger without extra plumbing. Two
-    // strategies that share it net into one position; distinct ones do not.
-    // 2, NOT 1. One is k_manual_strategy_id, and a strategy holding it would
-    // net its position into the manual desk's book — two books that no query
-    // could take apart again. The registry refuses it; this is where the
-    // default stopped colliding with it.
+    // id 1 is k_manual_strategy_id, so the default is 2
     std::uint16_t strategy_id = 2;
-    // Repeatable. Empty means the demo wiring below, which is itself expressed
-    // as a --strategy nobody typed, so there is ONE path from a type name to a
-    // running strategy rather than two that can disagree.
     std::vector<std::string> requested;
-    // Zero serves no control surface at all: a port bound by default is a port
-    // somebody did not decide to open.
+    // zero serves no control surface
     std::uint16_t control_port = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -1225,9 +920,7 @@ int main(int argc, char** argv) {
 
     const LiveClock clock;
 
-    // Attach every requested gateway. Reserved up front: the readers and
-    // producers below hold pointers into shm, not into this vector, but a
-    // reallocation would still move segment clients that own mappings.
+    // reserved so segment clients do not move
     std::vector<Gateway> gateways;
     gateways.reserve(wanted.size());
     for (const auto& name : wanted) {
@@ -1277,16 +970,11 @@ int main(int argc, char** argv) {
     }
 
     oms::OrderStore store{4096};
-    // 500 bp — five per cent off the mid. Wide enough that a limit resting a
-    // long way out is still allowed, narrow enough that a misplaced decimal
-    // never reaches a venue.
+    // 500 bp off the mid
     oms::RiskGate risk{{.max_open_orders = 64,
                         .max_qty_lots = QtyLots::from_raw(1'000),
                         .max_price_band_bp = 500}};
-    // The kernel's own mint, used for ONE thing: the exchange-side id, where
-    // what must be monotone is this process's stream rather than any single
-    // strategy's. Client order ids are minted per instance, by the window that
-    // knows whose they are.
+    // used only for the exchange-side id; client order ids are minted per instance
     oms::IdGen ids{strategy_id, /*seed=*/0x7A10ULL};
     KernelContext ctx{gateways, store, risk, ids, *journal_writer, clock};
 
@@ -1299,8 +987,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Before a single new line is written to the journal: what this process
-    // held when it last stopped.
     std::vector<const shm::CatalogueTable*> catalogues;
     catalogues.reserve(gateways.size());
     for (const auto& gw : gateways) {
@@ -1321,28 +1007,19 @@ int main(int argc, char** argv) {
                   accounts);
     }
 
-    // The types this binary carries, put into the process factory by a CALL
-    // rather than by a static initializer — see raikiri/strategies/register.hpp
-    // for why a static one in a static library is not there when you look.
+    // registered by a call; see raikiri/strategies/register.hpp
     (void)strategies::register_all();
     (void)strategy::register_type<Observer>("observer");
 
-    // One window per strategy, minted on demand and NEVER MOVED: a strategy
-    // holds this address for its whole life, so a container that reallocates
-    // would hand every running strategy a dangling Context.
+    // deque so a strategy's context address stays stable
     std::deque<InstanceContext> contexts;
-    // The process's stop signal. Every instance starts holding it, so a
-    // shutdown reaches a strategy started over HTTP by the same path it
-    // reaches one named on the command line.
     std::stop_source shutdown;
     strategy::Registry live{
         {.context_for =
              [&contexts, &ctx](std::uint16_t id) -> strategy::Context* {
                  for (auto& window : contexts) {
                      if (window.strategy_id() == id) {
-                         // A create the constructor then refused already minted
-                         // one; handing back the same window keeps a retry
-                         // under that id from running beside an orphan.
+                         // reuse the window a refused create already minted
                          return &window;
                      }
                  }
@@ -1360,9 +1037,7 @@ int main(int argc, char** argv) {
              },
          .wall = [&clock] { return clock.wall(); }}};
 
-    // DemoMaker quotes both sides, which is only ever appropriate against the
-    // sim venue. A live gateway is observed, not traded: the loop, the journal
-    // and the latency table are identical either way.
+    // demo-maker only against sim; live gateways are observed
     if (requested.empty()) {
         const bool quoting =
             gateways.size() == 1 && gateways.front().account.venue == VenueId::Sim;
@@ -1392,8 +1067,7 @@ int main(int argc, char** argv) {
                        to_string(started.error()));
             return 2;
         }
-        // The next unnamed one goes BESIDE it rather than on top of it: two
-        // instances under one id net into one position.
+        // two instances under one id would share a position
         next_id = static_cast<std::uint16_t>(parsed->strategy_id + 1);
     }
 
@@ -1412,11 +1086,7 @@ int main(int argc, char** argv) {
               running,
               duration_s);
 
-    // LOOPBACK, AND NO AUTHENTICATION — the same position admind takes, for
-    // the same reason: shipping an identity story that "works for now" is how
-    // a deployment ends up with a static token in a repository. A handler here
-    // runs on_start and on_stop, so this server may only ever be polled by the
-    // loop below.
+    // loopback, no auth; polled only by the loop below because handlers run on_start and on_stop
     std::unique_ptr<http::Server> control;
     if (control_port != 0) {
         control = std::make_unique<http::Server>(
@@ -1453,31 +1123,12 @@ int main(int argc, char** argv) {
         gw.recon_due = clock.mono().ns; // once at start, then on the interval
     }
 
-    // Watch the OWNER, not the generation. A restarting gateway unlinks the
-    // segment and creates a new file, so this process keeps its mapping of the
-    // old inode alive and the generation it can see never changes — while the
-    // new gateway serves a different file entirely. What does change is the
-    // heartbeat in the mapping we hold: nobody stamps it any more.
-    //
-    // When that happens every ring cursor, every instrument id and the whole
-    // order store belong to a world that no longer exists, and commands pushed
-    // into these rings reach nobody. There is no sound way to keep going, so
-    // this stops and says why.
+    // a restarted gateway creates a new file, so watch the owner's heartbeat rather than the generation
     std::string gateway_gone;
 
-    // AN OWNER THAT HAS NEVER BEATEN IS NOT ONE THAT STOPPED ANSWERING.
-    //
-    // A segment file exists from the instant it is created — before the owner
-    // publishes and before its first heartbeat — and `owner_alive` reads a
-    // heartbeat of zero as stale, which is correct for "is it serving?" and
-    // wrong as a cause of death. A strategyd started in the same breath as its
-    // gateway therefore halted on a gateway that was starting up perfectly
-    // well, and with one gateway attached that meant exiting.
-    //
-    // So wait for the first beat here, where waiting is free, rather than
-    // teaching the loop below to tell a birth from a death.
+    // wait for each owner's first heartbeat; a zero heartbeat reads as stale
     for (auto& gw : gateways) {
-        constexpr int k_tries = 200; // 10 s at 50 ms, the same shape as the attach retry
+        constexpr int k_tries = 200; // 10 s at 50 ms
         int waited = 0;
         while (waited < k_tries && !gw.client.owner_alive(clock.mono().ns)) {
             std::this_thread::sleep_for(std::chrono::milliseconds{50});
@@ -1491,25 +1142,12 @@ int main(int argc, char** argv) {
 
     const auto t_end = clock.mono() + duration_s * 1'000'000'000ULL;
     while (!g_stop.load(std::memory_order_relaxed) && clock.mono() < t_end) {
-        // Verdicts drain before market data, across EVERY gateway: a strategy
-        // must never act on a price tick while its own order state is a poll
-        // behind, and the order it is behind on may be on another venue.
-        // A person's intents drain FIRST, ahead of verdicts and market data.
-        //
-        // Someone watching the screen has already decided; the cost of holding
-        // their order for one more poll is a tick of slippage they did not ask
-        // for. Nothing downstream is skipped by going first — the desk hands
-        // each intent to the same submit path a strategy uses, so the risk
-        // gate, the store, the journal and the halt all still see it.
+        // desk intents drain first, then verdicts on every gateway, then market data
         OrderCmd intent{};
         for (auto& gw : gateways) {
             while (gw.intents.try_pop(intent)) {
                 desk_intents += 1;
-                // AN INTENT MAY ONLY SPEAK FOR THE DESK. The id packs the
-                // strategy that owns the order, so an intent carrying anyone
-                // else's is a caller trying to place orders in a strategy's
-                // name — refused here rather than trusted because it arrived
-                // over a loopback socket.
+                // intents may only use the manual desk's strategy id
                 if (intent.client_order_id.strategy_id() != k_manual_strategy_id) {
                     desk_refusals += 1;
                     continue;
@@ -1526,13 +1164,7 @@ int main(int argc, char** argv) {
                     const auto placed = ctx.submit_as(order, intent.client_order_id);
                     if (!placed.has_value()) {
                         desk_refusals += 1;
-                        // RECORDED, not only logged. Without this the caller
-                        // holds an id for an order that exists in no store, no
-                        // journal and no database.
-                        // IN DECLARATION ORDER, which is not a style point:
-                        // C++20 requires it of designated initializers and gcc
-                        // enforces what clang waves through, so a desk that
-                        // builds here fails to compile on the server.
+                        // designated initializers in declaration order for gcc
                         ctx.journal_refusal(OrderCmd{.kind = CmdKind::Create,
                                                      .side = intent.side,
                                                      .order_type = intent.order_type,
@@ -1558,17 +1190,12 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case CmdKind::Amend:
-                    // The desk does not amend. A person changing their mind
-                    // cancels and re-places, which is two decisions they can
-                    // see rather than one the venue may or may not support.
                     desk_refusals += 1;
                     break;
                 }
             }
         }
 
-        // Funding first: a charge settled before the fills that follow it in
-        // this pass, and the ledger reads better in the order money moved.
         shm::LedgerEntryRec charge_rec{};
         for (auto& gw : gateways) {
             for (;;) {
@@ -1585,10 +1212,7 @@ int main(int argc, char** argv) {
                 if (instrument == nullptr) {
                     continue; // an id from a catalogue this process never read
                 }
-                // THE TWO KINDS ARE NOT BOOKED THE SAME WAY. Funding has no
-                // other source, so it is written. A fee was already written
-                // from the fill that incurred it, and writing this copy too
-                // would charge every commission twice — so it is compared.
+                // funding is booked here; fees were booked from the fill and are only compared
                 if (charge.kind == LedgerKind::Funding) {
                     journal_funding(*journal_writer, ctx.positions, charge, base_of(*instrument));
                     ++funding_charges;
@@ -1598,26 +1222,14 @@ int main(int argc, char** argv) {
             }
         }
 
-        // ONE PATH FOR A FILL, WHATEVER CARRIED IT. A fill arrives two ways:
-        // pushed down a private socket, or pulled out of the venue's trade
-        // history by the account poller. They differ in what they state — a
-        // push states the order's remaining quantity, a pull states the
-        // execution — and in nothing else that matters here. Running them
-        // through one body is what keeps the position book, the ledger, the
-        // fee join and the attribution from drifting apart between them.
-        //
-        // Taken BY VALUE: oms::attribute restores our own id onto the event,
-        // and a ring's record is not ours to write.
+        // one path for pushed and pulled fills; by value because attribute writes our id onto it
         const auto handle_exec_event = [&](OrderEvent event) {
             if (const auto it = ctx.inflight_.find(event.client_order_id.raw);
                 it != ctx.inflight_.end()) {
                 rt_hist.record(clock.mono().ns - it->second);
                 ctx.inflight_.erase(it);
             }
-            // BEFORE apply_event, which is what moves the leaves this reads.
-            // Why it is the drop in leaves and not the event's own qty, and
-            // why our id has to be restored first, are stated where they
-            // are enforced — see oms/attribution.hpp.
+            // before apply_event, which moves the leaves; see oms/attribution.hpp
             const auto who = oms::attribute(event, store);
             if (const auto applied = store.apply_event(event);
                 !applied.has_value() && applied.error() == oms::ApplyError::BadTransition) {
@@ -1625,16 +1237,9 @@ int main(int argc, char** argv) {
             }
             if (event.type == OrderEventType::Filled) {
                 ++fills;
-                // REMEMBERED, NOT GATED. The socket's own arithmetic makes a
-                // resent notification derive a zero drop, so nothing here needs
-                // refusing — but the poller will offer this same execution
-                // later, and this set is what tells it apart.
+                // remembered so the poller's copy of this execution is refused later
                 (void)ctx.seen_fills.admit(event.exec_id.view(), clock.wall());
                 if (who.order == nullptr) {
-                    // A fill for an order this process never had. Counted
-                    // and said out loud: it is money that moved on an
-                    // account we hold, and a silent one is the difference
-                    // between a quiet desk and a broken one.
                     ++unattributed_fills;
                     RLOG_ERROR("strategyd: FILL {} matched no order here",
                                event.exchange_client_order_id.view());
@@ -1649,33 +1254,14 @@ int main(int argc, char** argv) {
                         ++position_refusals;
                     } else {
                         namespace jt = raikiri_journal::types;
-                        // One increment per kind per exec_id: a flipped fill is
-                        // still ONE realizing event to the venue, and the
-                        // ledger's grain has to match the grain every
-                        // reconciliation query joins on.
+                        // one increment per kind per exec_id
                         ctx.journal_pnl(
                             event, base, jt::pnlKindEnum::Realized, applied->realized);
-                        // From what the book took, not from the event: a
-                        // resent notification derives a zero delta, so
-                        // apply_fill charges nothing, and reading the
-                        // event's own fee here would put a row in the
-                        // ledger that the book does not have. The two
-                        // halves sum to the venue's fee exactly.
-                        //
-                        // NEGATED: the ledger's stated sign is "positive is
-                        // money gained" and a fee is money leaving. The
-                        // book keeps the opposite convention internally —
-                        // net_realized() subtracts it — and this is the
-                        // edge where the two meet.
+                        // fee from what the book took, negated to the ledger's positive-is-gain sign
                         const auto booked_fee = FixedE9::from_raw(
                             -(applied->close_fee.raw + applied->open_fee.raw));
                         ctx.journal_pnl(event, base, jt::pnlKindEnum::Fee, booked_fee);
-                        // Remembered under the venue's own id for this
-                        // execution, because that is what its ledger quotes
-                        // back when it states the same fee.
                         ctx.fees.book(event.exec_id.view(), booked_fee, clock.wall());
-                        // After the increments, because the row is the
-                        // state those increments produced.
                         if (const auto* held = ctx.positions.find(
                                 {event.client_order_id.strategy_id(), event.instrument});
                             held != nullptr) {
@@ -1687,15 +1273,7 @@ int main(int argc, char** argv) {
             live.on_order_event(event);
         };
 
-        // PULLED EXECUTIONS FIRST. The account poller re-offers its whole
-        // window on every pass, so this is where the same execution arrives
-        // again and again — admitted once by its id, refused after that.
-        //
-        // Before the socket drain on purpose: when a venue both pushes and
-        // pulls, the push should win the race for a given execution because
-        // the push is what states the order's leaves. Taking the pull first
-        // costs nothing when it turns out to be a duplicate, and it is the
-        // only route at all on a venue with no private socket.
+        // pulled executions before the socket drain; duplicates are refused by id
         shm::FillRec fill_rec{};
         for (auto& gw : gateways) {
             for (;;) {
@@ -1721,10 +1299,7 @@ int main(int argc, char** argv) {
                 event.side = fill.side;
                 event.price = fill.price;
                 event.qty = fill.qty;
-                // UNDEF, AND THAT IS THE WHOLE DIFFERENCE. A pull knows the
-                // execution and nothing about what the order has left. Every
-                // reader below is written to take `qty` as the size when this
-                // is undefined; putting a number here would be inventing one.
+                // a pull knows the execution, not the order's leaves
                 event.leaves_qty = QtyLots::undef();
                 event.fee = fill.fee;
                 event.liquidity = fill.liquidity;
@@ -1746,10 +1321,7 @@ int main(int argc, char** argv) {
                 }
                 if (poll == shm::PollResult::Overrun) {
                     ++exec_overruns;
-                    // A DROPPED RECORD MAY BE A FILL, and the book is what
-                    // every later decision is priced off. Stop adding risk on
-                    // this gateway until the venue has been asked; cancels
-                    // continue, which is the half that matters while blind.
+                    // a dropped record may be a fill; stop adding risk on this gateway, cancels continue
                     if (gw.kernel.on(oms::KernelEvent::ExecOverrun, clock.wall())) {
                         RLOG_WARN("strategyd[{}]: execution record dropped — "
                                   "no new orders until reconciliation agrees",
@@ -1786,10 +1358,6 @@ int main(int argc, char** argv) {
                     live.on_bbo(bbo);
                 }
             }
-            // Funding changes on the venue's schedule — eight hours on most
-            // perps — so the gate matters more here than for BBO: without it
-            // every poll would re-deliver the same rate thousands of times a
-            // second.
             for (std::uint32_t sym = 0; sym < gw.funding_seen.size(); ++sym) {
                 const auto version = gw.ch.funding->cells[sym].version_now();
                 if (version == gw.funding_seen[sym] || (version & 1U) != 0) {
@@ -1806,37 +1374,26 @@ int main(int argc, char** argv) {
         const auto now_ns = clock.mono().ns;
         for (auto& window : contexts) {
             window.fire_due_timers(now_ns, [&live, &window](std::uint32_t timer_id) {
-                // Through the registry, not straight at the strategy: a timer
-                // that fires on an instance being torn down must land nowhere,
-                // and the subscription is what knows that.
+                // through the registry so a timer on a torn-down instance lands nowhere
                 live.on_timer(window.strategy_id(), timer_id);
             });
         }
         if (control != nullptr) {
-            // Polled here, inside the loop, so a start or a stop arriving over
-            // HTTP runs its hooks on the thread that owns the order path.
+            // polled on the loop thread that owns the order path
             (void)control->poll();
         }
         for (auto& gw : gateways) {
-            // Monotonic, because that is the clock the gateway stamps the
-            // heartbeat with; asking in wall time makes every owner look stale.
+            // monotonic, the clock the heartbeat is stamped with
             if (!gw.client.owner_alive(now_ns)) {
-                // HALTS THIS GATEWAY, not the process. Everything read from a
-                // segment belongs to the generation that wrote it, so this
-                // book is finished — but a second gateway shares nothing with
-                // it and has no reason to stop trading.
+                // halts this gateway only
                 if (gw.kernel.on(oms::KernelEvent::GatewayLost, clock.wall())) {
                     RLOG_ERROR("strategyd[{}]: gateway stopped answering — halted", gw.name);
                 }
                 continue;
             }
             if (now_ns >= gw.recon_due) {
-                // Seven days is the widest window any venue's ledger reaches
-                // back over, so a memo older than that will never be quoted.
+                // seven days is the widest ledger and trade-history window any venue reaches back over
                 ctx.fees.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
-                // The same seven days, and for the same reason: it is the
-                // widest window any venue's trade history reaches back over, so
-                // an execution older than that will never be offered again.
                 ctx.seen_fills.prune(clock.wall(), 7ULL * 24 * 60 * 60 * 1'000'000'000ULL);
                 reconcile_open_orders(
                     ctx, gw.account.venue, *gw.ch.open_orders, *journal_writer, clock.wall());
@@ -1846,11 +1403,7 @@ int main(int argc, char** argv) {
                                                            *gw.ch.positions,
                                                            *journal_writer,
                                                            clock.wall());
-                // A CONFIRMED BREAK HALTS; agreement only clears a Degraded
-                // book, never a halted one. Silence is neither — a sweep that
-                // found nothing to compare has not checked anything, and
-                // reading it as agreement would let an empty catalogue resume
-                // trading.
+                // a sweep that compared nothing neither halts nor clears
                 if (sweep.confirmed_break) {
                     if (gw.kernel.on(oms::KernelEvent::ReconFailed, clock.wall())) {
                         RLOG_ERROR("strategyd[{}]: venue disagreed — halted until an operator "
@@ -1865,9 +1418,6 @@ int main(int argc, char** argv) {
                 gw.recon_due = now_ns + k_recon_read_interval_ns;
             }
         }
-        // Stop only when NOTHING is left to trade on. One halted gateway is a
-        // halted book; every gateway halted is a process with no purpose, and
-        // spinning on dead segments is worse than exiting.
         if (std::ranges::all_of(gateways, [](const Gateway& gw) {
                 return gw.kernel.state() == oms::KernelState::Halted;
             })) {
@@ -1875,10 +1425,6 @@ int main(int argc, char** argv) {
             break;
         }
     }
-    // ONE TEARDOWN, whatever ended the run — a signal, the duration running
-    // out, or every gateway halting. The stop signal reaches each instance
-    // through the same ordered path a person's stop takes, so nothing gets a
-    // shorter unwind for having been ended by a clock.
     shutdown.request_stop();
     const auto torn_down = live.poll();
     if (control != nullptr) {
@@ -1922,11 +1468,7 @@ int main(int argc, char** argv) {
                exec_overruns,
                bad_transitions,
                position_refusals);
-    // Refusals are reported beside the count, not hidden: a desk whose orders
-    // are all being turned away looks exactly like a quiet desk otherwise.
     fmt::print("manual desk: intents={}  refused={}\n", desk_intents, desk_refusals);
-    // NAMED, not counted. "two strategies stopped" does not say whether the one
-    // that was quoting is the one that stopped holding orders.
     fmt::print("strategies: {} stopped at exit\n", torn_down);
     for (const auto& view : live.list()) {
         fmt::print("  {:<16}{:<14}{:<10}orders-pulled={}\n",
@@ -1935,8 +1477,6 @@ int main(int argc, char** argv) {
                    to_string(view.phase),
                    view.orders_cancelled_on_stop);
     }
-    // Charges booked, and charges LOST. The second is money the ledger will
-    // never carry, so it is printed even when it is zero.
     fmt::print("funding: charges-booked={}  ring-overruns={}\n", funding_charges, funding_overruns);
     fmt::print("pulled fills: applied={}  ring-overruns={}  remembered={}\n",
                pulled_fills,
@@ -1944,9 +1484,6 @@ int main(int argc, char** argv) {
                ctx.seen_fills.size());
     fmt::print("fills-unattributed={}\n", unattributed_fills);
     fmt::print("recon: orders-closed={}\n", ctx.orders_closed_by_recon);
-    // Unmatched is printed beside the other two on purpose: a reconciliation
-    // that agrees on nothing because it joined on the wrong id looks identical
-    // to one that had nothing to check.
     fmt::print("fees: agreed={}  disagreed={}  unmatched={}\n",
                ctx.fees_agreed,
                ctx.fees_disagreed,
@@ -1971,8 +1508,6 @@ int main(int argc, char** argv) {
                 continue;
             }
             const auto& base = base_of(*listed);
-            // Marked at the last BBO mid; an unrealized number is only ever as
-            // good as the price the caller marks it against.
             auto mark = PriceTicks::from_raw(0);
             if (const auto bbo = ctx.bbo(position.key().instrument); bbo.has_value()) {
                 mark = PriceTicks::from_raw((bbo->bid.raw + bbo->ask.raw) / 2);

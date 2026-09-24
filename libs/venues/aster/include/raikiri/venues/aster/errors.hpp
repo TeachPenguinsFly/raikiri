@@ -1,14 +1,6 @@
 #pragma once
 
-// Aster error-code classification.
-//
-// The generic gateway retries Retryable, backs off RateLimited, halts on
-// AuthFailure and synthesizes a terminal Rejected for Terminal — so a code in
-// the wrong bucket is a trading bug, not a logging detail.
-//
-// Unrecognised codes default to Terminal, not Retryable: an unknown refusal
-// repeated at full speed is how an account earns an IP ban, while a
-// spuriously terminal order is recoverable by reconciliation.
+// unknown codes default to terminal so an unknown refusal is not retried at full speed
 
 #include <raikiri/exec/error.hpp>
 #include <raikiri/wire/error.hpp>
@@ -17,12 +9,9 @@
 
 namespace raikiri::venues::aster {
 
-// Every parser in this venue reports failure with this. It lives beside the
-// code vocabulary because both answer one question: what did the venue say
-// went wrong.
 using WireError = wire::Error;
 
-// Aster codes are negative; zero means no error.
+// aster codes are negative; zero means no error
 inline constexpr std::int64_t k_ok = 0;
 inline constexpr std::int64_t k_unknown = -1000;
 inline constexpr std::int64_t k_disconnected = -1001;
@@ -56,14 +45,10 @@ inline constexpr std::int64_t k_post_only_would_take = -5021; // GTX crossed the
 
 [[nodiscard]] exec::ErrorClass classify(std::int64_t code) noexcept;
 
-// A cancel for an order the venue has never heard of usually means the order
-// already filled or was already cancelled; reconciliation settles the truth.
-// Callers use this to avoid an alarming CancelRejected for a benign race.
+// an unknown-order cancel usually means already filled or cancelled; reconciliation settles it
 [[nodiscard]] bool is_benign_cancel_failure(std::int64_t code) noexcept;
 
-// The listen key backing the user data stream expired or was invalidated. Not
-// an auth failure — the credentials are fine, the key needs recreating — and
-// treating it as one would halt a venue that only needed a new stream.
+// the listen key needs recreating; the credentials are fine
 [[nodiscard]] bool is_listen_key_failure(std::int64_t code) noexcept;
 
 } // namespace raikiri::venues::aster

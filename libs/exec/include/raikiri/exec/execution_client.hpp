@@ -1,6 +1,6 @@
 #pragma once
 
-// Execution side of a venue adapter.
+// execution side of a venue adapter
 
 #include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -32,18 +32,12 @@ struct OrderStatusReport {
     UnixNanos ts_venue{};
 };
 
-// Lives in domain for the same reason PositionReport does: the shm transport
-// carries it too. Spelled exec::FillReport everywhere it is used.
 using FillReport = raikiri::FillReport;
 
-// Lives in domain: the shm transport carries it too, and transport cannot
-// depend on this layer. Spelled exec::PositionReport everywhere it is used.
+// lives in domain because the shm transport carries it
 using PositionReport = raikiri::PositionReport;
 
-// An adapter that does not implement a pull must SAY SO. An empty vector is a
-// legitimate answer meaning "flat", and a reconciler cannot tell the two apart:
-// read the wrong way it concludes the venue reports no position while we hold
-// one, and acts on it.
+// an unimplemented pull must return this; an empty vector means flat
 [[nodiscard]] VenueError not_implemented(std::string_view what) noexcept;
 
 class ExecutionClient {
@@ -53,7 +47,7 @@ public:
     ExecutionClient& operator=(const ExecutionClient&) = delete;
     virtual ~ExecutionClient() = default;
 
-    // Cold lifecycle: user-stream connect/auth, warm REST keep-alives.
+    // cold lifecycle: user-stream connect and auth
     virtual std::expected<void, VenueError> start() = 0;
     virtual void stop() = 0; // must be idempotent (teardown calls it twice)
     [[nodiscard]] virtual bool connected() const noexcept = 0;
@@ -63,12 +57,7 @@ public:
 
     virtual void amend(const OrderCmd& cmd) noexcept { (void)cmd; }
 
-    // Driven every loop by the gateway. WITHOUT THIS THE ORDER PATH ROTS WHILE
-    // IDLE: the REST pool holds a connection open, the venue closes its end
-    // after its own idle timeout, and the next order is written into a socket
-    // that is already gone. That failure is worse than a refusal — the request
-    // can reach the matcher before the read fails, so the venue fills an order
-    // this process has recorded as rejected.
+    // driven every loop so the rest pool does not write into a socket the venue closed while idle
     virtual void poll(UnixNanos now) noexcept { (void)now; }
 
     virtual void cancel_batch(std::span<const OrderCmd> cmds) noexcept {
@@ -77,7 +66,7 @@ public:
         }
     }
 
-    // Cold reconciliation pulls (REST). Called on start and re-attach.
+    // cold reconciliation pulls over rest, on start and re-attach
     [[nodiscard]] virtual std::expected<std::vector<OrderStatusReport>, VenueError>
     open_order_reports(MarketType market) = 0;
 
@@ -90,13 +79,7 @@ public:
     [[nodiscard]] virtual std::expected<std::vector<PositionReport>, VenueError>
     position_reports(MarketType market) = 0;
 
-    // What the venue CHARGED for funding, from its own ledger — never derived
-    // from the public rate. Declining by default and gated by
-    // `VenueCaps::funding_charge` on the market asked for, for the reason
-    // position_pull exists: an
-    // adapter that returns nothing because it cannot ask, and one that returns
-    // nothing because nothing was charged, are different facts, and booking
-    // the second when the first is true loses money silently.
+    // the venue's own funding ledger; gated by VenueCaps::funding_charge
     [[nodiscard]] virtual std::expected<std::vector<LedgerEntry>, VenueError>
     funding_charges(MarketType market, UnixNanos since) {
         (void)market;
@@ -105,12 +88,7 @@ public:
             VenueError::make(ErrorClass::Terminal, 0, "venue reports no funding charges")};
     }
 
-    // What the account HOLDS, as opposed to what it is long or short. Defaulted
-    // to a refusal rather than made pure: an adapter opts in, and `caps
-    // .balance_pull` is what a caller consults BEFORE calling, FOR THE MARKET it
-    // is about to name — without it an adapter that answers "no balances" and
-    // one that cannot answer at all look identical, which is the same trap
-    // position_pull exists to avoid.
+    // account balances; gated by caps.balance_pull for the market asked
     [[nodiscard]] virtual std::expected<std::vector<BalanceReport>, VenueError>
     balance_reports(MarketType market) {
         (void)market;

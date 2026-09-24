@@ -25,17 +25,12 @@ make_venue(const VenueConfig& config, GatewaySink& sink, const Clock& clock) {
     if (idx == 0 || idx >= g_factories.size()) {
         return std::unexpected{MakeError::UnknownVenue};
     }
-    // The caps row is compiled for every venue, so the configuration is
-    // checked before the factory is looked up: whether a config is wrong does
-    // not depend on which adapters happen to be linked into this binary, and
-    // answering "unknown venue" to a real venue with a bad config would send
-    // the reader looking in the wrong place.
+    // caps are checked before the factory lookup so a bad config is not reported as an unknown venue
     const auto& caps = caps_of(config.venue);
     if (!caps.serves(config.market)) {
         return std::unexpected{MakeError::UnsupportedMarket};
     }
-    // Refused at build, not one order at a time. A caller with no credentials wants
-    // market data only, so neither the id rule nor the passphrase rule applies.
+    // no credentials means market data only, so the id and passphrase rules do not apply
     const bool trading = !config.api_key_env.empty() && !config.api_secret_env.empty();
     if (trading && caps.max_client_order_id_len < k_min_client_order_id_len) {
         return std::unexpected{MakeError::ClientOrderIdTooShort};

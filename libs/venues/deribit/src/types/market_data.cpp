@@ -82,7 +82,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         }
         out.instrument = *instrument;
         out.mark_price = *mark;
-        // Optional by market, not by chance, and 0.0 on a perpetual is real.
+        // 0.0 on a perpetual is a real rate
         const auto current = opt_num(*data, "current_funding");
         const auto eight_hour = opt_num(*data, "funding_8h");
         const auto ts = opt_ms(*data, "timestamp");
@@ -93,17 +93,13 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         out.funding_8h = *eight_hour;
         out.ts_ms = *ts;
 
-        // Read before the option scalars so the cursor walks `stats` and then
-        // `greeks` in the order the frame writes them. Absent is tolerated:
-        // this must never cost the frame its funding rate.
+        // read before greeks to follow the frame's field order; stats may be absent
         if (auto stats = wire::req_object(*data, "stats"); stats.has_value()) {
             out.stats_volume = opt_num(*stats, "volume").value_or(std::string_view{});
             out.stats_volume_usd = opt_num(*stats, "volume_usd").value_or(std::string_view{});
         }
 
-        // Options only, and every one of these is absent on a perpetual. The
-        // scalars are read before the nested object so the cursor never has to
-        // climb back out of `greeks` to reach a sibling.
+        // options only; scalars are read before the nested greeks object
         out.mark_iv = opt_num(*data, "mark_iv").value_or(std::string_view{});
         out.bid_iv = opt_num(*data, "bid_iv").value_or(std::string_view{});
         out.ask_iv = opt_num(*data, "ask_iv").value_or(std::string_view{});

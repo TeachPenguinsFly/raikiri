@@ -73,11 +73,7 @@ TEST(FormatE9, RoundTripsParse) {
     }
 }
 
-// --- exponent-aware reading -----------------------------------------------
-
 TEST(ParseNumberE9, ReadsTheSpellingsVenuesActuallySend) {
-    // Every literal here was observed on a live socket or REST body, and each
-    // one defeats parse_decimal_e9.
     EXPECT_EQ(parse_number_e9("1.0E-4")->raw, 100'000);           // bitmex, ws
     EXPECT_EQ(parse_number_e9("0.0001")->raw, 100'000);           // bitmex, rest
     EXPECT_EQ(parse_number_e9("6.4e4")->raw, 64'000'000'000'000); // deribit strike
@@ -86,10 +82,6 @@ TEST(ParseNumberE9, ReadsTheSpellingsVenuesActuallySend) {
 }
 
 TEST(ParseNumberE9, KrakensFundingNeedsTheRateReaderNotTheExactOne) {
-    // -8.907125e-6 is -8907.125 in e9, so the tail sits below what the scale
-    // can hold. The exact reader must refuse it and the rate reader must not —
-    // which is precisely why there are two entry points rather than a flag
-    // callers would forget to set.
     EXPECT_FALSE(parse_number_e9("-8.907125e-6").has_value());
     EXPECT_EQ(parse_rate_e9("-8.907125e-6")->raw, -8'907);
 }
@@ -105,42 +97,28 @@ TEST(ParseNumberE9, AgreesWithThePlainReaderWhereBothApply) {
 }
 
 TEST(ParseNumberE9, RefusesSignificanceBelowNineDigits) {
-    // OKX lists SATS-USDT-SWAP at this tick and MEXC lists three more like it.
-    // Refusing is correct under the no-rounding rule; the instrument is
-    // dropped loudly rather than quoted on a tick we cannot represent.
     EXPECT_FALSE(parse_number_e9("0.000000000001").has_value());
     EXPECT_FALSE(parse_number_e9("1.0E-10").has_value());
-    // Trailing zeros past 1e-9 carry no significance and must still pass.
     EXPECT_EQ(parse_number_e9("0.0000000010000")->raw, 1);
 }
 
 TEST(ParseRateE9, TruncatesWhereExactWouldSilenceTheStream) {
-    // Live HTX funding, padded to eighteen fractional digits with a non-zero
-    // tail. Exact reading refuses every frame the venue has ever sent, which
-    // presents a running stream as silence.
     EXPECT_FALSE(parse_number_e9("-0.000058784590419109").has_value());
     EXPECT_EQ(parse_rate_e9("-0.000058784590419109")->raw, -58'784);
-    // Toward zero, not away: a rate must never grow in magnitude by parsing.
+    // rounds toward zero
     EXPECT_EQ(parse_rate_e9("0.0000000019")->raw, 1);
     EXPECT_EQ(parse_rate_e9("-0.0000000019")->raw, -1);
 }
 
 TEST(ParseAmountE9, ReadsAWalletFigureTheExactReaderWouldRefuseEntirely) {
-    // Live Gate futures balance: twelve fractional digits. The exact reader
-    // refuses the WHOLE number rather than its tail, and the account then shows
-    // no balance at all — which is the one answer that is certainly wrong.
     EXPECT_FALSE(parse_number_e9("191.951084206297").has_value());
     EXPECT_EQ(parse_amount_e9("191.951084206297")->raw, 191'951'084'206);
 
-    // Toward zero on both sides. For a figure whose question is "how much may I
-    // commit", erring downward is the safe direction and erring upward is not.
     EXPECT_EQ(parse_amount_e9("0.0000000019")->raw, 1);
     EXPECT_EQ(parse_amount_e9("-0.0000000019")->raw, -1);
 
-    // A whole number is still exact; truncation is only ever about the tail.
     EXPECT_EQ(parse_amount_e9("191.951084206")->raw, 191'951'084'206);
 
-    // Malformed stays malformed: truncating is not a licence to guess.
     for (const auto* text : {"", "abc", "1.2.3", "1,5"}) {
         EXPECT_FALSE(parse_amount_e9(text).has_value()) << text;
     }
@@ -154,17 +132,12 @@ TEST(ParseNumberE9, RejectsMalformedTokensRatherThanGuessing) {
 }
 
 TEST(ParseNumberE9, RefusesWhatWouldOverflowTheRepresentation) {
-    // Better no value than a wrapped one: a wrapped price is a plausible
-    // number, and nothing downstream can tell it from a real one.
     EXPECT_FALSE(parse_number_e9("1e30").has_value());
     EXPECT_FALSE(parse_number_e9("99999999999.999999999").has_value());
     EXPECT_FALSE(parse_number_e9("1e-40").has_value());
 }
 
 TEST(MulDiv, HoldsAProductThatDoesNotFitI64) {
-    // 0.5 BTC at 50 000, both e9-scaled: 5e8 * 5e13 = 2.5e22, well past i64,
-    // while the answer 2.5e13 has six decades of headroom. Computing this in
-    // i64 does not merely round — it wraps.
     EXPECT_EQ(mul_div(500'000'000LL, 50'000'000'000'000LL, k_e9), 25'000'000'000'000LL);
 
     std::int64_t wrapped = 0;
@@ -179,7 +152,7 @@ TEST(MulDiv, AgreesWithA128BitReference) {
         {7, 3, 2},
         {-7, 3, 2},
         {7, -3, 2},
-        {1, 1, k_e9}, // rounds to zero, and that is the correct answer
+        {1, 1, k_e9}, // rounds to zero
     };
     for (const auto& c : cases) {
         const int128_t reference =
@@ -190,8 +163,6 @@ TEST(MulDiv, AgreesWithA128BitReference) {
 }
 
 TEST(MulDiv, TruncatesTowardZeroOnBothSigns) {
-    // Symmetric truncation keeps a long and a short of the same size rounding
-    // by the same magnitude; flooring would bias one of them.
     EXPECT_EQ(mul_div(7, 1, 2), 3);
     EXPECT_EQ(mul_div(-7, 1, 2), -3);
 }

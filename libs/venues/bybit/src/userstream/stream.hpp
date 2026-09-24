@@ -1,11 +1,6 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It authenticates, subscribes, and turns each frame into an event on the
-// sink. It sends no orders: an order goes out over REST and is ANSWERED here,
-// and joining those two halves is the execution client's job, not this one's
-// — which is exactly why they are separate files.
+// the private socket: authenticates, subscribes and maps frames to sink events; sends no orders
 
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/bybit/account.hpp>
@@ -52,9 +47,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
             return;
         }
         for (const auto& wire : *executions) {
-            // THE LIVE LEG. A settlement reaches the book here, seconds after
-            // the venue takes it; the REST ledger pull is the periodic check
-            // that this leg missed nothing, not the way the money arrives.
+            // settlements arrive here live; the rest ledger pull is the check
             if (const auto charge = map_funding_charge(wire, state.instruments, received);
                 charge.has_value()) {
                 state.sink->on_funding_charge(*charge);
@@ -108,8 +101,7 @@ private:
     net::WsClient* client_{nullptr};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
+// owns the socket so the handler cannot outlive its client
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)

@@ -9,8 +9,7 @@ add_library(raikiri::config ALIAS raikiri_config)
 target_include_directories(raikiri_config PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-# OpenSSL is an implementation detail (fingerprint digest only) — it must not
-# appear in any public header.
+# openssl stays out of public headers
 target_link_libraries(raikiri_config
   PUBLIC raikiri::domain
   PRIVATE glaze::glaze OpenSSL::Crypto raikiri::warnings)

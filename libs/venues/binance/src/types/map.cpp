@@ -26,10 +26,7 @@ namespace {
     return AssetClass::Unknown;
 }
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means binance changed a filter, so the message is dropped
-// rather than rounded — rounding is how an order ends up one tick away from
-// the intended price.
+// a value off the instrument's step is dropped rather than rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -51,8 +48,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates keep their 1e9 scale
 FixedE9 to_e9(std::string_view text) {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -110,7 +106,7 @@ map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos t
     out.instrument = base.id;
     out.price = *price;
     out.qty = *qty;
-    // The flip: `m` says the BUYER was the maker, so the aggressor sold.
+    // m means the buyer was maker, so the aggressor sold
     out.aggressor = wire.buyer_is_maker ? Side::Sell : Side::Buy;
     out.ts_event = ms_to_unix(wire.trade_ms, ts_init);
     out.ts_init = ts_init;
@@ -124,7 +120,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
         return std::nullopt;
     }
     if (wire.funding_rate.empty()) {
-        return std::nullopt; // contract quotes no funding: not the same as zero
+        return std::nullopt; // contract quotes no funding
     }
     const auto& base = base_of(*instrument);
 
@@ -151,12 +147,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
 }
 
 std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType market) {
-    // USD-M FUTURES ONLY. The rows come from /fapi/v1/exchangeInfo and the
-    // whole adapter speaks to fapi.binance.com; binance spot is another host
-    // and another API. Admitting a Spot id here would intern every futures
-    // row — perpetuals AND dated quarterlies — as a SpotInstrument with a
-    // pinned contract_value, which is worse than refusing because it looks
-    // like it worked.
+    // usd-m futures only; spot is another host and api
     switch (market) {
     case MarketType::Perp:
         break;
@@ -183,12 +174,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Binance, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // A row whose pair binance did not state is DROPPED rather than carried
-    // under the exchange symbol: an instrument nothing can group shows in a
-    // cross-venue view as a market of its own.
+    // a row with no stated pair is dropped so it cannot appear as a market of its own
     const auto canonical = canonical_symbol(wire.base_asset, wire.quote_asset);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -200,21 +189,13 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     base.contract_value = *parse_decimal_e9("1"); // USD-M perps quote in base units
     base.kind = ContractKind::Linear;
     base.asset_class = asset_class_of(wire.underlying_type);
-    // STAMPED FROM fundingInfo BY THE CATALOGUE LOADER, not read off the row
-    // this function was handed — exchangeInfo does not carry a schedule. It
-    // was 28'800 unconditionally here, and binance settles 465 of its 571
-    // perps every four hours: the interval is the denominator that makes two
-    // venues' rates comparable, so a wrong one reports half the funding an
-    // instrument pays rather than merely mislabelling it. 0 is "binance did
-    // not say", and stays 0.
+    // stamped from fundingInfo by the catalogue loader; 0 means unstated
     return PerpInstrument{base, wire.funding_interval_s};
 }
 
 namespace {
 
-// Signed quantities arrive as decimal text with a leading '-'; the sign has to
-// survive into the lot conversion, which divides a signed value by a positive
-// step.
+// the sign survives into the lot conversion
 [[nodiscard]] std::optional<std::int64_t> signed_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -471,11 +452,7 @@ std::optional<exec::FillReport> map_user_trade(const WireTrade& wire,
 
 namespace {
 
-// A wallet figure, not a price. Binance pads these to eight fractional digits
-// today and nothing holds it there; the exact reader refuses the whole number
-// the day a tenth appears, and an account then reads as holding nothing rather
-// than as a schema event. Truncation errs downward, which is the safe
-// direction for "how much may I commit".
+// a wallet figure, truncated so an extra digit does not fail the read
 [[nodiscard]] std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
@@ -493,14 +470,7 @@ std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool mult
     }
     const auto total = to_amount(wire.wallet_balance);
     const auto unrealized = to_amount(wire.unrealized_profit);
-    // Dropped only when binance REPORTED the wallet and it is empty, with no
-    // pnl riding on it: a collateral asset it lists because it would accept
-    // one, not an asset the account holds. The snapshot carries 64 rows and a
-    // live account pads past that, so the padding cannot be forwarded.
-    //
-    // A wallet figure binance did NOT send is not an empty wallet, and such a
-    // row survives — not having been told is not the same as having been told
-    // zero, and this is the one place that distinction could be quietly lost.
+    // drops rows binance reported empty with no pnl; an unsent wallet figure is kept
     const bool wallet_reported_empty = total.has_value() && total->raw == 0;
     if (wallet_reported_empty && !has_value_other_than_zero(unrealized)) {
         return std::nullopt;
@@ -508,28 +478,14 @@ std::optional<BalanceReport> map_balance(const WireAssetBalance& wire, bool mult
 
     BalanceReport out{};
     out.asset = *asset;
-    // Each field stays UNDEF where binance sent nothing, or sent something
-    // this cannot read. A zero would claim the account holds none of the
-    // asset, which is not what an absent field says.
+    // each field stays undef where binance sent nothing readable
     if (total.has_value()) {
         out.total = *total;
     }
     if (unrealized.has_value()) {
         out.unrealized = *unrealized;
     }
-    // `availableBalance` MEANS TWO DIFFERENT THINGS AND THE MODE IS WHICH.
-    //
-    // In single-asset mode each asset is its own margin pool, so the figure on
-    // this row is this asset's own free margin and answers the question the
-    // field asks. In multi-assets mode binance repeats ONE account-wide margin
-    // on every row: a live account holding 827 USDT returned ~826 as the
-    // "available" of BTC, ETH and BNB alike, and published per asset that is
-    // 826 free BTC — exactly the double-count balance.hpp warns about.
-    //
-    // So it stays undef there. The account-wide number is real and is stated
-    // at the top of this same answer, USD-denominated in that mode — but a
-    // BalanceReport is keyed by AssetCode and that figure belongs to no asset,
-    // so there is no row it could honestly ride on.
+    // in multi-assets mode binance repeats one account-wide figure on every row, so it stays undef there
     if (!multi_assets_margin) {
         if (const auto available = to_amount(wire.available_balance); available.has_value()) {
             out.available = *available;

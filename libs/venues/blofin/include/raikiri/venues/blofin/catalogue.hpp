@@ -18,7 +18,7 @@ struct WireInstrument {
     std::string_view quote_ccy;
     std::string_view settle_ccy;
     std::string_view contract_type; // linear | inverse
-    // Base units on a linear contract; on an inverse one it is USD, whatever the docs say.
+    // base units on linear; usd on inverse, whatever the docs say
     std::string_view contract_value;
     std::string_view tick_size;
     std::string_view lot_size; // in contracts

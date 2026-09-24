@@ -1,13 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-/** The head of a panel.
- *
- *  A 28px strip carrying a 12px label, and no rule underneath it. A panel head
- *  set at a web heading's size spends forty-four pixels of a trading screen
- *  saying a word the reader already knows; the separation comes from the
- *  label's weight, not from a hairline on a screen that already has a table's
- *  worth. */
 export function PanelHeader({
   title,
   right,

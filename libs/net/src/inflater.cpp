@@ -10,13 +10,12 @@ namespace {
 
 namespace zlib = boost::beast::zlib;
 
-// Observed frames are a few kilobytes; the ceiling stops a broken or hostile
-// stream from making the gateway allocate without bound.
+// a ceiling against a hostile stream; frames are a few kilobytes
 constexpr std::size_t k_max_inflated = std::size_t{8} * 1024 * 1024;
 
 constexpr std::size_t k_initial_inflated = std::size_t{64} * 1024;
 
-// RFC 1952 fixed header: magic, method, flags, mtime, extra flags, OS.
+// rfc 1952 fixed header: magic, method, flags, mtime, extra flags, os
 constexpr std::size_t k_gzip_header_bytes = 10;
 constexpr unsigned char k_gzip_magic_0 = 0x1F;
 constexpr unsigned char k_gzip_magic_1 = 0x8B;
@@ -26,14 +25,7 @@ constexpr unsigned char k_flag_name = 0x08;
 constexpr unsigned char k_flag_comment = 0x10;
 constexpr unsigned char k_flag_header_crc = 0x02;
 
-// Skips the gzip wrapper and hands back the raw deflate stream inside it.
-// Beast's inflate_stream is a raw-deflate decoder — and the only zlib in the
-// dependency set, since boost is header-only and nothing else links one — so
-// the container comes off by hand.
-//
-// The 8-byte CRC32/ISIZE trailer is left on the end; inflate stops at the final
-// block and ignores it. TLS already authenticates every byte that reaches here,
-// and a corrupt payload fails at the JSON parse a moment later.
+// strips the gzip wrapper for beast's raw-deflate decoder; the crc trailer is ignored
 std::expected<std::string_view, InflateError> strip_gzip_header(std::string_view frame) {
     if (frame.size() < k_gzip_header_bytes) {
         return std::unexpected{InflateError::Truncated};

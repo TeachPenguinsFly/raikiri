@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// anonymous types in a header differ per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -36,8 +35,7 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
-    // Shared with the account poller: binance counts one pool of weight per IP,
-    // so two private buckets would together spend twice the allowance.
+    // binance counts one weight pool per ip, shared with the account poller
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
@@ -47,47 +45,24 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder{signer};
 
-    // The depth seed rides its own pool: a book resynchronising must never
-    // queue behind an order, and an order must never queue behind a 40 kB
-    // snapshot body.
-    //
-    // SIX WARM CONNECTIONS, AND THE NUMBER IS THE POINT. RestConfig defaults to
-    // two, which is right for order entry — one order in flight and a spare —
-    // and wrong for a catalogue that wants 571 snapshots at once: two
-    // connections against a 290 ms round trip is under seven requests a second,
-    // so the ROUND TRIP decided how long the venue stayed blind and the budget
-    // below never got a word in. Measured on a full-catalogue start before this
-    // was widened: 46 283 of 46 917 seed attempts refused by the connection
-    // pool before the admit gate was ever asked, `x-mbx-used-weight-1m` peaking
-    // at 554 of 2400, and ninety seconds during which most of the catalogue
-    // published no ladder at all.
+    // its own pool so seeds and orders do not queue behind each other; six connections for catalogue-wide seeding
     net::RestClient depth_rest{
         io, net::RestConfig{.host = std::string{rest_host(testnet)}, .pool_size = 6}};
     std::unordered_map<std::uint64_t, DepthBook> books;
 
     std::vector<std::string> desired_streams;
 
-    // Instruments the gateway asked funding for. The rate is PULLED, not
-    // streamed: @markPrice is acknowledged on this venue and then never sends
-    // a frame, so a gateway that trusted the stream carried no funding at all.
+    // funding is polled: @markPrice is acknowledged but sends nothing here
     std::vector<InstrumentId> funding_instruments;
     std::uint64_t next_funding_poll_ns{0};
 
-    // BOOK SEEDS ARE THE EXPENSIVE ONES, and they are REST, not the socket:
-    // the pool paces SUBSCRIBE frames, and nothing it does paces these. Every
-    // subscribed instrument wants one the moment its first delta arrives, and
-    // at the limit=1000 this used to ask for that was weight 20 apiece — 571
-    // listings is 11420 against an allowance of 2400 a minute, which is how
-    // this process earned an IP ban twice on 2026-09-06 from traffic no
-    // counter in it could see. The seed is 100 levels now (weight 5), the
-    // queue below paces it, and meter_market_data charges it.
+    // seeds are rest calls the socket pool does not pace; the queue paces them and meter_market_data charges them
     std::vector<InstrumentId> pending_seeds;
     std::uint64_t next_seed_ns{0};
 
     // Venue clock offset, measured against /fapi/v1/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
@@ -95,10 +70,7 @@ struct VenueState {
     std::uint64_t listen_key_due_ns{0};
     bool listen_key_expired{false};
 
-    // PRIVATE FRAMES THIS PROCESS THREW AWAY. Each one is an order update the
-    // book will never hear about, and all three ways of losing one used to be
-    // a bare `return` — no counter, no line. A gateway can run for hours with a
-    // connected private socket, book nothing, and look healthy.
+    // each dropped private frame is an order update the book never sees
     std::uint64_t private_frames_dropped{0};
 
     std::function<void(UnixNanos)> tick_hook;
@@ -119,7 +91,7 @@ struct VenueState {
     }
 };
 
-// Market-data REST spends the venue's limits table as a poll; costs come from config.
+// market-data rest spends the venue's limits as a poll; costs come from config
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
     rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }

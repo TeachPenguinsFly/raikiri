@@ -34,7 +34,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_ws_timestamp_expired:
         return exec::ErrorClass::Retryable;
 
-    // The session lapsed, not the credentials. Logging in again is the fix.
+    // the session lapsed; logging in again fixes it
     case k_ws_login_required:
         return exec::ErrorClass::Retryable;
 

@@ -46,13 +46,9 @@ void internal::sync_clock(VenueState& state, net::RestClient& rest) {
 
 namespace {
 
-// Credentials arrive as reference STRINGS, never values. A reference that
-// will not resolve leaves the adapter unsigned, and every signed builder then
-// refuses rather than sending an unauthenticated order.
+// credentials are references; one that does not resolve leaves the adapter unsigned
 void load_credentials(const exec::VenueConfig& config, VenueState& state) {
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // a venue factory cannot report a bad reference, so a typo reads as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
         .key([&](std::string_view value) { state.signer.set_api_key(value); })
         .secret(state.signer.secret())

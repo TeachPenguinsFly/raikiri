@@ -1,27 +1,7 @@
 #pragma once
 
-// The order book: what a frame says about it, and what a reader must hold to
-// keep one in step.
-//
-// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
-// rule that decides whether a delta may be applied at all, and the rule means
-// nothing without the ids it reads.
-//
-// futures.order_book_update publishes deltas and never a snapshot, so the
-// GET /futures/{settle}/order_book read is not an optimisation, it is the only
-// way to start. Three things measured off the live socket, none of them taken
-// from the docs:
-//
-//   * the chain is exactly contiguous: `U == the previous frame's u + 1` held
-//     on 83 of 83 consecutive frames, with no id ever repeated or skipped.
-//     There is no `pu` field and none is needed.
-//   * the seed's `id` is the last update already in those levels, so the frame
-//     that carries them forward is the one containing id + 1. Testing for `id`
-//     instead would re-apply a frame at the boundary.
-//   * the window is maintained by the venue. Subscribed at 100 levels and
-//     seeded at 100, the book stayed at exactly 100 a side across every frame
-//     applied — Gate deletes what falls out of the window. Nothing here
-//     prunes, because there is nothing to prune.
+// seeded from the rest order_book, then chained on U == previous u + 1;
+// the seed's id is the last update already applied, and gate trims the window itself
 
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/fixed_point.hpp>
@@ -39,9 +19,7 @@
 
 namespace raikiri::venues::gate {
 
-// Sizes are integer CONTRACT counts, so bid_qty/ask_qty are digit tokens with
-// no decimal point. `ts_ms` is milliseconds here even though most other Gate
-// epoch fields are seconds.
+// sizes are integer contract counts; ts_ms is milliseconds
 struct WireBookTicker {
     std::string_view contract;
     std::string_view bid_price;
@@ -54,8 +32,7 @@ struct WireBookTicker {
 
 [[nodiscard]] std::expected<WireBookTicker, WireError> parse_book_ticker(std::string_view frame);
 
-// The touch of every contract off GET /futures/{settle}/tickers, which states
-// no time or update id; an empty side leaves its fields empty.
+// the touch of every contract from the tickers poll; an empty side leaves its fields empty
 struct TickerQuoteBuffer {
     std::array<WireBookTicker, 2048> rows{};
 };
@@ -63,8 +40,7 @@ struct TickerQuoteBuffer {
 [[nodiscard]] std::expected<std::span<const WireBookTicker>, WireError>
 parse_futures_tickers(std::string_view body, TickerQuoteBuffer& storage);
 
-// A level is {"p":"64156.4","s":35680} on both the websocket and the REST
-// snapshot — same object either way, unlike okx's positional arrays.
+// a level is {p, s} on both the socket and the rest snapshot
 struct WireLevel {
     std::string_view price;
     std::string_view qty; // "0" means delete this level
@@ -77,10 +53,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// Continuity is the [first_update_id, last_update_id] chain: a delta applies
-// when its first_update_id is one past the previous message's last_update_id.
-// Gate publishes no snapshot on this channel, so seeding it requires the REST
-// order_book read that rest.hpp builds.
+// a delta applies when first_update_id is one past the previous last_update_id
 struct WireBookUpdate {
     std::string_view contract;
     std::uint64_t first_update_id{0}; // `U`
@@ -93,16 +66,11 @@ struct WireBookUpdate {
 [[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_update(std::string_view frame,
                                                                          LevelBuffer& storage);
 
-// spot.order_book: a whole book, not a delta. Reported through the same type
-// with both ids set to `lastUpdateId`, because nothing downstream chains it —
-// the point of the snapshot channel is that there is no chain to break.
+// spot.order_book is a whole book; both ids are lastUpdateId
 [[nodiscard]] std::expected<WireBookUpdate, WireError> parse_book_snapshot(std::string_view frame,
                                                                            LevelBuffer& storage);
 
-// From GET /futures/{settle}/order_book, and only usable as a seed when that
-// request carried `with_id=true`: without it the body has no `id`, and levels
-// with no id are a picture of no particular point in the update chain.
-// `update_s` is FRACTIONAL seconds (1786394534.46), truncated on the way in.
+// usable as a seed only with with_id=true; update_s is fractional seconds, truncated
 struct WireOrderBook {
     std::uint64_t update_id{0}; // `id`
     std::uint64_t update_s{0};
@@ -122,13 +90,9 @@ enum class BookResult : std::uint8_t {
     Reseed,   // the seed can no longer be reached: fetch another
 };
 
-// Deltas held while the REST seed is in flight. At a 100 ms cadence one round
-// trip is a handful of frames; an overflow restarts the buffer rather than
-// growing without bound.
+// an overflow restarts the buffer
 inline constexpr std::size_t k_max_buffered_deltas = 64;
 
-// One contract's book. Prices and sizes become instrument-scaled integers at
-// ingest, so nothing downstream ever sees a venue string.
 class DepthBook {
 public:
     using Level = book::Level;
@@ -147,8 +111,7 @@ public:
 
     [[nodiscard]] bool live() const noexcept { return state_ == State::Live; }
 
-    // The book as shared memory takes it, or nullopt while it is unseeded or
-    // desynchronised.
+    // nullopt while unseeded or desynchronised
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
     void invalidate() noexcept;

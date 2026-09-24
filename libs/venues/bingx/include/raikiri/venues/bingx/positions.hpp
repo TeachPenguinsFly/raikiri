@@ -1,8 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short. Perpetual tree only:
-// BingX's spot deployment has no position concept.
-
 #include <raikiri/venues/bingx/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -14,8 +11,7 @@
 
 namespace raikiri::venues::bingx {
 
-// `position_amt` is UNSIGNED and `position_side` carries the sign. A long and
-// a short of the same size are the same number here.
+// position_amt is unsigned; position_side carries the sign
 struct WirePosition {
     std::string_view symbol;
     std::string_view position_side; // LONG/SHORT
@@ -30,7 +26,7 @@ struct PositionBuffer {
     std::array<WirePosition, k_max_positions> positions{};
 };
 
-// `data` is a bare array here, not an object with a list inside it.
+// data is a bare array here
 [[nodiscard]] std::expected<std::span<const WirePosition>, WireError>
 parse_positions(std::string_view body, PositionBuffer& storage);
 

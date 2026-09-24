@@ -25,9 +25,7 @@ ReconResult reconcile_position(bool venue_answered,
         return out; // Unknown, and staying Unknown even when local is flat
     }
     if (!report.has_value()) {
-        // No row came back for this instrument, inside a snapshot that did
-        // arrive. That is the venue saying flat — a real answer, unlike the
-        // silence above.
+        // no row in an arrived snapshot means flat
         out.venue_qty = QtyLots::from_raw(0);
         out.verdict = local.raw == 0 ? ReconVerdict::Agree : ReconVerdict::Break;
         out.detail = local.raw == 0 ? "both flat" : "venue reports flat, we hold a position";

@@ -15,9 +15,7 @@ std::expected<void, WireError> read_book_row(wire::ondemand::object& obj,
     out.type = field(obj, "type");
     out.change = field(obj, "change");
     out.text = field(obj, "text");
-    // A STRING on this endpoint, though `time` beside it is a number. Verified
-    // against a live row: gate quotes the ledger's own id as "991", and
-    // reading it as a number yields nothing.
+    // a string here, while time is a number
     out.id = field(obj, "id");
     out.trade_id = field(obj, "trade_id");
     obj.reset();

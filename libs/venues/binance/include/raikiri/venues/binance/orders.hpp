@@ -1,8 +1,5 @@
 #pragma once
 
-// An order's life on the wire: what the user stream says happened to it, what
-// a REST answer says about it, and the fills it produced.
-
 #include <raikiri/venues/binance/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -14,18 +11,7 @@
 
 namespace raikiri::venues::binance {
 
-// ORDER_TRADE_UPDATE carries lifecycle AND fills in one frame, which is the
-// load-bearing difference from bybit.
-//
-// Bybit splits them: its `execution` topic owns fills and its `order` topic
-// owns lifecycle, and emitting from both doubles every position. Binance has
-// one frame, so the same hazard appears from the other side — `x` (execution
-// type) says WHAT HAPPENED and `X` (order status) says WHERE THE ORDER IS
-// NOW. A TRADE execution also reports X = PARTIALLY_FILLED or FILLED, and
-// treating that status as a second event double-counts the same fill.
-//
-// The rule, therefore: `x` alone decides which event we emit. `X` is carried
-// for reconciliation and never turned into an event of its own.
+// x decides which event is emitted; X is carried for reconciliation only
 struct WireOrderUpdate {
     std::string_view symbol;
     std::string_view client_order_id;   // c: our ExchangeClientOrderId
@@ -42,7 +28,7 @@ struct WireOrderUpdate {
     std::string_view commission;        // n — absent unless this frame is a fill
     std::string_view commission_asset;  // N
     std::uint64_t order_id{0};          // i
-    std::uint64_t trade_id{0};          // aggregate id or trade id, whichever arrived          // t
+    std::uint64_t trade_id{0}; // t
     std::uint64_t trade_ms{0};          // T inside o
     std::uint64_t event_ms{0};          // E at the top level
     bool is_maker{false};               // m
@@ -51,8 +37,7 @@ struct WireOrderUpdate {
 
 [[nodiscard]] std::expected<WireOrderUpdate, WireError> parse_order_update(std::string_view data);
 
-// POST /fapi/v1/order and GET /fapi/v1/order share this shape; openOrders is
-// an array of it.
+// shared by post and get /fapi/v1/order; openOrders is an array of it
 struct WireOrder {
     std::string_view symbol;
     std::string_view client_order_id;
@@ -76,8 +61,7 @@ struct OrderBuffer {
 [[nodiscard]] std::expected<std::span<const WireOrder>, WireError>
 parse_orders(std::string_view body, OrderBuffer& storage);
 
-// One row of GET /fapi/v1/userTrades: the account's own fill, as opposed to
-// the public print WirePrint carries.
+// the account's own fill from /fapi/v1/userTrades
 struct WireTrade {
     std::string_view symbol;
     std::string_view price;

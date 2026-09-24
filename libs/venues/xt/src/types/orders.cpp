@@ -21,14 +21,12 @@ take_status(wire::ondemand::object& obj, std::string_view key, WireOrderStatus& 
     return {};
 }
 
-// XT's `takerMaker` is TEXT and the two trees disagree about its case:
-// /order/trade-list says "TAKER" and /v4/trade says "taker".
+// takerMaker case differs: TAKER on trade-list, taker on /v4/trade
 bool text_is_maker(std::string_view text) noexcept {
     return text.size() == 5 && (text[0] == 'M' || text[0] == 'm');
 }
 
-// The single-record reads put the payload under `result`; the socket puts it
-// under `data`. Nothing else distinguishes them, so both are tried.
+// payload under result on rest reads and data on the socket
 std::expected<wire::ondemand::object, WireError> payload_of(wire::ondemand::object& root) {
     if (wire::has_field(root, "result")) {
         return wire::req_object(root, "result");
@@ -83,8 +81,7 @@ std::expected<void, WireError> read_futures_deal(wire::ondemand::object& obj,
             return std::unexpected(ok.error());
         }
     }
-    // Two transports, two spellings, and neither sends both: REST states
-    // `takerMaker` as text, the socket states `isMaker` as a boolean.
+    // rest sends takerMaker text, the socket an isMaker boolean
     const auto taker_maker = opt_scalar(obj, "takerMaker");
     if (!taker_maker.has_value()) {
         return std::unexpected(taker_maker.error());
@@ -100,8 +97,7 @@ std::expected<void, WireError> read_futures_deal(wire::ondemand::object& obj,
         out.maker = *is_maker;
         out.liquidity_known = true;
     }
-    // `timestamp` on both transports; the REST page repeats it as `time` on
-    // some tenants, so the second spelling is a fallback rather than a schema.
+    // some tenants repeat timestamp as time; fallback
     const auto ts = opt_ms(obj, "timestamp");
     if (!ts.has_value()) {
         return std::unexpected(ts.error());
@@ -140,8 +136,7 @@ std::expected<void, WireError> read_spot_order(wire::ondemand::object& obj, Wire
     if (const auto ok = take_status(obj, "state", out.state); !ok.has_value()) {
         return std::unexpected(ok.error());
     }
-    // `updatedTime` is when the order last moved and `time` is when it was
-    // created; the first is the one a lifecycle event is stamped with.
+    // updatedTime stamps the lifecycle event; time is creation
     const auto updated = opt_ms(obj, "updatedTime");
     const auto created = opt_ms(obj, "time");
     if (!updated.has_value() || !created.has_value()) {
@@ -197,9 +192,7 @@ WireOrderStatus order_status(std::string_view text) noexcept {
     if (text == "FILLED") {
         return WireOrderStatus::Filled;
     }
-    // PARTIALLY_CANCELED exists on futures only and is terminal: the volume it
-    // took was already reported by its own trade, so what is left to say is
-    // that the rest was cancelled.
+    // futures-only and terminal; its fill was reported by its trade
     if (text == "CANCELED" || text == "PARTIALLY_CANCELED") {
         return WireOrderStatus::Cancelled;
     }
@@ -306,9 +299,7 @@ std::expected<std::string_view, WireError> parse_order_ack(std::string_view body
         if (const auto ec = result.type().get(type); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
-        // Futures create and cancel answer with the id as a BARE STRING;
-        // futures amend and every spot write wrap it in an object, under
-        // `orderId` on a create or amend and `cancelId` on a cancel.
+        // futures create/cancel answer a bare string; amend and spot wrap it as orderId or cancelId
         if (type != wire::ondemand::json_type::object) {
             return scalar_of(result);
         }
@@ -389,9 +380,7 @@ parse_spot_trades(std::string_view body, SpotTradeBuffer& storage) {
     });
 }
 
-// The two-letter set. A reader that guessed between this and the REST spelling
-// would read `oq` (ordered) where it meant `eq` (executed) and report an
-// untouched order as fully filled.
+// two-letter keys: oq is ordered, eq executed
 std::expected<WireSpotOrder, WireError> parse_spot_order_push(std::string_view frame) {
     return guarded([&]() -> std::expected<WireSpotOrder, WireError> {
         auto root = session().open_object(frame);
@@ -444,9 +433,7 @@ std::expected<WireSpotTrade, WireError> parse_spot_trade_push(std::string_view f
             return std::unexpected(data.error());
         }
         WireSpotTrade out{};
-        // `i` is the TRADE id here and `oi` the order id — the opposite of the
-        // order push, where `i` is the order. The ids are JSON numbers wider
-        // than a double holds exactly, which is why the token is kept as text.
+        // i is the trade id and oi the order id here, opposite of the order push; ids exceed double precision
         for (const auto& [key, field] : {std::pair{"s", &out.symbol},
                                          std::pair{"i", &out.trade_id},
                                          std::pair{"oi", &out.order_id},
@@ -456,9 +443,7 @@ std::expected<WireSpotTrade, WireError> parse_spot_trade_push(std::string_view f
                 return std::unexpected(ok.error());
             }
         }
-        // `tm` is the ACCOUNT's side of the book: 1 taker, 2 maker. `b` beside
-        // it says whether the BUYER was the maker, which is a fact about the
-        // print rather than about us, and reading it as ours inverts the tag.
+        // tm is the account's side, 1 taker 2 maker; b is about the print's buyer
         const auto liquidity = opt_i64(*data, "tm", 0);
         if (!liquidity.has_value()) {
             return std::unexpected(liquidity.error());

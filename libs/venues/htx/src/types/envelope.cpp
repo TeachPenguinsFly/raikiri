@@ -8,8 +8,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// The part of a topic after the contract code: "market.BTC-USDT.trade.detail"
-// -> "trade.detail". Empty when the shape does not hold.
+// "market.BTC-USDT.trade.detail" -> "trade.detail"; empty when the shape does not hold
 std::string_view suffix_of(std::string_view topic) {
     const auto first = topic.find('.');
     if (first == std::string_view::npos) {
@@ -22,10 +21,7 @@ std::string_view suffix_of(std::string_view topic) {
     return topic.substr(second + 1);
 }
 
-// The private topics carry ONE dot, so suffix_of finds nothing in them and
-// kind_from_topic would call every order push Unknown. Both margin modes are
-// listed because the `_cross` family is what this adapter subscribes to and
-// the bare family is what an isolated-margin account would see.
+// private topics have one dot; both margin-mode spellings are listed
 EventKind private_kind_from_topic(std::string_view topic) noexcept {
     if (topic.starts_with("orders_cross.") || topic.starts_with("orders.")) {
         return EventKind::PrivateOrder;
@@ -50,8 +46,6 @@ EventKind kind_from_topic(std::string_view topic) noexcept {
     if (suffix == "depth.step0") {
         return EventKind::Depth;
     }
-    // "detail" only: the trade channel's suffix is "trade.detail" and reaches
-    // the compare above it.
     if (suffix == "detail") {
         return EventKind::Detail;
     }
@@ -180,8 +174,7 @@ std::expected<EventInfo, WireError> parse_event(std::string_view frame) {
             return info;
         }
 
-        // The spot v2 socket speaks `action` where every other HTX endpoint
-        // speaks `op`, and its keepalive hides the timestamp one level down.
+        // spot v2 uses action instead of op and nests the ping timestamp
         if (!action.has_value()) {
             return std::unexpected(action.error());
         }
@@ -301,8 +294,7 @@ std::expected<WireAuthReply, WireError> parse_auth_reply(std::string_view frame)
             const auto text = unquote(*code);
             return WireAuthReply{.ok = text == "0", .code = text, .msg = *msg};
         }
-        // The spot v2 socket answers a REQUEST rather than an op, and states
-        // success as HTTP 200 rather than as a zero error code.
+        // spot v2 states success as code 200
         const auto code = wire::opt_i64(*root, "code");
         const auto raw = wire::opt_raw(*root, "code");
         const auto msg = wire::opt_str(*root, "message");

@@ -44,9 +44,7 @@ std::optional<Fetched> fetch(std::string_view host,
         stream.socket().shutdown(tcp::socket::shutdown_both, ec);
         return Fetched{.status = static_cast<int>(res.result_int()), .body = std::move(res.body())};
     } catch (...) {
-        // Unreachable, refused, timed out, malformed — all the same answer to a
-        // caller: nothing came back. Which of them it was belongs in the peer's
-        // own log, not in a 503 body a browser reads.
+        // every failure maps to nullopt
         return std::nullopt;
     }
 }

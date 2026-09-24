@@ -4,9 +4,7 @@ namespace raikiri::exec {
 
 namespace {
 
-// SymbolId is 32 bits, but the practical ceiling is the shm BBO table, which
-// is indexed by SymbolId and sized in cache lines. Refusing here keeps the
-// failure at catalogue load rather than at the first tick for symbol 4097.
+// the shm bbo table, indexed by SymbolId, caps the practical count
 constexpr std::size_t k_max_instruments = 4096;
 
 } // namespace
@@ -37,10 +35,7 @@ std::expected<InstrumentId, TableError> InstrumentTable::add(Instrument instrume
         return std::unexpected{TableError::Full};
     }
     const auto symbol_text = std::string{base.exchange_symbol.view()};
-    // A duplicate is the same symbol in the same MARKET. Refusing on the symbol
-    // alone silently dropped every spot instrument on a venue whose perpetual
-    // shares the ticker — which is most of them — and left the gateway holding
-    // whichever catalogue happened to load first.
+    // a duplicate is the same symbol in the same market
     if (const auto it = by_exchange_symbol_.find(symbol_text); it != by_exchange_symbol_.end()) {
         for (const auto slot : it->second) {
             if (base_of(instruments_[slot]).id.market() == base.id.market()) {
@@ -86,21 +81,13 @@ const Instrument* InstrumentTable::find(InstrumentId id) const noexcept {
     if (index >= instruments_.size()) {
         return nullptr;
     }
-    // The WHOLE id is compared, not just the index it carries. Spot and
-    // perpetual instruments share one index space here, so an id built with the
-    // wrong market — a hand-made one, or a bug upstream — otherwise resolves to
-    // a real instrument that is simply not the one asked for, and every price
-    // and quantity derived from it is silently scaled by another contract's
-    // steps. shm::CatalogueTable::find has always compared the whole id; this
-    // is the same rule on this side of the boundary.
+    // compare the whole id; spot and perp share one index space
     const auto* entry = &instruments_[index];
     return base_of(*entry).id == id ? entry : nullptr;
 }
 
 std::string_view InstrumentTable::exchange_symbol(InstrumentId id) const noexcept {
-    // Resolved through find() so a wrong-market id yields nothing rather than
-    // another instrument's ticker — a mismatch the two answers must not disagree
-    // about, since a caller commonly asks for both.
+    // through find() so a wrong-market id yields nothing
     const auto index = id.symbol().raw;
     return find(id) != nullptr ? std::string_view{exchange_symbols_[index]} : std::string_view{};
 }

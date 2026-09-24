@@ -156,7 +156,7 @@ private:
             on_ticker(frame, received);
             break;
         case TopicKind::Ping:
-            // Unanswered, the server drops the socket after 165 s with no close frame.
+            // unanswered, the server drops the socket after 165 s
             if (const auto value = parse_ping(frame); value.has_value()) {
                 if (const auto pong = state_->protocol.pong_frame(*value); pong.has_value()) {
                     (void)pool_.reply(*pong);
@@ -171,8 +171,7 @@ private:
         }
     }
 
-    // A refused frame subscribed none of its topics, including the valid ones.
-    // Each is asked again on its own, once, so the refusal names its culprit.
+    // a refused frame subscribes none of its topics, so each is retried once alone
     void on_ack(std::string_view frame) noexcept {
         static thread_local AckBuffer storage;
         const auto ack = parse_ack(frame, storage);
@@ -236,8 +235,7 @@ private:
         }
     }
 
-    // Only a subscription produces a snapshot, so a broken chain is asked for
-    // again on the socket that carried it.
+    // only a subscription produces a snapshot, so a broken chain resubscribes on the same socket
     void resubscribe_book(std::string_view symbol) noexcept {
         std::array<char, 64> buf{};
         const std::array<std::string_view, 1> topic{topic_name(exec::SubKind::Depth, symbol, buf)};
@@ -254,7 +252,7 @@ private:
     void on_trades(std::string_view frame, UnixNanos received) noexcept {
         static thread_local const auto storage = std::make_unique<TradeBuffer>();
         const auto wire = parse_trades(frame, *storage);
-        // The snapshot on subscribe replays the last fifty prints, some long past.
+        // the subscribe snapshot replays the last fifty prints
         if (!wire.has_value() || wire->is_snapshot) {
             return;
         }

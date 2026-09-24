@@ -9,7 +9,7 @@ namespace raikiri::venues::bybit {
 
 namespace {
 
-// Header names are bybit's, capitalisation and all.
+// header names are bybit's, capitalisation included
 constexpr std::string_view k_hdr_key = "X-BAPI-API-KEY";
 constexpr std::string_view k_hdr_ts = "X-BAPI-TIMESTAMP";
 constexpr std::string_view k_hdr_sign = "X-BAPI-SIGN";
@@ -22,8 +22,7 @@ std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
                : std::string_view{};
 }
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated signed body authenticates as something we did not mean to send.
+// reports overflow instead of truncating a signed body
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -52,9 +51,7 @@ private:
     return side == Side::Buy ? "Buy" : "Sell";
 }
 
-// Post-only is a TIME IN FORCE value on bybit, not a separate boolean the way
-// most venues spell it. Sending postOnly as a flag is silently ignored, and
-// the order crosses.
+// post-only is a time-in-force value on bybit; a postOnly flag is silently ignored
 [[nodiscard]] std::string_view tif_text(TimeInForce tif, OrderFlags flags) noexcept {
     if (has_flag(flags, OrderFlags::PostOnly)) {
         return "PostOnly";
@@ -70,14 +67,10 @@ private:
     return "GTC";
 }
 
-// Settlement coin scopes the account-wide pulls. Without it bybit demands a
-// symbol and returns an error rather than everything, which turns a
-// reconciliation sweep into a per-symbol loop.
+// settleCoin scopes account-wide pulls; without it bybit demands a symbol
 constexpr std::string_view k_settle_coin = "USDT";
 
-// accountType is mandatory on the wallet pull, and a unified key is allowed
-// exactly this one value: asking for CONTRACT is refused outright with
-// "accountType only support UNIFIED" rather than answered with an empty list.
+// a unified key accepts only accountType UNIFIED
 constexpr std::string_view k_account_type = "UNIFIED";
 
 } // namespace
@@ -114,7 +107,7 @@ RequestBuilder::signed_post(std::string_view target, std::string_view body, Unix
     const auto ts = render_u64(now.ns / 1'000'000ULL, timestamp_);
     const auto recv = render_u64(recv_window_ms_, recv_window_text_);
 
-    // Bare concatenation, no separators.
+    // bare concatenation, no separators
     Appender msg{sign_msg_};
     msg << ts << signer_->api_key() << recv << body;
     if (!msg.ok()) {
@@ -308,15 +301,7 @@ std::expected<net::RestRequest, BuildError> RequestBuilder::positions(MarketType
     return signed_get(ep::k_position_list, query.view(), now);
 }
 
-// The account's own record of what it was charged: settlements AND the fees on
-// trades. NO type FILTER — both ride this endpoint, and it is metered at
-// twenty-five requests a second where the rest of v5 allows fifty, so asking
-// twice would spend the scarcer budget for one answer.
-//
-// `startTime` is required to be within seven days of `endTime`, so a caller
-// asking for more gets an error rather than a truncated answer — the window is
-// clamped here instead, because a silently short answer would read as "no
-// funding was charged".
+// no type filter: fees and settlements share this 25/s endpoint; the window is clamped to seven days
 std::expected<net::RestRequest, BuildError>
 RequestBuilder::funding_charges(MarketType market, UnixNanos since, UnixNanos now) {
     constexpr std::uint64_t k_max_window_ms = 7ULL * 24 * 60 * 60 * 1000;

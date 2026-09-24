@@ -27,9 +27,7 @@ namespace raikiri::venues::weex::internal {
 
 namespace {
 
-// WEEX settles funding every one, four or eight hours depending on the
-// contract, and republishes the running rate continuously; a poll a minute is
-// far finer than the fact changes, and it is one call for the whole catalogue.
+// one call per minute covers the whole catalogue
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
 void handle_depth(VenueState& state, std::string_view frame, UnixNanos received) {
@@ -64,17 +62,11 @@ void handle_depth(VenueState& state, std::string_view frame, UnixNanos received)
         }
     }
     const auto ts_event = ms_to_unix(wire->event_ms, received);
-    // THE QUOTE FIRST. WEEX publishes no top-of-book channel at all, so this
-    // ladder is the only source of a Bbo on this venue, and it is the datum
-    // every screen and every strategy gates on.
+    // quote first; the ladder is weex's only bbo source
     if (const auto bbo = book.touch(ts_event, received); bbo.has_value()) {
         state.sink->on_bbo(*bbo);
     }
-    // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
-    // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and the
-    // cell it lands in keeps only the latest value. Measured on kucoin,
-    // 2026-09-19: the same guard took that gateway from 44.5% to 37.6% of a
-    // core.
+    // ask the sink before building the snapshot; the build is the expensive part
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
@@ -100,9 +92,7 @@ void handle_trades(VenueState& state,
     }
 }
 
-// The frame is dispatched from an event the CALLER already resolved: the
-// keepalive has to be recognised before anything else looks at the bytes, and
-// resolving the kind twice would parse every frame this venue sends twice.
+// the caller already resolved the event kind, so frames parse once
 void handle_frame(VenueState& state,
                   const EventInfo& event,
                   std::string_view frame,
@@ -116,12 +106,7 @@ void handle_frame(VenueState& state,
         handle_trades(state, frame, event.symbol, received);
         break;
     case EventKind::TradeSnapshot:
-        // DROPPED, AND THAT IS THE POINT. The channel opens with up to twenty
-        // historical prints and the live frames that follow re-send part of
-        // that window: five ids came round twice across two sessions, while the
-        // live stream repeated none in 1457 prints. Nothing downstream
-        // deduplicates a trade, so publishing this counts those prints twice in
-        // every signed-flow series that begins at a reconnect.
+        // the tradeSnapshot backfill overlaps live prints and nothing deduplicates trades
         break;
     case EventKind::Ticker: {
         const auto wire = parse_ticker(frame);
@@ -153,16 +138,10 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // The pool is built after the handler it reports to, so the keepalive's
-    // way back to it is set once rather than passed in.
+    // set once since the pool is built after the handler
     void attach(net::WsPool& pool) noexcept { pool_ = &pool; }
 
-    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
-    // re-asks for its own channels when it opens; replaying the whole desired
-    // set on every one of them is the flood the pool exists to avoid. This
-    // handler is shared by every connection and so cannot tell WHICH one
-    // reopened — the books belonging to that socket are invalidated by the
-    // pool's own open hook, which is handed its keys.
+    // each pooled socket resubscribes its own channels; the pool's open hook invalidates that socket's books
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -173,12 +152,7 @@ public:
         if (!event.has_value()) {
             return; // unknown shapes are ignored, never fatal: venues add frames
         }
-        // KEEPALIVE IS SERVER-DRIVEN AND ANSWERED INLINE. WEEX pings each socket
-        // roughly every 30 s and closes one that misses more than ten. A shared
-        // handler cannot tell WHICH socket was pinged, so the answer goes to all
-        // of them: every socket is therefore certainly answered, at a cost of
-        // one small frame per socket per ping — under a message a second on a
-        // full pool.
+        // weex pings each socket every ~30 s and closes one that misses ten; the handler cannot tell which, so it answers all
         if (event->kind == EventKind::Ping) {
             if (pool_ != nullptr) {
                 pool_->broadcast(k_pong_frame);
@@ -207,10 +181,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path()}},
                 handler_,
-                // WEEX's own websocket page states "Maximum 100 channels per
-                // connection" and "maximum 20 concurrent connections per IP";
-                // the pool turns the first into a per-socket number instead of
-                // the process's, and the socket count stays under the second.
+                // weex: 100 channels per connection, 20 connections per ip
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) { invalidate_books(keys); }} {
@@ -233,8 +204,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -247,12 +216,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
-            // NOT A CHANNEL. WEEX streams no funding at all, so the rate is a
-            // REST poll driven from poll() below, and the instrument is
-            // remembered rather than subscribed. The SAME request also places
-            // the ticker channel: the 24-hour turnover is stated there and
-            // nowhere else, and no other subscription kind a gateway sends
-            // would ask for it.
+            // funding is polled; the same request places the ticker channel for 24h turnover
             if (std::ranges::find(state_->funding_instruments, instrument) ==
                 state_->funding_instruments.end()) {
                 state_->funding_instruments.push_back(instrument);
@@ -277,12 +241,7 @@ public:
     }
 
 private:
-    // Turns a kind and a symbol into one pool key and places it.
-    //
-    // A CHANNEL IS PLACED ONCE. Bbo and Depth resolve to the same @depth200, so
-    // a gateway asking for both must spend one of the connection's hundred
-    // rather than two — which is the difference between 533 instruments on a
-    // full pool and 400.
+    // Bbo and Depth share @depth200, so the channel is placed once
     std::expected<void, exec::VenueError>
     place(exec::SubKind kind, std::string_view symbol, InstrumentId instrument) {
         std::array<char, 64> buf{};
@@ -293,11 +252,7 @@ private:
         if (!state_->add_channel(channel)) {
             return {}; // already placed on a socket
         }
-        // THE POOL PLACES IT. A channel that does not fit on any existing socket
-        // opens another, and only the pool's own ceiling refuses — which is said
-        // out loud rather than leaving the instrument silently unwatched. A
-        // refused channel is taken back out of the desired set, or a later
-        // reconnect would build a frame asking for something no socket holds.
+        // a channel the pool refuses is removed from the desired set
         const std::array<std::string, 1> one{std::string{channel}};
         if (!pool_.subscribe(one)) {
             state_->desired.pop_back();
@@ -307,16 +262,7 @@ private:
         return {};
     }
 
-    // ONLY THE BOOKS THIS SOCKET FEEDS. A depth book is chained by exactly one
-    // connection, so a socket that reopens has broken its own books' chains and
-    // nobody else's; invalidating every book on any reopen would darken a whole
-    // catalogue because one socket blinked. The channel is checked as well as
-    // the symbol: a contract's @trade may sit on a different socket from its
-    // @depth200, and only the depth channel names a chain that can break.
-    //
-    // Nothing is refetched. The reopened socket re-asks for its channels and
-    // WEEX answers each depth subscription with a fresh `depthSnapshot`, which
-    // is the seed — so the recovery costs one frame and no REST call.
+    // invalidate only depth books on this socket; its resubscribe draws a fresh depthSnapshot
     void reseed_books(UnixNanos now) {
         if (now.ns < state_->next_reseed_scan_ns) {
             return;
@@ -379,20 +325,14 @@ private:
         }
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered first here rather than at subscribe time: on a reconnect the
-    // order that matters is the order the venue is asked in.
+    // called on every open of that socket
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> channels;
         channels.reserve(keys.size());
         for (const auto& key : keys) {
             channels.emplace_back(key);
         }
-        // THE QUOTE FIRST. Once the sends are paced, whatever goes last on a
-        // full socket effectively does not go at all — and on this venue
-        // @depth200 is the quote as well as the ladder, so a socket that got
-        // through only its first frames still has a Bid/Ask column.
+        // quote first: on a paced full socket the last frames may never go
         std::ranges::stable_partition(
             channels, [](std::string_view channel) { return channel.ends_with(k_depth_channel); });
 
@@ -411,9 +351,7 @@ private:
         return frames;
     }
 
-    // One call covers every symbol, so there is no cursor and no per-symbol
-    // fan-out: the whole table refreshes on each poll and only the instruments
-    // somebody subscribed reach the sink.
+    // one call covers every symbol; only subscribed instruments reach the sink
     void poll_funding(UnixNanos now) noexcept {
         if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns ||
             in_flight_) {
@@ -431,7 +369,7 @@ private:
             in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next minute.
+        // only a sent call advances the interval
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
     }
 
@@ -454,7 +392,7 @@ private:
             const auto id = base_of(*instrument).id;
             if (std::ranges::find(state_->funding_instruments, id) ==
                 state_->funding_instruments.end()) {
-                continue; // the table answers for 1022 contracts; nobody asked for this one
+                continue; // nobody asked for this one
             }
             if (const auto funding = map_funding(row, state_->instruments, received);
                 funding.has_value()) {

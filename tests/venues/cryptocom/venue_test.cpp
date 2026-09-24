@@ -31,7 +31,7 @@ std::string fixture(std::string_view name) {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
-// Heap-held so the event's views outlive the return.
+// heap-held so the event's views outlive the return
 struct Framed {
     std::unique_ptr<std::string> frame;
     Event event;
@@ -328,7 +328,6 @@ TEST(CryptoComBook, ABrokenChainDropsTheBookUntilTheNextSnapshot) {
     EXPECT_TRUE(book.snapshot(k_ingest, k_ingest).has_value());
 }
 
-// Both aborted inside simdjson before fields were walked in order.
 TEST(CryptoComBook, MalformedFramesAreRefusedNotTrusted) {
     LevelBuffer levels;
     for (const auto name : {"fuzz_book_trailing_comma.json", "fuzz_book_update_unclosed.json"}) {

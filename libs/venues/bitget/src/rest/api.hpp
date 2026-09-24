@@ -1,12 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held. None of them belongs to the order path — they run on a
-// poller's schedule and pump the reactor until the answer arrives, which an
-// order may never do.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/bitget/account.hpp>
 #include <raikiri/venues/bitget/envelope.hpp>
@@ -32,9 +25,7 @@ public:
           rest_{state.io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {}
 
     void start() {
-        // The passphrase view is taken here, not in the constructor: it
-        // reflects the secret's length at the moment it is read, and start()
-        // is the first point at which every credential is certainly resolved.
+        // read the passphrase at start, once every credential is resolved
         builder_.set_credentials(state_->signer, state_->passphrase.view());
         rest_.start();
         sync_clock(*state_, rest_);
@@ -42,14 +33,9 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps the rest pool so an idle gateway never writes an order into a dead socket
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] RequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -151,9 +137,7 @@ public:
         case MarketType::Perp:
             break;
         case MarketType::Spot:
-            // A spot pair pays no funding, and /api/v2/spot/account/bills is
-            // another row shape carrying none. Answering with the mix ledger
-            // would book a perpetual's charges against a spot gateway.
+            // spot pays no funding and its bills ledger has no funding rows
             return std::unexpected{exec::not_implemented("bitget spot funding charges")};
         case MarketType::Future:
             return std::unexpected{exec::not_implemented("bitget delivery futures funding pull")};
@@ -174,8 +158,7 @@ public:
         auto storage = std::make_unique<BillBuffer>();
         const auto rows = parse_mix_bills(*body, *storage);
         if (!rows.has_value()) {
-            // A ledger we cannot read is NOT an empty one: answering "no
-            // funding" would book zero against a position that paid some.
+            // an unreadable ledger is not an empty one
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
@@ -197,9 +180,7 @@ public:
         case MarketType::Perp:
             break;
         case MarketType::Spot:
-            // Spot holds coin balances, not per-instrument positions: there is
-            // nothing to report against an InstrumentId, and answering "flat"
-            // would tell a reconciler the account is empty.
+            // spot holds coin balances, so there are no per-instrument positions
             return std::unexpected{exec::not_implemented("bitget spot position pull")};
         case MarketType::Future:
             return std::unexpected{exec::not_implemented("bitget delivery futures position pull")};
@@ -235,11 +216,7 @@ public:
 private:
     static constexpr std::uint64_t k_pull_timeout_ms = 10'000;
 
-    // Both order pulls answer with the same rows under different envelopes,
-    // so the market chooses the reader and names its own refusal in one place.
-    //
-    // `body` is the CALLER's: every returned view points into it, so a body
-    // owned here would be freed before the first row was read.
+    // every returned view points into the caller's body
     std::expected<std::span<const WireOrderUpdate>, exec::VenueError>
     pull_orders(const std::expected<net::RestRequest, BuildError>& request,
                 MarketType market,
@@ -256,12 +233,10 @@ private:
             read = &parse_mix_orders;
             break;
         case MarketType::Future:
-            // Delivery contracts never reach the instrument table, so every
-            // row would map to nothing and the pull would read as "nothing open".
+            // delivery contracts never reach the instrument table
             return std::unexpected{exec::not_implemented("bitget delivery futures order pull")};
         case MarketType::Option:
-            // Bitget v2 lists no crypto options; its only options product is
-            // US equity options behind the separate v3 UTA API.
+            // bitget v2 has no crypto options
             return std::unexpected{exec::not_implemented("bitget options order entry")};
         }
 

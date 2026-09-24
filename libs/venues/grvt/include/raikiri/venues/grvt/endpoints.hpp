@@ -27,7 +27,7 @@ inline constexpr std::string_view k_quote_rate = "@0";
 inline constexpr std::string_view k_trade_stream = "v1.trade";
 // 50 is the snapshot's length, not a rate; those prints are history and dropped.
 inline constexpr std::string_view k_trade_rate = "@50";
-// Deltas, not v1.book.s: the snapshot stream costs four times the bytes.
+// deltas; v1.book.s costs four times the bytes
 inline constexpr std::string_view k_book_stream = "v1.book.d";
 inline constexpr std::string_view k_book_rate = "@500";
 inline constexpr std::string_view k_ticker_stream = "v1.ticker.s";

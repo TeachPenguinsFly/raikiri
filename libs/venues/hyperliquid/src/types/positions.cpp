@@ -31,8 +31,6 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             if (const auto ec = row.get_object().get(wrapper); ec != simdjson::SUCCESS) {
                 return std::unexpected(wire::map_error(ec));
             }
-            // The `type` beside it ("oneWay") is the venue's position mode and
-            // the domain has no other; reading it would only invite a switch.
             auto position = wire::req_object(wrapper, "position");
             if (!position.has_value()) {
                 return std::unexpected(position.error());
@@ -46,8 +44,7 @@ std::expected<std::span<const WirePosition>, WireError> parse_positions(std::str
             storage.positions[count] = {.coin = *coin, .size = *size, .entry_px = *entry};
             ++count;
         }
-        // After the array, never before: On-Demand cannot revisit a key it has
-        // already walked past, and `time` trails assetPositions in the body.
+        // `time` trails assetPositions, and on-demand cannot go back
         const auto ts = opt_number_ms(*root, "time");
         if (!ts.has_value()) {
             return std::unexpected(ts.error());

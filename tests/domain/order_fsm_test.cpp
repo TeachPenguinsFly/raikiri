@@ -57,8 +57,7 @@ TEST(OrderFsm, HappyPathLimitOrder) {
 }
 
 TEST(OrderFsm, FastFillBeatsAck) {
-    // bybit/binance user streams regularly deliver the fill before the REST
-    // ack returns.
+    // bybit and binance user streams often deliver the fill before the rest ack
     EXPECT_EQ(*transition(S::Submitted, E::Filled, true), S::Filled);
     EXPECT_EQ(*transition(S::Submitted, E::Filled, false), S::PartiallyFilled);
 }
@@ -74,19 +73,14 @@ TEST(OrderFsm, RiskDenialIsTerminal) {
 }
 
 TEST(OrderFsm, CancelFillRace) {
-    // Cancel confirmed, then the fill that matched first arrives: fills
-    // outrank cancels — money moved.
     EXPECT_EQ(*transition(S::Canceled, E::Filled, true), S::Filled);
-    // Partial fill after cancel: quantities update, status stays Canceled.
     EXPECT_EQ(*transition(S::Canceled, E::Filled, false), S::Canceled);
 }
 
 TEST(OrderFsm, PendingCancelResolution) {
     EXPECT_EQ(*transition(S::PendingCancel, E::Canceled), S::Canceled);
-    // Too-late cancel returns the order to its remembered working status.
     EXPECT_EQ(*transition(S::PendingCancel, E::CancelRejected, false, S::PartiallyFilled),
               S::PartiallyFilled);
-    // Full fill wins the race outright; partial keeps the cancel pending.
     EXPECT_EQ(*transition(S::PendingCancel, E::Filled, true), S::Filled);
     EXPECT_EQ(*transition(S::PendingCancel, E::Filled, false), S::PendingCancel);
 }
@@ -96,15 +90,11 @@ TEST(OrderFsm, ModifyResolution) {
     EXPECT_EQ(*transition(S::PendingUpdate, E::Updated, false, S::Accepted), S::Accepted);
     EXPECT_EQ(*transition(S::PendingUpdate, E::ModifyRejected, false, S::PartiallyFilled),
               S::PartiallyFilled);
-    // Fill lands while the amend is in flight.
     EXPECT_EQ(*transition(S::PendingUpdate, E::Filled, true), S::Filled);
 }
 
 TEST(OrderFsm, SyntheticRestReject) {
-    // A REST error on submit synthesizes Rejected: venues do not WS-notify
-    // REST-level failures.
     EXPECT_EQ(*transition(S::Submitted, E::Rejected), S::Rejected);
-    // Late reject after ack (margin check second).
     EXPECT_EQ(*transition(S::Accepted, E::Rejected), S::Rejected);
 }
 
@@ -127,8 +117,6 @@ TEST(OrderFsm, ReconClosedClosesEveryWorkingStatus) {
     }
 }
 
-// Property: no event sequence can leave a hard-terminal status, except the
-// documented Canceled/Expired -> Filled races.
 TEST(OrderFsmProperty, TerminalStatusesHaveNoExits) {
     for (const auto s : {S::Denied, S::Rejected, S::Filled}) {
         for (const auto e : k_all_events) {
@@ -143,8 +131,6 @@ TEST(OrderFsmProperty, TerminalStatusesHaveNoExits) {
     }
 }
 
-// Property: every reachable non-terminal status has a path to a terminal
-// status (no traps).
 TEST(OrderFsmProperty, NoTrapStates) {
     for (const auto s : k_all_statuses) {
         if (is_terminal(s)) {
@@ -163,9 +149,6 @@ TEST(OrderFsmProperty, NoTrapStates) {
     }
 }
 
-// Property: the table is total over its own domain — every (status, event,
-// fill) triple either transitions or reports TransitionError carrying the
-// exact pair, never crashes.
 TEST(OrderFsmProperty, TotalFunction) {
     for (const auto s : k_all_statuses) {
         for (const auto e : k_all_events) {

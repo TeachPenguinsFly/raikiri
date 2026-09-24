@@ -14,9 +14,7 @@ constexpr std::string_view k_hdr_nonce = "Nonce";
 constexpr std::string_view k_hdr_authent = "Authent";
 constexpr std::string_view k_form_content_type = "application/x-www-form-urlencoded";
 
-// Fills the builder's target buffer. An overflowing part is dropped rather
-// than truncated mid-token, so an over-long symbol yields a request Kraken
-// refuses instead of one naming a different instrument.
+// an overflowing part is dropped whole, so the venue refuses the request
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -40,9 +38,7 @@ private:
     std::size_t len_{0};
 };
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated parameter list is signed as faithfully as a complete one, so the
-// order that arrives is not the order that was authorised.
+// reports overflow rather than truncating a signed parameter list
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -86,14 +82,9 @@ private:
                : std::string_view{};
 }
 
-// Kraken names the order type and the time in force in ONE field. Post-only is
-// read before the time in force because "post" and "ioc" are alternatives here
-// rather than a flag beside one: an order asking for both cannot be sent, and
-// resting is the intent post-only expresses.
+// order type and tif share one field; post-only wins over ioc
 [[nodiscard]] std::string_view order_type_text(const OrderCmd& cmd) noexcept {
     if (cmd.order_type == OrderType::Market) {
-        // A market order never rests, so no time in force distinguishes one
-        // "mkt" from another.
         return "mkt";
     }
     if (has_flag(cmd.flags, OrderFlags::PostOnly)) {
@@ -158,9 +149,7 @@ std::string_view to_string(BuildError err) noexcept {
     return "unknown";
 }
 
-// This adapter serves the perpetual futures — PF_ (linear) and PI_ (inverse) —
-// and nothing else. Each of the other three markets gets its OWN name so a
-// refusal says which surface is missing rather than blaming the catalogue.
+// serves perpetual futures only; each other market gets its own refusal
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Perp:
@@ -175,8 +164,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     return BuildError::OptionsUnsupported;
 }
 
-// Every builder writes the same buffer, so a request must be sent before the
-// next is built. One catalogue load at a time is the only use.
+// all builders share one buffer; send each request before building the next
 net::RestRequest RequestBuilder::instruments() noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_route_prefix);
@@ -201,8 +189,6 @@ net::RestRequest RequestBuilder::orderbook(std::string_view symbol) noexcept {
     writer.put(symbol);
     return writer.get();
 }
-
-// -------------------------------------------------------------- signed ----
 
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
@@ -242,8 +228,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::finish(net::Ht
 
     const auto signature = authent(signer_->secret().view(), msg.view(), authent_);
     if (signature.empty()) {
-        // Either the secret is not valid base64 or OpenSSL failed. Neither is
-        // something to retry, and an empty Authent is never sent.
+        // bad base64 secret or an openssl failure; not retried
         return std::unexpected{BuildError::NotSigned};
     }
     authent_len_ = signature.size();
@@ -296,8 +281,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     params << "orderType=" << order_type_text(cmd) << "&symbol=" << base.exchange_symbol.view()
            << "&side=" << (cmd.side == Side::Buy ? "buy" : "sell") << "&size=" << *qty;
     if (cmd.order_type != OrderType::Market) {
-        // Kraken refuses "mkt" outright when a limitPrice rides along, so the
-        // field is absent rather than zero on a market order.
+        // kraken refuses mkt with a limitPrice, so the field is omitted
         const auto price = order_price(cmd, base);
         if (!price.has_value()) {
             return std::unexpected{BuildError::BadPrice};
@@ -308,8 +292,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         params << "&reduceOnly=true";
     }
     if (!cmd.exchange_client_order_id.empty()) {
-        // A 26-character ULID against a 100-character field: no encoding is
-        // needed because Crockford base32 is unreserved throughout.
+        // a ulid is crockford base32, so it needs no encoding
         params << "&cliOrdId=" << cmd.exchange_client_order_id.view();
     }
     if (!params.ok()) {
@@ -327,8 +310,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         return std::unexpected{BuildError::UnknownInstrument};
     }
     Appender params{params_};
-    // The venue's own id is preferred: a cliOrdId is unique only among orders
-    // still working, so cancelling by it races an id the OMS has reused.
+    // cliOrdId is unique only among working orders, so the venue id is preferred
     if (!cmd.target_exchange_order_id.empty()) {
         params << "order_id=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
@@ -358,13 +340,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
         return std::unexpected{BuildError::BadQuantity};
     }
     if (!price.has_value()) {
-        // editorder has no market form: an amend is always to a resting price.
+        // editorder has no market form
         return std::unexpected{BuildError::BadPrice};
     }
 
     Appender params{params_};
-    // `orderId`, not `order_id`. cancelorder spells the same field the other
-    // way, and so do the two response objects.
+    // orderId here; cancelorder spells it order_id
     if (!cmd.target_exchange_order_id.empty()) {
         params << "orderId=" << cmd.target_exchange_order_id.view();
     } else if (!cmd.exchange_client_order_id.empty()) {
@@ -380,8 +361,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
 }
 
 std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(UnixNanos now) {
-    // No parameters at all: the signed message is nonce + path, and the empty
-    // postData still hashes.
+    // no parameters; the empty postData still hashes
     return signed_get(ep::k_open_orders, {}, now);
 }
 
@@ -391,9 +371,7 @@ SignedRequestBuilder::fills(std::string_view last_fill_time, UnixNanos now) {
         return signed_get(ep::k_fills, {}, now);
     }
     Appender params{params_};
-    // Echoed verbatim: the cursor is the instant the venue itself printed, and
-    // its fractional width varies frame to frame. ':' is a legal query
-    // character, which is why nothing percent-encodes it here.
+    // echoed verbatim; ':' is a legal query character
     params << "lastFillTime=" << last_fill_time;
     if (!params.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};

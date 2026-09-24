@@ -1,13 +1,6 @@
 #pragma once
 
-// The instrument catalogue channel.
-//
-// SymbolId is a dense slot index the gateway hands out while interning the
-// venue's catalogue, and it rides inside InstrumentId. Both processes must
-// use the same numbering: an order for symbol 41 against a different table is
-// a well-formed order for the wrong contract, which nothing downstream can
-// catch. So the consumer adopts the gateway's numbering instead of deriving
-// its own.
+// the consumer adopts the gateway's SymbolId numbering
 
 #include <raikiri/domain/instrument.hpp>
 
@@ -20,8 +13,7 @@
 
 namespace raikiri::shm {
 
-// Must match the BBO table's cell count (asserted in records.hpp): an
-// instrument past that bound would have nowhere to quote from.
+// must match the bbo table's cell count
 inline constexpr std::size_t k_catalogue_cells = 4096;
 
 static_assert(std::is_trivially_copyable_v<Instrument>);

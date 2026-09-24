@@ -2,14 +2,12 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdio>
 #include <string>
 
 namespace raikiri::venues::binance {
 namespace {
 
-// Binance's own worked example, verified against openssl before being pinned
-// here. If this ever fails, the signing input changed shape — not the crypto.
+// binance's documented signing example
 constexpr std::string_view k_doc_secret =
     "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j";
 constexpr std::string_view k_doc_query =
@@ -46,9 +44,7 @@ OrderCmd limit_buy() {
     return cmd;
 }
 
-// Pulls a parameter's value out of a built target, so assertions read as
-// "this request says X" rather than as a whole-string comparison that breaks
-// every time a field is added.
+// reads one parameter's value out of a built target
 std::string param_of(std::string_view target, std::string_view key) {
     const std::string needle = std::string{key} + "=";
     auto pos = target.find(needle);
@@ -69,8 +65,7 @@ TEST(BinanceRest, SignatureMatchesTheDocumentedVector) {
 }
 
 TEST(BinanceRest, WithoutCredentialsEverySignedPathRefuses) {
-    // Refusing here is what keeps an unsigned order off the wire: binance
-    // would answer -2014, and the order would have been sent regardless.
+    // an unsigned order is refused before the wire
     net::Signer signer;
     RequestBuilder builder{signer};
     const auto instrument = btc_usdt();
@@ -87,9 +82,7 @@ TEST(BinanceRest, WithoutCredentialsEverySignedPathRefuses) {
 }
 
 TEST(BinanceRest, CreateOrderSignsExactlyWhatItSends) {
-    // The signature covers the query as sent, in order. This asserts the two
-    // are the same bytes rather than merely both present — a re-serialised
-    // copy is the classic way to earn -1022 and read it as a bad key.
+    // the signature covers the query exactly as sent
     net::Signer signer;
     give_credentials(signer);
     RequestBuilder builder{signer};
@@ -126,7 +119,7 @@ TEST(BinanceRest, CreateOrderRendersPricesFromFixedPoint) {
     EXPECT_EQ(param_of(target, "side"), "BUY");
     EXPECT_EQ(param_of(target, "type"), "LIMIT");
     EXPECT_EQ(param_of(target, "timeInForce"), "GTC");
-    // 644885 ticks * 0.10, and 5 lots * 0.001 — no float anywhere on the path.
+    // no float on the path
     EXPECT_EQ(param_of(target, "price"), "64488.5");
     EXPECT_EQ(param_of(target, "quantity"), "0.005");
     EXPECT_EQ(param_of(target, "newClientOrderId"), "01HQ8ZK9M4TESTULID000000AB");
@@ -135,14 +128,12 @@ TEST(BinanceRest, CreateOrderRendersPricesFromFixedPoint) {
     EXPECT_EQ(request->method, net::HttpMethod::Post);
     ASSERT_EQ(request->headers.size(), 1U);
     EXPECT_EQ(request->headers[0].name, "X-MBX-APIKEY");
-    // Order parameters ride in the query even on a POST; a signed body would
-    // be signed over bytes binance never reads.
+    // order parameters ride in the query even on post
     EXPECT_TRUE(request->body.empty());
 }
 
 TEST(BinanceRest, PostOnlyBecomesTheTimeInForce) {
-    // GTX is a TIF value, not a flag alongside one. Sending both GTC and a
-    // post-only flag would silently drop the post-only intent.
+    // post-only is tif GTX
     net::Signer signer;
     give_credentials(signer);
     RequestBuilder builder{signer};
@@ -194,7 +185,7 @@ TEST(BinanceRest, CancelPrefersTheVenueIdAndFallsBackToOurs) {
     cmd.kind = CmdKind::Cancel;
     auto request = builder.cancel_order(cmd, btc_usdt(), now);
     ASSERT_TRUE(request.has_value());
-    // No venue id yet — cancelling before the first ack has to still work.
+    // cancelling before the first ack uses the client id
     EXPECT_EQ(param_of(request->target, "origClientOrderId"), "01HQ8ZK9M4TESTULID000000AB");
     EXPECT_EQ(request->method, net::HttpMethod::Delete);
 
@@ -220,13 +211,12 @@ TEST(BinanceRest, AmendIsAPutCarryingBothNewValues) {
     EXPECT_EQ(request->method, net::HttpMethod::Put);
     EXPECT_EQ(param_of(request->target, "price"), "64400");
     EXPECT_EQ(param_of(request->target, "quantity"), "0.007");
-    // Binance requires side on a modify even though it cannot change.
+    // binance requires side on a modify
     EXPECT_EQ(param_of(request->target, "side"), "BUY");
 }
 
 TEST(BinanceRest, ListenKeyEndpointsAreNeverSigned) {
-    // Header auth only. A signature here is rejected in a way that reads as
-    // a credentials failure, which sends you looking in the wrong place.
+    // listen key calls use header auth only
     net::Signer signer;
     give_credentials(signer);
     RequestBuilder builder{signer};
@@ -252,8 +242,7 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
     ASSERT_TRUE(open.has_value());
     EXPECT_EQ(open->method, net::HttpMethod::Get);
     EXPECT_NE(open->target.find("/fapi/v1/openOrders?"), std::string_view::npos);
-    // Account-wide on purpose: a per-symbol sweep cannot find an order on an
-    // instrument we stopped subscribing to.
+    // account-wide so orders on unsubscribed instruments are found
     EXPECT_TRUE(param_of(open->target, "symbol").empty());
 
     const auto positions = builder.position_risk(now);
@@ -273,10 +262,6 @@ TEST(BinanceRest, ReconciliationPullsAreSignedGets) {
     const auto account = builder.account(now);
     ASSERT_TRUE(account.has_value());
     EXPECT_EQ(account->method, net::HttpMethod::Get);
-    // /fapi/v2/account, not /fapi/v2/balance: the wallet rows are on both and
-    // only this one also states the margin mode that says how to read them.
-    // v2, while positionRisk above is v3 — binance versions these endpoints
-    // one at a time, so the two paths do not move together.
     EXPECT_NE(account->target.find("/fapi/v2/account?"), std::string_view::npos);
     EXPECT_EQ(param_of(account->target, "timestamp"), "1700000000000");
     EXPECT_NE(account->target.find("&signature="), std::string_view::npos);
@@ -291,16 +276,6 @@ TEST(BinanceRest, TheIncomeTargetIsWhatTheVenueExpects) {
     const auto request =
         builder.funding_income(UnixNanos{0}, UnixNanos{1'700'000'000'000'000'000ULL});
     ASSERT_TRUE(request.has_value());
-    std::printf(
-        "TARGET=[%.*s]\n", static_cast<int>(request->target.size()), request->target.data());
-    std::printf("HEADERS=%zu\n", request->headers.size());
-    for (const auto& h : request->headers) {
-        std::printf("  %.*s: %.*s\n",
-                    static_cast<int>(h.name.size()),
-                    h.name.data(),
-                    static_cast<int>(h.value.size()),
-                    h.value.data());
-    }
     EXPECT_TRUE(request->target.starts_with("/fapi/v1/income?"));
 }
 

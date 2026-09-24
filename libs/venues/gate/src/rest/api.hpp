@@ -1,10 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what was charged. None of them belongs to the order path —
-// they run on a poller's schedule.
+// signed reconciliation reads; none is on the order path
 
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/gate/account.hpp>
@@ -24,9 +20,7 @@
 
 namespace raikiri::venues::gate::internal {
 
-// Every market this adapter can act on, named exhaustively so Option is a
-// case the compiler forces a decision about rather than something a default
-// arm swallows. An empty answer here would read as "the venue holds nothing".
+// exhaustive so a new market forces a decision
 std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -35,17 +29,14 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     case MarketType::Future:
         return exec::not_implemented("gate delivery (dated futures) order entry");
     case MarketType::Option:
-        // Gate lists options under /api/v4/options, keyed by an underlying and
-        // an expiry rather than by a settle currency. Nothing maps an
-        // OptionInstrument onto that surface yet.
+        // nothing maps an OptionInstrument onto /api/v4/options yet
         return exec::not_implemented("gate options order entry");
     }
     return exec::not_implemented("gate: unknown market");
 }
 
 exec::VenueError build_failure(BuildError err) noexcept {
-    // A refusal to build is terminal by construction: the same command built
-    // again produces the same refusal.
+    // a build refusal is terminal: rebuilding gives the same result
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
                                   0,
@@ -69,17 +60,14 @@ public:
 
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
+    // the order path builds its own requests; everything else here is a synchronous read
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
         return rest_.send(request, std::move(on_done));
     }
 
-    // The account's own id, which the futures private subscribe is positional
-    // about. Absent rather than refused: the caller decides what a missing one
-    // costs.
+    // the futures private subscribe needs this id; absent rather than refused
     [[nodiscard]] std::optional<std::uint64_t> futures_user_id() {
         const auto request = builder_.futures_account(state_->venue_now());
         if (!request.has_value()) {
@@ -133,8 +121,7 @@ public:
         }
         const auto request = builder_.query_order(id, market, state_->venue_now());
         if (!request.has_value()) {
-            // Spot has no client-id lookup that does not also need the pair;
-            // the open-order sweep answers the same question.
+            // spot has no client-id lookup without the pair; the open-order sweep answers it
             return from_open_orders(id, market);
         }
         const auto body = fetch(*request);
@@ -207,9 +194,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market != MarketType::Perp) {
-            // Gate's spot balances live on a different endpoint with a
-            // different shape. Refused rather than answered with the futures
-            // account, which would report the wrong wallet under a spot label.
+            // spot balances use another endpoint and shape
             return std::unexpected{exec::not_implemented("gate spot balance pull")};
         }
         const auto request = builder_.futures_account(state_->venue_now());
@@ -230,9 +215,7 @@ public:
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "gate: account names no currency")};
         }
-        // ONE ROW: the futures account is per settle currency and this gateway
-        // trades one. A second settle currency is a second account and a second
-        // process, exactly as a second market is.
+        // one row: the futures account is per settle currency and this gateway trades one
         return std::vector<BalanceReport>{*balance};
     }
 
@@ -253,7 +236,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_account_book(*body, storage);
         if (!rows.has_value()) {
-            // A body we cannot read is NOT an empty ledger.
+            // an unreadable body is an error
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
@@ -266,8 +249,7 @@ public:
             } else if (row.type == "fee") {
                 kind = LedgerKind::Fee;
             } else {
-                // pnl and transfers: derived from fills this process already
-                // booked, or not trading money at all.
+                // pnl and transfers derive from booked fills or are not trading money
                 continue;
             }
             const auto* instrument = state_->instruments.find(row.contract);
@@ -282,10 +264,9 @@ public:
             charge.instrument = base_of(*instrument).id;
             charge.amount = *amount;
             charge.kind = kind;
-            // SECONDS on this endpoint, not milliseconds.
+            // seconds on this endpoint
             charge.settled_at = UnixNanos{row.time_s * 1'000'000'000ULL};
-            // A fee names the trade it was charged on, and that is what the
-            // comparison keys on; the book's own row id is the fallback.
+            // a fee keys on its trade id; the book row id is the fallback
             const auto reference =
                 kind == LedgerKind::Fee && !row.trade_id.empty() ? row.trade_id : row.id;
             if (auto id = ExecId::from(reference); id.has_value()) {
@@ -303,8 +284,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot balance is not a position. Answering "flat" would be a
-            // claim about a concept Gate does not have on this API.
+            // spot has no positions
             return std::unexpected{exec::not_implemented("gate spot position pull")};
         }
         const auto request = builder_.positions(market, state_->venue_now());

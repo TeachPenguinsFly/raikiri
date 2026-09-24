@@ -1,10 +1,6 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It logs in and turns each personal push into an event on the sink. It sends
-// no orders: an order goes out over REST and is ANSWERED here, and joining
-// those two halves is the execution client's job, not this one's.
+// logs in and turns personal pushes into sink events; the execution client joins them to orders
 
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/mexc/envelope.hpp>
@@ -20,8 +16,7 @@ namespace raikiri::venues::mexc::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
-// Routes one futures personal push. MEXC sends these unbidden after a login,
-// so the socket carrying them is authenticated, not subscribed.
+// mexc pushes these unbidden after login
 void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
@@ -33,9 +28,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         if (!wire.has_value()) {
             return;
         }
-        // Remembered BEFORE the event is emitted: a deal for the same fill may
-        // already be queued behind this frame, and it can only state its
-        // leaves out of this memo.
+        // remembered before emitting so a queued deal can read its leaves
         state.remember(*wire);
         if (const auto mapped = map_futures_order_event(*wire, state.instruments, received);
             mapped.has_value()) {
@@ -57,8 +50,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
         break;
     }
     case EventKind::PersonalPosition:
-        // GatewaySink carries no position event; the reconciler asks for
-        // positions through position_reports() instead.
+        // no position event on the sink; the reconciler polls position_reports()
         break;
     case EventKind::LoginAck:
         state.sink->on_connectivity({.state = exec::ConnState::Connected,
@@ -66,9 +58,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
                                      .ts = state.clock->wall()});
         break;
     case EventKind::Error: {
-        // rs.error carries prose and no code at all, so a rejected login and a
-        // rejected subscription are indistinguishable here; the socket is only
-        // ever used for a login, which is what makes AuthFailed the reading.
+        // rs.error has no code; this socket only logs in, so treat it as an auth failure
         if (parse_stream_error(frame).has_value()) {
             state.sink->on_connectivity({.state = exec::ConnState::AuthFailed,
                                          .stream_id = k_private_stream_id,
@@ -87,9 +77,7 @@ void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos r
     }
 }
 
-// The futures private socket. It is a SECOND connection to the same /edge
-// endpoint the public one uses: MEXC authenticates the socket rather than
-// minting a listen key, and the personal pushes follow the login unbidden.
+// a second connection to /edge, authenticated by login
 class PrivateHandler final : public net::WsHandler {
 public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
@@ -125,8 +113,6 @@ private:
     net::WsClient* client_{nullptr};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)
@@ -144,9 +130,8 @@ public:
 
     [[nodiscard]] bool connected() const noexcept { return ws_.connected(); }
 
-    // MEXC's 60 s idle timer counts only CLIENT messages, so the data client's
-    // ping tick has to reach this socket too — it is the one timer this
-    // adapter has.
+    // the data client's ping tick reaches this socket; the idle timer
+    // counts only client messages
     [[nodiscard]] net::WsClient& client() noexcept { return ws_; }
 
 private:

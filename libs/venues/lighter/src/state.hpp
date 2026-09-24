@@ -1,6 +1,6 @@
 #pragma once
 
-// internal, not anonymous: an anonymous type in a header differs in every includer.
+// internal namespace: an anonymous one in a header is a distinct type per includer
 
 #include <raikiri/exec/events.hpp>
 #include <raikiri/exec/rate_budget.hpp>

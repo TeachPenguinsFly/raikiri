@@ -1,5 +1,4 @@
-// gatewayd starts this client unconditionally, so it must exist. Every call is
-// refused Terminal: an order is an Ed25519-signed request and no signer exists.
+// gatewayd always starts this client; every call is refused: orders need an ed25519 signer
 
 #include <raikiri/exec/execution_client.hpp>
 

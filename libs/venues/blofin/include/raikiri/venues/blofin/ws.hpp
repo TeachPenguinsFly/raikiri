@@ -9,13 +9,13 @@
 
 namespace raikiri::venues::blofin {
 
-// `books` is the quote as well as the ladder: there is no bbo channel.
+// `books` is also the quote: there is no bbo channel
 inline constexpr std::string_view k_books_channel = "books";
 inline constexpr std::string_view k_trades_channel = "trades";
 inline constexpr std::string_view k_funding_channel = "funding-rate";
 inline constexpr std::string_view k_tickers_channel = "tickers";
 
-// The venue closes a socket that has pushed nothing for 30 s; its docs ask for a text ping.
+// the venue closes a socket silent for 30 s; its docs ask for a text ping
 inline constexpr std::uint64_t k_ping_interval_ns = 15ULL * 1'000'000'000ULL;
 
 enum class WsBuildError : std::uint8_t {
@@ -25,7 +25,7 @@ enum class WsBuildError : std::uint8_t {
 
 class Protocol {
 public:
-    // Every channel named is for ONE instrument, so a refusal of the frame costs that one alone.
+    // one instrument per channel, so a refused frame costs only that one
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     subscribe_frame(std::string_view inst_id, std::span<const std::string_view> channels);
 

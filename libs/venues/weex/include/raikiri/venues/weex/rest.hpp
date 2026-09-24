@@ -1,31 +1,7 @@
 #pragma once
 
-// WEEX contract REST request building, public and signed.
-//
-// THE SIGNATURE IS THE WHOLE RISK HERE, and no credential on this machine has
-// ever put one in front of the venue. What is implemented is what WEEX
-// documents, transcribed exactly:
-//
-//   prehash = timestamp + METHOD + requestPath + "?" + queryString + body
-//
-// with three traps folded into one function rather than repeated at nine call
-// sites. The "?" belongs to the SIGNER and appears only when a query exists —
-// a GET that signs a bare path while sending "?symbol=..." and a POST that
-// signs a query it does not send produce signatures that differ from the
-// venue's by bytes nobody can see, and WEEX answers both with the same generic
-// authentication refusal a revoked key draws. The method is UPPERCASED, and
-// the digest is BASE64 rather than the hex most of this fleet uses.
-//
-// The timestamp is milliseconds and WEEX refuses one more than 30 seconds from
-// its own clock, which is why the signed client reads /capi/v3/market/time at
-// start: a laptop that has drifted wears the face of a bad key.
-//
-// Two public endpoints WEEX does offer are deliberately absent, because a
-// builder for a request no caller makes is a facility nobody exercises and
-// everybody trusts: /capi/v3/market/depth, which no book needs because the
-// depth channel opens with its own snapshot, and /capi/v3/market/ticker/24hr,
-// which the ticker channel already pushes and which costs forty weight against
-// an allowance of five hundred.
+// prehash = timestamp + METHOD + requestPath + "?" + queryString + body, with "?" only when a query exists
+// method uppercased, digest base64, timestamp in ms within 30 s of the venue clock
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -53,52 +29,37 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
 
-// The 36-character ceiling WEEX states on `newClientOrderId`, alongside the
-// pattern it states with it: ^[\.A-Z\:/a-z0-9_-]{1,36}$. A 26-character
-// Crockford ULID is digits and upper-case letters only, so it fits the pattern
-// and the length with room to spare and travels unchanged — there is no
-// re-encoding on this venue and no id that means something else on the way
-// back.
+// weex's newClientOrderId limit; the 26-char ulid fits its pattern unchanged
 inline constexpr std::size_t k_max_client_order_id = 36;
 
-// WEEX's own ceiling on one batch cancel. Exceeding it is not an error the
-// venue reports — it is ten cancels and a silence about the rest.
+// weex's limit per batch cancel; it ignores the rest silently
 inline constexpr std::size_t k_max_cancel_batch = 10;
 
-// Every request this adapter can make. ONE BUILDER IS NOT REENTRANT: each
-// method writes into the scratch below and hands out views over it, so a
-// request must be sent before the next one is built. The market-data poller and
-// the signed path therefore hold separate builders rather than sharing one.
+// not reentrant: send each request before building the next, so callers hold separate builders
 class RequestBuilder {
 public:
     RequestBuilder() = default;
 
-    // `passphrase` is a third credential WEEX signs with, and it is as
-    // load-bearing as the secret: without it the venue answers -1049, which is
-    // not the code a missing key produces.
+    // without the passphrase weex answers -1049
     RequestBuilder(const net::Signer& signer, std::string_view passphrase) noexcept
         : signer_{&signer}, passphrase_{passphrase} {}
 
     RequestBuilder(const RequestBuilder&) = delete;
     RequestBuilder& operator=(const RequestBuilder&) = delete;
 
-    // --- public, unsigned -------------------------------------------------
     [[nodiscard]] net::RestRequest instruments() noexcept;
-    // Asked once beside instruments(): the set an order may name.
+    // the set an order may name
     [[nodiscard]] net::RestRequest api_trading_symbols() noexcept;
     [[nodiscard]] net::RestRequest premium_index() noexcept;
     [[nodiscard]] net::RestRequest server_time() noexcept;
 
-    // --- signed -----------------------------------------------------------
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     create_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> cancel_order(const OrderCmd& cmd,
                                                                            UnixNanos now);
 
-    // Up to `k_max_cancel_batch` in one request. The caller chunks; this
-    // refuses anything longer rather than sending a batch WEEX would take the
-    // first ten of and say nothing about the rest.
+    // at most k_max_cancel_batch; the caller chunks
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     cancel_batch(std::span<const OrderCmd> cmds, UnixNanos now);
 
@@ -113,12 +74,11 @@ public:
 
     [[nodiscard]] std::expected<net::RestRequest, BuildError> balances(UnixNanos now);
 
-    // The venue's own record of what it charged. A POST with a body, alone
-    // among the reads here.
+    // a POST with a body
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     funding_charges(MarketType market, UnixNanos since, UnixNanos now);
 
-    // Exposed for tests: the exact bytes that went into the HMAC.
+    // exposed for tests: the exact bytes that went into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:
@@ -131,7 +91,6 @@ private:
     const net::Signer* signer_{nullptr};
     std::string_view passphrase_;
 
-    // Scratch, reused per build.
     std::array<char, 1024> body_{};
     std::array<char, 512> list_{};
     std::array<char, 256> query_{};

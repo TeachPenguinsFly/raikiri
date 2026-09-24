@@ -13,8 +13,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// "62234.6,buy,1" -> price, side, size. A partly-formed change would apply a
-// real price at an invented size, so anything short of three fields fails.
+// "62234.6,buy,1" -> price, side, size; fewer than three fields fails
 std::expected<void, WireError> split_change(std::string_view change, WireBookChange& out) {
     const auto first = change.find(',');
     if (first == std::string_view::npos) {
@@ -37,9 +36,7 @@ std::expected<void, WireError> split_change(std::string_view change, WireBookCha
     return {};
 }
 
-// The spot book spells a level as a two-element ARRAY, ["79497","0.01068"],
-// where the futures stream packs one into a comma-joined string. Same numbers,
-// nothing shared.
+// spot levels are two-element arrays
 std::expected<std::size_t, WireError> read_pair_levels(wire::ondemand::value side,
                                                        std::span<WireLevel> into) {
     wire::ondemand::array array;
@@ -89,7 +86,7 @@ read_pair_levels(wire::ondemand::object& obj, std::string_view key, std::span<Wi
     return read_pair_levels(side, into);
 }
 
-// A level is [price, size] with both members written as JSON numbers.
+// a level is [price, size], both json numbers
 std::expected<void, WireError>
 read_pair(wire::ondemand::value entry, std::string_view& price, std::string_view& qty) {
     wire::ondemand::array pair;
@@ -140,7 +137,6 @@ read_levels(wire::ondemand::object& obj, std::string_view key, std::span<WireLev
     return count;
 }
 
-// The venue's own reader; the exact-or-refuse rule itself is book::exact_steps.
 std::optional<std::int64_t> steps_of(std::string_view text, FixedE9 step) {
     const auto value = parse_decimal_e9(text);
     return value.has_value() ? book::exact_steps(*value, step) : std::nullopt;
@@ -161,9 +157,7 @@ std::expected<WireBbo, WireError> parse_bbo(std::string_view frame, MarketType m
         }
         return with_data(*root,
                          [&](wire::ondemand::object& obj) -> std::expected<WireBbo, WireError> {
-                             // Futures: bestBidPrice/bestBidSize and a NANOSECOND `ts`.
-                             // Spot:    bestBid/bestBidSize and a MILLISECOND `time`, with
-                             // the sequence as a digit string rather than a number.
+                             // futures: bestBidPrice and nanosecond ts; spot: bestBid, millisecond time, sequence as a string
                              const std::string_view bid_key = spot ? "bestBid" : "bestBidPrice";
                              const std::string_view ask_key = spot ? "bestAsk" : "bestAskPrice";
                              using Text = std::expected<std::string_view, WireError>;
@@ -274,9 +268,7 @@ std::expected<WireBookChange, WireError> parse_book_change(std::string_view fram
     });
 }
 
-// /spotMarket/level2Depth50: a whole book, levels as ["price","size"] pairs.
-// Nothing to seed and nothing to chain — the opposite of the futures level2
-// stream, which sends one packed level at a time and cannot start on its own.
+// spot level2Depth50: a whole book of ["price","size"] pairs
 std::expected<WireBookSnapshot, WireError> parse_book_snapshot(std::string_view frame,
                                                                LevelBuffer& storage) {
     return guarded([&]() -> std::expected<WireBookSnapshot, WireError> {
@@ -315,8 +307,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // `t` separates the opening whole book from the deltas that follow it.
-        // Anything else on this channel is not a book frame.
+        // t separates the opening book from deltas
         const auto kind = wire::req_str(*root, "t");
         if (!kind.has_value()) {
             return std::unexpected(kind.error());
@@ -369,8 +360,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        // Every compact key is required: a frame missing its span cannot be
-        // chained, and an untouched side arrives as an empty array.
+        // a frame without its span cannot be chained; an untouched side is an empty array
         if (!start.has_value() || !end.has_value()) {
             return std::unexpected(WireError::MissingField);
         }
@@ -381,8 +371,7 @@ std::expected<WireUtaBook, WireError> parse_uta_book(std::string_view frame, Lev
         }
         out.asks = {storage.asks.data(), *asks};
         out.bids = {storage.bids.data(), *bids};
-        // `M` is the matching engine's own instant in NANOSECONDS, not the
-        // milliseconds every classic KuCoin frame carries.
+        // M is nanoseconds
         out.ts_ns = ts_ns;
         return out;
     });
@@ -404,8 +393,7 @@ std::expected<WireOrderBook, WireError> parse_level2_snapshot(std::string_view b
                 if (!symbol.has_value() || !sequence.has_value() || !ts.has_value()) {
                     return std::unexpected(WireError::WrongType);
                 }
-                // Without a sequence the levels cannot be placed in the change
-                // chain, and a book that cannot be continued is not a seed.
+                // a seed without a sequence cannot be chained
                 if (*sequence <= 0) {
                     return std::unexpected(WireError::MissingField);
                 }
@@ -444,9 +432,7 @@ void DepthBook::invalidate() noexcept {
     band_high_ = PriceTicks{};
     state_ = State::Cold;
     seed_in_flight_ = false;
-    // The wait is NOT cleared: a book invalidated by a gap is exactly the one
-    // whose seed is most likely to be refused next, and clearing it here would
-    // put the retry back on the frame rate.
+    // keep the wait so the retry stays off the frame rate
 }
 
 std::optional<DepthBook::Level> DepthBook::convert(std::string_view price,
@@ -461,7 +447,7 @@ std::optional<DepthBook::Level> DepthBook::convert(std::string_view price,
 
 void DepthBook::upsert(book::Ladder& side, const Level& level) {
     if (level.qty.raw == 0) {
-        // Size zero is KuCoin's delete: 1914 of 6804 live frames carry one.
+        // size zero deletes
         side.remove(level.price);
         return;
     }
@@ -475,8 +461,7 @@ void DepthBook::place(const Level& level, bool bid) {
 BookResult DepthBook::apply(const WireBookChange& change) {
     const auto level = convert(change.price, change.qty);
     if (!level.has_value()) {
-        // A level we cannot convert is not one we may skip: from here the book
-        // would disagree with KuCoin's permanently, and invisibly.
+        // an unconvertible level would desync the book silently
         invalidate();
         return BookResult::BadLevel;
     }
@@ -508,8 +493,7 @@ BookResult DepthBook::bridge(std::int64_t sequence, const Level& level, bool bid
         return BookResult::Stale; // this change is already in the seed
     }
     if (sequence > wanted) {
-        // The chain is contiguous, so nothing will ever fill what is missing
-        // between the seed and here.
+        // the chain is contiguous, so nothing can fill the hole
         discard_held();
         return BookResult::Reseed;
     }
@@ -550,8 +534,7 @@ BookResult DepthBook::seed(const WireOrderBook& wire) {
         }
         return true;
     };
-    // A seed with one level we cannot read is not a seed we can chain onto,
-    // and a hole in it would never heal — the stream only sends changes.
+    // a seed with an unreadable level cannot be chained
     if (!take(wire.bids, held_.bids()) || !take(wire.asks, held_.asks()) || held_.bids().empty() ||
         held_.asks().empty()) {
         discard_held();
@@ -580,8 +563,7 @@ BookResult DepthBook::replay() {
     }
 
     install_held();
-    // buffer() already enforced contiguity across pending_, so the replay only
-    // has to find where the seed sits inside it.
+    // buffer() already enforced contiguity
     for (; i < pending_.size(); ++i) {
         place(pending_[i].level, pending_[i].bid);
         last_sequence_ = pending_[i].sequence;
@@ -591,14 +573,11 @@ BookResult DepthBook::replay() {
 }
 
 BookResult DepthBook::settle() {
-    // Past the band the seed vouched for, a level is one no snapshot ever
-    // confirmed; carrying it would make the book look deeper than it is known
-    // to be.
+    // drop levels beyond the band the seed confirmed
     ladders_.bids().drop_beyond(band_low_);
     ladders_.asks().drop_beyond(band_high_);
     if (ladders_.bids().empty() || ladders_.asks().empty()) {
-        // The price walked clean out of the band, so what is left is no longer
-        // the top of the venue's book.
+        // price left the band, so this is no longer the top of book
         invalidate();
         return BookResult::Reseed;
     }
@@ -629,8 +608,7 @@ bool UtaBook::load(std::span<const WireLevel> levels, book::Ladder& side) {
         const auto ticks = steps_of(level.price, tick_size_);
         const auto lots = steps_of(level.qty, lot_size_);
         if (!ticks.has_value() || !lots.has_value()) {
-            // A level we cannot convert is not one we may skip: from here the
-            // book would disagree with KuCoin's permanently, and invisibly.
+            // an unconvertible level would desync the book silently
             return false;
         }
         const auto price = PriceTicks::from_raw(*ticks);
@@ -645,9 +623,7 @@ bool UtaBook::load(std::span<const WireLevel> levels, book::Ladder& side) {
 
 BookResult UtaBook::apply(const WireUtaBook& frame) {
     if (frame.is_snapshot) {
-        // THE WHOLE BOOK, so whatever was there is replaced rather than merged
-        // into. A snapshot arriving mid-stream is the venue restating the book
-        // after its own break, and merging would keep levels it has dropped.
+        // a snapshot replaces the whole book
         ladders_.clear();
         if (!load(frame.asks, ladders_.asks()) || !load(frame.bids, ladders_.bids())) {
             invalidate();
@@ -658,16 +634,14 @@ BookResult UtaBook::apply(const WireUtaBook& frame) {
         return BookResult::Applied;
     }
     if (!live_) {
-        // Deltas before the opening snapshot refer to a book we do not have.
+        // deltas before the opening snapshot have no book
         return BookResult::Waiting;
     }
     if (frame.seq_end <= last_end_) {
         return BookResult::Stale; // a replay, already inside the book
     }
     if (frame.seq_start > last_end_ + 1) {
-        // THE CHAIN BROKE. Unlike classic, there is no seed to fetch: the
-        // venue resends a snapshot on this same subscription, so the book goes
-        // silent and waits for it rather than asking for anything.
+        // gap: the venue resends a snapshot on this subscription, so wait for it
         ++gaps_;
         invalidate();
         return BookResult::Gap;

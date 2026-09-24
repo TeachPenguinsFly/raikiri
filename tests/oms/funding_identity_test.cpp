@@ -18,12 +18,7 @@ std::string identity_of(InstrumentId instrument, UnixNanos at, std::uint16_t str
 }
 
 TEST(FundingIdentity, TheLongestPossibleKeyStillFitsTheJournalField) {
-    // THE BUG THIS EXISTS FOR. The field holds 40 bytes and sbepp's
-    // assign_range is an unbounded copy behind a debug-only assert, so the
-    // previous key — symbol text, second, strategy — reached 41 on a
-    // 24-character symbol and lost its last byte, which is a strategy id
-    // digit. Two strategies then shared one key and the ledger's
-    // ON CONFLICT DO NOTHING kept only the first.
+    // the journal field holds 40 bytes and sbepp's assign_range does not bound the copy
     constexpr std::size_t k_journal_field = 40;
     const auto widest = identity_of(InstrumentId{std::numeric_limits<std::uint64_t>::max()},
                                     UnixNanos{std::numeric_limits<std::uint64_t>::max()},
@@ -46,9 +41,7 @@ TEST(FundingIdentity, TwoInstrumentsSettlingInTheSameSecondAreToldApart) {
 }
 
 TEST(FundingIdentity, TheSameSettlementStatedAtTwoResolutionsIsOneKey) {
-    // The reason it is seconds: the private socket and the REST ledger state
-    // the stamp differently, and keying on nanoseconds would book the same
-    // money twice.
+    // keyed on seconds: socket and rest ledger stamps differ below that
     const UnixNanos socket{1'788'696'006'115'000'000ULL};
     const UnixNanos ledger{1'788'696'006'000'000'000ULL};
     EXPECT_EQ(identity_of(k_btc, socket, 3), identity_of(k_btc, ledger, 3));

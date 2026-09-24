@@ -22,7 +22,6 @@ inline constexpr std::string_view k_book_prefix = "orderBook25.H.";
 inline constexpr std::string_view k_trade_prefix = "recentlyTrade.H.";
 inline constexpr std::string_view k_instrument_prefix = "instrumentInfo.H.";
 
-// Empty for a kind this adapter does not stream.
 [[nodiscard]] std::string_view
 topic_name(exec::SubKind kind, std::string_view cross_symbol, std::span<char> out) noexcept;
 

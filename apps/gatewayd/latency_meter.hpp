@@ -1,9 +1,6 @@
 #pragma once
 
-// The gateway thread's latency series: feed delay corrected by the venue's
-// clock offset, the time from receipt to publish, and an order's round trips.
-// Series are looked up once here, so a message costs one clock read and a few
-// increments.
+// per-message latency series for the gateway thread
 
 #include "stats_collector.hpp"
 

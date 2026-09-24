@@ -21,9 +21,7 @@ std::string_view to_string(WsBuildError err) noexcept {
     return "Unknown";
 }
 
-// Spot is a different deployment with a different protocol: JSON in, protobuf
-// out, and a subscription string where the futures tree takes a method and a
-// param object.
+// spot is a separate deployment: json in, protobuf out, string subscriptions
 std::string_view stream_host(MarketType market) noexcept {
     return market == MarketType::Spot ? ep::k_stream_spot : ep::k_stream_futures;
 }
@@ -54,8 +52,7 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
 }
 
 std::string_view spot_channel_for(exec::SubKind kind) noexcept {
-    // The ".pb" is not decoration: it selects the protobuf encoding, and the
-    // JSON variants of these channels are refused as "Blocked!".
+    // ".pb" selects protobuf; the json channels are refused as "Blocked!"
     switch (kind) {
     case exec::SubKind::Bbo:
         return "spot@public.aggre.bookTicker.v3.api.pb@100ms@";
@@ -74,7 +71,6 @@ std::string_view spot_channel_for(exec::SubKind kind) noexcept {
 
 std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view op,
                                                                 const Subscription& subscription) {
-    // Empty means channel_for() declined the kind.
     if (subscription.channel.empty() || subscription.symbol.empty()) {
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
@@ -113,9 +109,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::op_frame(std::string_view
     return Frame{.text = {frame_.data(), len}, .consumed = 1};
 }
 
-// The spot subscription is one string in a params array, not a method and a
-// param object. One channel per frame, because a failed subscription is
-// reported by id and a batch would name only the batch.
+// one channel per frame, since a failed subscription is reported by id
 std::expected<Protocol::Frame, WsBuildError>
 Protocol::spot_op_frame(std::string_view op, const Subscription& subscription) {
     if (subscription.channel.empty() || subscription.symbol.empty()) {
@@ -226,8 +220,7 @@ std::expected<std::string_view, WsBuildError> Protocol::login_frame(const net::S
     };
     put(R"({"method":"login","param":{"apiKey":")");
     put(signer.api_key());
-    // reqTime is a STRING here and a header value over REST; sending it as a
-    // JSON number is answered with a generic error that reads as a bad key.
+    // reqTime is a json string here; a number gets an error that reads as a bad key
     put(R"(","reqTime":")");
     put(ts);
     put(R"(","signature":")");

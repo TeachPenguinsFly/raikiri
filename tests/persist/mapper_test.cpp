@@ -20,12 +20,7 @@ namespace {
 using msgs = raikiri_journal::schema::messages;
 namespace jt = raikiri_journal::types;
 
-// A directory of this test's own, removed when the test leaves it.
-//
-// CLEANED AT BOTH ENDS. The pid is in the name so `ctest -j` can run these in
-// parallel, which also means the wipe below never matches a PREVIOUS run's
-// directory — so every run left its journal behind. A hundred and ten of them
-// had accumulated in /tmp, 370 MB, where nobody would think to look.
+// a per-test directory wiped on entry and exit
 class FreshDir {
 public:
     explicit FreshDir(const char* name)
@@ -50,10 +45,7 @@ private:
     std::string path_;
 };
 
-// Writes one full-fill OrderEvent + one funding + one BBO into a journal and
-// returns the frames via a reader.
-// TAKES the directory rather than making one: the caller uses the path after
-// this returns, so the guard that wipes it has to outlive the call.
+// writes one fill, one funding and one bbo; the caller owns the directory
 std::string build_journal(const std::string& dir) {
     auto writer = journal::JournalWriter::open(dir, "journal");
     EXPECT_TRUE(writer.has_value());
@@ -92,14 +84,7 @@ std::string build_journal(const std::string& dir) {
         m.tsInit(jt::timestampNs{201});
     });
 
-    // TWO STRATEGIES, ONE SETTLEMENT. This is the pair whose keys used to
-    // collide when a long symbol truncated the identity: same instrument, same
-    // settlement second, different books. If the key cannot tell them apart,
-    // ON CONFLICT DO NOTHING keeps one and the other's money is never booked.
-    // A SETTLEMENT NOBODY HAS PERSISTED YET. The key is deterministic by
-    // design, so a fixed stamp would already be in the table on the second
-    // execution against the same database and the first pass would insert
-    // nothing — which is indistinguishable from the row being dropped.
+    // two strategies settling one instrument in the same second; a fresh stamp so reruns insert rows
     const auto settled = UnixNanos{1'788'696'006'115'000'000ULL +
                                    static_cast<std::uint64_t>(::getpid()) * 1'000'000'000ULL};
     for (const std::uint16_t strategy : {std::uint16_t{3}, std::uint16_t{10}}) {
@@ -207,8 +192,6 @@ TEST(Mapper, FillProducesEventUpsertAndExecution) {
     ASSERT_EQ(batch.order_upserts.size(), 1U);
     ASSERT_EQ(batch.executions.size(), 1U);
     ASSERT_EQ(batch.funding.size(), 1U);
-    // Two of the five frames are the funding increments the idempotency test
-    // needs; they map to pnl_increments and not to anything asserted above.
     ASSERT_EQ(batch.pnl_increments.size(), 2U);
     EXPECT_EQ(batch.last_seq, 5U); // the BBO advanced the cursor without rows
     EXPECT_EQ(batch.funding[0].accrual, std::optional<std::string>{"continuous"});
@@ -272,10 +255,7 @@ TEST(Mapper, PartialFillKeepsPartialStatusAndAckHasNoExecution) {
     EXPECT_EQ(batch.order_upserts[1].status, "partially_filled"); // leaves > 0
 }
 
-// The ledger's idempotency key. `pnl_increments` dedupes on source_id with ON
-// CONFLICT DO NOTHING, so a key that repeats is money silently discarded and a
-// key that changes between replays is money booked twice. Nothing asserted it
-// until this test.
+// pnl_increments dedupes on source_id with on conflict do nothing
 TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
     const FreshDir dir{"pnl"};
     auto writer = journal::JournalWriter::open(dir, "journal");
@@ -310,13 +290,10 @@ TEST(Mapper, TheLedgerKeyNamesTheKindTheVenueAndTheFill) {
 
     ASSERT_EQ(batch.pnl_increments.size(), 3U);
     EXPECT_EQ(batch.pnl_increments[0].source_id, "realized:bybit:FILL-9");
-    // Two kinds of one fill are two increments, not one: they are separate
-    // money and the key has to say which.
     EXPECT_EQ(batch.pnl_increments[1].source_id, "fee:bybit:FILL-9");
     EXPECT_EQ(batch.pnl_increments[2].source_id, "realized:bybit:FILL-10");
 
-    // A fee is money leaving, and the ledger's stated sign is "positive is
-    // money gained". The writer negates it; nothing downstream may put it back.
+    // fees are negated: positive means money gained
     EXPECT_LT(batch.pnl_increments[1].amount_e9, 0);
 }
 
@@ -331,8 +308,6 @@ void migrate(PgSink& sink) {
     }
 }
 
-// Every migration applies, twice, and a restart's catalogue closes the window
-// of the generation before it on the same id.
 TEST(PersistIntegration, AGenerationClosesThePreviousWindowOnItsId) {
     const char* dsn = std::getenv("RAIKIRI_PG_DSN");
     if (dsn == nullptr || *dsn == '\0') {
@@ -384,9 +359,7 @@ TEST(PersistIntegration, AGenerationClosesThePreviousWindowOnItsId) {
     scrub();
 }
 
-// Full pipeline against a live Postgres — skipped unless RAIKIRI_PG_DSN is set
-// (CI provides a service container; locally: infra postgres or docker).
-// The golden invariant: persisting the same journal twice changes nothing.
+// skipped unless RAIKIRI_PG_DSN is set
 TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     const char* dsn = std::getenv("RAIKIRI_PG_DSN");
     if (dsn == nullptr || *dsn == '\0') {
@@ -412,18 +385,13 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
         }
     };
 
-    // THE CURSOR OUTLIVES THE JOURNAL. It is keyed by name in the database and
-    // the journal directory is new every run, so a cursor left at 3 by an
-    // earlier execution makes the first pass start midway and read fewer
-    // frames than the second — which reads as a duplicate and is not one.
-    // Both passes are given the same starting point deliberately.
+    // the cursor is keyed by name in the database, so rewind it before each pass
     const auto rewind = [&] {
         RowBatch reset;
         reset.last_seq = 0;
         sink.commit("test-journal", reset);
     };
-    // Counted rather than assumed empty: this runs against a database that
-    // holds whatever earlier work left in it, and the invariant is the DELTA.
+    // the database keeps earlier runs' rows; assert the delta
     const auto increments_before = sink.count_rows("pnl_increments");
 
     rewind();
@@ -431,16 +399,12 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
     EXPECT_EQ(sink.load_cursor("test-journal"), 5U);
     const auto increments = sink.count_rows("pnl_increments");
     const auto events = sink.count_rows("order_events");
-    // Both funding rows landed: the two strategies sharing one settlement are
-    // the pair a truncated key used to fold into one.
     EXPECT_GE(increments - increments_before, 2)
         << "one strategy's funding never reached the ledger";
 
     rewind();
     run_once();
     EXPECT_EQ(sink.load_cursor("test-journal"), 5U);
-    // THE CURSOR ALONE PROVES NOTHING: a replay that duplicated every row
-    // advances it to the same number. The counts are the invariant.
     EXPECT_EQ(sink.count_rows("pnl_increments"), increments);
     EXPECT_EQ(sink.count_rows("order_events"), events);
 }
@@ -448,9 +412,6 @@ TEST(PersistIntegration, ReplayTwiceIsIdempotent) {
 } // namespace
 
 TEST(Mapper, PositionRowsCarryCostRatherThanAnAverage) {
-    // An average is cost over size and can be recomputed whenever it is asked
-    // for. Storing it instead would fix it to the size it was computed at, and
-    // every later partial close would drift away from it.
     const FreshDir dir{"position"};
     auto writer = journal::JournalWriter::open(dir, "journal");
     ASSERT_TRUE(writer.has_value());

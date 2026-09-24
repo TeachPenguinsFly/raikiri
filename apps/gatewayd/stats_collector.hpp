@@ -1,8 +1,5 @@
 #pragma once
 
-// What this gateway knows about itself, gathered into the introspect domain on
-// a timer and handed to whichever publisher main() wired in.
-
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/domain/instrument.hpp>
 #include <raikiri/exec/data_client.hpp>

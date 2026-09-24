@@ -1,26 +1,7 @@
 #pragma once
 
-// The live half of admind: one WebSocket carrying everything that moves.
-//
-// See the /v1/stream description in schema/admin-api.yaml for the protocol.
-//
-// TWO KINDS OF DATA, AND THE DIFFERENCE IS THE DESIGN.
-//
-// State — quotes, book, greeks, funding, positions, health — is SAMPLED from
-// the gateway's seqlock tables at a cadence: the version is read first and the
-// payload copied only when it moved, and a frame the client's socket cannot
-// take right now is DROPPED and re-sampled next tick. There is no queue
-// between a venue and a browser, so a slow client gets fewer frames and never
-// accumulating lag — a quote it did not receive had already been replaced by
-// one it did.
-//
-// Events — order events, fills — are sequenced and never coalesced, because
-// every fill is money. The gateway's broadcast ring is their queue, and an
-// overrun is said out loud in a gap frame rather than leaving a client to
-// carry a position it never heard about.
-//
-// Everything below the Stream class is a pure function of its arguments, which
-// is what lets the protocol be tested without a socket or a running gateway.
+// state feeds are sampled from seqlock tables and dropped while the socket is busy
+// events are sequenced from the broadcast ring; an overrun sends a gap frame
 
 #include <raikiri/admin/registry.hpp>
 #include <raikiri/admin/types.hpp>
@@ -42,12 +23,9 @@
 
 namespace raikiri::admin {
 
-// ------------------------------------------------------- subscriptions ----
-
 enum class Op : std::uint8_t { Subscribe, Unsubscribe };
 
-// One channel of one subscription. The first six are state and are sampled;
-// the last three are sequenced and are drained.
+// the first six feeds are sampled state; the last three are sequenced
 enum class Feed : std::uint8_t {
     Quotes,
     Book,
@@ -63,16 +41,12 @@ enum class Feed : std::uint8_t {
 
 [[nodiscard]] bool sequenced(Feed feed) noexcept;
 
-// A client message whose ids have already been read as digits. `millihertz`
-// is the ask, not the answer.
+// `millihertz` is the requested rate, not the negotiated one
 struct ClientMessage {
     Op op{Op::Subscribe};
     std::string id;
     std::vector<InstrumentId> quotes;
     std::optional<InstrumentId> book;
-    // How deep a book to send. A visualiser draws twenty-odd levels; the
-    // snapshot holds a hundred, and a hundred levels times several venues times
-    // a frame a second is the bandwidth nobody was looking at.
     std::optional<std::size_t> levels;
     std::vector<InstrumentId> greeks;
     std::vector<InstrumentId> funding;
@@ -81,48 +55,30 @@ struct ClientMessage {
     std::optional<std::int64_t> millihertz;
 };
 
-// A malformed message is one bad frame, never a dropped connection: a terminal
-// that mistypes a subscription should hear about it and keep its stream.
+// a malformed message yields an error frame, not a dropped connection
 [[nodiscard]] std::expected<ClientMessage, Problem> parse_client_message(std::string_view text);
 
-// ------------------------------------------------------------ cadence ----
-
-// Cadence is carried in MILLIHERTZ so no decision here needs a double: 30 Hz
-// is 30000 and half a hertz is 500. The contract's `hz` is a JSON number and
-// is rendered from this at the edge, where it is small enough to be one
-// honestly.
+// cadence in millihertz: 30 Hz is 30000
 inline constexpr std::int64_t k_max_millihertz = 30'000; // the server's own sampling rate
 inline constexpr std::int64_t k_min_millihertz = 100;
 
-// What a feed runs at when the client did not ask. A focused view — one
-// instrument's book or quote — earns 30 Hz; a watchlist of them does not, and
-// greeks, positions and health move far slower than any display refreshes.
 [[nodiscard]] std::int64_t default_millihertz(Feed feed, std::size_t instruments) noexcept;
 
-// The ask, answered. Above the server's own sampling rate it is answered with
-// that rate rather than refused, because a client asking for 200 Hz is asking
-// for frames the tables do not hold. A sequenced feed has no cadence at all.
+// requests above k_max_millihertz are clamped; sequenced feeds have no cadence
 [[nodiscard]] std::int64_t negotiate_millihertz(Feed feed,
                                                 std::size_t instruments,
                                                 std::optional<std::int64_t> asked) noexcept;
 
 [[nodiscard]] std::uint64_t period_ns(std::int64_t millihertz) noexcept;
 
-// The seqlock versions a subscription last SENT, one slot per instrument it
-// follows.
-//
-// The version is checked before the payload is copied — that is what keeps an
-// unchanged cell off the wire — and recorded only once the frame has reached
-// the socket. A frame dropped because the client was busy must be re-sampled
-// on the next tick, so remembering it as sent would hide the value until the
-// venue happened to move it again.
+// seqlock versions last sent per slot; recorded only after the frame reached the socket
 class ChangeGate {
 public:
     ChangeGate() = default;
 
     explicit ChangeGate(std::size_t slots) : versions_(slots, 0) {}
 
-    // Version 0 is a cell that was never written, which is absence, not a value.
+    // version 0 is a never-written cell
     [[nodiscard]] bool moved(std::size_t slot, std::uint32_t version) const noexcept;
     void accept(std::size_t slot, std::uint32_t version) noexcept;
 
@@ -130,16 +86,7 @@ private:
     std::vector<std::uint32_t> versions_;
 };
 
-// ------------------------------------------------------------ targets ----
-
-// One instrument as a live subscription holds it: the gateway that answers for
-// it, its catalogue row, and the cell every table indexes it by.
-//
-// `listed` POINTS INTO A SEGMENT MAPPING, so a target is worth exactly as much
-// as the attachment it was resolved against. A gateway that restarts is
-// re-attached and that mapping goes away with it, which is why the id is kept
-// here beside the row: a target is RE-RESOLVED when Registry::epoch() moves,
-// never carried across one.
+// `listed` points into a segment mapping; re-resolve when Registry::epoch() moves
 struct Target {
     const Gateway* gateway{nullptr};
     const raikiri::Instrument* listed{nullptr};
@@ -147,46 +94,28 @@ struct Target {
     std::size_t cell{0};
 };
 
-// Resolves a watchlist against what is attached NOW. Ids nothing answers for
-// are appended to `unknown` rather than dropped quietly: a watchlist silently
-// missing a row is a terminal showing nothing where a price was asked for.
+// unresolved ids are appended to `unknown`
 [[nodiscard]] std::vector<Target> resolve_targets(const Registry& registry,
                                                   std::span<const InstrumentId> ids,
                                                   std::vector<std::string>& unknown);
 
-// --------------------------------------------------- records into rows ----
-
-// A cell with a side missing is not a quote yet: the contract requires all
-// four numbers, and an undefined one renders empty, which is not a decimal.
+// nullopt until both sides are set
 [[nodiscard]] std::optional<Quote> quote_of(const Bbo& bbo, const InstrumentBase& base);
 
-// `levels` caps each side. Clamped to what the snapshot actually holds, so a
-// client asking for more than the venue sent gets what the venue sent rather
-// than a ladder padded with the previous snapshot's tail.
+// `levels` caps each side, clamped to what the snapshot holds
 [[nodiscard]] Book
 book_of(const BookSnapshot& snapshot, const InstrumentBase& base, std::size_t levels);
 
-// What a book subscription sends when the client did not say. Twenty-five is
-// what a depth visualiser draws; asking for the hundred the snapshot can hold
-// is asking for four times the bytes to render the same picture.
 inline constexpr std::size_t k_default_levels = 25;
-// No instrument needed: every field is already a ratio or a quote-currency
-// price, and the option's own tick is the premium's step.
 [[nodiscard]] Greeks greeks_of(const OptionGreeks& greeks);
 [[nodiscard]] Funding funding_of(const FundingUpdate& funding, const InstrumentBase& base);
 
-// Three missed pulls, gatewayd reconciling every 30 s: one late round is not a
-// venue going quiet.
+// three missed 30 s reconcile pulls
 inline constexpr std::uint64_t k_position_stale_ns = 90ULL * 1'000'000'000ULL;
 
-// A venue's positions age out rather than decaying into flatness: a pull that
-// failed writes nothing, so a cell older than `now` minus the staleness window
-// is a venue that has not answered and its `venue_qty` is null. NULL IS NOT
-// FLAT.
+// a cell older than the staleness window gives a null `venue_qty`; null is not flat
 [[nodiscard]] Position
 position_of(const shm::PositionCell& cell, const InstrumentBase& base, UnixNanos now);
-
-// ------------------------------------------------------------- frames ----
 
 [[nodiscard]] std::string ack_frame(std::string_view id, std::optional<std::int64_t> millihertz);
 [[nodiscard]] std::string
@@ -200,8 +129,7 @@ funding_frame(std::string_view id, UnixNanos ts, std::span<const Funding> fundin
 positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> positions);
 [[nodiscard]] std::string health_frame(std::string_view id, UnixNanos ts, const Health& health);
 
-// The exec ring carries order events and nothing else, so a fill is the Filled
-// event seen through the Fill shape rather than a second record.
+// a fill is the Filled order event rendered as a Fill
 [[nodiscard]] std::string order_event_frame(std::string_view id,
                                             std::uint64_t seq,
                                             const raikiri::OrderEvent& event,
@@ -214,14 +142,7 @@ positions_frame(std::string_view id, UnixNanos ts, std::span<const Position> pos
 [[nodiscard]] std::string gap_frame(std::string_view id, std::uint64_t missed);
 [[nodiscard]] std::string problem_frame(std::string_view id, const Problem& problem);
 
-// -------------------------------------------------------------- stream ----
-
-// SINGLE-THREADED AND POLL-DRIVEN, like Server beside it: the caller owns the
-// loop and nothing here blocks. Boost stays behind Impl so a consumer of this
-// library never inherits the dependency.
-//
-// It binds its own port rather than sharing admind's: an upgrade served from
-// the HTTP acceptor needs a hand-off Server does not have yet.
+// single-threaded and poll-driven; binds its own port
 class Stream {
 public:
     Stream(const Registry& registry, const Clock& clock, std::string address, std::uint16_t port);
@@ -236,12 +157,10 @@ public:
 
     [[nodiscard]] bool start();
 
-    // One pass: sample what is due, then run whatever the reactor has ready.
-    // Returns the work done, so a caller that got zero knows it may sleep.
+    // samples what is due and runs the reactor; returns work done
     std::size_t poll() noexcept;
 
-    // When the next poll() has something to sample; a caller may block until
-    // then. Far in the future while no client is subscribed.
+    // when the next poll() has something to sample
     [[nodiscard]] MonoNanos next_due() const noexcept;
 
     void stop() noexcept;

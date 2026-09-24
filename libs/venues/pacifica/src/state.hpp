@@ -11,7 +11,7 @@
 
 namespace raikiri::venues::pacifica::internal {
 
-// Indexed by SymbolId.
+// indexed by SymbolId
 struct Market {
     bool rfq{false};
     bool funding{false};

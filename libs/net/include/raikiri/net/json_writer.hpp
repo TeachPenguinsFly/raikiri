@@ -1,18 +1,7 @@
 #pragma once
 
-// Fixed-buffer JSON writer for outbound venue requests.
-//
-// Order payloads are tiny and their shapes are fixed, so a general JSON
-// library is the wrong tool on this path: it allocates, it may throw, and it
-// formats numbers through code that knows nothing about our fixed-point
-// invariants. This writer takes the caller's buffer, never allocates, never
-// throws, and renders prices straight from int64 fixed-point without ever
-// touching a floating-point instruction — the one property that matters,
-// since a double round-trip is exactly how a price becomes off by a tick.
-//
-// Overflow is sticky, not fatal: the writer stops appending and reports
-// ok() == false, so the caller checks once at the end rather than after
-// every field.
+// fixed-buffer json writer: no allocation, no throw, prices rendered from fixed-point
+// overflow is sticky; check ok() once at the end
 
 #include <raikiri/common/fixed_point.hpp>
 
@@ -38,10 +27,10 @@ public:
 
     JsonWriter& decimal(std::string_view key, FixedE9 value) noexcept;
 
-    // Same, but rendered unquoted for the venues that want a JSON number.
+    // same, but unquoted
     JsonWriter& decimal_raw(std::string_view key, FixedE9 value) noexcept;
 
-    // Pre-rendered fragment (already valid JSON), for cached constants.
+    // pre-rendered fragment, already valid json
     JsonWriter& raw(std::string_view key, std::string_view json) noexcept;
 
     [[nodiscard]] bool ok() const noexcept { return !overflow_; }

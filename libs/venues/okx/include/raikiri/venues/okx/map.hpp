@@ -1,7 +1,5 @@
 #pragma once
 
-// Wire types -> domain types.
-
 #include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/market_data.hpp>
 #include <raikiri/domain/order_events.hpp>
@@ -19,11 +17,8 @@
 
 namespace raikiri::venues::okx {
 
-// Venue milliseconds -> UnixNanos. A zero or absent venue timestamp yields
-// local ingest time: a zero propagating into latency histograms poisons them.
+// zero or absent timestamps fall back to ingest time
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
-
-// Public market data ------------------------------------------------------
 
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
@@ -31,54 +26,32 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// Returns nullopt when the frame quotes no rate at all — a contract without
-// funding must not be reported as one funding at zero. The memo carries what
-// the mark-price channel has already said, because the record is written whole.
+// nullopt when the frame quotes no rate; the memo merges in the mark-price channel
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                                        const exec::InstrumentTable& table,
                                                        FundingMemo& memo,
                                                        UnixNanos ts_init);
 
-// The mark arrives on its own channel. Published as the same record, merged
-// with whatever the funding-rate channel has already said.
+// merged with what the funding-rate channel already said
 [[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
                                                           const exec::InstrumentTable& table,
                                                           FundingMemo& memo,
                                                           UnixNanos ts_init);
 
-// The 24-hour turnover off the `tickers` channel, which is a different frame
-// from the funding rate on this venue.
-//
-// Only ONE column is real on a derivative: OKX states the base asset in
-// volCcy24h and the quote nowhere, so a SWAP row leaves volume_24h_quote at
-// zero. vol24h is in CONTRACTS there and is deliberately not read — it
-// compares with nothing. On SPOT the two names mean the other thing, and the
-// mapper reads inst_type to tell them apart.
+// on derivatives volCcy24h is base and no quote is stated; vol24h counts contracts and is not read
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] Side side_from(std::string_view text) noexcept;
 
-// Private stream ----------------------------------------------------------
+// each orders element is read twice, fill first and then lifecycle, so a fill before an expiry is kept
 
-// One `orders` element is read TWICE, because it carries two independent
-// facts. These two calls are the halves, and both must be made in this order
-// for every element: a partially-filled order that OKX then expires arrives
-// as one message, and emitting the cancel without the fill loses the money.
-
-// The fill, or nullopt when the update carries no trade. A `state:"filled"`
-// push with no tradeId is deliberately NOT a fill: OKX sends that as the
-// terminal marker for a spot market order whose quantity already arrived on
-// earlier tradeId-bearing pushes, and reading accFillSz off it counts the
-// same fill twice.
+// a filled push without a tradeId is a terminal marker, not a fill
 [[nodiscard]] std::optional<OrderEvent>
 map_order_fill(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The lifecycle transition, or nullopt when the update is only a fill.
 [[nodiscard]] std::optional<OrderEvent>
 map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
-
-// Reconciliation ----------------------------------------------------------
 
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
@@ -89,19 +62,10 @@ map_open_order(const WireOrder& wire, const exec::InstrumentTable& table);
 [[nodiscard]] std::optional<exec::PositionReport> map_position(const WirePosition& wire,
                                                                const exec::InstrumentTable& table);
 
-// One currency of the trading account, as one balance row. Nullopt when OKX
-// named no currency: a balance without an asset is a number with no unit.
-//
-// THE MODE DECIDES WHETHER `available` IS PUBLISHED AT ALL, which is why it is
-// a parameter rather than something this could read off the balance itself —
-// the balance endpoint does not state it.
+// nullopt without a currency; the account mode decides whether available is published
 [[nodiscard]] std::optional<BalanceReport>
 map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallback);
 
-// Catalogue ---------------------------------------------------------------
-
-// Returns nullopt for anything not live, anything that is not the requested
-// market, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 

@@ -18,13 +18,7 @@ EventKind kind_from_channel(std::string_view channel) noexcept {
     if (channel == "l2Book") {
         return EventKind::Book;
     }
-    // TWO NAMES FOR ONE PAYLOAD. Subscribing `activeAssetCtx` with a SPOT coin
-    // is answered on `activeSpotAssetCtx`, and recognising only the name that
-    // was asked for threw the whole channel away: a spot gateway watching 250
-    // pairs discarded about 470 of these a second and reported no turnover for
-    // any of them. The object differs only by the fields a spot market has no
-    // answer for — funding, open interest, the oracle price — which read as
-    // absent, so one parser reads both.
+    // a spot coin subscribed on activeAssetCtx is answered on activeSpotAssetCtx
     if (channel == "activeAssetCtx" || channel == "activeSpotAssetCtx") {
         return EventKind::AssetCtx;
     }
@@ -62,7 +56,6 @@ std::expected<StreamError, WireError> parse_stream_error(std::string_view frame)
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // `data` is prose, not an object: there is no code to read.
         const auto msg = wire::req_str(*root, "data");
         if (!msg.has_value()) {
             return std::unexpected(msg.error());

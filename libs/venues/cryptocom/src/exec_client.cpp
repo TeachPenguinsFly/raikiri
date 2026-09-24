@@ -1,5 +1,4 @@
-// gatewayd calls execution->start() unconditionally, so this must exist; every
-// order path refuses, Terminal, because a retried refusal retries forever.
+// refuses every call terminally, since a retried refusal retries forever
 
 #include <raikiri/exec/execution_client.hpp>
 

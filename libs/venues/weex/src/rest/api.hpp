@@ -1,18 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers, and the budget they are spent from.
-//
-// NOT ONE OF THEM HAS BEEN ANSWERED WITH DATA. There are no WEEX credentials
-// on this machine; each path below has been exercised only as far as the
-// venue's own 401, which proves the address and nothing about the body. Every
-// refusal arm here is therefore written to be WRONG SAFELY: a body this
-// adapter cannot read is reported as a failure to ask, never as an empty
-// account.
-//
-// The reads are what a reconciliation asks: what is open, what filled, what is
-// held, what was charged. None of them belongs to the order path — they run on
-// a poller's schedule and may not spend the allowance a cancel is about to
-// need, which is what the Poll rate class is for.
+// signed calls; an unreadable body is reported as a failure, never as an empty account
 
 #include <raikiri/exec/rate_budget.hpp>
 #include <raikiri/net/rest_client.hpp>
@@ -52,8 +40,7 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // keep pooled sockets warm so an order does not pay a reconnect
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
     [[nodiscard]] RequestBuilder& builder() noexcept { return builder_; }
@@ -68,8 +55,7 @@ public:
 
     void penalize(std::string_view target) noexcept {
         if (state_->budget != nullptr) {
-            // A second's hold. WEEX bans for ten after a breach it notices, so
-            // the cost of pausing is far below the cost of provoking one.
+            // weex bans for ten seconds after a breach it notices
             state_->budget->penalize(target, state_->clock->mono(), 1'000'000'000ULL);
         }
     }
@@ -89,9 +75,7 @@ public:
             "local rate budget spent; retry after the stated milliseconds")};
     }
 
-    // A signed read, start to finish. The body is the CALLER'S, because every
-    // wire type in this venue is a set of views over it: returning the views
-    // alone would leave them pointing into a string destroyed on the way out.
+    // the caller owns the body because the wire types view into it
     [[nodiscard]] std::expected<void, exec::VenueError>
     fetch(const std::expected<net::RestRequest, BuildError>& request,
           std::string& body) {
@@ -101,9 +85,7 @@ public:
                                  : exec::ErrorClass::Terminal;
             return std::unexpected{exec::VenueError::make(cls, 0, to_string(request.error()))};
         }
-        // Refused BEFORE the socket, so the venue never has to say no — its
-        // refusals cost more than ours, because a 429 here bans this IP for ten
-        // seconds and takes the market-data half down with it.
+        // refused before the socket; a weex 429 bans the ip for ten seconds
         if (const auto allowed = spend(request->target, exec::RateClass::Poll);
             !allowed.has_value()) {
             return std::unexpected{allowed.error()};
@@ -114,10 +96,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Connectivity, 0, "no response")};
         }
         body = std::move(response->body);
-        // WEEX wraps nothing: a success IS the payload, and a failure is a
-        // NEGATIVE `code` beside a `msg`. So the body is judged by that sign
-        // and by the status line, never by an envelope field that does not
-        // exist.
+        // a negative code marks a failure; there is no envelope
         const auto error = parse_rest_error(body);
         if (!error.has_value()) {
             return std::unexpected{
@@ -126,16 +105,13 @@ public:
         if (error->code != k_ok) {
             const auto cls = classify(error->code);
             if (cls == exec::ErrorClass::RateLimited) {
-                // THE VENUE'S ANSWER OUTRANKS OUR ACCOUNTING, which has just
-                // been proven wrong.
+                // the venue's refusal overrides local accounting
                 penalize(request->target);
             }
             return std::unexpected{exec::VenueError::make(cls, error->code, error->msg)};
         }
         if (response->status < 200 || response->status >= 300) {
-            // A path WEEX does not route answers a body with no `code` at all,
-            // which reads to the error parser as a success payload. The status
-            // line is the only thing that catches it.
+            // an unrouted path has no code; only the status line catches it
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, response->status, "venue refused without a code")};
         }
@@ -154,8 +130,7 @@ public:
         auto& storage = *storage_owner;
         const auto orders = parse_orders(body, storage);
         if (!orders.has_value()) {
-            // NOT AN EMPTY BOOK. "No open orders" read off a venue that could
-            // not be read would close a desk's whole book.
+            // an unreadable body must not read as no open orders
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable order list")};
         }
@@ -171,9 +146,7 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) {
-        // THROUGH THE LIST, because WEEX publishes no lookup by client order
-        // id: GET /capi/v3/order takes `orderId` and nothing else, and this
-        // process does not know the venue's id for an order it has lost.
+        // weex has no lookup by client id, so go through the open list
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -224,21 +197,16 @@ public:
         auto& storage = *storage_owner;
         const auto positions = parse_positions(body, storage);
         if (!positions.has_value()) {
-            // NOT a flat account. A body we cannot read says nothing about what
-            // is held, and answering with an empty vector here is what turns
-            // "could not tell" into "is flat".
+            // an unreadable body must not read as flat
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable position list")};
         }
-        // NETTED BY INSTRUMENT, not copied row for row: see map_positions.
+        // netted by instrument; see map_positions
         return map_positions(*positions, state_->instruments);
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
-        // ONE COLLATERAL POOL behind every contract on this host, so the answer
-        // does not vary by market and narrowing it would be an invention. The
-        // market is still checked, because a spot gateway reaching this adapter
-        // at all is a configuration nobody meant.
+        // one collateral pool backs every contract; other markets are a misconfiguration
         if (market != MarketType::Perp) {
             return std::unexpected{exec::not_implemented("weex serves the contract tree only")};
         }
@@ -251,13 +219,11 @@ public:
         auto& storage = *storage_owner;
         const auto coins = parse_balances(body, storage);
         if (!coins.has_value()) {
-            // An unreadable wallet is refused rather than reported as an empty
-            // vector, which reads as an account holding nothing.
+            // an unreadable wallet must not read as empty
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable balance list")};
         }
-        // The rows carry no timestamp of their own, so this is the only one
-        // there is.
+        // rows carry no timestamp
         const auto ts = state_->clock->wall();
         std::vector<BalanceReport> reports;
         reports.reserve(coins->size());
@@ -280,8 +246,7 @@ public:
         auto& storage = *storage_owner;
         const auto bills = parse_bills(body, storage);
         if (!bills.has_value()) {
-            // A body we cannot read is NOT an empty ledger. Saying "no charges"
-            // here would book zero funding against a position that paid some.
+            // an unreadable body must not read as no charges
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unreadable bill list")};
         }

@@ -1,14 +1,6 @@
 #pragma once
 
-// Seqlock table: single-writer, many-reader, overwrite-newest state cells.
-//
-// Memory-model correctness: the payload is stored as an array of
-// std::atomic<uint64_t> words written/read with relaxed ordering between the
-// version bumps. The classic "memcpy the payload" seqlock is a data race in
-// the C++ abstract machine even though it happens to work; word-wise relaxed
-// atomics compile to the same plain loads/stores on x86-64 and arm64, are
-// defined behavior, and let TSan verify these tests instead of being
-// suppressed. Odd version = write in progress.
+// single writer, many readers; the payload is relaxed atomic words so the seqlock is race-free
 
 #include <raikiri/common/cacheline.hpp>
 

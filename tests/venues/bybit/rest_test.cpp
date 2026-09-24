@@ -78,9 +78,7 @@ TEST(BybitRestBuilder, CreateOrderBodyAndHeaders) {
 }
 
 TEST(BybitRestBuilder, PostSignsTimestampKeyWindowAndBodyConcatenated) {
-    // The exact bytes matter: bybit concatenates with no separators, and a
-    // wrong composition surfaces as a generic auth error that reads like a
-    // bad key.
+    // bybit concatenates with no separators
     const auto table = make_table();
     net::Signer signer;
     load_credentials(signer);
@@ -93,13 +91,13 @@ TEST(BybitRestBuilder, PostSignsTimestampKeyWindowAndBodyConcatenated) {
         std::string{"1700000000123"} + std::string{k_api_key} + "5000" + std::string{request->body};
     EXPECT_EQ(builder.last_sign_message(), expected);
 
-    // And the digest is genuinely that message under that secret.
+    // and the digest is that message under that secret
     std::array<char, net::k_hex_bytes> reference{};
     EXPECT_EQ(header(*request, "X-BAPI-SIGN"), net::hmac_sha256_hex(k_secret, expected, reference));
 }
 
 TEST(BybitRestBuilder, GetSignsTheQueryStringWithoutItsQuestionMark) {
-    // The asymmetry with POST is the classic source of rejected signatures.
+    // get signs the query, post the body
     net::Signer signer;
     load_credentials(signer);
     RequestBuilder builder{signer, 5'000};
@@ -118,8 +116,7 @@ TEST(BybitRestBuilder, GetSignsTheQueryStringWithoutItsQuestionMark) {
 }
 
 TEST(BybitRestBuilder, PostOnlyIsExpressedAsTimeInForce) {
-    // Bybit spells post-only as a TIF value. Sending it as a boolean flag is
-    // silently ignored and the order crosses.
+    // bybit spells post-only as a tif value
     const auto table = make_table();
     net::Signer signer;
     load_credentials(signer);
@@ -163,15 +160,14 @@ TEST(BybitRestBuilder, CancelPrefersTheVenueIdWhenBound) {
     auto cmd = make_order(table);
     cmd.kind = CmdKind::Cancel;
 
-    // Before the ack binds an exchange id, our own id is the only handle.
+    // before the ack binds an exchange id, our id is the only handle
     auto request = builder.cancel_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value());
     EXPECT_NE(request->body.find(R"("orderLinkId":"01ARZ3NDEKTSV4RRFFQ69G5FAV")"),
               std::string_view::npos);
     EXPECT_EQ(request->target, "/v5/order/cancel");
 
-    // Once bound, the venue id is the durable handle: bybit resolves
-    // orderLinkId only within a window after creation.
+    // once bound, the venue id is the durable handle; orderLinkId resolves only for a while
     cmd.target_exchange_order_id = *ExchangeOrderId::from("1321003749386327552");
     request = builder.cancel_order(cmd, table, k_now);
     ASSERT_TRUE(request.has_value());
@@ -180,8 +176,7 @@ TEST(BybitRestBuilder, CancelPrefersTheVenueIdWhenBound) {
 }
 
 TEST(BybitRestBuilder, AmendOmitsFieldsThatWereNotSet) {
-    // Bybit amends only what is present, so sending an unset price would
-    // rewrite it to zero rather than leave it alone.
+    // bybit amends only present fields, so an unset price must not be sent
     const auto table = make_table();
     net::Signer signer;
     load_credentials(signer);
@@ -211,14 +206,12 @@ TEST(BybitRestBuilder, ReconciliationPullsAndCancelAll) {
     ASSERT_TRUE(executions.has_value());
     EXPECT_NE(executions->target.find("startTime=1700000000"), std::string_view::npos);
 
-    // With no lower bound the parameter is omitted rather than sent as zero,
-    // which bybit reads as "everything since the epoch" and rate-limits.
+    // no lower bound omits the parameter instead of sending zero
     const auto all_time = builder.executions(MarketType::Perp, UnixNanos{}, k_now);
     ASSERT_TRUE(all_time.has_value());
     EXPECT_EQ(all_time->target.find("startTime"), std::string_view::npos);
 
-    // No category on the wallet pull: one unified account backs both markets,
-    // and UNIFIED is the only accountType a unified key may name.
+    // no category: one unified wallet backs both markets
     const auto wallet = builder.wallet_balance(k_now);
     ASSERT_TRUE(wallet.has_value());
     EXPECT_EQ(wallet->target, "/v5/account/wallet-balance?accountType=UNIFIED");
@@ -229,8 +222,7 @@ TEST(BybitRestBuilder, ReconciliationPullsAndCancelAll) {
 }
 
 TEST(BybitRestBuilder, InstrumentCatalogueIsUnsigned) {
-    // Public endpoint: attaching a signature would only risk leaking a stale
-    // one to something that never asked for it.
+    // public endpoint: no signature
     net::Signer signer;
     RequestBuilder builder{signer};
     const auto request = builder.instruments(MarketType::Perp);

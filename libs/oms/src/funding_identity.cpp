@@ -6,9 +6,7 @@ namespace raikiri::oms {
 
 namespace {
 
-// Appends `value` and a trailing separator. Returns nullptr once anything
-// would not fit, which the caller turns into an empty view rather than a
-// half-written key: a truncated identity is the defect this file exists for.
+// returns nullptr once anything would not fit
 [[nodiscard]] char* put(char* out, char* end, std::uint64_t value, char separator) noexcept {
     if (out == nullptr) {
         return nullptr;

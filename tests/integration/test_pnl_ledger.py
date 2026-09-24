@@ -1,14 +1,4 @@
-"""One fill, one ledger row, and a replay that adds none.
-
-THE PROPERTY THE WHOLE LEDGER RESTS ON. `source_id` is the idempotency key and
-`ON CONFLICT DO NOTHING` is the guard, and the unit test asserts the cursor and
-the SQL — not that draining the same real journal twice leaves the row count
-where it was. A ledger that double-counts a fill on a redelivery is a ledger
-that reports money nobody made, and the only way to ask is to actually do it
-twice.
-
-Marked `pg` because it needs a database. `make db-up && make db-migrate` first.
-"""
+"""needs postgres: make db-up && make db-migrate"""
 
 from __future__ import annotations
 
@@ -22,16 +12,7 @@ from conftest import BIN
 
 pytestmark = pytest.mark.pg
 
-# A DATABASE OF ITS OWN, never the one the terminal reads.
-#
-# These tests drain a real journal into Postgres, and the rows they write are
-# indistinguishable from trading once they land: `/v1/positions` answered with
-# two sim positions from a test run, on a screen a person reads to find out
-# what they hold. A test tier that makes the screens lie is worse than no test
-# tier.
-#
-# RAIKIRI_PG_TEST_DSN overrides it; the default is a sibling database created by
-# `make db-test-up`.
+# a separate database from the one the terminal reads; RAIKIRI_PG_TEST_DSN overrides it (make db-test-up)
 DSN = os.environ.get(
     "RAIKIRI_PG_TEST_DSN", "postgresql://raikiri:raikiri@localhost:5432/raikiri_test"
 )
@@ -39,11 +20,7 @@ DB = DSN.rsplit("/", 1)[-1]
 
 
 def psql(sql: str) -> str:
-    """Through the container's own client, so a working copy needs none.
-
-    Same route `make db-migrate` takes; a local psql would be a second way of
-    reaching the database that can disagree with the first.
-    """
+    """psql through the db container, the same route as make db-migrate"""
     out = subprocess.run(
         ["docker", "compose", "exec", "-T", "db", "psql", "-tAX", "-U", "raikiri", "-d", DB,
          "-c", sql],
@@ -77,26 +54,18 @@ def drain(journal_dir, name: str) -> None:
 
 
 def test_draining_the_same_journal_twice_adds_no_row(stack, sim_instrument, tmp_path) -> None:
-    # strategyd's journal, because the PnL ledger is written by the process
-    # that did the arithmetic. Pointing a persister at only the gateway's would
-    # persist half the record.
+    # strategyd's journal holds the pnl ledger
     journal = stack.data_dir / "journal" / "strategyd"
 
-    # A cursor key of its own, so this run neither resumes another test's
-    # position nor leaves one behind for the next.
+    # a cursor name of its own per run
     name = f"itest-{int(time.time() * 1000)}"
 
-    # The demo strategy has been filling against sim since the fixture came up,
-    # so there is a real ledger to drain rather than one this test invented.
     deadline = time.time() + 20
     while time.time() < deadline and not any(journal.glob("journal*")):
         time.sleep(0.5)
     assert any(journal.glob("journal*")), f"strategyd wrote no journal in {journal}"
 
-    # A FROZEN COPY. The demo keeps filling while this runs, so draining the
-    # live directory twice legitimately finds new rows the second time — and
-    # the question here is about the SAME bytes, not about the ones that
-    # arrived in between.
+    # a frozen copy, since the demo keeps filling while this runs
     import shutil
 
     frozen = tmp_path / "journal-copy"
@@ -107,15 +76,10 @@ def test_draining_the_same_journal_twice_adds_no_row(stack, sim_instrument, tmp_
     if first == 0:
         pytest.skip("the demo produced no realised increment in this window")
 
-    # THE SAME BYTES AGAIN, from a cursor that has already read them. A
-    # redelivery is the ordinary case — a persister that died mid-batch
-    # restarts here — and it must add nothing.
     drain(frozen, name)
     assert int(psql("SELECT count(*) FROM raikiri.pnl_increments")) == first
 
-    # And from a FRESH cursor, which is the harder case: the rows are offered
-    # again from the beginning, and only `source_id` stands between them and a
-    # doubled ledger.
+    # a fresh cursor re-offers every row; only source_id prevents doubling
     drain(frozen, f"{name}-again")
     assert int(psql("SELECT count(*) FROM raikiri.pnl_increments")) == first, (
         "a second cursor re-inserted rows the first had already written — "
@@ -124,12 +88,6 @@ def test_draining_the_same_journal_twice_adds_no_row(stack, sim_instrument, tmp_
 
 
 def test_every_increment_carries_the_strategy_that_earned_it(stack) -> None:
-    """Money with no owner is money that cannot be attributed to a decision.
-
-    The ledger is keyed per strategy on purpose: two strategies sharing one
-    instrument keep independent books, and a row with no strategy would net
-    them together silently.
-    """
     journal = stack.data_dir / "journal" / "strategyd"
     name = f"itest-owner-{int(time.time() * 1000)}"
     drain(journal, name)

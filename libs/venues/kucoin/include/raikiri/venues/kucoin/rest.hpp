@@ -1,16 +1,6 @@
 #pragma once
 
-// KuCoin REST request building, unsigned and signed.
-//
-// SPOT AND FUTURES ARE TWO PRODUCTS behind one authentication scheme. They
-// live on different hosts, spell their paths differently, and disagree about
-// what a size is: spot sizes are base-currency decimals, futures sizes are
-// whole CONTRACTS. Every builder here therefore takes the market and switches
-// on it exhaustively rather than defaulting, so the day KuCoin lists options
-// the compiler names each place that has to decide.
-//
-// There is no testnet: KuCoin retired its futures sandbox, so nothing here
-// takes a flag.
+// spot and futures differ in host, path and size unit; builders switch on the market exhaustively
 
 #include <raikiri/domain/order_cmd.hpp>
 #include <raikiri/exec/instrument_table.hpp>
@@ -37,27 +27,18 @@ enum class BuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(BuildError err) noexcept;
 
-// The futures host, which is also the market-data host.
 [[nodiscard]] std::string_view rest_host() noexcept;
 
-// Empty for a market KuCoin does not serve, which is the caller's cue to
-// refuse rather than to guess a host.
+// empty for a market kucoin does not serve
 [[nodiscard]] std::string_view rest_host(MarketType market) noexcept;
 
-// The settle currency of every contract this gateway serves. KuCoin's futures
-// wallet answers ONE currency per call and DEFAULTS TO XBT when the parameter
-// is omitted, so leaving it off reads a different account rather than failing.
-// One gateway, one market, one settle currency — widening this means widening
-// map_instrument's FFWCSX guard in the same change, since the XBT wallet backs
-// the inverse contracts that guard drops.
+// the futures wallet defaults to XBT when currency is omitted; widening this means widening map_instrument's FFWCSX guard
 inline constexpr std::string_view k_settle_currency = "USDT";
 
-// KuCoin's clientOid accepts letters, digits, '_' and '-'; the 26-char
-// Crockford-base32 ULID the OMS mints is inside that alphabet and well inside
-// the length. Pinned here so a widened id trips a test rather than a venue.
+// clientOid length limit; the oms's 26-char ulid fits
 inline constexpr std::size_t k_max_client_oid = 40;
 
-// Public reads. Futures host only — the market-data path is futures-only.
+// public reads, futures host only
 class RequestBuilder {
 public:
     [[nodiscard]] net::RestRequest bullet_public() noexcept;
@@ -71,17 +52,14 @@ public:
 
     [[nodiscard]] net::RestRequest level2_snapshot(std::string_view symbol) noexcept;
 
-    // Spot host. The catalogue is the one public read that is not futures.
+    // spot host
     [[nodiscard]] net::RestRequest spot_symbols() noexcept;
 
 private:
     std::array<char, 256> target_{};
 };
 
-// Key version 2 sends the passphrase HMAC'd under the api secret rather than
-// in clear. A passphrase sent verbatim answers 400004 "passphrase error",
-// which reads like the wrong passphrase and hides the real cause. The digest
-// is constant for the life of the process, so it is sealed once, here.
+// key version 2 sends the passphrase hmac'd under the secret; sent verbatim it answers 400004
 class Credentials {
 public:
     Credentials() = default;
@@ -92,7 +70,7 @@ public:
 
     [[nodiscard]] const net::Signer& signer() const noexcept { return signer_; }
 
-    // Must run AFTER the secret is loaded: the digest is keyed by it.
+    // run after the secret is loaded; the digest is keyed by it
     [[nodiscard]] bool seal_passphrase(std::string_view raw) noexcept;
 
     [[nodiscard]] std::string_view sealed_passphrase() const noexcept {
@@ -109,9 +87,7 @@ private:
     std::size_t passphrase_len_{0};
 };
 
-// Signed requests. One builder owns one scratch buffer set, so a request must
-// reach RestClient::send before the next one is built — which is exactly how
-// the exec client uses it, one call at a time on the gateway thread.
+// one scratch buffer set: send each request before building the next
 class OrderRequestBuilder {
 public:
     explicit OrderRequestBuilder(const Credentials& credentials) noexcept
@@ -126,14 +102,11 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     cancel_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    // Spot only: KuCoin offers no modify on the futures API, so a perp amend
-    // is refused here instead of being emulated by cancel+replace, which is
-    // the OMS's decision to make and not the adapter's.
+    // spot only; futures has no modify endpoint
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     amend_order(const OrderCmd& cmd, const exec::InstrumentTable& table, UnixNanos now);
 
-    // Futures answers account-wide; spot demands a symbol, which is why the
-    // spot sweep goes through active_symbols() first.
+    // futures answers account-wide; spot needs a symbol, see active_symbols()
     [[nodiscard]] std::expected<net::RestRequest, BuildError>
     open_orders(MarketType market, std::string_view symbol, UnixNanos now);
 
@@ -146,19 +119,15 @@ public:
     [[nodiscard]] std::expected<net::RestRequest, BuildError> positions(MarketType market,
                                                                         UnixNanos now);
 
-    // GET /api/v1/account-overview — the futures wallet for k_settle_currency.
-    // Spot is refused here rather than pointed at GET /api/v1/accounts: that
-    // list is a different shape holding every currency the account touches,
-    // and answering a spot caller with the futures wallet reports the wrong
-    // money under the right label.
+    // futures wallet only; the spot accounts list is a different shape
     [[nodiscard]] std::expected<net::RestRequest, BuildError> account_overview(MarketType market,
                                                                                UnixNanos now);
 
-    // The private socket's handshake is a SIGNED post, unlike the public one.
+    // the private handshake is a signed post
     [[nodiscard]] std::expected<net::RestRequest, BuildError> bullet_private(MarketType market,
                                                                              UnixNanos now);
 
-    // Exposed for tests: the exact bytes that go into the HMAC.
+    // exposed for tests: the exact bytes that go into the hmac
     [[nodiscard]] std::string_view last_sign_message() const noexcept;
 
 private:

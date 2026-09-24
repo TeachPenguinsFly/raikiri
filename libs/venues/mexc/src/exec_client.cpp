@@ -18,24 +18,10 @@ namespace raikiri::venues::mexc::internal {
 
 namespace {
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the private socket, and
-// nothing on either side can tell whether the other happened. This class is
-// the only thing that knows both: it holds the table of orders handed over and
-// not yet answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
-//
-// Order entry over REST for both markets. MEXC has historically gated futures
-// order placement behind an account permission: the legacy contract API closed
-// its place/cancel endpoints in July 2022 and MEXC reopened API futures trading
-// on 2026-03-31 behind KYC plus an explicit "Order Placing" grant on the key. A
-// key without that grant answers a permission code (701-704), which classifies
-// as AuthFailure — the order is refused loudly rather than left open.
+// an order goes out over rest and is answered on the private socket;
+// this tracks orders with no answer yet
 class MexcExec final : public exec::ExecutionClient {
 public:
     MexcExec(std::shared_ptr<VenueState> state, MarketType market)
@@ -53,8 +39,7 @@ public:
         }
     }
 
-    // This object registers itself in state the DATA client also holds, so a
-    // copy would leave two registrations and one of them dangling.
+    // registered in state shared with the data client, so not copyable
     MexcExec(const MexcExec&) = delete;
     MexcExec& operator=(const MexcExec&) = delete;
     MexcExec(MexcExec&&) = delete;
@@ -78,24 +63,18 @@ public:
     }
 
     [[nodiscard]] bool connected() const noexcept override {
-        // Spot has no JSON user stream to be up or down, so an account trading
-        // spot alone is connected once its REST pool is.
+        // spot has no user stream, so spot alone is connected once rest is
         const bool stream_up = stream_ == nullptr || stream_->connected();
         return started_ && stream_up && (spot_ || perp_);
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweep rest connections the venue closed so an idle gateway does not write into a dead socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
     }
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // an unanswered order is reported as a gap and left for reconciliation
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -114,8 +93,7 @@ public:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working",
-            // and whether anything is working is exactly what is unknown.
+            // undefined leaves; whether anything is working is unknown
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -133,8 +111,7 @@ public:
         if (cmds.empty()) {
             return;
         }
-        // Spot has no cancel-by-id-list at all, and futures caps its array, so
-        // neither market may be truncated into one call.
+        // spot has no cancel by id list and futures caps its array
         if (cmds.front().instrument.market() == MarketType::Spot) {
             for (const auto& cmd : cmds) {
                 cancel(cmd);
@@ -146,24 +123,21 @@ public:
             const auto request = api_.builder().cancel_batch(
                 chunk, state_->instruments, state_->venue_now(MarketType::Perp));
             if (!request.has_value()) {
-                // An order known only by our own id cannot ride the array
-                // endpoint; one call each still cancels it.
+                // an order known only by our id is cancelled one call at a time
                 for (const auto& cmd : chunk) {
                     cancel(cmd);
                 }
                 continue;
             }
-            // The per-order verdicts come back in the body; a transport
-            // failure is the only thing this callback can honestly report.
+            // per-order verdicts are in the body; the callback reports only transport failure
             const std::vector<OrderCmd> pending{chunk.begin(), chunk.end()};
             if (!api_.send(*request, [this, pending](net::RestResponse&& response) {
                     if (!response.transport_failed() && response.status >= 200 &&
                         response.status < 300) {
                         return;
                     }
-                    // A LOST CONNECTION IS WORSE IN A BATCH THAN ALONE: it would declare
-                    // every cancel in the chunk refused while the venue may have taken all
-                    // of them, leaving the desk sure it still holds orders it does not.
+                    // a lost connection must not mark the chunk refused; the venue
+                    // may have taken every cancel
                     if (response.transport_failed()) {
                         for (const auto& cmd : pending) {
                             state_->sink->on_order_error(
@@ -194,9 +168,6 @@ public:
         }
     }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -223,8 +194,6 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. The three share one path
-    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
@@ -241,14 +210,13 @@ private:
         if (!api_.send(*request, [this, cmd, kind, market](net::RestResponse&& response) {
                 on_response(std::move(response), cmd, kind, market);
             })) {
-            // Never left this process, so nothing is in doubt.
+            // never left this process
             emit_reject(cmd,
                         kind,
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
-        // because the callback is exactly what may never run.
+        // recorded before the callback, which may never run
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -260,14 +228,12 @@ private:
 
     void
     on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind, MarketType market) {
-        // Any answer settles it, including a refusal: the table tracks silence.
+        // any answer settles it, including a refusal
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed, and calling that a refusal is how a process
-            // records a rejection opposite a live position.
+            // the request may have reached the matcher, so this is not a rejection
             state_->sink->on_order_error(
                 cmd.client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -289,8 +255,7 @@ private:
                 emit_reject(cmd, kind, rest_failure(response.body, market));
                 return;
             }
-            // Spot has no JSON user stream, so the create response IS the
-            // acknowledgement: without it the order never leaves Submitted.
+            // spot has no user stream, so the create response is the ack
             if (kind == Kind::Create) {
                 if (const auto wire = parse_spot_order(response.body); wire.has_value()) {
                     if (const auto event =
@@ -303,8 +268,7 @@ private:
             return;
         }
 
-        // Futures answers 200 with success:false, so an HTTP 2xx is not a fill
-        // of the request — the envelope's code is.
+        // futures answers 200 with success:false; the envelope code decides
         const auto envelope = parse_rest_envelope(response.body);
         const bool accepted =
             http_ok && envelope.has_value() && envelope->success && envelope->code == k_ok;
@@ -318,9 +282,7 @@ private:
         emit_reject(cmd, kind, rest_failure(response.body, market));
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
+    // `OrderEvent` has no room for text, so the reason goes to the sink here
     void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
@@ -336,8 +298,7 @@ private:
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
-        // A create that never reached the book leaves nothing behind; a
-        // refused cancel or amend leaves the order exactly as it was.
+        // a refused create leaves nothing; a refused cancel or amend leaves the order unchanged
         event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
@@ -350,7 +311,6 @@ private:
     bool spot_{false};
     bool perp_{false};
     bool started_{false};
-    // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

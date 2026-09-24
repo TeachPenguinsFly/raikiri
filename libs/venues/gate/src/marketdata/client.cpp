@@ -28,14 +28,11 @@ namespace raikiri::venues::gate::internal {
 
 namespace {
 
-// Gate closes a connection idle for 60 s of application traffic; the app ping
-// runs well inside that window.
+// gate closes a connection after 60 s without application traffic
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 constexpr std::uint64_t k_rest_seed_interval_ns = 1'000'000'000ULL;
 
-// Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises; a send the pool
-// refuses is left alone, because the next delta asks again.
+// fires the rest read that seeds one book; a refused send is left for the next delta
 void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
@@ -58,9 +55,6 @@ void request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base
         if (target.seed(*wire) != BookResult::Applied) {
             return;
         }
-        // NOT `book`: the enclosing function takes a DepthBook& by that name,
-        // and shadowing it here reads as the ladder rather than the snapshot
-        // taken from it.
         if (const auto seeded = target.snapshot(s_to_unix(wire->update_s), response.received);
             seeded.has_value()) {
             owner->sink->on_depth(*seeded);
@@ -87,19 +81,14 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
     const auto entry =
         state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
-    // Asked before the delta is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
+    // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
         request_seed(state, book, base);
     }
     if (book.apply(*wire) != BookResult::Applied) {
-        return; // unseeded, stale or resynchronising: silence, never a guess
+        return; // unseeded, stale or resynchronising: publish nothing
     }
-    // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
-    // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and the
-    // cell it lands in keeps only the latest value. Measured on kucoin,
-    // 2026-09-19: the same guard took that gateway from 44.5% to 37.6% of a
-    // core.
+    // checked before building the snapshot, which is the expensive part
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
@@ -109,10 +98,7 @@ void handle_book_update(VenueState& state, std::string_view frame, UnixNanos rec
     }
 }
 
-// A whole book off spot.order_book. No seed, no chain, no BookSync: Gate
-// republishes the complete depth every interval there, so the only thing that
-// can go wrong is a frame that does not parse — and that is silence, not a
-// stale book presented as current.
+// spot.order_book republishes the whole depth, so no seed or chain is needed
 void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local LevelBuffer storage;
     const auto wire = parse_book_snapshot(frame, storage);
@@ -127,7 +113,7 @@ void handle_book_snapshot(VenueState& state, std::string_view frame, UnixNanos r
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
     const auto event = parse_event(frame);
     if (!event.has_value()) {
-        // Unknown shapes are ignored, never fatal.
+        // unknown shapes are ignored
         return;
     }
     switch (event->kind) {
@@ -194,9 +180,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// A pool key is one channel on one contract, joined by a byte neither can
-// contain. The pool stores keys as opaque strings and hands them back when a
-// socket reconnects, so this is the only place that knows the shape.
+// a pool key is channel and contract joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view channel, std::string_view contract) {
@@ -206,9 +190,7 @@ constexpr char k_key_sep = '\x1f';
     return key;
 }
 
-// The inverse, and the only decode: the frame builder and the reopen hook read
-// the same key and must not disagree about where the cut is. Views into the
-// key, which the pool owns for as long as the connection holds it.
+// the only decode; views into the pool-owned key
 [[nodiscard]] std::optional<Subscription> split_key(std::string_view key) {
     const auto cut = key.find(k_key_sep);
     if (cut == std::string_view::npos) {
@@ -221,12 +203,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED OR INVALIDATED HERE. Each socket in the pool
-    // re-asks for its own keys when it opens; replaying the whole desired set
-    // on every one of them is the flood the pool exists to avoid. This handler
-    // is shared by every connection and so cannot tell WHICH one reopened —
-    // the books belonging to that socket are invalidated by the pool's own
-    // open hook, which is handed its keys.
+    // each socket re-asks for its own keys on open; its books are invalidated by the pool's open hook
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -254,8 +231,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{private_path(state_->testnet, state_->market)}},
                 handler_,
-                // Gate caps a CONNECTION at 1024 channels; the pool turns that
-                // into a per-socket number instead of the process's ceiling.
+                // gate caps a connection at 1024 channels
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); },
                 [this](std::span<const std::string> keys) {
@@ -280,8 +256,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -289,9 +263,7 @@ public:
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
-            // One socket, one tree. Gate spells a spot pair and its perpetual
-            // identically, so an id from the other market would be accepted
-            // here and answered with the wrong tree's prices.
+            // gate spells a spot pair and its perp identically, so one socket serves one market
             return std::unexpected{exec::not_implemented("gate: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
@@ -308,9 +280,7 @@ public:
         if (state_->desired.size() == before) {
             return {}; // refcounting lives in the gateway core; this is a set
         }
-        // THE POOL PLACES IT. A key that does not fit on any existing socket
-        // opens another, and only the pool's own ceiling refuses — which is
-        // said out loud rather than leaving the instrument silently unwatched.
+        // the pool places it, opening another socket when needed
         const std::array<std::string, 1> one{key_of(channel, symbol)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -340,13 +310,7 @@ private:
     std::shared_ptr<VenueState> state_;
     PublicHandler handler_;
 
-    // ONLY THE BOOKS THIS SOCKET FEEDS. A depth book is chained by exactly one
-    // connection, so a socket that reopens has broken its own books' delta
-    // chains and nobody else's; invalidating every book on any reopen puts the
-    // whole catalogue back on the REST seed at once, which is the unpaced
-    // burst that earned this IP a ban. The channel is checked as well as the
-    // contract: book_ticker for a contract may sit on a different socket from
-    // its depth, and only the depth key names a chain that can break.
+    // only this socket's depth books: invalidating all of them sends the whole catalogue to rest at once
     void invalidate_books(std::span<const std::string> keys) {
         const auto depth = channel_for(exec::SubKind::Depth, state_->market);
         for (const auto& key : keys) {
@@ -382,8 +346,7 @@ private:
         }
     }
 
-    // One bulk call per kind for every contract still due, at most once a
-    // second, so a refusal is asked again rather than dropped.
+    // one bulk call per kind for contracts still due, at most once a second
     void seed_from_rest(UnixNanos now) noexcept {
         if (state_->market != MarketType::Perp || now.ns < next_seed_ns_) {
             return;
@@ -444,10 +407,7 @@ private:
         state_->funding_seed_due.clear();
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered first here rather than at subscribe time: on a reconnect the
-    // order that matters is the order the venue is asked in.
+    // called on every socket open, so the quote channel goes first here
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<Subscription> views;
         views.reserve(keys.size());

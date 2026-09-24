@@ -14,9 +14,7 @@ constexpr std::string_view k_host_testnet = "api.hyperliquid-testnet.xyz";
 constexpr std::string_view k_info = "/info";
 constexpr std::string_view k_exchange = "/exchange";
 
-// Appends into the caller's buffer, reporting overflow rather than truncating:
-// a truncated /info body is a different query, and this venue answers a query
-// it cannot satisfy with HTTP 200 and a body of `null`.
+// reports overflow instead of truncating; a truncated body is a different query
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}

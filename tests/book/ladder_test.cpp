@@ -15,8 +15,6 @@ Level lvl(std::int64_t price, std::int64_t qty) {
 }
 
 TEST(Ladder, BidsDescendAndAsksAscendWhateverTheArrivalOrder) {
-    // The touch has to be element zero after arbitrary insertion order, or
-    // every consumer reading bids()[0] is reading a random level.
     Ladder bids{Side::Bid};
     for (const auto price : {100, 103, 101, 99, 102}) {
         bids.upsert(lvl(price, 1));
@@ -42,8 +40,6 @@ TEST(Ladder, UpsertReplacesRatherThanDuplicating) {
 }
 
 TEST(Ladder, RemovingAPriceThatIsNotThereIsNotAnError) {
-    // Venues resend deletes for levels already gone; treating that as a fault
-    // would invalidate a book that is perfectly correct.
     Ladder bids{Side::Bid};
     bids.upsert(lvl(100, 1));
     bids.remove(PriceTicks::from_raw(99));
@@ -53,9 +49,7 @@ TEST(Ladder, RemovingAPriceThatIsNotThereIsNotAnError) {
 }
 
 TEST(Ladder, ZeroQuantityIsStoredNotInterpreted) {
-    // Deliberate: a zero size means delete on most venues, an explicit action
-    // means it on deribit, and a zero ORDER COUNT means it on bitfinex. The
-    // ladder must not guess which venue it is serving.
+    // zero size, an explicit delete and a zero order count each mean delete on some venue
     Ladder bids{Side::Bid};
     bids.upsert(lvl(100, 0));
     ASSERT_EQ(bids.size(), 1U);
@@ -74,8 +68,6 @@ TEST(Ladder, TruncateKeepsTheTouchAndDropsTheFarEnd) {
 }
 
 TEST(Ladder, DropBeyondPrunesWhatNoSnapshotVouchedFor) {
-    // A seeded book's snapshot only covers a band; the stream keeps widening
-    // it with levels nothing confirmed.
     Ladder bids{Side::Bid};
     for (int i = 0; i < 5; ++i) {
         bids.upsert(lvl(100 - i, 1));
@@ -123,8 +115,6 @@ TEST(Ladder, DropBeyondAgreesWithAScanFromTheTouchAtEveryBandEdge) {
 }
 
 TEST(Ladders, AOneSidedBookPublishesNothing) {
-    // A consumer cannot tell a half-built book from a thin market, so a book
-    // we do not trust is published as nothing at all.
     Ladders book;
     book.bids().upsert(lvl(100, 1));
     EXPECT_FALSE(book.snapshot(k_instrument, 1, UnixNanos{1}, UnixNanos{2}).has_value());
@@ -159,9 +149,6 @@ TEST(ExactSteps, RefusesWhatDoesNotDivideRatherThanRounding) {
 }
 
 TEST(ExactSteps, TakesTheValueFromWhicheverParserTheVenueNeeds) {
-    // Half the venues spell numbers with exponents, which parse_decimal_e9
-    // refuses; taking a parsed value keeps that choice with the venue instead
-    // of forcing four adapters to copy this function to change one call.
     const auto tick = FixedE9::from_raw(1); // 1e-9
     EXPECT_EQ(exact_steps(*parse_number_e9("1e-8"), tick).value(), 10);
 }

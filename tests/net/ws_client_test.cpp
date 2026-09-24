@@ -39,9 +39,6 @@ using raikiri::net::test::TlsListener;
 
 using namespace std::chrono_literals;
 
-// Every assertion in this file is reached by draining the reactor under a
-// deadline. A test that waits on a condition without one turns a client bug
-// into a hung CI job, which is the failure mode that hides bugs longest.
 template <class Predicate>
 [[nodiscard]] bool
 poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget = 5s) {
@@ -56,7 +53,7 @@ poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget 
     return predicate();
 }
 
-// Used to prove a *negative* (no reconnect fired), so it must not exit early.
+// proves a negative, so it must not exit early
 void poll_for(IoContext& io, std::chrono::milliseconds span) {
     const auto deadline = std::chrono::steady_clock::now() + span;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -65,9 +62,7 @@ void poll_for(IoContext& io, std::chrono::milliseconds span) {
     }
 }
 
-// Shared with the listener thread, so everything the test reads is guarded.
 struct ServerState {
-    // Written before the listener starts and never mutated afterwards.
     std::vector<std::string> greeting;
     bool drop_first_after_message{false};
     bool close_first_after_message{false};
@@ -126,7 +121,6 @@ private:
             do_read();
             return;
         }
-        // Safe to reference: greeting is fixed before the listener starts.
         const std::string& message = state_.greeting[next_++];
         ws_.text(true);
         ws_.async_write(
@@ -156,10 +150,7 @@ private:
             return;
         }
         if (state_.drop_first_after_message && index_ == 1) {
-            // Yank the TCP connection with no close frame — what a venue's
-            // edge does when it recycles a node. Doing it only after the
-            // client has spoken guarantees it had already seen the handshake
-            // response, so the test is not racing the reconnect it wants.
+            // drop tcp with no close frame, after the client has spoken
             beast::get_lowest_layer(ws_).close();
             return;
         }
@@ -231,8 +222,7 @@ public:
     config.port = std::to_string(port);
     config.target = "/v5/public/linear";
     config.verify_tls = false;
-    // Keepalive must not fire during these tests: a ping storm would muddy
-    // the message counters the assertions depend on.
+    // keepalive off so pings do not disturb the message counters
     config.ping_interval_ms = 60'000;
     config.pong_timeout_ms = 5'000;
     return config;
@@ -274,7 +264,6 @@ TEST(WsClient, StreamsInOrderSendsAndClosesOnRequest) {
     EXPECT_EQ(handler.closes.front(), WsCloseReason::Requested);
     EXPECT_EQ(to_string(WsCloseReason::Requested), "requested");
 
-    // stop() must suppress reconnection, not merely delay it.
     poll_for(io, 400ms);
     EXPECT_EQ(handler.opens, 1);
     EXPECT_EQ(handler.closes.size(), 1U);
@@ -304,8 +293,6 @@ TEST(WsClient, ReconnectsAfterAbruptServerClose) {
     RecordingHandler handler;
     WsClient client{io, config, handler};
     handler.client = &client;
-    // The handler speaks first on every open, which is both the resubscribe
-    // path this class exists for and the trigger the server waits on.
     handler.greeting = "{\"op\":\"subscribe\"}";
     client.start();
 
@@ -389,8 +376,6 @@ TEST(WsClient, SendQueueFullIsReportedRatherThanBlocking) {
     config.send_queue_capacity = 4;
 
     RecordingHandler handler;
-    // Never started: nothing drains the queue, which is the same shape as a
-    // wedged socket and the reason send() must refuse instead of waiting.
     WsClient client{io, config, handler};
 
     for (int i = 0; i < 4; ++i) {
@@ -414,9 +399,7 @@ TEST(WsClient, DestroyedMidFlightNeverCallsBackIntoTheOwner) {
     }};
 
     IoContext io;
-    // The handler deliberately outlives the client: completions still queued
-    // in the reactor must recognise themselves as stale rather than call into
-    // an owner that is already gone. ASan is the real assertion here.
+    // the handler outlives the client; asan checks the stale completions
     RecordingHandler handler;
     int opens_at_teardown = 0;
     {
@@ -428,16 +411,12 @@ TEST(WsClient, DestroyedMidFlightNeverCallsBackIntoTheOwner) {
 
     poll_for(io, 300ms);
     EXPECT_EQ(handler.opens, opens_at_teardown);
-    // The destructor is not a close: on_close belongs to the caller's socket
-    // lifecycle, and the caller is what just went away.
     EXPECT_TRUE(handler.closes.empty());
 }
 
 TEST(IoContext, PollRunsWorkQueuedAfterTheContextRanDry) {
     IoContext io;
-    // A context with nothing to do latches "stopped"; without a restart every
-    // later poll silently executes nothing, which is how a reconnect timer
-    // ends up armed in a reactor that will never fire it.
+    // a context with no work latches stopped and needs restart()
     EXPECT_EQ(io.poll(), 0U);
     io.stop();
 

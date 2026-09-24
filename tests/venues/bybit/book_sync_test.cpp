@@ -60,8 +60,7 @@ TEST(BookSync, DeltaUpdatesInsertsAndDeletes) {
     const std::array asks{WireLevel{"16611.0", "0.029"}};
     ASSERT_EQ(book.apply(snapshot(bids, asks, 100)), SyncResult::Resynced);
 
-    // Size "0" is bybit's delete; the best bid must fall through to the
-    // next level rather than leaving a phantom.
+    // size "0" deletes; the best bid falls through to the next level
     const std::array d_bids{WireLevel{"16493.5", "0"}, WireLevel{"16494.0", "0.050"}};
     const std::array d_asks{WireLevel{"16611.0", "0.030"}};
     EXPECT_EQ(book.apply(delta(d_bids, d_asks, 101)), SyncResult::Applied);
@@ -90,14 +89,14 @@ TEST(BookSync, UpdateIdGapDropsTheBook) {
     const std::array asks{WireLevel{"101.0", "1.000"}};
     ASSERT_EQ(book.apply(snapshot(bids, asks, 10)), SyncResult::Resynced);
 
-    // 11 was missed: the book we hold is fiction from here on.
+    // 11 was missed
     EXPECT_EQ(book.apply(delta(bids, asks, 12)), SyncResult::GapDetected);
     EXPECT_FALSE(book.synced());
     EXPECT_FALSE(book.bbo(UnixNanos{1}, UnixNanos{2}).has_value())
         << "a desynchronised book must publish nothing at all";
     EXPECT_EQ(book.gaps(), 1U);
 
-    // Recovery is a fresh snapshot, which the venue sends after resubscribe.
+    // recovery is a fresh snapshot after resubscribe
     EXPECT_EQ(book.apply(snapshot(bids, asks, 50)), SyncResult::Resynced);
     EXPECT_TRUE(book.synced());
 }
@@ -122,9 +121,7 @@ TEST(BookSync, DeltaBeforeSnapshotIsIgnoredNotApplied) {
 }
 
 TEST(BookSync, PriceOffTheTickGridIsRefused) {
-    // A price that does not divide by the instrument's tick means bybit
-    // changed a filter — rounding it would put orders at prices the venue
-    // rejects, so the book is dropped instead.
+    // an off-tick price drops the book
     auto book = make_book();
     const std::array bad{WireLevel{"100.05", "1.000"}}; // tick is 0.1
     const std::array asks{WireLevel{"101.0", "1.000"}};
@@ -152,14 +149,12 @@ TEST(BookSync, OneSidedBookPublishesNoBbo) {
 }
 
 TEST(BookSync, SnapshotCarriesOnlyTheTopLevels) {
-    // The venue streams 50 levels a side; shm carries k_book_levels. The cut
-    // must come off the far end, never off the touch.
+    // the cut comes off the far end, never off the touch
     auto book = make_book();
     std::vector<std::string> prices;
     std::vector<WireLevel> bids;
     std::vector<WireLevel> asks;
-    // More levels than the snapshot can carry, so the truncation is what is
-    // under test rather than an accident of the fixture.
+    // more levels than the snapshot carries
     constexpr int k_supplied = static_cast<int>(k_book_levels) + 20;
     for (int i = 0; i < k_supplied; ++i) {
         prices.push_back(std::to_string(100 - i) + ".0");

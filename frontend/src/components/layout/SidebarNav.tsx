@@ -10,13 +10,6 @@ const NAV = [
   { to: '/settings', label: 'Settings' },
 ]
 
-/** The product's navigation: four words.
- *
- *  The icons are gone. Each was a shape invented to stand beside a word that
- *  already said the thing — and an invented shape is one the reader has to
- *  learn before it saves them anything, which on a four-item list it never
- *  will. What is left is quieter than the market data beside it, which is the
- *  only requirement a trading terminal's navigation has. */
 export function SidebarNav() {
   return (
     <aside className="flex w-40 shrink-0 flex-col">

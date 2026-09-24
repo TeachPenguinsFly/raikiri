@@ -21,8 +21,7 @@ std::string_view to_string(WsBuildError err) noexcept {
 }
 
 std::string_view stream_host(MarketType market) noexcept {
-    // Two deployments, one name each: spot's public socket is the same host
-    // as its private one, and so is the futures tree's.
+    // each tree serves public and private sockets from one host
     return market == MarketType::Spot ? ep::k_stream_spot : ep::k_stream_futures;
 }
 
@@ -39,20 +38,12 @@ Topic topic_for(exec::SubKind kind, MarketType market) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
     case exec::SubKind::Depth:
-        // ONE CHANNEL ANSWERS BOTH. `depth` is a self-contained top-N snapshot
-        // and the mapper publishes a BBO and a whole book from each frame, so
-        // asking for the book asks for this. It used to name `depth_update`
-        // instead, which chains deltas nothing here applies: the frames were
-        // subscribed, arrived, and fell into the ignore arm.
-        //
-        // 50 is XT's ceiling on both trees — 60, 80, 99, 100 and 200 are each
-        // refused with `levels error`. Spot takes no interval: ",50,100ms"
-        // there is `args error`.
+        // depth gives both bbo and book; 50 levels is the max, and spot takes no interval
         return {.channel = "depth", .params = spot ? ",50" : ",50,100ms"};
     case exec::SubKind::Trades:
         return {.channel = "trade", .params = {}};
     case exec::SubKind::MarkPrice:
-        // A spot pair has no mark price, and the spot tree refuses the topic.
+        // spot has no mark price and refuses the topic
         return spot ? Topic{} : Topic{.channel = "mark_price", .params = {}};
     case exec::SubKind::Funding:
         return {}; // no such topic; polled over REST
@@ -206,7 +197,7 @@ PrivateProtocol::spot_subscribe(std::string_view access_token) {
         std::memcpy(frame_.data() + len, text.data(), text.size());
         len += text.size();
     };
-    // The topics carry NO key suffix here; the key rides beside them.
+    // spot topics carry no key suffix; the key is a separate field
     put(R"({"method":"subscribe","params":["order","trade"],"listenKey":")");
     put(access_token);
     put(R"(","id":")");

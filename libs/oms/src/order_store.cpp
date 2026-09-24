@@ -66,9 +66,7 @@ const Order* OrderStore::find_by_exchange_id(const ExchangeOrderId& id) const no
     return it == by_exchange_.end() ? nullptr : &slots_[it->second];
 }
 
-// First id present wins; there is no fallback to the next id on a lookup
-// miss. An event whose leading id we do not know is an event we cannot trust
-// to describe an order we do know.
+// the first id present wins, with no fallback on a miss
 std::size_t OrderStore::route(const OrderEvent& event) const noexcept {
     if (event.client_order_id.valid()) {
         const auto it = by_client_.find(event.client_order_id);

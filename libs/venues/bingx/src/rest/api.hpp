@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what the account is long. None of them belongs to the order path — they run
-// on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/bingx/account.hpp>
 #include <raikiri/venues/bingx/envelope.hpp>
@@ -24,9 +18,7 @@
 
 namespace raikiri::venues::bingx::internal {
 
-// A build that failed for want of credentials is an AuthFailure, not a
-// Terminal one: the gateway must halt and say so rather than retry a request
-// that will fail identically forever.
+// missing credentials are an AuthFailure so the gateway halts
 exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
@@ -34,9 +26,7 @@ exec::VenueError build_failure(BuildError err) noexcept {
                                   to_string(err));
 }
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. Answered BEFORE the instrument table is read.
+// exhaustive over markets; checked before the instrument table
 std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     const auto refusal = market_refusal(market);
     if (!refusal.has_value()) {
@@ -59,27 +49,21 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // venues reap idle sockets silently
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path and the listen key build their own requests and are
-    // answered asynchronously; everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
         return rest_.send(request, std::move(on_done));
     }
 
-    // The listen-key endpoints answer in HTTP statuses and no envelope at all,
-    // so fetch() cannot read them.
+    // listen-key endpoints answer in http statuses with no envelope
     [[nodiscard]] std::optional<net::RestResponse> fetch_raw(const net::RestRequest& request) {
         return await_response(*state_, rest_, request);
     }
 
-    // Hedge and one-way need different parameters and BingX refuses the wrong
-    // pair with 109400, so this is read once at start rather than guessed per
-    // order. A read that fails leaves one-way, which is BingX's own default.
+    // read once at start; a failed read leaves one-way, bingx's default
     void read_position_mode() {
         const auto request = builder_.position_mode(state_->venue_now());
         if (!request.has_value()) {
@@ -134,9 +118,7 @@ public:
         if (const auto refusal = refuse_market(market); refusal.has_value()) {
             return std::unexpected{*refusal};
         }
-        // Both single-order reads demand a SYMBOL and this call carries none,
-        // so the open-order sweep answers the same question rather than an
-        // endpoint that cannot hear it.
+        // single-order reads need a symbol, so the open-order sweep answers instead
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -156,17 +138,11 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // /openApi/spot/v1/trade/myTrades demands a symbol and BingX
-            // offers no account-wide form; sweeping the pairs we happen to
-            // have touched would answer "these are all of them" about a set
-            // that is empty on every restart.
+            // spot myTrades needs a symbol and has no account-wide form
             return std::unexpected{
                 exec::not_implemented("bingx spot fill pull (myTrades is per-symbol)")};
         }
-        // /allFillOrders is account-wide but states no trade id and no side:
-        // a FillReport without an exec id cannot be deduplicated and one
-        // without a side cannot be netted. Live fills are unaffected —
-        // ORDER_TRADE_UPDATE carries both.
+        // allFillOrders has no trade id or side, so its fills cannot be deduplicated or netted
         return std::unexpected{exec::not_implemented(
             "bingx perpetual fill pull (allFillOrders states no trade id and no side)")};
     }
@@ -208,9 +184,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // The spot tree states `free` and `locked` per asset and no total
-            // of its own, so a total read there would be a sum this process
-            // made up rather than a figure BingX stated.
+            // spot states free and locked without a total
             return std::unexpected{
                 exec::not_implemented("bingx spot balance pull (the tree states no total)")};
         }
@@ -226,13 +200,11 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_balances(*body, storage);
         if (!rows.has_value()) {
-            // An unreadable wallet is refused rather than reported as an empty
-            // vector, which reads as an account holding nothing.
+            // an unreadable wallet is refused so it does not read as empty
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
-        // This answer carries no stamp of its own, so the read's own time is
-        // what the rows are dated by.
+        // the answer has no timestamp, so rows take the read time
         const auto ts = state_->clock->wall();
         std::vector<BalanceReport> reports;
         reports.reserve(rows->size());
@@ -250,8 +222,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // The book is a swap path. Spot has no funding to charge, and its
-            // fees are already booked off the fill that incurred them.
+            // funding is perp only
             return std::unexpected{exec::not_implemented("bingx spot funding charges")};
         }
         const auto request = builder_.funding_income(since, state_->venue_now());
@@ -266,8 +237,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_income(*body, storage);
         if (!rows.has_value()) {
-            // A book we cannot read is NOT an empty one: answering "no
-            // funding" books zero against a position that paid some.
+            // an unreadable book is refused so it does not read as zero funding
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }
@@ -280,26 +250,19 @@ public:
             } else if (wire.income_type == "TRADING_FEE") {
                 kind = LedgerKind::Fee;
             } else {
-                // REALIZED_PNL, the transfers and the liquidation kinds are
-                // derived from fills this process already booked, so taking
-                // the venue's copy would count the same money twice.
+                // these kinds derive from fills already booked
                 continue;
             }
             const auto* instrument = state_->instruments.find(wire.symbol);
             if (instrument == nullptr) {
                 continue;
             }
-            // BingX spells a spot pair and a perpetual IDENTICALLY, so the
-            // by-symbol lookup answers with whichever market loaded first.
-            // This book is a swap path, and a charge attributed to the spot
-            // pair would be booked against a position that does not exist.
+            // spot and perp share symbols; this book is perp only
             const auto& base = base_of(*instrument);
             if (base.id.market() != MarketType::Perp) {
                 continue;
             }
-            // SIGNED AS SENT. BingX writes a payment negative and a receipt
-            // positive, which is already the ledger's convention — taking the
-            // magnitude here would report every funding payment as income.
+            // bingx signs income as the ledger does; keep the sign
             const auto amount = parse_decimal_e9(wire.income);
             if (!amount.has_value()) {
                 continue; // an unreadable figure is not a zero charge
@@ -309,8 +272,7 @@ public:
             charge.amount = *amount;
             charge.kind = kind;
             charge.settled_at = UnixNanos{wire.time_ms * 1'000'000ULL};
-            // A fee names the trade it was charged on, which is what the
-            // comparison keys on; the book's own row id is the fallback.
+            // fees key on the trade id, falling back to the row id
             const auto reference =
                 kind == LedgerKind::Fee && !wire.trade_id.empty() ? wire.trade_id : wire.tran_id;
             if (const auto id = ExecId::from(reference); id.has_value()) {
@@ -323,8 +285,7 @@ public:
     }
 
 private:
-    // A refusal arrives at HTTP 200 with the verdict in the body, so the status
-    // is checked for transport health and the ENVELOPE decides the outcome.
+    // refusals arrive at http 200; the envelope decides
     [[nodiscard]] std::expected<std::string, exec::VenueError>
     fetch(const net::RestRequest& request) {
         const auto response = await_response(*state_, rest_, request);

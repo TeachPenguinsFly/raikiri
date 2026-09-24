@@ -9,8 +9,7 @@ namespace raikiri::venues::okx {
 
 namespace {
 
-// The literal OKX signs on login. It is not a path any request goes to and
-// not a method — it is a fixed string that happens to look like both.
+// the literal okx signs on login
 constexpr std::string_view k_login_prefix = "GET/users/self/verify";
 
 } // namespace
@@ -70,8 +69,7 @@ Protocol::op_frame(std::string_view op, std::span<const Subscription> subscripti
     }
     const auto batch = subscriptions.size();
     for (std::size_t i = 0; i < batch; ++i) {
-        // One of the two identifies the target; neither is a subscription to
-        // everything, which OKX would answer with 60018.
+        // one of the two names the target; okx answers 60018 otherwise
         if (subscriptions[i].channel.empty() ||
             (subscriptions[i].inst_id.empty() && subscriptions[i].inst_type.empty())) {
             return std::unexpected{WsBuildError::UnsupportedKind};
@@ -180,8 +178,7 @@ Protocol::login_frame(const net::Signer& signer, std::string_view passphrase, Un
     put(signer.api_key());
     put(R"(","passphrase":")");
     put(passphrase);
-    // Every one of these is a JSON string, the timestamp included — the
-    // unquoted form bybit demands is rejected here as 60012.
+    // all strings, timestamp included; unquoted is rejected with 60012
     put(R"(","timestamp":")");
     put(timestamp);
     put(R"(","sign":")");

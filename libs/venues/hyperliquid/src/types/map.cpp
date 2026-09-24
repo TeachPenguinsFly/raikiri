@@ -18,18 +18,12 @@ namespace raikiri::venues::hyperliquid {
 
 namespace {
 
-// A PERP price is capped at 6 - szDecimals decimal places; spot uses 8, which
-// is why this is named for its market rather than being a bare 6.
+// perp prices allow 6 - szDecimals decimals; spot allows 8
 constexpr std::int64_t k_perp_price_digits = 6;
 
-// The same rule on the spot book, two places finer. A pair loaded with the perp
-// exponent quotes every price a hundred times off its own grid.
 constexpr std::int64_t k_spot_price_digits = 8;
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means the venue changed an instrument's precision, so the
-// message is dropped rather than rounded — rounding is how a mark price ends
-// up one tick away from the one the venue published.
+// exact conversion; a value off the step is dropped, not rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -51,7 +45,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Venue-scale, not instrument-scaled, and truncated below 1e-9: the venue writes ten places.
+// venue scale, truncated below 1e-9
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -59,9 +53,7 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_rate_e9(text);
 }
 
-// A 24-hour aggregate is an AMOUNT: the venue writes dayNtlVlm to ten
-// fractional digits, which the exact reader above refuses outright. Truncating
-// below 1e-9 errs downward rather than dropping the whole figure.
+// amounts are truncated below 1e-9 since dayNtlVlm has ten decimals
 std::optional<FixedE9> to_amount_e9(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
@@ -73,7 +65,6 @@ UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept {
 }
 
 std::optional<FixedE9> step_from_decimals(std::int64_t decimals) noexcept {
-    // FixedE9 holds nine fractional digits; finer has no representation.
     if (decimals < 0 || decimals > 9) {
         return std::nullopt;
     }
@@ -155,7 +146,6 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
     out.accrual = FundingAccrual::Discrete;
     constexpr std::uint64_t interval_ns = std::uint64_t{k_funding_interval_s} * 1'000'000'000ULL;
     out.next_funding_time = UnixNanos{(ts_init.ns / interval_ns + 1) * interval_ns};
-    // No timestamp on this payload at all, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
@@ -163,8 +153,7 @@ map_funding(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNa
 
 std::optional<TickerStats>
 map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. The REST rows this struct also carries name no coin
-    // at all, and a context stating neither figure says nothing about volume.
+    // no volume when the context states neither figure
     if (wire.day_base_volume.empty() && wire.day_notional_volume.empty()) {
         return std::nullopt;
     }
@@ -176,7 +165,6 @@ map_ticker_stats(const WireAssetCtx& wire, const exec::InstrumentTable& table, U
     out.instrument = base_of(*instrument).id;
     out.volume_24h_base = to_amount_e9(wire.day_base_volume).value_or(FixedE9::from_raw(0));
     out.volume_24h_quote = parse_turnover_e6(wire.day_notional_volume).value_or(FixedE6::from_raw(0));
-    // No timestamp on either transport, so ingest is the only honest one.
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
@@ -189,29 +177,18 @@ std::optional<Instrument> perp_instrument(const WireAsset& wire, std::string_vie
         return std::nullopt;
     }
 
-    // DERIVED, NOT VENUE-STATED. The decimals cap, not the five-figure rule:
-    // that tick moves with the price, and a book that falls a decade below the
-    // load-time tick would drop every level. price_digits_ok guards orders.
+    // derived from szDecimals; orders are checked by price_digits_ok
     const auto lot = step_from_decimals(wire.sz_decimals);
     const auto tick = step_from_decimals(k_perp_price_digits - wire.sz_decimals);
     if (!lot.has_value() || !tick.has_value()) {
         return std::nullopt;
     }
-    // The WIRE names a perp by its bare ticker — "BTC" — and that is what a
-    // subscription must send, so it stays the exchange symbol.
+    // the bare ticker is the exchange symbol and the subscription coin
     const auto symbol = SymbolText::from(wire.name);
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    // THE LOCAL NAME CARRIES THE QUOTE, as every other venue's does. Every
-    // hyperliquid perp is margined in USDC, and a bare "BTC" matched nothing:
-    // the recorder's universe is symbols listed on two or more venues, and on
-    // 2026-09-22 all 178 of these perps fell outside it — attached, alive,
-    // quoting, and contributing zero rows. As "BTC/USDC" they pair with the
-    // USDC-margined perps of binance, bybit, kucoin and mexc (66 bases then).
-    //
-    // NOT "BTC/USDT". The margin currency is part of the instrument: pairing it
-    // with a USDT perp would call the USDC/USDT basis an edge.
+    // local symbol is "BTC/USDC"; the margin currency is part of the instrument
     std::array<char, 40> local{};
     const auto name = wire.name;
     if (name.size() + 1 + quote.size() > local.size()) {
@@ -231,13 +208,12 @@ std::optional<Instrument> perp_instrument(const WireAsset& wire, std::string_vie
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Hyperliquid, MarketType::Perp, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *local_symbol;
     base.tick_size = *tick;
     base.lot_size = *lot;
-    // Size is the coin itself, so there is no contract multiplier to load.
     base.contract_value = *parse_decimal_e9("1");
     base.kind = ContractKind::Linear;
     return PerpInstrument{base, k_funding_interval_s};
@@ -328,9 +304,7 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
             }
             const auto price = to_ticks(level.price, base);
             const auto qty = to_lots(level.qty, base);
-            // A level that does not divide by the instrument's step truncates
-            // the book here rather than being rounded into a price the venue
-            // never quoted.
+            // an off-grid level truncates the book here
             if (!price.has_value() || !qty.has_value()) {
                 break;
             }
@@ -347,15 +321,9 @@ map_book(const WireBook& wire, const exec::InstrumentTable& table, UnixNanos ts_
     return out;
 }
 
-// ---------------------------------------------------------- account ----
-
 namespace {
 
-// `szi` is the one account field this venue serialises from a FLOAT: a live
-// response carries "-4216984.4000000004" for a position whose lot is 0.1.
-// Truncating below 1e-9 drops dust no step this domain can express could have
-// carried, and the exact division by the lot below still refuses a size
-// genuinely off the grid. For `szi` and nothing else.
+// `szi` is float-serialised; truncate below 1e-9 before the exact lot division
 std::optional<QtyLots> to_float_lots(std::string_view text, const InstrumentBase& base) {
     if (text.empty() || base.lot_size.raw <= 0) {
         return std::nullopt;
@@ -367,10 +335,7 @@ std::optional<QtyLots> to_float_lots(std::string_view text, const InstrumentBase
     return QtyLots::from_raw(value->raw / base.lot_size.raw);
 }
 
-// A fee is money, but this venue pads a rebate past 1e-9 of a token and an
-// exact reader would drop the whole fill over the eleventh digit. NO sign flip:
-// a charge is already positive and a rebate negative, the ledger's own
-// convention, and okx's inversion here would turn every rebate into a cost.
+// truncated below 1e-9; charges are positive and rebates negative, so no flip
 FixedE9 fee_e9(std::string_view text) noexcept {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -379,8 +344,7 @@ FixedE9 fee_e9(std::string_view text) noexcept {
     return value.has_value() ? *value : FixedE9::from_raw(0);
 }
 
-// The alphabet UlidGen emits. Lowercase is NOT accepted: the generator never
-// produces it, so a lowercase id is someone else's wearing our shape.
+// uppercase crockford only, as UlidGen emits
 constexpr std::string_view k_crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 constexpr std::size_t k_ulid_chars = 26;
@@ -403,7 +367,6 @@ constexpr std::size_t k_ulid_chars = 26;
     return -1;
 }
 
-// `oid` and `tid` arrive as JSON numbers; the domain carries both as text.
 template <typename Id> [[nodiscard]] std::optional<Id> id_from(std::uint64_t value) noexcept {
     std::array<char, 24> digits{};
     const auto [stop, ec] = std::to_chars(digits.data(), digits.data() + digits.size(), value);
@@ -416,10 +379,7 @@ template <typename Id> [[nodiscard]] std::optional<Id> id_from(std::uint64_t val
     return id.has_value() ? std::optional{*id} : std::nullopt;
 }
 
-// The vocabulary GROWS: every margin, open-interest and self-trade check adds
-// a reason glued in front of a base state ("openInterestCapCanceled"). Matching
-// the tail keeps next month's word out of the unknown bucket, where query_order
-// would refuse to speak about an order the venue plainly calls dead.
+// matched by suffix since the venue prefixes reasons onto base states
 std::optional<OrderStatus> status_from(std::string_view text, bool partial) noexcept {
     if (text == "open") {
         return partial ? OrderStatus::PartiallyFilled : OrderStatus::Accepted;
@@ -439,13 +399,9 @@ std::optional<OrderStatus> status_from(std::string_view text, bool partial) noex
     return std::nullopt;
 }
 
-// Everything both order reads share.
 std::optional<exec::OrderStatusReport> read_order(const WireOpenOrder& wire,
                                                   const exec::InstrumentTable& table) {
-    // A conditional is DORMANT: `limitPx` is where it WILL rest once triggerPx
-    // prints. The domain cannot say that, and reporting it as a live limit
-    // tells a reconciler about an order that is not in the book. Only the
-    // frontendOpenOrders form carries the flag, which is why that form is read.
+    // a trigger order is dormant and not in the book; only frontendOpenOrders flags it
     if (wire.is_trigger) {
         return std::nullopt;
     }
@@ -455,9 +411,7 @@ std::optional<exec::OrderStatusReport> read_order(const WireOpenOrder& wire,
     }
     const auto& base = base_of(*instrument);
     const auto leaves = to_lots(wire.qty, base);
-    // `sz` is what REMAINS and `origSz` what was sent; an absent original reads
-    // as equal to the remainder rather than guessed, so a row that does not
-    // carry it reports Accepted instead of an invented partial fill.
+    // an absent origSz reads as the remainder, so no partial fill is invented
     const auto total = to_lots(wire.orig_qty.empty() ? wire.qty : wire.orig_qty, base);
     const auto order_id = id_from<ExchangeOrderId>(wire.oid);
     if (!leaves.has_value() || !total.has_value() || !order_id.has_value()) {
@@ -498,10 +452,7 @@ std::string_view cloid_text(const ExchangeClientOrderId& id, std::span<char> out
     if (text.size() != k_ulid_chars || out.size() < k_cloid_chars) {
         return {};
     }
-    // 26 base-32 digits span 130 bits, two more than the number underneath: a
-    // ULID's 48-bit millisecond leaves them clear, so the leading digit never
-    // exceeds 7. Checked BEFORE the accumulation, because those two bits are
-    // exactly the ones the shift drops — by the end the overflow is invisible.
+    // a ulid's leading digit never exceeds 7; checked before the shift drops the top bits
     if (crockford_value(text.front()) >= 8) {
         return {};
     }
@@ -549,24 +500,18 @@ bool cloid_to_ulid(std::string_view cloid, ExchangeClientOrderId& out) noexcept 
 }
 
 std::optional<Instrument> map_spot_instrument(const WireSpotAsset& wire) {
-    // DERIVED, NOT VENUE-STATED — and from the BASE TOKEN's szDecimals, which
-    // is the only place the pair's precision is written down.
+    // derived from the base token's szDecimals
     const auto lot = step_from_decimals(wire.sz_decimals);
     const auto tick = step_from_decimals(k_spot_price_digits - wire.sz_decimals);
     if (!lot.has_value() || !tick.has_value()) {
         return std::nullopt;
     }
-    // The wire coin, "@<index>" for every pair but the canonical PURR/USDC. A
-    // table keyed by the human name matches nothing the venue ever sends.
+    // wire coin, "@<index>" for every pair except PURR/USDC
     const auto symbol = SymbolText::from(wire.name);
     if (!symbol.has_value()) {
         return std::nullopt;
     }
-    // The readable name is BOTH token names, because the quote is not always
-    // USDC. HYPE lists against USDC, USDT0, USDH and USDE — four books at four
-    // prices — and naming them all "HYPE/USDC" hands a board joining venues on
-    // local_symbol four candidates for one leg with no way to choose. The wire
-    // `name` cannot stand in: it is an index no sibling catalogue would know.
+    // local name uses both tokens since one base trades against several quotes
     std::array<char, sizeof(SymbolText::data)> local{};
     if (wire.base.empty() || wire.quote.empty() ||
         wire.base.size() + 1 + wire.quote.size() > local.size()) {
@@ -586,7 +531,7 @@ std::optional<Instrument> map_spot_instrument(const WireSpotAsset& wire) {
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Hyperliquid, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
     base.local_symbol = *local_symbol;
@@ -604,8 +549,7 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
-    // Signed, with no side field beside it to disagree with: a reader that
-    // takes the magnitude reports every short as a long.
+    // signed; the sign is the side
     const auto size = to_float_lots(wire.size, base);
     if (!size.has_value()) {
         return std::nullopt;
@@ -614,8 +558,7 @@ map_position(const WirePosition& wire, const exec::InstrumentTable& table, UnixN
     exec::PositionReport out{};
     out.instrument = base.id;
     out.net_qty = *size;
-    // A weighted average need not land on the tick grid, so an unconvertible
-    // entry is left undefined rather than sinking the position it belongs to.
+    // an off-grid average entry is left undefined
     if (const auto entry = to_ticks(wire.entry_px, base); entry.has_value()) {
         out.avg_entry = *entry;
     }
@@ -646,8 +589,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     out.price = *price;
     out.qty = *qty;
     out.fee = fee_e9(wire.fee);
-    // `crossed` is the whole liquidity signal: true means we took. There is no
-    // third spelling, so Unknown is never the honest answer here.
+    // `crossed` true means taker
     out.liquidity = wire.crossed ? Liquidity::Taker : Liquidity::Maker;
     out.ts_venue = ms_to_unix(wire.ts_ms, UnixNanos{});
     return out;
@@ -672,8 +614,7 @@ std::optional<exec::OrderStatusReport> map_order_status(const WireOrderStatus& w
         return std::nullopt;
     }
     out->status = *status;
-    // A terminal order rests nowhere. Leaving `leaves` at the size the venue
-    // last saw would tell a reconciler there is still work in the book.
+    // a terminal order has no leaves
     if (is_terminal(*status)) {
         out->leaves = QtyLots::from_raw(0);
     }
@@ -691,9 +632,7 @@ std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // VERBATIM. The venue signs `usdc` itself — negative was paid away — and
-    // `szi` beside it only restates which way the position pointed. Taking a
-    // magnitude here would report every payment as income.
+    // `usdc` is signed by the venue; take it as is
     const auto amount = to_amount_e9(wire.usdc);
     if (!amount.has_value()) {
         return std::nullopt; // an unreadable figure is not a zero charge
@@ -704,9 +643,7 @@ std::optional<LedgerEntry> map_funding_charge(const WireFundingCharge& wire,
     charge.amount = *amount;
     charge.kind = LedgerKind::Funding;
     charge.settled_at = ms_to_unix(wire.time_ms, UnixNanos{});
-    // Built rather than carried — map.hpp says why the venue's `hash` cannot
-    // be. Funding settles once an hour per coin, so the pair is unique, and it
-    // is the same text on every replay of the same page.
+    // coin plus settlement stamp: unique per hourly settlement and stable on replay
     std::array<char, 48> key{};
     if (wire.coin.size() + 2 <= key.size()) {
         auto* cursor = std::copy(wire.coin.begin(), wire.coin.end(), key.data());

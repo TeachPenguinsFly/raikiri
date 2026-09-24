@@ -31,48 +31,18 @@ namespace raikiri::venues::aster::internal {
 
 namespace {
 
-// State every aster connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
-// Aster settles funding every eight hours and republishes the running rate
-// continuously; a poll a minute is far finer than the fact changes.
+// the funding rate changes slowly; poll once a minute
 constexpr std::uint64_t k_funding_poll_interval_ns = 60ULL * 1'000'000'000ULL;
 
-// SPACING IS NOT THE CEILING — the rate budget is. Forty seeds a second at
-// weight 5 is 12000 a minute against an allowance of 2400, so this only keeps
-// the queue from arriving as one burst; what actually bounds it is the admit
-// gate installed in the constructor.
-//
-// That was a claim and not a fact until the seed pool was widened: two warm
-// connections bounded it at seven a second instead, and the gate never refused
-// anything. See VenueState::depth_rest for the measurement.
+// spreads seeds out; the admit gate is the real limit
 constexpr std::uint64_t k_seed_spacing_ns = 25ULL * 1'000'000ULL;
 
-// How often a gateway whose books are still cold says so. Long enough to be
-// silence on a healthy start, short enough to answer someone who is looking at
-// an empty depth column and about to go hunting for a bug.
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
-// A 24-hour rolling figure barely moves in a minute, and the whole table
-// costs weight 40 against the funding read's 1. Slow on purpose.
+// the 24h table costs weight 40; poll every five minutes
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
-// THE VENUE'S OWN REFUSAL, APPLIED TO THE POOL EVERY MARKET-DATA CALL DRAWS
-// FROM.
-//
-// The private half of this adapter has always done this — see rest/api.hpp —
-// and the market-data half never did, so a 429 on a book seed was read as one
-// failed snapshot and the budget went on believing it had weight to sell. That
-// is the path that earned this IP a ban twice on 2026-09-06: aster sends 429
-// before it sends 418, and nothing here was listening to the first.
-//
-// The STATUS is read as well as the body, because a ban arrives as 418 with a
-// body carrying a deadline rather than a code this parser knows, and an unread
-// ban is the whole failure.
-//
-// One second, matching what the private half holds for. It drains the bucket,
-// so what resumes afterwards is the refill rate — forty weight a second, or
-// eight seeds — which is the pace aster will actually sell.
+// a 429 or 418 drains the shared bucket for a second
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget == nullptr) {
         return;
@@ -86,10 +56,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
     state.budget->penalize_all(state.clock->mono(), 1'000'000'000ULL);
 }
 
-// Fires the REST read that seeds one book. The response lands on the gateway
-// thread through IoContext::poll, so nothing here synchronises; a send that the
-// pool or the rate budget refuses is left alone, because the next delta asks
-// again.
+// a send refused by the pool or budget is retried on the next delta
 [[nodiscard]] bool request_seed(VenueState& state, DepthBook& book, const InstrumentBase& base) {
     const auto id = base.id;
     auto* owner = &state;
@@ -119,18 +86,13 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
             return;
         }
         const auto ts_event = ms_to_unix(wire->transaction_ms, response.received);
-        // NOT `book`: the enclosing function takes a DepthBook& by that name,
-        // and shadowing it here reads as the ladder rather than the snapshot
-        // taken from it.
         if (const auto seeded = target.snapshot(ts_event, response.received); seeded.has_value()) {
             owner->sink->on_depth(*seeded);
         }
     };
     if (!state.depth_rest.send(
             state.builder.depth_snapshot(base.exchange_symbol.view(), k_seed_depth), handled)) {
-        // Refused — a full pool, or a budget with no weight left to sell. The
-        // caller marked the book in flight when it queued the seed, so that has
-        // to be undone or the book waits for a request nobody made.
+        // undo the in-flight mark so the book can ask again
         book.seed_failed();
         return false;
     }
@@ -152,11 +114,9 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     const auto entry =
         state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size).first;
     auto& book = entry->second;
-    // Asked before the delta is offered, so the frame that triggered the seed
-    // is itself buffered behind it.
+    // checked before offering so the triggering frame is buffered behind the seed
     if (book.wants_seed()) {
-        // QUEUED, not fired. The pacing lives in poll(); see state.hpp for what
-        // firing them all at once cost.
+        // queued; poll() paces the seeds
         if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
             state.pending_seeds.push_back(base.id);
         }
@@ -165,11 +125,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     if (book.apply(*wire) != BookResult::Applied) {
         return; // unseeded, stale or resynchronising: silence, never a guess
     }
-    // ASKED BEFORE THE SNAPSHOT IS BUILT, which is the expensive half: a
-    // BookSnapshot is 3.2 KB of arrays value-initialised and filled, and the
-    // cell it lands in keeps only the latest value. Measured on kucoin,
-    // 2026-09-19: the same guard took that gateway from 44.5% to 37.6% of a
-    // core.
+    // skip building the snapshot when the sink does not want it
     if (!state.sink->wants_depth(base.id, received)) {
         return;
     }
@@ -180,11 +136,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
 }
 
 void handle_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    // UNWRAPPED ONCE, not twice. Every unwrap and every open is a memcpy of
-    // the frame into the session's scratch plus a full structural scan of it;
-    // reading the event kind and then the payload used to cost four of them
-    // per message. Order matters here — the payload must come first so the
-    // event can be read out of it rather than out of the frame again.
+    // unwrap once and read the event from the payload
     const auto data = unwrap(frame);
     if (!data.has_value()) {
         return;
@@ -248,9 +200,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its
-    // own streams when it opens; replaying the whole desired set on every one
-    // of them is the flood the pool exists to avoid.
+    // each socket resubscribes its own streams on open
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -280,9 +230,7 @@ public:
                 handler_,
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }} {
-        // The seeds, the funding pull and the 24-hour table all ride this one
-        // pool, and aster counts every one of them against the same weight
-        // the order path spends.
+        // seeds, funding and ticker polls share the order path's weight
         meter_market_data(*state_, state_->depth_rest);
     }
 
@@ -302,8 +250,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -334,9 +280,7 @@ public:
         if (state_->desired_streams.size() == before) {
             return {}; // already placed on a socket; a stream is asked for once
         }
-        // THE POOL PLACES IT. A stream that does not fit on any existing socket
-        // opens another, and only the pool's own ceiling refuses — which is
-        // said out loud rather than leaving the instrument silently unwatched.
+        // the pool opens another socket when none has room
         const std::array<std::string, 1> one{std::string{stream}};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -365,28 +309,13 @@ public:
     }
 
 private:
-    // A BOOK THAT NEVER SEEDS IS SILENT, AND SILENCE READS AS A DEAD VENUE.
-    //
-    // The whole catalogue is 571 seeds at weight 5 — 2855 against an allowance
-    // of 2400 a minute — so a full-catalogue start CANNOT have its books up
-    // inside one minute's allowance whatever it does, and spends that minute
-    // with most instruments publishing no ladder. That is what the venue
-    // sells and not a fault. What WAS a fault is that nothing said so: every
-    // depth column on the board was blank, `depth=` in the shutdown line was
-    // already in the hundreds of thousands from the handful of books that had
-    // come up, and gaps() and reseeds() were counted here and read by nobody.
-    // A warming gateway and a stopped one looked identical.
+    // logs cold books so a warming gateway is distinguishable from a stopped one
     void report_books(UnixNanos now) noexcept {
         if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
             return;
         }
         report_due_ns_ = now.ns + k_book_report_interval_ns;
-        // BEHIND, NOT MERELY RESYNCHRONISING. A book that lost its chain is
-        // cold for one round trip, and saying so every fifteen seconds is the
-        // check that cries wolf — and an ignored check is worse than none. The
-        // venue is BEHIND when seeds are still queued, or when something was
-        // cold at the previous look too and has therefore been cold for a
-        // quarter of a minute.
+        // report only when seeds are queued or a book was also cold at the previous look
         const auto cold = cold_books();
         const bool behind = cold != 0 && (!state_->pending_seeds.empty() || cold_before_ != 0);
         cold_before_ = cold;
@@ -405,7 +334,6 @@ private:
                   state_->pending_seeds.size());
     }
 
-    // The last word on the books, and the only reader gaps() and reseeds() have.
     void report_final() const noexcept {
         if (state_->books.empty() || !has_logger()) {
             return;
@@ -436,16 +364,10 @@ private:
             state_->books, [](const auto& entry) { return !entry.second.live(); }));
     }
 
-    // A LIBRARY MAY NOT ASSUME THE PROCESS INSTALLED A LOGGER, and RLOG_*
-    // dereferences it. Every other library here reports through a callback the
-    // app hands it, and there is none for this: the gateway asks an adapter to
-    // subscribe, hears the refusal, and then never asks it anything again.
+    // the process may not have installed a logger
     [[nodiscard]] static bool has_logger() noexcept { return ::raikiri::log::logger() != nullptr; }
 
-    // One book seed per tick, and only while the budget will still sell one.
-    // A refused seed keeps its place in the queue AND leaves `next_seed_ns`
-    // where it was, so the next tick asks again rather than the book waiting
-    // for a request nobody made.
+    // one seed per tick; a refused seed keeps its queue place and next_seed_ns
     void drain_seeds(UnixNanos now) noexcept {
         if (state_->pending_seeds.empty() || now.ns < state_->next_seed_ns) {
             return;
@@ -468,9 +390,7 @@ private:
         state_->next_seed_ns = now.ns + k_seed_spacing_ns;
     }
 
-    // One call covers every symbol, so there is no cursor and no per-symbol
-    // fan-out: the whole table refreshes on each poll and only the instruments
-    // somebody subscribed reach the sink.
+    // one call covers every symbol
     void poll_funding(UnixNanos now) noexcept {
         if (state_->funding_instruments.empty() || now.ns < state_->next_funding_poll_ns ||
             in_flight_) {
@@ -488,13 +408,11 @@ private:
             in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next minute.
+        // only a sent request advances the schedule
         state_->next_funding_poll_ns = now.ns + k_funding_poll_interval_ns;
     }
 
-    // Rides the funding subscription's instrument list: aster has no
-    // separate way to say "I want turnover for this symbol", and a gateway
-    // that subscribed to neither should not be paying weight for either.
+    // uses the funding subscription list; aster has no separate turnover subscription
     void poll_ticker(UnixNanos now) noexcept {
         if (state_->funding_instruments.empty() || now.ns < next_ticker_poll_ns_ ||
             ticker_in_flight_) {
@@ -512,7 +430,6 @@ private:
             ticker_in_flight_ = false;
             return;
         }
-        // Only a call the venue was actually asked buys the next five minutes.
         next_ticker_poll_ns_ = now.ns + k_ticker_poll_interval_ns;
     }
 
@@ -576,24 +493,14 @@ private:
         }
     }
 
-    // A pool key is one stream string. Aster's desired set is already a flat
-    // list of stream names, so nothing is encoded into the key and taken apart
-    // here.
-    //
-    // Called on every open of ONE socket, which is why the ordering lives here
-    // rather than at subscribe time: on a reconnect the order that matters is
-    // the order the venue is asked in. One frame carries at most the table's
-    // ws_frame, so a full socket is 32 frames and eight seconds.
+    // called on every socket open; one frame carries at most the table's ws_frame
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams;
         streams.reserve(keys.size());
         for (const auto& key : keys) {
             streams.push_back(key);
         }
-        // THE QUOTE FIRST, then the rest. Once the sends are paced, whatever
-        // goes last effectively does not go at all — and `@bookTicker` is this
-        // venue's top of book: it is the suffix stream_name() builds for
-        // SubKind::Bbo, and it feeds the Bid/Ask columns every screen shows.
+        // @bookTicker first; with paced sends the last streams wait longest
         std::ranges::stable_partition(
             streams, [](std::string_view stream) { return stream.ends_with("@bookTicker"); });
 

@@ -18,31 +18,12 @@ namespace raikiri::venues::bingx::internal {
 
 namespace {
 
-// A listen key is valid one hour and BingX recommends extending every thirty
-// minutes. Twenty leaves room for a missed tick and a failed extension inside
-// the window rather than discovering the key is dead from a listenKeyExpired
-// push with orders working.
+// keys live an hour; extend every twenty minutes
 constexpr std::uint64_t k_listen_key_interval_ns = 20ULL * 60 * 1'000'000'000ULL;
 
-// A desk with more than this many orders awaiting an answer at once has a
-// problem no table size fixes.
 inline constexpr std::size_t k_max_unanswered = 512;
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the user stream, and nothing
-// on either side can tell whether the other happened. This class is the only
-// thing that knows both: it holds the table of orders handed over and not yet
-// answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
-//
-// It also owns the listen key, because the key is what the private socket
-// authenticates with and REST is the only place to mint one: neither half can
-// hold it alone.
-//
-// Order entry over REST on both trees, with the lifecycle arriving on the
-// matching user stream. A successful create emits nothing: it only seeds the
-// memo a later fill reads its own id out of.
+// tracks orders sent over rest and not yet answered on the user stream, and owns the listen key
 class BingxExec final : public exec::ExecutionClient {
 public:
     BingxExec(std::shared_ptr<VenueState> state, MarketType market)
@@ -51,8 +32,7 @@ public:
 
     ~BingxExec() override { state_->private_poll = nullptr; }
 
-    // This object registers itself in state the DATA client also holds, so a
-    // copy would leave two registrations and one of them dangling.
+    // registers in state shared with the data client
     BingxExec(const BingxExec&) = delete;
     BingxExec& operator=(const BingxExec&) = delete;
     BingxExec(BingxExec&&) = delete;
@@ -73,8 +53,7 @@ public:
 
     void stop() override {
         state_->private_poll = nullptr;
-        // Best effort, and before the pool closes: a key left open keeps a
-        // socket slot alive on BingX's side for an hour after we are gone.
+        // best effort before the pool closes; an open key holds a venue socket slot for an hour
         if (started_ && !key_.empty()) {
             if (const auto request = api_.builder().listen_key_close(key_, state_->venue_now());
                 request.has_value()) {
@@ -102,18 +81,13 @@ public:
         return true;
     }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps dead rest connections so an idle gateway does not send into a closed socket
     void poll(UnixNanos now) noexcept override {
         api_.keepalive(now);
         sweep_unanswered();
     }
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because whether the venue acted is the one
-    // thing this process cannot know. Reconciliation closes these.
+    // unanswered orders are reported as gaps; reconciliation closes them
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -132,7 +106,7 @@ public:
             event.exchange_client_order_id = stale.exchange_client_order_id;
             event.side = stale.side;
             event.qty = stale.qty;
-            // UNDEF, not zero: zero leaves would read as "nothing is working".
+            // undef: zero would mean nothing is working
             event.leaves_qty = QtyLots::undef();
             event.ts_event = state_->clock->wall();
             event.ts_init = event.ts_event;
@@ -147,18 +121,12 @@ public:
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
     void cancel_batch(std::span<const OrderCmd> cmds) noexcept override {
-        // Deliberately one call each. BingX's array endpoints exist, but its
-        // own documentation spells their client-id list two ways on one page,
-        // and a batch naming the field BingX does not bind cancels NOTHING
-        // while answering success.
+        // one call per order; bingx's batch client-id field is ambiguous and a wrong name cancels nothing
         for (const auto& cmd : cmds) {
             cancel(cmd);
         }
     }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -190,8 +158,6 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. The three share one path
-    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
     void fire(const OrderCmd& cmd, Kind kind) noexcept {
@@ -207,11 +173,7 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(request.error())));
             return;
         }
-        // REFUSED HERE RATHER THAN BY THE VENUE. 177 of the online perps are
-        // closed to API orders and say so in the catalogue; sending anyway
-        // spends a round trip to be told no, in a message that reads like a
-        // defect in this adapter. A CANCEL IS NOT CHECKED — if an order ever
-        // did rest there, it must still be possible to take it back.
+        // creates on api-closed contracts are refused locally; cancels are always sent
         if (kind == Kind::Create &&
             !state_->orderable(state_->instruments.exchange_symbol(cmd.instrument))) {
             emit_reject(cmd,
@@ -229,8 +191,7 @@ private:
                         exec::VenueError::make(exec::ErrorClass::Retryable, 0, "rest queue full"));
             return;
         }
-        // ON THE WIRE AND UNANSWERED, recorded before the callback that may
-        // never run.
+        // recorded before the callback that may never run
         (void)unanswered_.add({.client_order_id = cmd.client_order_id,
                                .exchange_client_order_id = cmd.exchange_client_order_id,
                                .instrument = cmd.instrument,
@@ -241,14 +202,12 @@ private:
     }
 
     void on_response(net::RestResponse&& response, const OrderCmd& cmd, Kind kind) {
-        // Any answer settles it, including a refusal: the table tracks silence.
+        // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)unanswered_.resolve(cmd.client_order_id);
         }
         if (response.transport_failed()) {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed, and calling that a refusal is how a process
-            // records a rejection opposite a live position.
+            // the request may have reached the matcher, so report an error only
             state_->sink->on_order_error(
                 cmd.client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -263,9 +222,7 @@ private:
         const bool accepted = http_ok && envelope.has_value() && envelope->code == k_ok;
         if (accepted) {
             if (kind == Kind::Create) {
-                // The ack carries the venue order id and little else. Seeding
-                // the memo here is what lets a spot fill — whose push names no
-                // client order id at all — still say whose it is.
+                // seeding the memo lets a spot fill, which has no client id, be attributed
                 if (const auto ack = parse_order_ack(response.body); ack.has_value()) {
                     state_->remember(ack->order_id, cmd.exchange_client_order_id);
                 }
@@ -289,9 +246,7 @@ private:
             exec::VenueError::make(classify(envelope->code), envelope->code, envelope->msg));
     }
 
-    // The reason is not optional. `OrderEvent` has no room for text, so every
-    // refusal hands the sink the verdict that caused it — otherwise an order
-    // that dies here is indistinguishable from one that was never sent.
+    // every refusal carries the venue's verdict to the sink
     void emit_reject(const OrderCmd& cmd, Kind kind, const exec::VenueError& error) noexcept {
         state_->sink->on_order_error(cmd.client_order_id, error);
         OrderEvent event{};
@@ -307,17 +262,14 @@ private:
         event.exchange_client_order_id = cmd.exchange_client_order_id;
         event.qty = cmd.qty;
         event.price = cmd.price;
-        // A create that never reached the book leaves nothing behind; a refused
-        // cancel or amend leaves the order exactly as it was.
+        // a refused cancel or amend leaves the order as it was
         event.leaves_qty = kind == Kind::Create ? QtyLots::from_raw(0) : cmd.qty;
         event.ts_event = state_->clock->wall();
         event.ts_init = event.ts_event;
         state_->sink->on_order_event(event);
     }
 
-    // Blocking, and only at start(): the sockets cannot connect without a key
-    // and a cold start is the one place a round trip costs nothing. ONE key
-    // serves both trees — the endpoint is account-level, not per-market.
+    // blocking, at start only; one key serves both trees
     [[nodiscard]] bool mint_listen_key() {
         const auto request = api_.builder().listen_key_create(state_->venue_now());
         if (!request.has_value()) {
@@ -325,9 +277,7 @@ private:
             return false;
         }
         const auto response = api_.fetch_raw(*request);
-        // This endpoint answers in HTTP statuses and no envelope at all, so
-        // fetch() cannot read it: 404 here is a key BingX does not know, not a
-        // path that moved (VERIFIED against production with a made-up key).
+        // no envelope here: 404 means bingx does not know the key
         if (!response.has_value() || response->transport_failed() || response->status != 200) {
             state_->key_stale = true;
             return false;
@@ -357,8 +307,7 @@ private:
         }
     }
 
-    // Asynchronous on purpose: this runs on the gateway's poll, where one
-    // BingX timeout would stall every other venue for the length of it.
+    // async so a slow bingx call does not stall other venues on the poll
     void refresh_key() noexcept {
         if (key_in_flight_) {
             return;
@@ -386,9 +335,7 @@ private:
         key_.assign(*key);
         state_->key_stale = false;
         key_due_ns_ = state_->clock->mono().ns + k_listen_key_interval_ns;
-        // The key rides the URL, so a fresh key only takes effect on a fresh
-        // connection. The rebuild waits for the next tick rather than
-        // destroying two sockets from inside an io completion handler.
+        // the key rides the url; streams rebuild on the next tick, outside the io handler
         rebuild_streams_ = true;
     }
 
@@ -418,9 +365,7 @@ private:
         keepalive_in_flight_ = true;
         if (!api_.send(*request, [this](net::RestResponse&& response) {
                 keepalive_in_flight_ = false;
-                // 404 is BingX saying the key is gone. Anything else, including
-                // a transport failure, is a tick to retry rather than a reason
-                // to tear two sockets down.
+                // only 404 means the key is gone; anything else retries
                 if (!response.transport_failed() && response.status == 404) {
                     state_->key_stale = true;
                 }
@@ -441,7 +386,6 @@ private:
     bool spot_{false};
     bool perp_{false};
     bool started_{false};
-    // Orders handed to the transport and not yet answered.
     exec::InFlightTable unanswered_{k_max_unanswered};
 };
 

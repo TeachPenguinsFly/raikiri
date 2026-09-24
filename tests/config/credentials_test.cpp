@@ -23,9 +23,6 @@ struct EnvVar {
 };
 
 TEST(Credentials, NothingNamedIsAPublicGatewayRatherThanAFailure) {
-    // The distinction the whole class turns on: a venue with no key reads
-    // market data perfectly well, and reporting that as a misconfiguration
-    // would make every public gateway look broken at startup.
     bool installed = false;
     const auto failures =
         Credentials{"", "", ""}.key([&](std::string_view) { installed = true; }).resolve();
@@ -35,8 +32,6 @@ TEST(Credentials, NothingNamedIsAPublicGatewayRatherThanAFailure) {
 }
 
 TEST(Credentials, EachFailureNamesTheFieldItCameFrom) {
-    // A typo in one reference must not read as a typo in another: the caller
-    // logs this, and "credential failed" sends a person to the wrong line.
     const auto failures = Credentials{"nope:key", "nope:secret", "nope:phrase"}
                               .key([](std::string_view) {})
                               .secret([](std::string_view) {})
@@ -68,14 +63,11 @@ TEST(Credentials, TheSigningSecretLandsInTheCallersOwnSecret) {
     const auto failures = Credentials{"", "env:RAIKIRI_TEST_CRED_SECRET"}.secret(into).resolve();
 
     EXPECT_TRUE(failures.empty());
-    // Straight into the caller's Secret: no std::string copy exists anywhere,
-    // which is the only reason the mlock and the zeroing mean anything.
     EXPECT_EQ(into.view(), "s3cr3t");
 }
 
 TEST(Credentials, AnEncodedSecretIsHandedOverForDecodingAndNotKept) {
-    // Coinbase's shape: the printable form must be decoded before it signs, so
-    // the caller sees the encoded bytes and stores whatever it made of them.
+    // coinbase decodes the printable secret before signing
     const EnvVar secret{"RAIKIRI_TEST_CRED_B64", "aGVsbG8="};
     std::string seen;
     const auto failures = Credentials{"", "env:RAIKIRI_TEST_CRED_B64"}

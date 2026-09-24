@@ -90,7 +90,6 @@ public:
                 if (!id.has_value()) {
                     continue; // duplicate or table full: reported by count, not by throw
                 }
-                // The table rewrote the id to the slot that indexes it.
                 loaded.push_back(*state_->instruments.find(*id));
             }
         }

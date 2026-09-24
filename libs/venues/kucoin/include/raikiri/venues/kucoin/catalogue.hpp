@@ -1,10 +1,5 @@
 #pragma once
 
-// What the venue lists, and the numbers that decide whether an order it
-// accepts is an order it will fill. Two hosts, two shapes: the futures
-// contract row and the spot symbol row share nothing but the name of the
-// symbol.
-
 #include <raikiri/venues/kucoin/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -16,8 +11,7 @@
 
 namespace raikiri::venues::kucoin {
 
-// `multiplier` is how many base units one CONTRACT is worth; inverse rows
-// (isInverse, coin-settled, sized in USD) state -1 and are refused by the mapper.
+// base units per contract; inverse rows state -1 and are refused
 struct WireContract {
     std::string_view symbol;
     std::string_view base_currency; // "XBT" where the symbol says XBTUSDTM
@@ -31,15 +25,11 @@ struct WireContract {
     std::string_view multiplier;
     std::string_view index_tick_size;
     std::string_view max_order_qty;
-    // The 24-hour window rides the CATALOGUE row on this venue: kucoin
-    // states no turnover on any stream the adapter subscribes to, and the
-    // endpoint that lists the contracts states it per contract.
+    // kucoin states 24h turnover only on the catalogue row
     std::string_view volume_24h;   // volumeOf24h, base asset
     std::string_view turnover_24h; // turnoverOf24h, quote currency
     std::uint64_t funding_granularity_ms{0};
-    // FUNDING RIDES THIS ROW TOO, and on the unified feed it is the only
-    // place it rides: UTA v2 carries books and nothing else, so a gateway on
-    // it has no funding stream at all. Empty when the contract states none.
+    // the only funding source on the uta feed; empty when the contract states none
     std::string_view funding_fee_rate;           // fundingFeeRate
     std::string_view predicted_funding_fee_rate; // predictedFundingFeeRate, null in practice
     std::uint64_t next_funding_ms{0};            // nextFundingRateDateTime
@@ -54,8 +44,7 @@ struct ContractBuffer {
 [[nodiscard]] std::expected<std::span<const WireContract>, WireError>
 parse_contracts(std::string_view body, ContractBuffer& storage);
 
-// GET /api/v2/symbols on the SPOT host. `base_increment` is the lot step and
-// `price_increment` the tick; `min_funds` is a quote-currency floor, not a size.
+// base_increment is the lot step, price_increment the tick, min_funds a quote-currency floor
 struct WireSpotSymbol {
     std::string_view symbol;
     std::string_view base_increment;
@@ -73,8 +62,7 @@ struct SpotSymbolBuffer {
 [[nodiscard]] std::expected<std::span<const WireSpotSymbol>, WireError>
 parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage);
 
-// GET /api/v1/market/allTickers on the SPOT host: the only place spot states
-// its 24-hour window. `vol` is the base asset, `volValue` the quote.
+// the only place spot states its 24h window; vol is base, volValue quote
 struct WireSpotTicker {
     std::string_view symbol;
     std::string_view vol;

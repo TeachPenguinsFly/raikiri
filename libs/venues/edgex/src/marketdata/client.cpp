@@ -141,8 +141,7 @@ private:
         EdgexData* owner_;
     };
 
-    // A reopened socket broke the version chain of the books it carries; the
-    // snapshot each resubscription brings is the only way back.
+    // a reopened socket broke the version chain; the resubscription's snapshot restores it
     void on_socket_open(std::span<const std::string> keys) {
         for (const auto& key : keys) {
             if (const auto book = state_->books.find(depth_contract(key));
@@ -162,7 +161,7 @@ private:
             on_depth(frame, received);
             break;
         case EventKind::Trades:
-            // The Snapshot is a backlog of up to thirty old prints.
+            // the snapshot is a backlog of old prints
             if (!event->snapshot) {
                 on_trades(frame, received);
             }
@@ -224,7 +223,7 @@ private:
         if (result != BookResult::Applied && result != BookResult::Resynced) {
             return;
         }
-        // No depth frame carries a timestamp.
+        // no depth frame carries a timestamp
         if (const auto top = book.top(received, received); top.has_value()) {
             state_->sink->on_bbo(*top);
             state_->priced.insert(wire->contract_id);

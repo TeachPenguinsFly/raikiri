@@ -113,10 +113,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        // ONE ELEMENT, ALWAYS — 491 of 491 frames measured. A second would be a
-        // second symbol's window under this frame's `s`, so only the first is
-        // read and a shape that grew would be caught by the count rather than
-        // silently filed under the wrong instrument.
+        // one element per frame; a second would belong to another symbol
         bool filled = false;
         for (auto entry : *array) {
             if (filled) {

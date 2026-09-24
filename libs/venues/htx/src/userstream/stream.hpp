@@ -1,12 +1,5 @@
 #pragma once
 
-// The private sockets, and only those.
-//
-// They authenticate, subscribe, answer the venue's keepalive and turn each
-// frame into an event on the sink. They send no orders: an order goes out over
-// REST and is ANSWERED here, and joining those two halves is the execution
-// client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/htx/envelope.hpp>
 #include <raikiri/venues/htx/map.hpp>
@@ -25,9 +18,7 @@ namespace raikiri::venues::htx::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
-// Every HTX socket but the spot v2 one gzips its frames, and libs/net hands on
-// the bytes unchanged. A payload that carries no gzip magic is passed through
-// rather than refused, so one handler shape serves both dialects.
+// spot v2 is plain text; payloads without gzip magic pass through
 std::optional<std::string_view>
 decode_frame(net::Inflater& inflater, std::string_view payload, std::uint64_t& failures) {
     const auto inflated = inflater.inflate(payload);
@@ -41,13 +32,9 @@ decode_frame(net::Inflater& inflater, std::string_view payload, std::uint64_t& f
     return std::nullopt;
 }
 
-// Emits the lifecycle event an order frame reports, and one Filled per trade
-// the same frame carries.
 void publish_order(VenueState& state, const WireOrder& wire, UnixNanos received) {
     const auto leaves = order_leaves(wire, state.instruments);
     for (const auto& fill : wire.fills) {
-        // Leaves after THIS frame's trades is the best the swap states; a
-        // per-trade running total would have to assume the array is ordered.
         if (const auto event = map_fill(
                 wire, fill, state.instruments, leaves.value_or(QtyLots::from_raw(0)), received);
             event.has_value()) {
@@ -60,9 +47,7 @@ void publish_order(VenueState& state, const WireOrder& wire, UnixNanos received)
     state.remember(wire);
 }
 
-// The USDT-M swap's private socket. Same host, path and gzip as the funding
-// notification stream — HTX serves public and private topics from one
-// endpoint — but this one signs a handshake first, so it is its own connection.
+// same endpoint as the funding stream, but signed, so it gets its own connection
 class SwapPrivateHandler final : public net::WsHandler {
 public:
     explicit SwapPrivateHandler(VenueState& state) : state_{&state} {}
@@ -130,9 +115,7 @@ private:
                                            .ts = state_->clock->wall()});
             return;
         }
-        // matchOrders_cross is deliberately NOT subscribed: it repeats the very
-        // trades orders_cross already carries inline, and without trade_fee.
-        // Emitting from both would attribute one fill to two events.
+        // matchOrders_cross is not subscribed: it repeats orders_cross trades without the fee
         const auto frames = std::array<std::string_view, 1>{k_swap_orders_topic};
         for (const auto& topic : frames) {
             const auto sub = state_->protocol.swap_private_subscribe_frame(topic);
@@ -153,10 +136,7 @@ private:
     net::Inflater inflater_;
 };
 
-// The spot private socket: a different host, a different dialect, and — alone
-// among HTX's sockets — plain text rather than gzip. Its orders channel states
-// what an order has LEFT but never a fee, and trade.clearing states the fee but
-// is the only place the exec id exists, so a fill needs both.
+// plain text; orders carry leaves, and trade.clearing carries the fee and exec id
 class SpotPrivateHandler final : public net::WsHandler {
 public:
     explicit SpotPrivateHandler(VenueState& state) : state_{&state} {}
@@ -262,10 +242,6 @@ private:
     net::Inflater inflater_;
 };
 
-// One private socket and the client that drives it, owned as one thing so a
-// caller cannot hold the handler without the client it is attached to. Spot and
-// the swap are different hosts carrying different dialects, so an account
-// trading both holds two of these.
 template <typename Handler> class PrivateStream {
 public:
     PrivateStream(VenueState& state, std::string_view host, std::string_view path)

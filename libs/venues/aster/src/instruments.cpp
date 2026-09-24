@@ -50,9 +50,7 @@ public:
         : state_{std::move(state)},
           rest_{state_->io,
                 net::RestConfig{.host = std::string{rest_host(state_->testnet)}, .port = "443"}} {
-        // Two calls, weight 1 each, against a bucket still at capacity — and
-        // they are the one market-data caller with no next tick, so a refusal
-        // here surfaces as a gateway that will not start rather than a retry.
+        // a refusal here stops gateway start; there is no retry tick
         meter_market_data(*state_, rest_);
     }
 
@@ -84,15 +82,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(wire.error()))};
         }
 
-        // THE SETTLEMENT SCHEDULE, WHICH exchangeInfo DOES NOT CARRY. Kept
-        // alive here because the rows below hold views into it.
-        //
-        // A failure leaves every interval at 0 and the catalogue still loads:
-        // the gateway trades the same either way, and the only thing an
-        // unstated interval costs is that a carry board refuses those rows —
-        // which is the honest outcome. Defaulting them to eight hours instead
-        // would put aster's 465 four-hour perps on the board at half the
-        // funding they actually pay.
+        // on failure every interval stays 0 and the catalogue still loads
         struct Schedule {
             std::uint32_t interval_s{0};
             FixedE9 cap{};
@@ -116,9 +106,7 @@ public:
                 for (const auto& row : *rows) {
                     Schedule entry{};
                     entry.interval_s = row.interval_hours * 3600U;
-                    // A cap that will not parse is left UNDEF rather than
-                    // clamped to something: "we do not know the ceiling" and
-                    // "the ceiling is zero" lead to opposite decisions.
+                    // an unparsable cap stays undef
                     if (const auto cap = parse_decimal_e9(row.cap); cap.has_value()) {
                         entry.cap = *cap;
                     }

@@ -16,13 +16,7 @@ namespace raikiri::venues::bybit::internal {
 
 namespace {
 
-// Where the socket meets the REST call.
-//
-// An order goes OUT over REST and comes BACK on the private socket, and
-// nothing on either side can tell whether the other happened. This class is
-// the only thing that knows both: it holds the table of orders handed over and
-// not yet answered, ages them out, and synthesises the gap event that stops an
-// unanswered order sitting open forever in the strategy's book.
+// tracks orders sent over rest until the private socket answers; unanswered ones age out as gaps
 class BybitExec final : public exec::ExecutionClient {
 public:
     explicit BybitExec(std::shared_ptr<VenueState> state)
@@ -52,9 +46,6 @@ public:
 
     void amend(const OrderCmd& cmd) noexcept override { fire(cmd, Kind::Amend); }
 
-    // Forwarded, not reimplemented. These are reconciliation reads and belong
-    // to the REST api; ExecutionClient names them because the gateway's
-    // pollers reach a venue through one handle.
     std::expected<std::vector<exec::OrderStatusReport>, exec::VenueError>
     open_order_reports(MarketType market) override {
         return api_.open_order_reports(market);
@@ -86,14 +77,9 @@ public:
     }
 
 private:
-    // What a command is asking the venue to do. The three share one path
-    // because they share one failure: an unanswered request.
     enum class Kind : std::uint8_t { Create, Cancel, Amend };
 
-    // AN ORDER NOBODY ANSWERED IS NOT A REFUSED ORDER. Reported as a gap —
-    // audit only, moving no status — because the one thing this process cannot
-    // know is whether the venue acted. Reconciliation asks the venue what it
-    // holds and is what finally closes these.
+    // unanswered orders are reported as gaps without a status change; reconciliation closes them
     void sweep_unanswered() noexcept {
         if (state_->order_answer_timeout_ns == 0) {
             return;
@@ -117,8 +103,7 @@ private:
         event.exchange_client_order_id = stale.exchange_client_order_id;
         event.side = stale.side;
         event.qty = stale.qty;
-        // UNDEF, not zero: leaves of zero would read as "nothing is working",
-        // and whether anything is working is exactly what is unknown here.
+        // undef: whether anything is working is unknown
         event.leaves_qty = QtyLots::undef();
         event.ts_init = state_->clock->wall();
         event.ts_event = event.ts_init;
@@ -152,8 +137,7 @@ private:
             reject(cmd, "rest queue full");
             return;
         }
-        // ON THE WIRE AND UNANSWERED. Recorded here rather than in the callback
-        // because the callback is exactly what may never run.
+        // recorded before the callback because the callback may never run
         (void)in_flight_.add({.client_order_id = cmd.client_order_id,
                               .exchange_client_order_id = cmd.exchange_client_order_id,
                               .instrument = cmd.instrument,
@@ -169,17 +153,12 @@ private:
                      Side side,
                      QtyLots qty,
                      Kind kind) {
-        // Any answer at all settles it, including a refusal: what the table
-        // tracks is silence, not failure.
+        // any answer settles it; the table tracks silence
         if (!response.transport_failed()) {
             (void)in_flight_.resolve(client_order_id);
         }
         if (response.transport_failed()) {
-            // NOT A REJECTION. The request may have reached the matcher before
-            // the read failed — that is how this process once recorded a refusal
-            // opposite a position bybit really held. The order stays in the
-            // table, the desk is told the transport's own words, and the sweep
-            // above reports it as a gap if no answer ever arrives.
+            // a transport failure is not a rejection: the order may have reached the matcher
             state_->sink->on_order_error(
                 client_order_id,
                 exec::VenueError::make(exec::ErrorClass::Connectivity,
@@ -218,9 +197,7 @@ private:
                         classify(envelope->ret_code), envelope->ret_code, envelope->ret_msg));
     }
 
-    // The reason is not optional. Every refusal here reaches the sink with the
-    // verdict that caused it, because the terminal event itself has no room for
-    // one and a rejection nobody can explain costs an hour at the exchange.
+    // the reason goes on on_order_error; the terminal event has no field for it
     void emit_reject(ClientOrderId client_order_id,
                      InstrumentId instrument,
                      Side side,

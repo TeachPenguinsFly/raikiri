@@ -1,11 +1,6 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held. None of them belongs to the order path — they run on a
-// poller's schedule and pump the reactor until the answer arrives, which an
-// order may never do.
+// signed reconciliation reads; they pump the reactor until answered
 
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/coinbase/envelope.hpp>
@@ -22,9 +17,7 @@
 
 namespace raikiri::venues::coinbase::internal {
 
-// A refusal to build is terminal by construction: the same command built again
-// produces the same refusal. NotSigned is the exception, and it points at the
-// config rather than at the venue.
+// build refusals are terminal; NotSigned points at the config
 inline exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
@@ -32,7 +25,7 @@ inline exec::VenueError build_failure(BuildError err) noexcept {
                                   to_string(err));
 }
 
-// The body may not parse; the status classifies either way.
+// the status classifies even when the body does not parse
 inline exec::VenueError http_failure(const net::RestResponse& response) noexcept {
     const auto message = parse_rest_error(response.body);
     return exec::VenueError::make(classify_http(response.status),
@@ -54,14 +47,10 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // The order path's heartbeat. The REST pool drops a connection the venue
-    // has already closed only if something sweeps it; nothing did, so an idle
-    // gateway wrote its next order into a dead socket and read back an end of
-    // stream — after the venue had filled it.
+    // sweeps connections the venue closed so an idle gateway does not write into a dead socket
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
+    // the order path is async; everything else here is a synchronous read
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool send(const net::RestRequest& request, net::RestCallback on_done) {
@@ -118,9 +107,7 @@ public:
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(order.error()))};
         }
-        // The id asked about is the one reported back: the UUID that travelled
-        // cannot be turned into a ULID, and the caller already holds the one
-        // it wanted.
+        // the uuid cannot be turned back into a ulid, so the caller's id is reported
         auto report = map_open_order(*order, state_->instruments, id);
         if (!report.has_value()) {
             return std::unexpected{
@@ -135,11 +122,7 @@ public:
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
         }
-        // GET /fills requires order_id OR product_id — "Either `order_id` or
-        // `product_id` is required" — and this call names only a market.
-        // Sweeping the 800-odd listed products would be a guess at which ones
-        // matter, and an empty vector reads as "no fills", the one answer a
-        // reconciler must not be handed wrongly.
+        // GET /fills needs order_id or product_id, and this call names only a market
         return std::unexpected{exec::not_implemented("coinbase fill pull is per-product")};
     }
 
@@ -148,10 +131,7 @@ public:
         if (const auto refusal = market_refusal(market); refusal.has_value()) {
             return std::unexpected{build_failure(*refusal)};
         }
-        // A coin balance is not a position: one BTC balance backs BTC-USD,
-        // BTC-EUR and BTC-USDT alike, and there is no InstrumentId to report
-        // it against. Answering "flat" would be a claim about a concept this
-        // API does not have.
+        // a coin balance backs many products and maps to no position
         return std::unexpected{exec::not_implemented("coinbase spot position pull")};
     }
 

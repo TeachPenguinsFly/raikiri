@@ -1,9 +1,5 @@
 #pragma once
 
-// What the venue lists, and the numbers that decide whether an order it
-// accepts is an order it will fill. Two trees, two rows: the futures contract
-// and the spot symbol agree only that precision arrives as a DIGIT COUNT.
-
 #include <raikiri/venues/xt/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -15,14 +11,7 @@
 
 namespace raikiri::venues::xt {
 
-// XT states the price step outright (minStepPrice) but only a digit count for
-// quantity, so the two arrive in different forms and the mapper treats them
-// differently. state/precision/the switches are JSON numbers and booleans.
-//
-// The switches are the real tradability gate: `state` was 0 on all 1067 rows
-// in the live catalogue, while tradeSwitch and isOpenApi split it roughly in
-// half. A row that is not open to the API cannot be traded by this system even
-// though XT still lists and prices it.
+// tradeSwitch and isOpenApi gate tradability; state is 0 on every row
 struct WireInstrument {
     std::string_view symbol;
     std::string_view product_type; // "perpetual" | "futures"
@@ -46,10 +35,7 @@ struct InstrumentBuffer {
 [[nodiscard]] std::expected<std::span<const WireInstrument>, WireError>
 parse_instruments(std::string_view body, InstrumentBuffer& storage);
 
-// XT states spot precision as DIGIT COUNTS, like the futures catalogue, so the
-// step is derived the same way. `state` is the text "ONLINE"; the two booleans
-// beside it are the real gate — a pair listed and priced for the web UI is not
-// necessarily open to the API.
+// precision is a digit count; the two booleans gate api trading apart from state
 struct WireSpotSymbol {
     std::string_view symbol;
     std::string_view state;         // ONLINE | OFFLINE | ...

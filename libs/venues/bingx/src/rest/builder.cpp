@@ -13,24 +13,16 @@ namespace {
 
 constexpr std::string_view k_hdr_api_key = "X-BX-APIKEY";
 
-// The maximum BingX accepts, and its own default. It is an ordinary signed
-// parameter, so it must appear in the digest and on the wire or in neither.
+// bingx's maximum and default; signed like any other parameter
 constexpr std::string_view k_recv_window = "5000";
 
-// BingX refuses a request whose timestamp sits outside recvWindow of its own
-// clock. The adapter already corrects for the measured offset; half a second
-// of the five-second window is spent here so a clock that has drifted forward
-// since the last sync still lands inside it.
+// backdated half a second so forward drift stays inside recvWindow
 constexpr std::int64_t k_clock_backdate_ms = 500;
 
-// Rows asked for per ledger read. Two hundred against BingX's maximum of a
-// thousand: the poller runs every thirty seconds, and a window that needs more
-// than two hundred settlements is a restore rather than a reconciliation.
+// bingx allows up to 1000
 constexpr std::string_view k_income_limit = "200";
 
-// Fills the unsigned builder's target buffer, dropping any part that would
-// overflow rather than truncating mid-token: an over-long symbol must not name
-// a different one.
+// drops a part that would overflow rather than truncating a token
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -62,9 +54,7 @@ private:
     std::size_t len_{0};
 };
 
-// Builds the canonical parameter string, which is BOTH the bytes that get
-// hashed and the bytes that go on the wire. Overflow and an unsafe value are
-// sticky, so the caller checks once at the end rather than after every field.
+// the canonical string is both hashed and sent; overflow and unsafe values are sticky
 class Query {
 public:
     explicit Query(std::span<char> buf) noexcept : buf_{buf} {}
@@ -100,8 +90,7 @@ public:
         return put(key, std::string_view{num.data(), static_cast<std::size_t>(stop - num.data())});
     }
 
-    // Straight from int64 fixed point: a double round trip is exactly how a
-    // price ends up one tick from where it was meant.
+    // straight from fixed point, with no double round trip
     Query& put(std::string_view key, FixedE9 value) noexcept {
         std::array<char, 32> num{};
         const auto text = format_e9(value, num.data(), num.size());
@@ -119,9 +108,7 @@ public:
     }
 
 private:
-    // BingX signs the query string verbatim, so a value carrying a separator
-    // would become two signed parameters. Refusing it here is what keeps
-    // "one field, one value" true of everything this builder signs.
+    // a separator in a value would become a second signed parameter
     [[nodiscard]] static bool safe(std::string_view value) noexcept {
         for (const char c : value) {
             if (c == '&' || c == '=' || c == '?' || c == '#' || c == '%' || c == '+' || c == ' ' ||
@@ -213,9 +200,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Perp:
         return std::nullopt;
     case MarketType::Future:
-        // BingX lists no dated futures on either tree, so no id for one is
-        // ever loaded and an order naming one is a routing bug rather than a
-        // stale catalogue.
+        // bingx lists no dated futures
         return BuildError::DatedFuturesUnsupported;
     case MarketType::Option:
         return BuildError::OptionsUnsupported;
@@ -240,16 +225,12 @@ std::string_view time_in_force(TimeInForce tif, OrderFlags flags) noexcept {
 
 std::string_view position_side(Side side, OrderFlags flags, bool hedge) noexcept {
     if (!hedge) {
-        return "BOTH"; // one-way mode: BingX refuses LONG/SHORT with 109400
+        return "BOTH"; // one-way mode; long/short is refused with 109400
     }
-    // The position a BUY opens is LONG and the one it closes is SHORT. Reading
-    // `side` as the position side leaves a closing order opening the opposite
-    // side instead — the venue accepts it and the book doubles.
+    // a buy opens long and closes short
     const bool reduce = has_flag(flags, OrderFlags::ReduceOnly);
     return (side == Side::Buy) != reduce ? "LONG" : "SHORT";
 }
-
-// ------------------------------------------------------------ unsigned ----
 
 net::RestRequest RequestBuilder::contracts() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_perp_contracts, .body = {}};
@@ -263,8 +244,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
 
-// Every builder below shares one buffer, so a request must be sent before the
-// next is built. One catalogue load or funding poll at a time is the only use.
+// builders share one buffer; send before building the next
 net::RestRequest RequestBuilder::premium_index(std::string_view symbol) noexcept {
     TargetWriter writer{target_};
     writer.put(ep::k_premium_index);
@@ -291,8 +271,6 @@ net::RestRequest RequestBuilder::ticker(std::string_view symbol) noexcept {
     return writer.get();
 }
 
-// -------------------------------------------------------------- signed ----
-
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {query_.data(), canonical_len_};
 }
@@ -313,9 +291,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
         return std::unexpected{BuildError::NotSigned};
     }
 
-    // The query on the wire is the signed string plus the digest, copied out
-    // of the same buffer that was hashed. Rebuilding it would be the one edit
-    // that turns a good key into a rejected one.
+    // the sent query is copied from the hashed buffer; do not rebuild it
     std::size_t len = 0;
     const auto append = [&](std::string_view text) {
         if (len + text.size() > target_.size()) {
@@ -337,7 +313,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     net::RestRequest request{};
     request.method = method;
     request.target = std::string_view{target_.data(), len};
-    request.body = {}; // BingX carries POST and DELETE parameters in the query
+    request.body = {}; // bingx carries post and delete parameters in the query
     request.headers = {{k_hdr_api_key, signer_->api_key()}};
     return request;
 }
@@ -370,21 +346,14 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     Query query{query_};
     switch (cmd.instrument.market()) {
     case MarketType::Perp: {
-        // BingX's own parameter table names this field `clientOrderId` while
-        // its own worked example spells it `clientOrderID`, and ccxt — tested
-        // against the live venue — sends the second. Both are signed and both
-        // are sent: an unknown parameter is ignored, whereas guessing wrong
-        // places the order with NO id of ours on it and leaves every later
-        // echo unattributable.
+        // bingx's docs spell this both ways; send both, an unknown parameter is ignored
         query.put("clientOrderID", coid).put("clientOrderId", coid);
         query.put("positionSide", position_side(cmd.side, cmd.flags, hedge_));
         if (price.has_value()) {
             query.put("price", *price);
         }
         query.put("quantity", *qty).put("recvWindow", k_recv_window);
-        // reduceOnly is a one-way-mode parameter: in hedge mode positionSide
-        // already carries the intent and BingX documents the field as one not
-        // to send.
+        // reduceOnly is one-way only; hedge mode must not send it
         if (!hedge_ && has_flag(cmd.flags, OrderFlags::ReduceOnly)) {
             query.put("reduceOnly", "true");
         }
@@ -399,10 +368,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         return sign(net::HttpMethod::Post, ep::k_perp_order, query.view());
     }
     case MarketType::Spot: {
-        // Spot names the field a third way on create, and BingX's docs and
-        // ccxt agree on this one. A spot MARKET BUY takes a base `quantity`
-        // here — `quoteOrderQty` is the alternative, not the requirement three
-        // sibling venues impose — so nothing has to invent a price.
+        // spot spells it newClientOrderId; a market buy takes a base quantity
         query.put("newClientOrderId", coid);
         if (price.has_value()) {
             query.put("price", *price);
@@ -414,8 +380,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             .put("timeInForce", time_in_force(cmd.tif, cmd.flags))
             .put("timestamp", ts)
             .put("type", is_market ? "MARKET" : "LIMIT");
-        // ReduceOnly is deliberately not forwarded: a spot balance cannot be
-        // short, so BingX has no field for it.
+        // spot has no reduceOnly
         if (!query.ok()) {
             return std::unexpected{BuildError::UnsafeParameter};
         }
@@ -464,9 +429,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         return sign(net::HttpMethod::Delete, ep::k_perp_order, query.view());
     }
     case MarketType::Spot: {
-        // A cancel here is a POST, not a DELETE, and its client-id field is
-        // `clientOrderID`; both differ from the perpetual tree one path
-        // segment away.
+        // spot cancels by post and spells the id clientOrderID
         if (by_venue_id) {
             query.put("orderId", venue_id);
         } else {
@@ -496,9 +459,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (cmd.instrument.market() == MarketType::Spot) {
         return std::unexpected{BuildError::SpotAmendUnsupported};
     }
-    // /openApi/swap/v1/trade/amend takes symbol, an order target and a
-    // quantity. It takes NO price, so an amend that restates one is refused
-    // rather than sent as a size change that leaves the price where it was.
+    // amend takes no price, so one that restates a price is refused
     if (!cmd.price.is_undef() && cmd.price.raw != 0) {
         return std::unexpected{BuildError::AmendPriceUnsupported};
     }
@@ -562,8 +523,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
     case MarketType::Perp:
         break;
     case MarketType::Spot:
-        // A spot balance is not a position. Answering "flat" would be a claim
-        // about a concept this API does not have.
         return std::unexpected{BuildError::SpotPositionsUnsupported};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -603,8 +562,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::funding_income
                                                                                  UnixNanos now) {
     const auto ts = static_cast<std::int64_t>(now.ns / 1'000'000ULL) - k_clock_backdate_ms;
     Query query{query_};
-    // Parameters in ASCII order, which is BingX's documented convention; the
-    // digest and the wire are the same bytes out of this one buffer either way.
+    // ascii order is bingx's convention; digest and wire share one buffer
     query.put("limit", k_income_limit).put("recvWindow", k_recv_window);
     if (since.ns != 0) {
         query.put("startTime", static_cast<std::int64_t>(since.ns / 1'000'000ULL));

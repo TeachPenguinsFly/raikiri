@@ -10,7 +10,7 @@ namespace {
 
 using Level = book::Level;
 
-// Exact or nothing; never rounded.
+// exact or nothing; never rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty()) {
         return std::nullopt;
@@ -34,7 +34,7 @@ std::optional<QtyLots> resting_lots(std::string_view text, const InstrumentBase&
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// UNDEF when absent: zero would claim the market did not trade.
+// undef when absent: zero would claim the market did not trade
 FixedE9 amount_or_undef(std::string_view text) {
     if (text.empty()) {
         return FixedE9::undef();
@@ -120,7 +120,7 @@ map_trade(const WirePrint& wire, const exec::InstrumentTable& table, UnixNanos t
     }
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.price, base);
-    // Exact, unlike a resting size: a floored print would be a size that never traded.
+    // exact: a floored print would be a size that never traded
     const auto qty = to_lots(wire.qty, base);
     if (!price.has_value() || !qty.has_value()) {
         return std::nullopt;
@@ -144,7 +144,7 @@ map_funding(const WireMarkPrice& wire, const exec::InstrumentTable& table, UnixN
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // Truncated, not refused: the rate arrives with up to 28 fractional digits.
+    // truncated: the rate carries up to 28 fractional digits
     const auto rate = parse_rate_e9(wire.funding_rate);
     if (!rate.has_value()) {
         return std::nullopt;
@@ -243,8 +243,7 @@ std::optional<Instrument> map_instrument(const WireMarket& wire, MarketType mark
     if (spot) {
         return SpotInstrument{base};
     }
-    // An interval that is not whole seconds stays 0. The caps stay UNDEF: the
-    // venue's ±150 bounds state no unit.
+    // a non-whole-second interval stays 0; caps stay undef since the venue's bounds state no unit
     const auto interval_s =
         wire.funding_interval_ms % 1000 == 0 ? wire.funding_interval_ms / 1000 : 0;
     PerpInstrument out{};

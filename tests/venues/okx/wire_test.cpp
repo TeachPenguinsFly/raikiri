@@ -47,9 +47,7 @@ TEST(OkxWire, EventDispatchResolvesKindAndInstrument) {
 }
 
 TEST(OkxWire, ControlFramesAreNotMistakenForData) {
-    // The two answers differ by one field value. Reading a refusal as an ack
-    // turns "the venue rejected this channel" into "this channel is quiet",
-    // which is indistinguishable from a market with no activity.
+    // a refused subscribe must not read as an ack
     const auto ack = fixture("ws_subscribe_ack.json");
     auto event = parse_event(ack);
     ASSERT_TRUE(event.has_value());
@@ -67,8 +65,7 @@ TEST(OkxWire, ControlFramesAreNotMistakenForData) {
 }
 
 TEST(OkxWire, KeepaliveAnswerIsNotJson) {
-    // OKX answers the "ping" text with a bare "pong" — not JSON, so it lands
-    // on the same ignore path as any frame the venue adds later.
+    // the bare pong is not json
     EXPECT_FALSE(parse_event("pong").has_value());
 }
 
@@ -82,11 +79,10 @@ TEST(OkxWire, BboParsesBothSides) {
     EXPECT_FALSE(bbo->bid_qty.empty());
     EXPECT_FALSE(bbo->ask_qty.empty());
     EXPECT_GT(bbo->seq_id, 0);
-    // Milliseconds out of a digit string, not a JSON number: running this
-    // through the decimal parser would scale it by 1e9 and overflow.
+    // milliseconds from a digit string; the decimal parser would overflow
     EXPECT_GT(bbo->ts_ms, 1'700'000'000'000U);
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer, not parser scratch
     EXPECT_GE(bbo->bid_price.data(), frame.data());
     EXPECT_LE(bbo->bid_price.data() + bbo->bid_price.size(), frame.data() + frame.size());
 }
@@ -103,8 +99,7 @@ TEST(OkxWire, TradesCarryTakerSideDirectly) {
     EXPECT_FALSE(trade.price.empty());
     EXPECT_FALSE(trade.qty.empty());
     EXPECT_GT(trade.ts_ms, 1'700'000'000'000U);
-    // "sell" in the captured frame, and it already means the AGGRESSOR sold —
-    // no inversion, unlike binance's buyer-was-maker flag.
+    // sell already means the aggressor sold
     EXPECT_FALSE(trade.aggressor_bought);
 }
 
@@ -114,34 +109,26 @@ TEST(OkxWire, FundingRateSeparatesCurrentSettlementFromTheOneAfter) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->inst_id, "BTC-USDT-SWAP");
     EXPECT_FALSE(funding->funding_rate.empty());
-    // fundingTime is the settlement the current rate applies to; the field
-    // named "next" is one interval further out. Swapping them puts every
-    // countdown an interval into the future.
+    // fundingTime is the settlement the current rate applies to
     EXPECT_GT(funding->funding_ms, 1'700'000'000'000U);
     EXPECT_GT(funding->next_funding_ms, funding->funding_ms);
-    // Observed live: OKX ships the forecast field empty rather than omitting
-    // it, so the mapper must not read "" as a rate of zero.
+    // okx ships the forecast field empty
     EXPECT_TRUE(funding->next_funding_rate.empty());
 }
 
 TEST(OkxWire, TickersCarryTheTurnoverTheOtherChannelsDoNot) {
-    // The funding-rate and bbo-tbt frames state no volume at all; this is the
-    // only public channel that does.
+    // the only public channel stating volume
     const auto swap_frame = fixture("ws_tickers.json");
     const auto swap = parse_ticker(swap_frame);
     ASSERT_TRUE(swap.has_value());
     EXPECT_EQ(swap->inst_id, "BTC-USDT-SWAP");
     EXPECT_EQ(swap->inst_type, "SWAP");
-    // Captured live. vol24h is a CONTRACT count and volCcy24h the base asset,
-    // and the frame proves the relation: 13 446 460.96 contracts at the
-    // catalogue's 0.01 BTC ctVal is exactly 134 464.6096 BTC.
+    // vol24h counts contracts: 13446460.96 x 0.01 btc is 134464.6096 btc
     EXPECT_EQ(swap->vol_24h, "13446460.96");
     EXPECT_EQ(swap->vol_ccy_24h, "134464.6096");
     EXPECT_EQ(swap->ts_ms, 1'788'532'273'172ULL);
 
-    // The same two names, the other meaning. Here vol24h is the base asset and
-    // volCcy24h the quote: 843 192 320.03 / 10 451.54 is 80 675 a coin, inside
-    // the frame's own 78 990 .. 82 285 range.
+    // on spot vol24h is base and volCcy24h quote
     const auto spot_frame = fixture("ws_tickers_spot.json");
     const auto spot = parse_ticker(spot_frame);
     ASSERT_TRUE(spot.has_value());
@@ -159,7 +146,7 @@ TEST(OkxWire, BooksSnapshotAndDeltasChainOnSeqId) {
     EXPECT_TRUE(snapshot->snapshot);
     EXPECT_EQ(snapshot->bids.size(), 400U);
     EXPECT_EQ(snapshot->asks.size(), 400U);
-    // -1, which is why both id fields are signed.
+    // -1, so both id fields are signed
     EXPECT_LT(snapshot->prev_seq_id, 0);
     const auto snapshot_seq = snapshot->seq_id;
 
@@ -168,10 +155,7 @@ TEST(OkxWire, BooksSnapshotAndDeltasChainOnSeqId) {
     const auto first = parse_books(first_frame, *next_storage);
     ASSERT_TRUE(first.has_value());
     EXPECT_FALSE(first->snapshot);
-    // The chaining rule: prevSeqId equals the previous message's seqId. These
-    // three fixtures are consecutive frames off one live socket, and the
-    // checksum they still carry is pinned to 0 since 2026-06-23 — it is not
-    // surfaced at all, so nothing can be tempted to validate against it.
+    // prevSeqId equals the previous message's seqId; the fixtures are consecutive frames
     EXPECT_EQ(first->prev_seq_id, snapshot_seq);
 
     auto third_storage = std::make_unique<LevelBuffer>();
@@ -181,9 +165,7 @@ TEST(OkxWire, BooksSnapshotAndDeltasChainOnSeqId) {
     EXPECT_EQ(second->prev_seq_id, first->seq_id);
 }
 
-// BTC-USDT-SWAP as OKX lists it: 0.1 tick, 0.01 lot. The three books fixtures
-// are consecutive frames off one socket, so the book is driven the way the
-// venue actually delivers it rather than from invented deltas.
+// BTC-USDT-SWAP: 0.1 tick, 0.01 lot; the books fixtures are consecutive frames
 Book btc_book() {
     return Book{InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0}),
                 *parse_decimal_e9("0.1"),
@@ -204,8 +186,7 @@ TEST(OkxBook, DepthSnapshotCrossesIntoTheDomain) {
     EXPECT_EQ(depth->ask_count, k_book_levels);
     EXPECT_EQ(depth->venue_seq, 333'626'642'610ULL) << "seqId, so a wrong book is traceable";
 
-    // Bids descend, asks ascend, and the two never cross — a book failing this
-    // is not a book, and every strategy reading it would price off the fiction.
+    // bids descend, asks ascend, and the sides never cross
     EXPECT_LT(depth->bids[0].price.raw, depth->asks[0].price.raw);
     for (std::uint32_t i = 1; i < depth->bid_count; ++i) {
         EXPECT_LT(depth->bids[i].price.raw, depth->bids[i - 1].price.raw) << i;
@@ -235,8 +216,7 @@ TEST(OkxBook, DepthSnapshotCrossesIntoTheDomain) {
 }
 
 TEST(OkxBook, ASeqIdGapPublishesNothing) {
-    // The middle frame never arrives: the third's prevSeqId names a message
-    // this book has not seen, so everything after it would be guesswork.
+    // the middle frame is dropped, so the third breaks the chain
     auto book = btc_book();
     auto storage = std::make_unique<LevelBuffer>();
     const auto snapshot_frame = fixture("ws_books_snapshot.json");
@@ -255,7 +235,7 @@ TEST(OkxBook, ASeqIdGapPublishesNothing) {
     EXPECT_FALSE(book.snapshot(UnixNanos{3}, UnixNanos{4}).has_value())
         << "a book with an unseen hole in it must publish nothing";
 
-    // Recovery is the venue's next snapshot, which resubscribing asks for.
+    // recovery is the next snapshot, asked for by resubscribing
     auto again = std::make_unique<LevelBuffer>();
     const auto fresh = parse_books(snapshot_frame, *again);
     ASSERT_TRUE(fresh.has_value());
@@ -264,8 +244,7 @@ TEST(OkxBook, ASeqIdGapPublishesNothing) {
 }
 
 TEST(OkxBook, AGapAsksForTheSnapshotOncePerBackoff) {
-    // OKX sends a snapshot only in answer to a subscribe, so a book that
-    // gapped and asked for nothing stayed dark for hours on the box.
+    // okx sends a snapshot only in answer to a subscribe
     auto book = btc_book();
     auto storage = std::make_unique<LevelBuffer>();
     const auto snapshot_frame = fixture("ws_books_snapshot.json");
@@ -314,9 +293,7 @@ TEST(OkxBook, ARedeliveredDeltaIsNotMistakenForAGap) {
 }
 
 TEST(OkxBook, LevelsOffTheStepGridPublishNothing) {
-    // A book whose prices no longer divide by the instrument's tick means OKX
-    // moved a precision. Rounding into the grid would invent quotes the venue
-    // never published, so the book is dropped and awaits a fresh snapshot.
+    // prices off the tick drop the book until a fresh snapshot
     Book book{InstrumentId::make(VenueId::Okx, MarketType::Perp, SymbolId{0}),
               *parse_decimal_e9("1"),
               *parse_decimal_e9("0.01")};
@@ -370,8 +347,7 @@ TEST(OkxWire, RestEnvelopeSeparatesSuccessFromRefusal) {
 }
 
 TEST(OkxWire, UnreadableEnvelopeIsNotReadAsSuccess) {
-    // Zero means success, so a code that is not a run of digits must fail
-    // rather than decay into one.
+    // a non-digit code must fail rather than read as success
     EXPECT_FALSE(parse_rest_envelope(R"({"code":"oops","msg":"","data":[]})").has_value());
     EXPECT_FALSE(parse_rest_envelope(R"({"msg":"","data":[]})").has_value());
 }
@@ -401,9 +377,7 @@ TEST(OkxWire, InstrumentsReportWhatTheVenueSaid) {
     EXPECT_EQ(btc->ct_val, "0.01"); // one contract is 0.01 BTC, not 1
     EXPECT_EQ(btc->ct_mult, "1");
 
-    // The wire layer reports; deciding a preopen row or a dated future is
-    // unusable belongs to the mapper. A preopen row ships every numeric field
-    // as an empty string, which is why they are optional here.
+    // preopen rows ship numeric fields empty, so they are optional here
     const auto* preopen = find("JP225-USDT-SWAP");
     ASSERT_NE(preopen, nullptr);
     EXPECT_EQ(preopen->state, "preopen");
@@ -414,8 +388,7 @@ TEST(OkxWire, InstrumentsReportWhatTheVenueSaid) {
 }
 
 TEST(OkxWire, MarkPriceAndServerTimeParse) {
-    // The body is held, not passed as a temporary: every view a parser returns
-    // points into the caller's buffer, so outliving it is the contract.
+    // held: parsers return views into the caller's buffer
     const auto mark_body = fixture("rest_mark_price.json");
     const auto mark = parse_mark_price(mark_body);
     ASSERT_TRUE(mark.has_value());
@@ -428,8 +401,7 @@ TEST(OkxWire, MarkPriceAndServerTimeParse) {
 }
 
 TEST(OkxWire, EmptyDataArrayIsNotADatum) {
-    // A refusal carries data:[]; inventing a zero-valued reading from it is
-    // how a stale mark price gets published as a real one.
+    // a refusal carries data:[] and yields nothing
     EXPECT_FALSE(parse_mark_price(R"({"code":"51001","msg":"nope","data":[]})").has_value());
     EXPECT_FALSE(parse_server_time(R"({"code":"0","msg":"","data":[]})").has_value());
 }
@@ -456,8 +428,6 @@ TEST(OkxWire, GarbageIsRefusedRatherThanPartiallyRead) {
     }
 }
 
-// --------------------------------------------------------------- private ----
-
 TEST(OkxWire, OrderChannelIsItsOwnEventKind) {
     const auto frame = fixture("ws_orders_fill.json");
     const auto event = parse_event(frame);
@@ -467,8 +437,7 @@ TEST(OkxWire, OrderChannelIsItsOwnEventKind) {
 }
 
 TEST(OkxWire, LoginAnswerIsNotASubscribeAck) {
-    // Both arrive as {"event":...}. Reading a refused login as an ack leaves a
-    // socket that answers every private subscribe with 60011 and no clue why.
+    // a refused login must not read as an ack
     const auto accepted = fixture("ws_login_ok.json");
     auto event = parse_event(accepted);
     ASSERT_TRUE(event.has_value());
@@ -505,13 +474,13 @@ TEST(OkxWire, OrderPushCarriesLifecycleAndFillTogether) {
     EXPECT_EQ(order.fill_sz, "0.001");
     EXPECT_EQ(order.trade_id, "242589207");
     EXPECT_EQ(order.exec_type, "M");
-    // Negative on the wire, and the mapper is what flips it.
+    // negative on the wire; the mapper flips it
     EXPECT_EQ(order.fill_fee, "-0.02522168");
     EXPECT_EQ(order.code, k_ok);
     EXPECT_EQ(order.fill_ms, 1'654'084'353'263ULL);
     EXPECT_EQ(order.u_ms, 1'654'084'353'264ULL);
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer, not parser scratch
     EXPECT_GE(order.fill_px.data(), frame.data());
     EXPECT_LE(order.fill_px.data() + order.fill_px.size(), frame.data() + frame.size());
 }
@@ -529,8 +498,7 @@ TEST(OkxWire, OneMessageIsBothTheLastFillAndTheCancel) {
     EXPECT_EQ(order.fill_sz, "2");
     EXPECT_EQ(order.sz, "5");
     EXPECT_EQ(order.acc_fill_sz, "2");
-    // 14 is "IOC order was partially canceled due to incompletely filled" —
-    // an expiry, not somebody's cancel.
+    // 14 is an ioc remainder expiring
     EXPECT_EQ(order.cancel_source, "14");
 }
 
@@ -548,8 +516,7 @@ TEST(OkxWire, PendingOrderShipsAnEmptyFillTimeRatherThanNone) {
     EXPECT_EQ(order.sz, "0.001");
     EXPECT_EQ(order.acc_fill_sz, "0");
     EXPECT_EQ(order.trade_id, "");
-    // "" rather than an absent key: a reader that demands digits here refuses
-    // every resting order.
+    // an empty string, not an absent key
     EXPECT_EQ(order.fill_ms, 0U);
     EXPECT_EQ(order.u_ms, 1'724'733'617'998ULL);
 }
@@ -581,9 +548,7 @@ TEST(OkxWire, FillsAndPositionsParse) {
 }
 
 TEST(OkxWire, ARefusedOrderKeepsItsReasonInScode) {
-    // The envelope says only "the operation failed". Classifying on that turns
-    // insufficient balance, a duplicate id and a post-only that would have
-    // crossed into one indistinguishable Terminal.
+    // the envelope only says the operation failed; the reason is in sCode
     const auto ok = fixture("rest_order_ack.json");
     auto envelope = parse_rest_envelope(ok);
     ASSERT_TRUE(envelope.has_value());
@@ -627,8 +592,6 @@ TEST(OkxWire, PrivateParsersRefuseJunkRatherThanInventing) {
         EXPECT_FALSE(parse_order_acks(frame, *acks).has_value()) << junk;
     }
 }
-
-// ------------------------------------------------------------- requests ----
 
 constexpr std::string_view k_api_key = "TESTKEY123";
 constexpr std::string_view k_secret = "testsecret";
@@ -691,12 +654,11 @@ OrderCmd limit_order(const exec::InstrumentTable& table, std::string_view symbol
 }
 
 TEST(OkxRest, TimestampIsIso8601MillisecondsInUtc) {
-    // Epoch milliseconds are refused with 50112, and a local-time rendering
-    // fails with 50102 — the same symptom as a clock an hour out of sync.
+    // epoch ms is refused with 50112
     std::array<char, 24> buf{};
     EXPECT_EQ(iso8601_ms(k_now, buf), "2023-11-14T22:13:20.123Z");
     EXPECT_EQ(iso8601_ms(UnixNanos{0}, buf), "1970-01-01T00:00:00.000Z");
-    // A leap day, because the civil-date inversion is where that goes wrong.
+    // a leap day exercises the civil-date inversion
     EXPECT_EQ(iso8601_ms(UnixNanos{1'709'164'800'000'000'000ULL}, buf), "2024-02-29T00:00:00.000Z");
 }
 
@@ -712,7 +674,7 @@ TEST(OkxRest, GetSignsTheTargetIncludingItsQuestionMark) {
     EXPECT_EQ(request->target, "/api/v5/trade/orders-pending?instType=SWAP");
     EXPECT_TRUE(request->body.empty());
 
-    // Where bybit signs the bare query, OKX signs the whole request path.
+    // okx signs the whole request path
     EXPECT_EQ(builder.last_sign_message(),
               "2023-11-14T22:13:20.123ZGET/api/v5/trade/orders-pending?instType=SWAP");
     EXPECT_EQ(header(*request, "OK-ACCESS-SIGN"), "nTXtPpBhja/wts2kTr/a/B7UsuIEb9EPxI1Dis0AdfQ=");
@@ -741,13 +703,12 @@ TEST(OkxRest, PostSignsTimestampMethodPathAndBody) {
     std::array<char, net::k_base64_bytes> reference{};
     EXPECT_EQ(header(*request, "OK-ACCESS-SIGN"),
               net::hmac_sha256_base64(k_secret, expected, reference));
-    // Demo trading is a header on the live host, not a different host.
+    // demo trading is a header on the live host
     EXPECT_EQ(header(*request, "x-simulated-trading"), "1");
 }
 
 TEST(OkxRest, NoPassphraseIsNotSignedAtAll) {
-    // A key and secret without the passphrase produce 50104 on every request,
-    // which reads like a bad secret. Refusing to build says what is missing.
+    // without the passphrase every request gets 50104, so building is refused
     const auto table = order_entry_table();
     net::Signer signer;
     load_credentials(signer);
@@ -783,8 +744,7 @@ TEST(OkxRest, SpotAndSwapDifferInTradeModeAndSizing) {
 }
 
 TEST(OkxRest, SpotMarketBuyIsSizedInTheBaseCurrency) {
-    // Without tgtCcy, OKX reads sz on a spot market BUY as QUOTE currency, so
-    // "buy 0.003 BTC" places an order to spend 0.003 USDT.
+    // without tgtCcy okx reads a spot market buy's sz as quote currency
     const auto table = order_entry_table();
     net::Signer signer;
     load_credentials(signer);
@@ -800,7 +760,7 @@ TEST(OkxRest, SpotMarketBuyIsSizedInTheBaseCurrency) {
         << request->body;
     EXPECT_EQ(request->body.find(R"("px")"), std::string_view::npos) << "market carries no price";
 
-    // A swap market order must NOT carry it: tgtCcy is spot-only.
+    // tgtCcy is spot-only
     auto perp = limit_order(table, "BTC-USDT-SWAP");
     perp.order_type = OrderType::Market;
     const auto swap = builder.create_order(perp, table, k_now);
@@ -809,8 +769,7 @@ TEST(OkxRest, SpotMarketBuyIsSizedInTheBaseCurrency) {
 }
 
 TEST(OkxRest, PostOnlyAndTimeInForceAreOrderTypes) {
-    // OKX has no timeInForce field. A post-only flag sent beside ordType
-    // "limit" is accepted and the order crosses.
+    // okx has no timeInForce; post-only beside limit is accepted and crosses
     const auto table = order_entry_table();
     net::Signer signer;
     load_credentials(signer);
@@ -852,9 +811,7 @@ TEST(OkxRest, EveryMarketIsAnsweredAndOptionsRefuseByName) {
     EXPECT_EQ(td_mode_of(MarketType::Perp).value(), "cross");
     EXPECT_EQ(td_mode_of(MarketType::Future).value(), "cross");
 
-    // OKX lists options, and a price for one is a premium in the underlying
-    // coin with three mutually exclusive spellings. Refusing by name beats
-    // sending it down the swap path.
+    // options are refused by name
     const auto option = td_mode_of(MarketType::Option);
     ASSERT_FALSE(option.has_value());
     EXPECT_EQ(option.error(), BuildError::UnsupportedMarket);
@@ -880,7 +837,7 @@ TEST(OkxRest, CancelAndAmendTargetTheOrderByWhicheverIdIsPresent) {
     ASSERT_TRUE(request.has_value());
     EXPECT_EQ(request->body, R"({"instId":"BTC-USDT-SWAP","ordId":"680800019749904385"})");
 
-    // newSz is the order's new TOTAL size, not the remainder.
+    // newSz is the new total size, not the remainder
     cmd.kind = CmdKind::Amend;
     cmd.qty = QtyLots::from_raw(800);
     cmd.price = PriceTicks::undef();
@@ -940,8 +897,7 @@ TEST(OkxRest, PullsNameTheInstrumentTypeAndCarryASince) {
 }
 
 TEST(OkxWs, LoginSignsEpochSecondsAndTheVerifyPath) {
-    // Nothing about this resembles the REST signature: seconds rather than
-    // ISO-8601, and a path no request ever goes to.
+    // login signs epoch seconds and a fixed path, unlike rest
     net::Signer signer;
     load_credentials(signer);
     Protocol protocol;
@@ -972,7 +928,7 @@ TEST(OkxWs, PrivateSubscribeNamesAnInstrumentTypeAndPublicNamesAnInstrument) {
               R"({"op":"subscribe","args":[{"channel":"orders","instType":"SPOT"},)"
               R"({"channel":"orders","instType":"SWAP"}]})");
 
-    // The public shape is unchanged: one instId, no instType.
+    // the public shape: one instId, no instType
     const std::array<Subscription, 1> public_args{
         Subscription{.channel = "bbo-tbt", .inst_id = "BTC-USDT-SWAP"}};
     const auto bbo = protocol.subscribe_frame(public_args);
@@ -980,7 +936,7 @@ TEST(OkxWs, PrivateSubscribeNamesAnInstrumentTypeAndPublicNamesAnInstrument) {
     EXPECT_EQ(bbo->text,
               R"({"op":"subscribe","args":[{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}]})");
 
-    // Neither key set is a subscription to everything; OKX answers 60018.
+    // neither key set means everything; okx answers 60018
     const std::array<Subscription, 1> empty{Subscription{.channel = "orders"}};
     EXPECT_FALSE(protocol.subscribe_frame(empty).has_value());
 }
@@ -996,11 +952,9 @@ TEST(OkxWire, ReadsTheTradingAccountAndTheModeItRunsUnder) {
     EXPECT_EQ((*rows)[0].avail_bal, "4834.317093622894");
     EXPECT_EQ((*rows)[0].upl, "-7.545600000000006");
     EXPECT_EQ((*rows)[0].u_time_ms, 1'705'449'605'015ULL);
-    // The rows live under data[0].details, not under data itself, and a
-    // reader that stopped at the account object would find no currency at all.
+    // rows live under data[0].details
     EXPECT_EQ((*rows)[1].ccy, "BTC");
-    // An absent value arrives as an EMPTY STRING here, which is the venue
-    // declining to answer rather than a parse that missed the field.
+    // an absent value arrives as an empty string
     EXPECT_TRUE((*rows)[1].upl.empty());
 
     const auto config = fixture("rest_account_config.json");
@@ -1008,14 +962,12 @@ TEST(OkxWire, ReadsTheTradingAccountAndTheModeItRunsUnder) {
     ASSERT_TRUE(mode.has_value());
     EXPECT_EQ(*mode, AccountMode::Futures);
 
-    // A level this does not know reads as Unknown rather than as the nearest
-    // one: guessing which side of the per-currency line a new mode falls on
-    // is how a wrong available gets published.
+    // an unknown level reads as Unknown
     const auto future_level =
         parse_account_mode(R"({"code":"0","msg":"","data":[{"acctLv":"9"}]})");
     ASSERT_TRUE(future_level.has_value());
     EXPECT_EQ(*future_level, AccountMode::Unknown);
-    // And an answer with no account in it is a failure, not a mode.
+    // an answer with no account is a failure
     EXPECT_FALSE(parse_account_mode(R"({"code":"0","msg":"","data":[]})").has_value());
 }
 

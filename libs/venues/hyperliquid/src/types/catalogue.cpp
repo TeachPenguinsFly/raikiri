@@ -181,9 +181,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             return std::unexpected(root.error());
         }
 
-        // Token index -> (name, szDecimals). Indices are dense and small today
-        // but the join is by VALUE, not by position: a sparse tokens array
-        // would otherwise attach one token's precision to another's pair.
+        // joined by token index value, not array position
         struct Token {
             std::string_view name;
             std::int64_t sz_decimals{0};
@@ -236,10 +234,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (!members.has_value()) {
                 return std::unexpected(members.error());
             }
-            // [base, quote], and BOTH are read: the quote is NOT always USDC.
-            // Seventeen pairs settle in USDH, USDT0 or USDE, twelve of those
-            // bases also list against USDC, and a name taken from the first
-            // member alone calls four separate HYPE books "HYPE/USDC".
+            // both members are read since the quote is not always usdc
             std::array<std::int64_t, 2> members_at{};
             std::size_t read = 0;
             for (auto member : *members) {
@@ -252,8 +247,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
                 }
                 ++read;
             }
-            // A row that is not exactly two tokens is a pair model this adapter
-            // cannot name, not one row to skip past.
+            // a row that is not exactly two tokens fails the parse
             if (read != members_at.size()) {
                 return std::unexpected(WireError::MissingField);
             }
@@ -269,8 +263,7 @@ std::expected<std::span<const WireSpotAsset>, WireError> parse_spot_meta(std::st
             if (base == nullptr || quote == nullptr) {
                 continue; // a pair naming a token this body did not carry
             }
-            // Both steps derive from the BASE token's precision; the quote is
-            // carried for the name and nothing else.
+            // steps derive from the base token; the quote only names the pair
             storage.assets[count] = {.name = *name,
                                      .base = base->name,
                                      .quote = quote->name,

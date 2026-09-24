@@ -6,13 +6,10 @@ class RaikiriConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     generators = "CMakeDeps", "CMakeToolchain"
 
-    # We use only Asio and Beast, both header-only. Nothing here links a
-    # compiled Boost library, so building them is pure cost — and the
-    # recipe's optional components (cobalt) fail on some toolchains anyway.
+    # asio and beast only, both header-only
     default_options = {"boost/*:header_only": True}
 
     def requirements(self):
-        # Later phases add: abseil, libcurl.
         self.requires("boost/1.91.0")     # asio + beast only
         self.requires("openssl/3.6.3")    # TLS + HMAC (3.x: libpq caps at <4)
         self.requires("simdjson/4.6.3")   # hot-path venue frame parsing

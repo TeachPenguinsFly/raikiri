@@ -20,8 +20,7 @@
 namespace raikiri::venues::okx {
 namespace {
 
-// Only the wire target carries RAIKIRI_OKX_FIXTURES, so this one locates the
-// directory from this file instead.
+// only the wire target has RAIKIRI_OKX_FIXTURES, so this locates the directory itself
 std::string fixture(std::string_view name) {
     const auto path = std::filesystem::path{__FILE__}.parent_path() / "fixtures" / name;
     std::ifstream in{path};
@@ -54,9 +53,7 @@ constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
 constexpr std::string_view k_ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
-// A 5-contract IOC on BTC-USDT-SWAP that has filled 2, as the `orders`
-// channel writes it. Every number divides exactly by the 0.1 tick and the
-// 0.01 lot.
+// a 5-contract ioc on BTC-USDT-SWAP with 2 filled
 WireOrder partly_filled_order() {
     WireOrder wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -100,9 +97,7 @@ TEST(OkxMap, BboBecomesTopOfBook) {
 }
 
 TEST(OkxMap, PriceOffTheTickIsDroppedNotRounded) {
-    // A price that does not divide by the tick means OKX changed an
-    // instrument's precision under us. Rounding would put an order one tick
-    // from where it was meant.
+    // a price off the tick is refused
     const auto table = table_with_btc();
     WireBbo wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -114,8 +109,7 @@ TEST(OkxMap, PriceOffTheTickIsDroppedNotRounded) {
 }
 
 TEST(OkxMap, OneSidedBookIsDropped) {
-    // A contract with no bid is a real state, and an empty side must not turn
-    // into a zero price at the top of book.
+    // an empty side must not become a zero price
     const auto table = table_with_btc();
     WireBbo wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -136,8 +130,7 @@ TEST(OkxMap, UnknownInstrumentIsDropped) {
 }
 
 TEST(OkxMap, TakerSideIsCarriedThroughUnflipped) {
-    // OKX states the aggressor's own direction, so this mapper must NOT
-    // invert. Copying binance's flip here would reverse every signed print.
+    // okx states the aggressor's side, so nothing is inverted
     const auto table = table_with_btc();
     WireTrade wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -167,7 +160,7 @@ TEST(OkxMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // Not 1970: a zero timestamp reaching a latency histogram poisons it.
+    // zero timestamps fall back to ingest time
     EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
 }
 
@@ -184,23 +177,17 @@ TEST(OkxMap, FundingUsesFundingTimeAndDerivesTheInterval) {
     const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001 * 1e9
-    // fundingTime, not nextFundingTime: the latter is one settlement further
-    // out and would put every countdown an interval into the future.
+    // fundingTime, not nextFundingTime
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'406'400'000ULL * 1'000'000ULL);
-    // The gap between the two states the interval exactly; the catalogue does
-    // not carry it and OKX does not run 8 h on every contract.
+    // the gap between the two gives the interval; not every contract runs 8 h
     EXPECT_EQ(funding->interval_s, 28'800U);
-    // Mark arrives on its own channel here, so it stays undefined rather than
-    // being published as a real price of zero.
+    // mark arrives on its own channel
     EXPECT_TRUE(funding->mark_price.is_undef());
 }
 
 TEST(OkxMap, ARateWithMorePrecisionThanWeCarryStillArrives) {
     FundingMemo memo{};
-    // OKX pads the rate to sixteen fractional digits. Read with the exact
-    // decimal parser — as this was, for as long as the fixture happened to
-    // hold a round number — every live rate was refused and the funding
-    // channel published nothing at all while looking subscribed.
+    // okx pads the rate to sixteen fractional digits
     const auto table = table_with_btc();
     WireFundingRate wire{};
     wire.inst_id = "BTC-USDT-SWAP";
@@ -219,7 +206,7 @@ TEST(OkxMap, EmptyForecastIsNotAPredictionOfZero) {
     WireFundingRate wire{};
     wire.inst_id = "BTC-USDT-SWAP";
     wire.funding_rate = "0.0001";
-    wire.next_funding_rate = {}; // observed live: shipped empty, not omitted
+    wire.next_funding_rate = {}; // shipped empty, not omitted
     wire.funding_ms = 1'786'406'400'000ULL;
     const auto funding = map_funding(wire, table, memo, k_ingest);
     ASSERT_TRUE(funding.has_value());
@@ -237,17 +224,14 @@ TEST(OkxMap, ContractWithoutFundingIsNotReportedAsZero) {
 
 TEST(OkxMap, SwapTurnoverIsTheBaseAssetAndNeverTheContractCount) {
     const auto table = table_with_btc();
-    // The frame is HELD: parse_ticker returns views into it, and a temporary
-    // string here leaves every field of the result dangling.
+    // held: parse_ticker returns views into it
     const auto frame = fixture("ws_tickers.json");
     const auto wire = parse_ticker(frame);
     ASSERT_TRUE(wire.has_value());
 
     const auto stats = map_ticker_stats(*wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    // volCcy24h, the base asset. The other column on this frame reads
-    // 13 446 460.96 — a CONTRACT count, a hundred times larger, and the one
-    // number on the frame that compares with no other venue.
+    // volCcy24h is base; vol24h on this frame counts contracts
     EXPECT_EQ(stats->volume_24h_base.raw, 134'464'609'600'000LL);
     // 134 464.6096 x 79 326.8 is 10.67e9 USDT, past what an e9 column holds.
     EXPECT_EQ(stats->volume_24h_quote.raw, 10'666'647'192'817'280LL);
@@ -342,15 +326,13 @@ TEST(OkxMap, SpotTurnoverReadsTheSameTwoNamesTheOtherWayRound) {
     ASSERT_TRUE(spot.has_value());
     ASSERT_TRUE(table.add(*spot).has_value());
 
-    // The frame is HELD: parse_ticker returns views into it, and a temporary
-    // string here leaves every field of the result dangling.
+    // held: parse_ticker returns views into it
     const auto frame = fixture("ws_tickers_spot.json");
     const auto wire = parse_ticker(frame);
     ASSERT_TRUE(wire.has_value());
     const auto stats = map_ticker_stats(*wire, table, k_ingest);
     ASSERT_TRUE(stats.has_value());
-    // vol24h is the base here and volCcy24h the quote — the exact opposite of
-    // the swap frame above, under the same two field names.
+    // on spot vol24h is base and volCcy24h quote
     EXPECT_EQ(stats->volume_24h_base.raw, 10'451'543'743'020LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 843'192'320'028'134LL);
 }
@@ -361,20 +343,17 @@ TEST(OkxMap, ATickerStatingNoVolumeIsNotAMarketAtZero) {
     wire.inst_id = "BTC-USDT-SWAP";
     wire.inst_type = "SWAP";
     wire.ts_ms = 1'788'532'273'172ULL;
-    // Neither column stated. Publishing zeroes here would erase a day's
-    // turnover from the board until the venue restates it.
+    // neither column stated
     EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
 
-    // An instrument the catalogue never loaded has no cell to write to, which
-    // is a different fact from a market that did not trade.
+    // an unloaded instrument has no cell to write to
     wire.vol_ccy_24h = "134464.6096";
     wire.inst_id = "NOT-LISTED-SWAP";
     EXPECT_FALSE(map_ticker_stats(wire, table, k_ingest).has_value());
 }
 
 TEST(OkxMap, ContractValueComesFromTheCatalogueNotFromOne) {
-    // A SWAP quotes in contracts. Pinning contract_value to 1 the way binance
-    // USD-M allows would misprice every BTC-USDT-SWAP notional by 100x.
+    // a swap quotes in contracts, so contract_value is ctVal
     WireInstrument wire{};
     wire.inst_id = "BTC-USDT-SWAP";
     wire.inst_type = "SWAP";
@@ -389,9 +368,7 @@ TEST(OkxMap, ContractValueComesFromTheCatalogueNotFromOne) {
     EXPECT_EQ(base_of(*instrument).contract_value.raw, 10'000'000); // 0.01 * 1e9
     EXPECT_EQ(base_of(*instrument).kind, ContractKind::Linear);
 
-    // The inverse contract is worth 100 USD, and ctMult multiplies it. Same
-    // shape of number as above, opposite currency and opposite PnL formula —
-    // ctType is the only thing that separates them.
+    // the inverse contract is 100 usd; ctType alone separates the two
     wire.inst_id = "BTC-USD-SWAP";
     wire.ct_val = "100";
     wire.ct_mult = "2";
@@ -401,23 +378,20 @@ TEST(OkxMap, ContractValueComesFromTheCatalogueNotFromOne) {
     EXPECT_EQ(base_of(*instrument).contract_value.raw, 200 * k_e9);
     EXPECT_EQ(base_of(*instrument).kind, ContractKind::Inverse);
 
-    // A fractional multiplier has no defined meaning, so the row is refused
-    // rather than approximated.
+    // a fractional multiplier is refused
     wire.ct_mult = "1.5";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 }
 
 TEST(OkxMap, NonLiveAndWrongMarketRowsAreRefused) {
-    // A preopen row ships every numeric field empty, so the state check has to
-    // come before the steps are parsed or the row fails for the wrong reason.
+    // a preopen row ships numeric fields empty, so state is checked first
     WireInstrument wire{};
     wire.inst_id = "JP225-USDT-SWAP";
     wire.inst_type = "SWAP";
     wire.state = "preopen";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
-    // Asking for perps and getting a dated future back is a position bug, and
-    // both types share the instruments endpoint.
+    // perps were asked for, so a dated future is refused
     wire.inst_id = "BTC-USD-260814";
     wire.inst_type = "FUTURES";
     wire.state = "live";
@@ -430,9 +404,7 @@ TEST(OkxMap, NonLiveAndWrongMarketRowsAreRefused) {
 }
 
 TEST(OkxMap, SwapThatWillNotSayItsDirectionIsRefused) {
-    // OKX ships ctType on every SWAP row. A row that does not is a row we
-    // cannot price: ctVal 100 is 100 USD on an inverse contract and 100 BTC
-    // on a linear one, and both parse. Refuse rather than assume.
+    // a swap row without ctType cannot be priced and is refused
     WireInstrument wire{};
     wire.inst_id = "BTC-USD-SWAP";
     wire.inst_type = "SWAP";
@@ -451,8 +423,7 @@ TEST(OkxMap, SwapThatWillNotSayItsDirectionIsRefused) {
 }
 
 TEST(OkxMap, InstrumentWithoutUsableStepsIsRefused) {
-    // Every later conversion divides by these, so a zero step must never
-    // reach the table.
+    // a zero step must never reach the table
     WireInstrument wire{};
     wire.inst_id = "BTC-USDT-SWAP";
     wire.inst_type = "SWAP";
@@ -500,8 +471,7 @@ TEST(OkxMap, CatalogueSwapRowsTakeTheirPairFromInstId) {
 }
 
 TEST(OkxMap, SpotRowTakesItsPairFromTheFields) {
-    // The other half of the split: SPOT is the one instrument type that fills
-    // baseCcy and quoteCcy in.
+    // spot is the one type that fills baseCcy and quoteCcy
     WireInstrument wire{};
     wire.inst_id = "BTC-USDT";
     wire.inst_type = "SPOT";
@@ -517,9 +487,7 @@ TEST(OkxMap, SpotRowTakesItsPairFromTheFields) {
 }
 
 TEST(OkxMap, RowWithoutAPairIsDropped) {
-    // instId is the only place a SWAP states its pair; one that will not split
-    // is a row nothing can group, and a cross-venue view would show it as a
-    // market of its own.
+    // a swap's pair comes only from instId; one that will not split is dropped
     WireInstrument wire{};
     wire.inst_id = "BTCUSDTSWAP";
     wire.inst_type = "SWAP";
@@ -537,8 +505,6 @@ TEST(OkxMap, RowWithoutAPairIsDropped) {
     EXPECT_EQ(base_of(*instrument).local_symbol.view(), "BTC/USDT");
 }
 
-// ------------------------------------------------------- order events ----
-
 TEST(OkxMap, AFillCarriesItsTradeAndTheFeeSignFlips) {
     const auto table = table_with_btc();
     const auto fill = map_order_fill(partly_filled_order(), table, k_ingest);
@@ -548,23 +514,20 @@ TEST(OkxMap, AFillCarriesItsTradeAndTheFeeSignFlips) {
     EXPECT_EQ(fill->liquidity, Liquidity::Taker);
     EXPECT_EQ(fill->price.raw, 640'435); // 64043.5 / 0.1
     EXPECT_EQ(fill->qty.raw, 200);       // 2 contracts / 0.01
-    // OKX publishes no remainder: sz minus accFillSz is the only source.
+    // sz minus accFillSz is the only source of leaves
     EXPECT_EQ(fill->leaves_qty.raw, 300);
     EXPECT_EQ(fill->exec_id.view(), "744876981");
     EXPECT_EQ(fill->exchange_client_order_id.view(), k_ulid);
-    // Negative on the wire means a fee charged. Copying the sign through
-    // would credit the ledger for every trade we paid for.
+    // negative on the wire is a fee charged
     EXPECT_EQ(fill->fee.raw, 38'426'100);
     EXPECT_EQ(fill->ts_event.ns, 1'786'392'410'701ULL * 1'000'000ULL);
 
-    // A partial fill carries no lifecycle transition of its own.
+    // a partial fill carries no lifecycle transition of its own
     EXPECT_FALSE(map_order_event(partly_filled_order(), table, k_ingest).has_value());
 }
 
 TEST(OkxMap, AFilledStateWithoutATradeIsNotASecondFill) {
-    // OKX closes a spot market order with state "filled" and fillSz 0 after
-    // the quantity already arrived on tradeId-bearing pushes. Reading
-    // accFillSz off this one books the same fill twice.
+    // a filled push with fillSz 0 closes a spot market order and is not a second fill
     const auto table = table_with_btc();
     auto wire = partly_filled_order();
     wire.state = WireOrderState::Filled;
@@ -578,8 +541,7 @@ TEST(OkxMap, AFilledStateWithoutATradeIsNotASecondFill) {
 }
 
 TEST(OkxMap, OneMessageIsTheLastFillAndThenTheExpiry) {
-    // The race the brief exists for: an IOC that filled part of itself and was
-    // killed arrives as ONE object. Both halves have to come out, fill first.
+    // a partly filled ioc that was killed arrives as one object; fill first
     const auto table = table_with_btc();
     auto wire = partly_filled_order();
     wire.state = WireOrderState::Canceled;
@@ -593,7 +555,7 @@ TEST(OkxMap, OneMessageIsTheLastFillAndThenTheExpiry) {
 
     const auto event = map_order_event(wire, table, k_ingest);
     ASSERT_TRUE(event.has_value());
-    // Expired, not Canceled: nobody asked for this, the order ran out of book.
+    // expired: the remainder ran out and nobody cancelled it
     EXPECT_EQ(event->type, OrderEventType::Expired);
     EXPECT_EQ(event->leaves_qty.raw, 300);
     EXPECT_EQ(event->ts_event.ns, 1'786'392'410'702ULL * 1'000'000ULL);
@@ -616,8 +578,7 @@ TEST(OkxMap, AVenueCancelIsACancelAndAnAmendRefusalIsNeither) {
     ASSERT_TRUE(event.has_value());
     EXPECT_EQ(event->type, OrderEventType::Canceled);
 
-    // amendResult "-1" leaves the order working at its old price. A Rejected
-    // here would close an order the venue still holds.
+    // amendResult -1 leaves the order working at its old price
     wire.state = WireOrderState::Live;
     wire.cancel_source = {};
     wire.amend_result = "-1";
@@ -646,9 +607,7 @@ TEST(OkxMap, QuantitiesOffTheLotAreRefusedRatherThanRounded) {
     wire.fill_sz = "2.005"; // half a lot past a 0.01 step
     EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
 
-    // A cumulative fill larger than the order it belongs to is not a
-    // remainder of zero. A fabricated zero closes the order at the wrong
-    // quantity; dropping the event leaves a live order for the pulls to fix.
+    // a cumulative fill above the order size is dropped, not read as zero leaves
     wire = partly_filled_order();
     wire.acc_fill_sz = "9";
     EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
@@ -657,7 +616,7 @@ TEST(OkxMap, QuantitiesOffTheLotAreRefusedRatherThanRounded) {
     wire.sz = "5.005"; // the venue changed a lot size under us
     EXPECT_FALSE(map_order_fill(wire, table, k_ingest).has_value());
 
-    // An exec id we cannot store is a dedupe key we do not have.
+    // an exec id that does not fit is no dedupe key
     wire = partly_filled_order();
     wire.trade_id = std::string_view{
         "744876981744876981744876981744876981744876981744876981744876981744876981"};
@@ -707,14 +666,13 @@ TEST(OkxMap, PositionSignComesFromPosSideAsWellAsFromPos) {
     EXPECT_EQ(report->net_qty.raw, 1'200); // 12 contracts / 0.01
     EXPECT_EQ(report->avg_entry.raw, 640'435);
 
-    // Net mode signs `pos` itself.
+    // net mode signs pos itself
     wire.pos = "-12";
     report = map_position(wire, table);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->net_qty.raw, -1'200);
 
-    // Long/short mode returns one UNSIGNED row a side, and reading a short as
-    // written is a position error of twice the size.
+    // long/short mode returns one unsigned row a side
     wire.pos = "12";
     wire.pos_side = "short";
     report = map_position(wire, table);
@@ -751,7 +709,7 @@ TEST(OkxMap, RestFillsBecomeFillReportsWithTheSameFeeConvention) {
     EXPECT_EQ(report->liquidity, Liquidity::Maker);
     EXPECT_EQ(report->ts_venue.ns, 1'786'392'410'701ULL * 1'000'000ULL);
 
-    // Anything the venue never said stays Unknown rather than becoming Taker.
+    // unstated liquidity stays Unknown
     wire.exec_type = {};
     EXPECT_EQ(map_fill(wire, table)->liquidity, Liquidity::Unknown);
 }
@@ -776,8 +734,7 @@ TEST(OkxErrors, AuthCodesHaltTheVenue) {
 }
 
 TEST(OkxErrors, ClockSkewIsRetryableNotAuthFailure) {
-    // The request was fine, our clock was not. Resync and resend succeeds, and
-    // filing these under AuthFailure would halt a venue whose keys are valid.
+    // clock errors are retryable: resync and resend
     for (const auto code : {k_timestamp_expired, k_invalid_timestamp, k_ws_timestamp_expired}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::Retryable) << code;
     }
@@ -793,8 +750,7 @@ TEST(OkxErrors, RateLimitCodesBackOff) {
 }
 
 TEST(OkxErrors, UnknownCodeIsTerminalByDefault) {
-    // Deliberate: an unknown refusal retried at full speed earns an IP ban,
-    // while a spuriously terminal order is recovered by reconciliation.
+    // unknown codes are terminal
     EXPECT_EQ(classify(999'999), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_instrument_not_found), exec::ErrorClass::Terminal);
     EXPECT_EQ(classify(k_ws_wrong_channel), exec::ErrorClass::Terminal);
@@ -808,17 +764,14 @@ TEST(OkxErrors, BenignCancelRacesAreRecognised) {
     EXPECT_TRUE(is_benign_cancel_failure(k_order_not_found));
     EXPECT_FALSE(is_benign_cancel_failure(k_insufficient_balance));
 
-    // An amend of an order that already settled is the same race seen from
-    // the other side; the private stream has already reported the outcome.
+    // an amend of a settled order is benign
     EXPECT_TRUE(is_benign_amend_failure(k_amend_already_settled));
     EXPECT_TRUE(is_benign_amend_failure(k_cancel_order_not_exist));
     EXPECT_FALSE(is_benign_amend_failure(k_insufficient_balance));
 }
 
 TEST(OkxErrors, OrderEntryRefusalsAreTerminalNotRetried) {
-    // A duplicate client order id, a tier too low for a channel and a
-    // post-only that would have crossed are all final answers. Retrying any
-    // of them at full speed is how an account earns a rate-limit ban.
+    // these are final answers
     for (const auto code : {k_duplicate_param,
                             k_tier_too_low_for_channel,
                             k_post_only_would_take,
@@ -828,9 +781,7 @@ TEST(OkxErrors, OrderEntryRefusalsAreTerminalNotRetried) {
 }
 
 TEST(OkxMapFunding, TheMarkArrivesOnItsOwnChannelAndJoinsTheSameRecord) {
-    // OKX splits what FundingUpdate fuses: the rate on `funding-rate`, the mark
-    // on `mark-price`. The shm cell is written whole, so publishing straight
-    // from either frame writes UNDEF over what the other one said.
+    // rate and mark arrive on separate channels and must merge
     const auto table = table_with_btc();
     FundingMemo memo{};
 
@@ -869,8 +820,6 @@ TEST(OkxMapFunding, ARateFrameDoesNotEraseAMarkAlreadyStated) {
     EXPECT_EQ(after->mark_price.raw, held.raw) << "the mark survives a frame that omitted it";
 }
 
-// ------------------------------------------------------------ balances ----
-
 TEST(OkxMap, BalanceTakesTheCashTotalAndNotTheEquity) {
     const auto body = fixture("rest_balance.json");
     auto storage = std::make_unique<BalanceBuffer>();
@@ -881,9 +830,7 @@ TEST(OkxMap, BalanceTakesTheCashTotalAndNotTheEquity) {
     const auto report = map_balance((*rows)[0], AccountMode::Futures, k_ingest);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->asset.view(), "USDT");
-    // cashBal, truncated below a nanocoin. `eq` is 4992.890093622894 — the
-    // same money plus the open pnl reported beside it — and reading that as
-    // the total would count the pnl twice.
+    // cashBal, not eq, which adds open pnl
     EXPECT_EQ(report->total.raw, 4'850'435'693'622);
     EXPECT_EQ(report->available.raw, 4'834'317'093'622);
     EXPECT_EQ(report->unrealized.raw, -7'545'600'000);
@@ -897,20 +844,15 @@ TEST(OkxMap, BalanceWithholdsAvailableWhereTheAccountMarginsAcrossCurrencies) {
     ASSERT_TRUE(rows.has_value());
     ASSERT_FALSE(rows->empty());
     const auto& wire = (*rows)[0];
-    // Spot and futures mode margin each currency out of itself, so availBal is
-    // this currency's own free amount.
+    // spot and futures modes margin each currency out of itself
     EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest)->available.is_undef());
     EXPECT_FALSE(map_balance(wire, AccountMode::Futures, k_ingest)->available.is_undef());
-    // The other two check an order against the ACCOUNT's adjusted equity in
-    // USD, so every currency's availBal reads as free while the account may
-    // have no margin left at all. Undef says the venue gave no per-currency
-    // figure this can trust, which is the truth.
+    // margin modes check account-wide equity, so availBal is not trusted
     EXPECT_TRUE(map_balance(wire, AccountMode::MultiCurrency, k_ingest)->available.is_undef());
     EXPECT_TRUE(map_balance(wire, AccountMode::Portfolio, k_ingest)->available.is_undef());
-    // A config read that failed is not a mode, and must not be read as one.
+    // a failed config read is not a mode
     EXPECT_TRUE(map_balance(wire, AccountMode::Unknown, k_ingest)->available.is_undef());
-    // The total and the pnl are the venue's own per-currency figures in every
-    // mode, so withholding the available must not withhold those.
+    // total and pnl are published in every mode
     const auto pooled = map_balance(wire, AccountMode::Portfolio, k_ingest);
     EXPECT_EQ(pooled->total.raw, 4'850'435'693'622);
     EXPECT_EQ(pooled->unrealized.raw, -7'545'600'000);
@@ -923,17 +865,15 @@ TEST(OkxMap, BalanceLeavesAFieldOkxDidNotSendUndef) {
     const auto report = map_balance(wire, AccountMode::Spot, k_ingest);
     ASSERT_TRUE(report.has_value());
     EXPECT_EQ(report->total.raw, 250'000'000);
-    // Not zero: an empty string is OKX declining, and a zero would claim the
-    // account has nothing free and no pnl open.
+    // an empty string is undef, not zero
     EXPECT_TRUE(report->available.is_undef());
     EXPECT_TRUE(report->unrealized.is_undef());
-    // No uTime either, so the row is dated by the caller rather than by 1970.
+    // no uTime, so the caller's time is used
     EXPECT_EQ(report->ts_venue.ns, k_ingest.ns);
 }
 
 TEST(OkxMap, BalanceWithoutACurrencyIsDropped) {
-    // A wallet figure with no unit is not a balance, and a truncated ticker
-    // would attribute the money to an asset that does not exist.
+    // a balance without a currency is refused
     WireCurrencyBalance wire{};
     wire.cash_bal = "12.5";
     EXPECT_FALSE(map_balance(wire, AccountMode::Spot, k_ingest).has_value());

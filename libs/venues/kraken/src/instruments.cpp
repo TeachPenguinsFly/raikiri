@@ -63,7 +63,7 @@ public:
             return std::unexpected{
                 exec::VenueError::make(classify(envelope->error), 0, envelope->error)};
         }
-        // Half the round trip is the usual estimate of one-way delay.
+        // half the round trip estimates one-way delay
         if (envelope->server_ms != 0) {
             const auto received = state_->clock->wall();
             const auto midpoint = sent.ns + (received.ns - sent.ns) / 2;
@@ -91,7 +91,7 @@ public:
             }
             const auto id = state_->instruments.add(*instrument);
             if (!id.has_value()) {
-                continue; // duplicate or table full: reported by count, not by throw
+                continue; // duplicate or table full; reported by count
             }
             loaded.push_back(*state_->instruments.find(*id));
         }

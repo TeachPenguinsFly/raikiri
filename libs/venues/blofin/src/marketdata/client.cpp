@@ -146,8 +146,7 @@ public:
     }
 
 private:
-    // A spot pool would be a second instance: spot frames name the same instId
-    // and do not say which market they are from.
+    // perp only: spot frames carry the same instId and no market marker
     static constexpr MarketType k_market = MarketType::Perp;
 
     class Handler final : public net::WsHandler {
@@ -299,8 +298,7 @@ private:
         }
     }
 
-    // The venue never resends a snapshot by itself; only a fresh subscription on
-    // the socket that broke brings one. The dark book answers Ignored until then.
+    // the venue sends a snapshot only on a fresh subscription; the book answers Ignored until then
     void resubscribe_book(std::string_view inst_id) noexcept {
         const std::array<std::string_view, 1> books{k_books_channel};
         const auto off = protocol_.unsubscribe_frame(inst_id, books);
@@ -396,7 +394,7 @@ private:
         }
     }
 
-    // The period is re-read every pass: the venue changes it on live contracts.
+    // the venue changes the period on live contracts, so it is re-read every pass
     void poll_funding(UnixNanos now) noexcept {
         if (funding_wanted_.empty() || now.ns < next_poll_ns_ || rates_in_flight_ ||
             marks_in_flight_) {

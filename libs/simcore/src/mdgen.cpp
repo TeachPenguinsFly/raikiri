@@ -4,9 +4,7 @@ namespace raikiri::simcore {
 
 namespace {
 
-// splitmix64 / xoshiro256++ — the UlidGen generator, duplicated rather than
-// shared because the two streams have unrelated lifetimes and must never
-// perturb each other's determinism.
+// a separate copy of the UlidGen generator so the two streams never perturb each other
 constexpr std::uint64_t splitmix64(std::uint64_t& x) noexcept {
     x += 0x9E3779B97F4A7C15ULL;
     std::uint64_t z = x;

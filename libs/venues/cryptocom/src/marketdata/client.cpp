@@ -87,7 +87,7 @@ public:
         case exec::SubKind::Trades:
             return open(k_trade_prefix, symbol);
         case exec::SubKind::Funding:
-            // Turnover has no SubKind; it rides Funding, and is all a pair gets.
+            // turnover has no SubKind; it rides Funding and is all a pair gets
             if (const auto ticker = open(k_ticker_prefix, symbol); !ticker.has_value()) {
                 return ticker;
             }
@@ -130,7 +130,7 @@ public:
         }
         switch (event->kind) {
         case EventKind::Heartbeat:
-            // On the socket that asked, with its id: unanswered for 5 s closes it.
+            // reply on the socket that asked, with its id; unanswered for 5 s closes it
             if (!pool_.reply(state_->protocol.heartbeat_reply(event->id))) {
                 ++heartbeats_unanswered_;
             }
@@ -221,7 +221,7 @@ private:
             resubscribe_book(base);
             return;
         case BookResult::BadLevel:
-            // Not resubscribed: the next snapshot would carry the same level.
+            // not resubscribed: the next snapshot would carry the same level
             ++bad_levels_;
             return;
         case BookResult::Ignored:
@@ -244,8 +244,7 @@ private:
         }
     }
 
-    // Sent on the socket being handled; a repeat subscribe returns a fresh
-    // snapshot and does not count against the 400.
+    // a repeat subscribe returns a fresh snapshot and does not count against the 400
     void resubscribe_book(const InstrumentBase& base) {
         std::array<char, k_max_channel_len> buf{};
         const auto channel = book_channel(base.exchange_symbol.view(), buf);
@@ -260,7 +259,7 @@ private:
     }
 
     void handle_trades(const Event& event, UnixNanos received) {
-        // The subscribe answer replays the last 50 prints; they are not new flow.
+        // the subscribe answer replays the last 50 prints; they are not new flow
         if (!event.is_push()) {
             ++state_->trade_replays_dropped;
             return;
@@ -297,7 +296,7 @@ private:
         }
     }
 
-    // Unlike trades, a funding channel's subscribe answer is the current value.
+    // a funding channel's subscribe answer is the current value
     void handle_funding(const Event& event, UnixNanos received) {
         const auto* listed = state_->instruments.find(event.instrument);
         if (listed == nullptr) {
@@ -342,7 +341,7 @@ private:
         }
     }
 
-    // Books first: they carry the quote.
+    // books first: they carry the quote
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> channels{keys.begin(), keys.end()};
         std::ranges::stable_partition(

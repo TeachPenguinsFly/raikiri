@@ -39,7 +39,7 @@ std::expected<std::span<const WireContract>, WireError> parse_contracts(std::str
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            // Optional here so the mapper is what refuses a row.
+            // optional here so the mapper refuses the row
             for (const auto& [key, target] : {std::pair{"baseCoin", &out.base_coin},
                                               std::pair{"quoteCoin", &out.quote_coin},
                                               std::pair{"symbolType", &out.symbol_type},
@@ -89,7 +89,7 @@ parse_spot_symbols(std::string_view body, SpotSymbolBuffer& storage) {
                 return std::unexpected(symbol.error());
             }
             out.symbol = *symbol;
-            // Optional here so the mapper is what refuses a row.
+            // optional here so the mapper refuses the row
             for (const auto& [key, target] :
                  {std::pair{"baseCoin", &out.base_coin},
                   std::pair{"quoteCoin", &out.quote_coin},

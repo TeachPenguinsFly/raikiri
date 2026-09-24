@@ -1,20 +1,7 @@
 #pragma once
 
-// The live order object: origin snapshot + lifecycle state.
-//
-// An Order never decides status itself — every event goes through the domain
-// transition() table, so the OMS and a journal replay produce byte-identical
-// state from the same event stream. What the Order adds on top of the FSM is
-// the bookkeeping the FSM was designed to lean on:
-//
-// - prior_working_: the status to resume when a pending modify/cancel resolves
-//   without effect. Kept synced to the last working status the order occupied,
-//   INCLUDING a partial fill that lands while a cancel is in flight (status
-//   stays PendingCancel, but a later CancelRejected must resume
-//   PartiallyFilled, not the pre-cancel Accepted).
-// - quantities: the venue's leaves_qty on a fill is authoritative; filled is
-//   derived (qty - leaves) rather than summed, so venues that resend fill
-//   notifications cannot double-count.
+// every event goes through transition(); prior_working_ is the status a no-effect modify or cancel
+// resumes
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
@@ -41,16 +28,7 @@ public:
           ts_updated_{cmd.ts_created} {}
 
     [[nodiscard]] std::expected<void, TransitionError> apply(const OrderEvent& event) noexcept {
-        // WHAT THIS FILL LEAVES BEHIND, resolved before the transition asks.
-        //
-        // A private socket states the ORDER's remaining quantity and it is
-        // authoritative. A fill PULLED from the venue's trade history states
-        // the EXECUTION and leaves UNDEF — there is nothing to assign, so the
-        // execution's own size comes off what was left.
-        //
-        // Assigning UNDEF put INT64_MIN into leaves_ and overflowed filled_ on
-        // the line after, and read as "not a full fill" whatever the execution
-        // had actually closed.
+        // a pulled fill has undef leaves, so its own size comes off what was left
         auto remaining = leaves_;
         if (event.type == OrderEventType::Filled) {
             if (event.leaves_qty.is_undef()) {

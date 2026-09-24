@@ -1,12 +1,5 @@
 #pragma once
 
-// The order book: what a frame says about it, and what a reader must hold to
-// keep one in step.
-//
-// THE TWO BELONG TOGETHER. The wire type means nothing without the chaining
-// rule that decides whether a delta may be applied at all, and the rule means
-// nothing without the field it reads.
-
 #include <raikiri/book/ladder.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -27,10 +20,7 @@ struct WireLevel {
     std::string_view size; // "0" means delete this level
 };
 
-// orderbook.N.SYMBOL. `is_snapshot` distinguishes a full book from a delta;
-// `update_id` and `seq` are bybit's ordering guarantees — a gap in update_id
-// means the book must be resynchronised, which is why they are surfaced
-// rather than swallowed.
+// a gap in update_id requires a resync
 struct WireOrderbook {
     std::string_view symbol;
     bool is_snapshot{false};
@@ -43,8 +33,7 @@ struct WireOrderbook {
 
 inline constexpr std::size_t k_max_levels = 512;
 
-// Storage the caller owns and reuses across frames — parsing must not
-// allocate on the market-data path.
+// caller-owned storage reused across frames so parsing does not allocate
 struct OrderbookBuffer {
     WireLevel bids[k_max_levels];
     WireLevel asks[k_max_levels];
@@ -61,8 +50,6 @@ enum class SyncResult : std::uint8_t {
     BadLevel,    // a price or size failed exact fixed-point conversion
 };
 
-// One symbol's book. Prices and sizes are converted to instrument-scaled
-// integers at ingest, so nothing downstream ever sees a venue string.
 class BookSync {
 public:
     using Level = book::Level;
@@ -71,12 +58,10 @@ public:
 
     [[nodiscard]] SyncResult apply(const WireOrderbook& update);
 
-    // Top of book, or nullopt while the book is empty or desynchronised.
+    // top of book, or nullopt while empty or desynchronised
     [[nodiscard]] std::optional<Bbo> bbo(UnixNanos ts_event, UnixNanos ts_init) const;
 
-    // The top k_book_levels a side, under the same rule as bbo(): nothing at
-    // all while desynchronised, because a stale book is priced off as if it
-    // were current while silence is visibly missing data.
+    // nothing while desynchronised, same as bbo()
     [[nodiscard]] std::optional<BookSnapshot> snapshot(UnixNanos ts_event, UnixNanos ts_init) const;
 
     [[nodiscard]] bool synced() const noexcept { return synced_; }

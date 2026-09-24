@@ -29,14 +29,10 @@ namespace raikiri::venues::bingx::internal {
 
 namespace {
 
-// Funding is a poll, not a stream (see wire.hpp). One symbol goes out per tick,
-// so the request rate is bounded by the cadence rather than by how many
-// contracts the gateway watches.
+// funding is polled one symbol per tick
 constexpr std::uint64_t k_funding_poll_interval_ns = 2'000'000'000ULL;
 
-// A pool key is one symbol and one dataType suffix, joined by a byte neither
-// can contain. The pool stores keys as opaque strings and hands them back when
-// a socket reconnects, so this is the only place that knows the shape.
+// pool key is symbol and suffix joined by a byte neither contains
 constexpr char k_key_sep = '\x1f';
 
 [[nodiscard]] std::string key_of(std::string_view symbol, std::string_view suffix) {
@@ -120,15 +116,7 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // NOTHING IS RESUBSCRIBED HERE. Each socket in the pool re-asks for its own
-    // keys when it opens; replaying the whole desired set on every one of them
-    // is the flood the pool exists to avoid.
-    //
-    // AND NO BOOK IS INVALIDATED, because this venue holds none: every
-    // {sym}@depth100 frame is a complete snapshot of the top levels with no
-    // sequence number and no delta chain (book.hpp), so a reopened socket has
-    // broken no continuity and there is nothing to reseed over REST. The pool's
-    // OnConnectionOpen hook is left unused for that reason.
+    // each socket resubscribes its own keys; depth frames are full snapshots, so no book to invalidate
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -146,10 +134,7 @@ public:
                 return; // unknown shapes are ignored, never fatal
             }
             if (event->kind == EventKind::Ping) {
-                // EVERY socket. BingX sends the string "Ping" on each connection
-                // every five seconds and closes one whose "Pong" stops arriving,
-                // and a shared handler is not told which connection asked — so
-                // pooling the venue turns one answer into one broadcast.
+                // bingx pings every connection and the handler cannot tell which, so pong goes to all
                 pool_->broadcast(Protocol::pong_frame());
                 return;
             }
@@ -181,8 +166,7 @@ public:
                               .port = std::string{stream_port()},
                               .target = std::string{stream_path(state_->market)}},
                 handler_,
-                // BingX caps a CONNECTION at 200 topics; the pool turns that
-                // into a per-socket number instead of the process's ceiling.
+                // bingx caps a connection at 200 topics
                 net::WsPoolConfig{},
                 [this](std::span<const std::string> keys) { return build_frames(keys); }},
           rest_{state_->io, net::RestConfig{.host = std::string{rest_host()}, .port = "443"}} {
@@ -204,8 +188,6 @@ public:
 
     [[nodiscard]] bool connected() const noexcept override { return pool_.connected(); }
 
-    // What this venue's sockets were told no about. Counted by the
-    // adapter since it was written; this is what finally reads it.
     [[nodiscard]] std::uint64_t subscribe_refusals() const noexcept override {
         return state_->subscribe_refusals;
     }
@@ -213,10 +195,7 @@ public:
     std::expected<void, exec::VenueError> subscribe(exec::SubKind kind,
                                                     InstrumentId instrument) override {
         if (instrument.market() != state_->market) {
-            // This socket is one deployment's, and BingX spells a spot pair
-            // and its perpetual identically — an id from the other market
-            // subscribed here would be fed the wrong tree's prints under the
-            // right-looking symbol, which is worse than no data.
+            // spot and perp share symbols; one socket serves one market
             return std::unexpected{exec::not_implemented("bingx: this socket serves one market")};
         }
         const auto symbol = state_->instruments.exchange_symbol(instrument);
@@ -225,10 +204,7 @@ public:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, "unknown instrument")};
         }
         if (kind == exec::SubKind::Funding) {
-            // Not a stream: BingX publishes funding over REST only. The
-            // 24-hour window IS a stream, and this is the only kind a caller
-            // asks the venue's own statistics with, so the poll and the
-            // ticker subscription are registered together.
+            // funding is polled over rest; the ticker stream is subscribed alongside
             if (const auto placed = subscribe_channel(symbol, k_ticker_channel);
                 !placed.has_value()) {
                 return placed;
@@ -259,8 +235,7 @@ public:
         state_->io.poll();
         pool_.poll(now);
         poll_funding(now);
-        // One io context serves both clients, and this is the exec client's
-        // only tick.
+        // this is the exec client's only tick
         if (state_->private_poll) {
             state_->private_poll(now);
         }
@@ -274,9 +249,7 @@ private:
         if (state_->desired.size() == before) {
             return {}; // refcounting lives in the gateway core; this is a set
         }
-        // THE POOL PLACES IT. A key that fits on no existing socket opens
-        // another, and only the pool's own ceiling refuses — which is said out
-        // loud rather than leaving the instrument silently unwatched.
+        // the pool places the key and refuses only at its own ceiling
         const std::array<std::string, 1> one{key_of(symbol, suffix)};
         if (!pool_.subscribe(one)) {
             return std::unexpected{exec::VenueError::make(
@@ -285,10 +258,7 @@ private:
         return {};
     }
 
-    // Turns one connection's keys back into the frames that ask for them.
-    // Called on every open of that socket, which is why the quote channel is
-    // ordered first here rather than at subscribe time: on a reconnect the
-    // order that matters is the order the venue is asked in.
+    // called on every open of the socket; bookTicker goes first
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         struct View {
             std::string_view symbol;
@@ -305,18 +275,12 @@ private:
             views.push_back({.symbol = std::string_view{key}.substr(0, cut),
                              .suffix = std::string_view{key}.substr(cut + 1)});
         }
-        // THE QUOTE FIRST. Once the sends are paced, whatever goes last on a
-        // large catalogue effectively does not go at all — and bookTicker is
-        // the Bid/Ask column every screen shows.
+        // quote first: with paced sends the tail of a large catalogue lags
         const auto quote = data_type_suffix(exec::SubKind::Bbo, state_->market);
         std::ranges::stable_partition(views,
                                       [quote](const View& one) { return one.suffix == quote; });
 
-        // ONE FRAME PER TOPIC, not a batch: a BingX subscribe names a single
-        // dataType and has no args array (ws.hpp), so a connection's ask is as
-        // many frames as it holds keys. The frame's text points into the
-        // protocol's own buffer and is overwritten by the next call, so each is
-        // copied here rather than viewed.
+        // one frame per topic; copied because the protocol buffer is reused
         std::vector<std::string> frames;
         frames.reserve(views.size());
         for (const auto& one : views) {

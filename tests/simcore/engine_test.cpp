@@ -22,8 +22,7 @@ constexpr UnixNanos k_t0{1'700'000'000'000'000'000ULL};
     return QtyLots::from_raw(v);
 }
 
-// Deterministic per-seq ULID so the same test input is byte-identical across
-// engines and runs.
+// deterministic per-seq ulid
 [[nodiscard]] ExchangeClientOrderId test_ulid(std::uint64_t seq) {
     UlidGen gen{seq + 1};
     return gen.next(k_t0);
@@ -93,8 +92,6 @@ template <typename T> void append_pod(std::string& buf, const T& value) {
     buf.append(reinterpret_cast<const char*>(&value), sizeof(T));
 }
 
-// Byte-level serialization: OrderEvent/TradeTick are PODs with value-
-// initialized padding, so identical streams imply byte-identical buffers.
 void serialize(const SimResult& r, std::string& buf) {
     for (const OrderEvent& ev : r.events) {
         append_pod(buf, ev);
@@ -117,7 +114,6 @@ TEST(Engine, ClientLimitCrossesBackgroundLiquidity) {
     EXPECT_TRUE(scenery.trades.empty());
 
     const auto r = eng.handle(make_limit(1, Side::Buy, px(102), lots(8)), k_t0 + 1);
-    // Fully filled taker: no Accepted (fast fill beats ack), two taker fills.
     ASSERT_EQ(r.events.size(), 2U);
     const OrderEvent& e0 = r.events[0];
     EXPECT_EQ(e0.type, OrderEventType::Filled);
@@ -160,7 +156,6 @@ TEST(Engine, ClientLimitPartialFillRests) {
     SimResult scenery;
     eng.place_background_limit(k_inst, Side::Sell, px(101), lots(5), k_t0, scenery);
     const auto r = eng.handle(make_limit(1, Side::Buy, px(101), lots(8)), k_t0 + 1);
-    // Ack first (venue order), then the partial fill.
     ASSERT_EQ(r.events.size(), 2U);
     EXPECT_EQ(r.events[0].type, OrderEventType::Accepted);
     EXPECT_EQ(r.events[0].qty, lots(8));
@@ -185,7 +180,6 @@ TEST(Engine, RestingClientHitByBackgroundMarketGetsMakerFill) {
 
     SimResult bg;
     eng.place_background_market(k_inst, Side::Buy, lots(3), k_t0 + 2, bg);
-    // The background taker is silent; the client maker is not.
     ASSERT_EQ(bg.events.size(), 1U);
     const OrderEvent& maker = bg.events[0];
     EXPECT_EQ(maker.type, OrderEventType::Filled);
@@ -213,7 +207,7 @@ TEST(Engine, PostOnlyCrossRejected) {
     const auto r = eng.handle(
         make_limit(1, Side::Buy, px(101), lots(5), TimeInForce::Gtc, OrderFlags::PostOnly),
         k_t0 + 1);
-    // Venue-reality: post-only that would cross is refused, not re-priced.
+    // a post-only order that would cross is refused
     ASSERT_EQ(r.events.size(), 1U);
     EXPECT_EQ(r.events[0].type, OrderEventType::Rejected);
     EXPECT_EQ(r.events[0].leaves_qty, lots(5));
@@ -228,7 +222,6 @@ TEST(Engine, IocRemainderExpires) {
     eng.place_background_limit(k_inst, Side::Sell, px(101), lots(4), k_t0, scenery);
     const auto r =
         eng.handle(make_limit(1, Side::Buy, px(101), lots(10), TimeInForce::Ioc), k_t0 + 1);
-    // No Accepted: the order never rested. Fill, then the remainder expires.
     ASSERT_EQ(r.events.size(), 2U);
     EXPECT_EQ(r.events[0].type, OrderEventType::Filled);
     EXPECT_EQ(r.events[0].qty, lots(4));
@@ -236,7 +229,6 @@ TEST(Engine, IocRemainderExpires) {
     EXPECT_EQ(r.events[1].type, OrderEventType::Expired);
     EXPECT_EQ(r.events[1].leaves_qty, lots(6));
     EXPECT_EQ(r.events[1].qty, lots(10));
-    // Nothing rested, so a cancel finds nothing.
     const auto rc =
         eng.handle(make_cancel(2, r.events[0].exchange_order_id, test_ulid(1)), k_t0 + 2);
     ASSERT_EQ(rc.events.size(), 1U);
@@ -274,7 +266,6 @@ TEST(Engine, CancelProducesCanceled) {
     EXPECT_TRUE(rc.bbo_changed); // the only bid disappeared
     EXPECT_FALSE(eng.bbo(k_inst).has_value());
 
-    // Idempotence check: the venue no longer knows this order.
     const auto rc2 = eng.handle(make_cancel(3, target), k_t0 + 2);
     ASSERT_EQ(rc2.events.size(), 1U);
     EXPECT_EQ(rc2.events[0].type, OrderEventType::CancelRejected);
@@ -284,7 +275,6 @@ TEST(Engine, CancelResolvesByExchangeClientOrderId) {
     Engine eng;
     const auto rested = eng.handle(make_limit(1, Side::Buy, px(99), lots(5)), k_t0);
     ASSERT_EQ(rested.events.size(), 1U);
-    // Empty target: the engine falls back to the OMS-minted ULID.
     const auto rc = eng.handle(make_cancel(2, ExchangeOrderId{}, test_ulid(1)), k_t0 + 1);
     ASSERT_EQ(rc.events.size(), 1U);
     EXPECT_EQ(rc.events[0].type, OrderEventType::Canceled);
@@ -320,7 +310,6 @@ TEST(Engine, AmendToCrossingPriceFills) {
     const ExchangeOrderId target = rested.events[0].exchange_order_id;
 
     const auto ra = eng.handle(make_amend(2, target, px(102), lots(5)), k_t0 + 1);
-    // Updated ack first, then the trades the aggressive amend generated.
     ASSERT_EQ(ra.events.size(), 2U);
     EXPECT_EQ(ra.events[0].type, OrderEventType::Updated);
     EXPECT_EQ(ra.events[0].price, px(102));
@@ -362,14 +351,12 @@ TEST(Engine, MdGenPopulatesBookAndPrintsTrades) {
         const UnixNanos now = k_t0 + static_cast<std::uint64_t>(i) * 1'000'000ULL;
         const SimResult r = gen.step(eng, k_inst, now);
         trades += r.trades.size();
-        // The invariant holds after every step.
         const auto snap = eng.bbo(k_inst);
         ASSERT_TRUE(snap.has_value());
         if (!snap->bid.is_undef() && !snap->ask.is_undef()) {
             ASSERT_LT(snap->bid.raw, snap->ask.raw);
         }
     }
-    // Background market orders (1-in-8 steps) must have printed something.
     EXPECT_GT(trades, 0U);
     const auto snap = eng.bbo(k_inst);
     ASSERT_TRUE(snap.has_value());
@@ -388,7 +375,6 @@ TEST(Engine, DeterminismSameSeedSameScript) {
             const SimResult r = gen.step(eng, k_inst, now);
             serialize(r, blob);
             if (i % 50 == 10) {
-                // Join the bid so background flow can hit a client maker.
                 const auto snap = eng.bbo(k_inst);
                 if (snap.has_value() && !snap->bid.is_undef()) {
                     const auto cr = eng.handle(

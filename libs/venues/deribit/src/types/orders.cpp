@@ -11,9 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A number field the venue documents as sometimes carrying a WORD instead:
-// `price` is "market_price" on an open trigger market order. The word reads as
-// empty so the mapper drops the price rather than the whole order.
+// price is market_price on an open trigger market order and reads as empty
 std::expected<std::string_view, WireError> lenient_num(wire::ondemand::object& obj,
                                                        std::string_view key) {
     const auto token = opt_num(obj, key);
@@ -120,9 +118,7 @@ std::expected<WireUserTrade, WireError> read_user_trade(wire::ondemand::object& 
     if (!liquidity.has_value()) {
         return std::unexpected(liquidity.error());
     }
-    // Absent on some historical rows, and Unknown is a legitimate answer the
-    // domain already models — guessing Taker would flatter a maker strategy's
-    // own headline metric.
+    // absent on some historical rows; unknown is not guessed as taker
     out.liquidity_stated = !liquidity->empty();
     out.maker = *liquidity == "M";
 
@@ -197,8 +193,6 @@ parse_user_changes(std::string_view frame, OrderBuffer& orders, UserTradeBuffer&
         if (!data.has_value()) {
             return std::unexpected(data.error());
         }
-        // A frame that moved only positions carries neither array, and that is
-        // not an error — it is simply nothing this adapter acts on.
         std::size_t order_count = 0;
         if (wire::has_field(*data, "orders")) {
             const auto count = read_rows<WireOrder>(

@@ -1,11 +1,5 @@
 #pragma once
 
-// What every OKX answer is wrapped in, on both transports.
-//
-// A websocket frame names its channel in `arg` and hides the rows under
-// `data`; a REST body carries `code` and hides them under the same key.
-// Neither belongs to any one domain, and both have to be read first.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/venues/okx/errors.hpp>
 #include <raikiri/wire/json.hpp>
@@ -21,8 +15,6 @@
 
 namespace raikiri::venues::okx {
 
-// Resolved from arg.channel once, so downstream dispatch is an integer
-// compare rather than a string compare per message.
 enum class EventKind : std::uint8_t {
     Bbo,         // bbo-tbt — tick-by-tick top of book
     Trade,       // trades
@@ -42,12 +34,9 @@ struct EventInfo {
     std::string_view inst_id; // empty on control frames
 };
 
-// A keepalive answer is the bare text "pong", not JSON, so it lands here as
-// NotJson and the caller ignores it — the same path as any frame OKX adds.
+// the bare pong is not json and lands as NotJson
 [[nodiscard]] std::expected<EventInfo, WireError> parse_event(std::string_view frame);
 
-// A refused subscription: {"event":"error","code":"60018","msg":"..."}. Its
-// code is a string like every other OKX code.
 struct StreamError {
     std::int64_t code{0};
     std::string_view msg;
@@ -62,15 +51,12 @@ struct RestEnvelope {
     std::string_view msg;
 };
 
-// Fails rather than reporting success when `code` is missing or is not a run
-// of digits: a body whose envelope cannot be read must never be mistaken for
-// a body that said "0".
+// fails when code is missing or not digits
 [[nodiscard]] std::expected<RestEnvelope, WireError> parse_rest_envelope(std::string_view body);
 
 [[nodiscard]] std::expected<std::uint64_t, WireError> parse_server_time(std::string_view body);
 
-// bbo-tbt and books identify the instrument only in the frame's `arg` — the
-// data elements carry no instId at all, unlike trades and funding-rate.
+// bbo-tbt and books name the instrument only in arg
 inline std::expected<std::string_view, WireError> arg_inst_id(wire::ondemand::object& root) {
     auto arg = wire::req_object(root, "arg");
     if (!arg.has_value()) {
@@ -79,8 +65,7 @@ inline std::expected<std::string_view, WireError> arg_inst_id(wire::ondemand::ob
     return wire::req_str(*arg, "instId");
 }
 
-// Both transports wrap the payload in a `data` array, and every channel here
-// plus every singleton REST read carries exactly one element.
+// every channel here and every singleton rest read carries one data element
 template <typename Fn>
 [[nodiscard]] auto with_first_data(wire::ondemand::object& root, Fn&& fn)
     -> decltype(fn(std::declval<wire::ondemand::object&>())) {
@@ -98,14 +83,6 @@ template <typename Fn>
     return std::unexpected(WireError::MissingField);
 }
 
-// The rows under `data`, read into caller storage.
-//
-// Templates because the row reader differs per domain and nothing else does:
-// the envelope, the key, the capacity refusal and the per-row walk are the
-// same for orders, fills, bills, positions and acks alike.
-// Both transports wrap their payload in a top-level `data` array — the
-// websocket channel beside an `arg`, the REST endpoints beside `code`/`msg` —
-// so one walker reads either.
 template <typename Entry, typename Read>
 std::expected<std::span<const Entry>, WireError>
 read_data(std::string_view body, std::span<Entry> into, Read&& read) {
@@ -136,9 +113,7 @@ read_data(std::string_view body, std::span<Entry> into, Read&& read) {
     return std::span<const Entry>{into.data(), count};
 }
 
-// Optional fields only: OKX ships every absent value as "" rather than
-// omitting it, so a missing key is a schema change, and a hard failure on one
-// unread field would drop a fill we can still account for.
+// okx sends absent values as empty strings, so a missing key is a schema change
 inline std::expected<void, WireError>
 read_strings(wire::ondemand::object& obj,
              std::initializer_list<std::pair<std::string_view, std::string_view*>> fields) {

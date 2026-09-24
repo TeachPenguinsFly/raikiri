@@ -1,13 +1,6 @@
 #pragma once
 
-// MEXC futures public websocket protocol: channel naming and subscription
-// frames.
-//
-// Keepalive is mandatory and inbound data does not count. VERIFIED live: a
-// socket that received a push.ticker every three seconds but sent nothing was
-// closed at 62 s with {"channel":"rs.error","data":"more than 60 seconds no
-// response, close the channel"}. The answer to {"method":"ping"} is
-// {"channel":"pong","data":<epoch ms>}.
+// inbound data does not count as keepalive; the venue closes a silent socket after 60 s
 
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/net/signer.hpp>
@@ -29,27 +22,21 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// MEXC runs no public futures testnet: contract.mexc.com is the only host, so
-// unlike okx nothing here takes a flag.
+// no public futures testnet
 [[nodiscard]] std::string_view stream_host(MarketType market) noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view stream_path(MarketType market) noexcept;
 
-// Returns the bare channel stem, empty for a kind MEXC does not stream.
+// bare channel stem, empty for a kind mexc does not stream
 [[nodiscard]] std::string_view channel_for(exec::SubKind kind) noexcept;
 
-// The spot tree's channel PREFIX; the symbol goes on the end, and the depth
-// one takes a level count after that.
+// channel prefix; the symbol and, for depth, a level count follow
 [[nodiscard]] std::string_view spot_channel_for(exec::SubKind kind) noexcept;
 
-// depth.full is a limit-N snapshot and the depth is part of the subscription.
-// It is the only book this adapter publishes, so it carries the deepest tier
-// that fits the domain snapshot. MEXC takes fixed tiers only and answers
-// anything else with {"channel":"rs.error","data":"Not support limit"} —
-// verified live: 5, 10, 20, 50 and 200 stream, 60, 80, 99 and 100 are refused.
+// deepest supported tier that fits the snapshot; tiers are 5, 10, 20, 50 and 200
 inline constexpr std::uint32_t k_book_depth = 50;
 
-// Spot's limit-depth channel offers 5, 10 and 20 — the deepest tier it has.
+// 5, 10 or 20
 inline constexpr std::uint32_t k_spot_book_depth = 20;
 
 struct Subscription {
@@ -74,18 +61,12 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     unsubscribe_frame(std::span<const Subscription> subscriptions);
 
-    // Futures private stream. MEXC authenticates the SOCKET, not a REST-minted
-    // key: the login rides the same /edge connection the public channels use,
-    // and the personal pushes follow it unbidden — there is no sub.personal.*
-    // to send afterwards, so silence after login is indistinguishable from an
-    // account with nothing to say. The digest covers apiKey + reqTime and
-    // nothing else, which is the REST futures canonical string with its
-    // parameter term empty; the two stay separate anyway, because a REST body
-    // appended here would authenticate a login MEXC does not understand.
+    // the login rides /edge and personal pushes follow unbidden;
+    // the digest covers apiKey + reqTime only
     [[nodiscard]] std::expected<std::string_view, WsBuildError>
     login_frame(const net::Signer& signer, UnixNanos now);
 
-    // Exposed for tests: the exact bytes the last login_frame signed.
+    // for tests: the bytes the last login_frame signed
     [[nodiscard]] std::string_view last_login_message() const noexcept;
 
     [[nodiscard]] static std::string_view ping_frame() noexcept { return R"({"method":"ping"})"; }

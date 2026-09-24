@@ -1,18 +1,7 @@
 #pragma once
 
-// Loopback TLS plumbing shared by the net client tests.
-//
-// The clients always negotiate TLS — the contract has no plaintext path — so
-// the tests cannot fall back to a bare TCP server. Instead a throwaway
-// self-signed certificate is minted in memory at test time and the client
-// connects with verify_tls=false. Nothing touches the filesystem, nothing
-// outlives the process, and no test needs a fixture checked into the repo.
-//
-// The listener runs its own io_context on a dedicated thread and every
-// operation on it is asynchronous. A synchronous server would park that
-// thread inside accept() with no portable way to wake it, which is precisely
-// how test suites acquire hangs; io_context::stop() from another thread is
-// always safe when nothing blocks inside a handler.
+// loopback tls server for the net tests with an in-memory self-signed cert.
+// it runs async on its own io_context thread so stop() always works
 
 #include <openssl/bio.h>
 #include <openssl/evp.h>
@@ -78,8 +67,7 @@ inline std::string drain(BIO* bio) {
 
 } // namespace ossl
 
-// P-256 rather than RSA: key generation is microseconds instead of a visible
-// fraction of a second, and every test in the suite mints its own.
+// p-256 keys generate much faster than rsa
 inline SelfSignedCert make_self_signed() {
     ossl::PkeyPtr key{EVP_EC_gen("prime256v1")};
     ossl::require(key != nullptr, "EVP_EC_gen");
@@ -122,9 +110,6 @@ class TlsListener {
 public:
     using Socket = boost::asio::ip::tcp::socket;
     using SslContext = boost::asio::ssl::context;
-    // Handed the accepted socket rather than a finished TLS stream: the
-    // websocket test wants to build websocket::stream<ssl_stream<tcp_stream>>
-    // around it and drive the handshake itself, and the HTTP test does not.
     using OnSession = std::function<void(Socket&&, SslContext&)>;
 
     explicit TlsListener(OnSession on_session)
@@ -188,8 +173,7 @@ private:
     std::thread thread_;
 };
 
-// Binds and immediately releases an ephemeral port. Nothing is listening on
-// the returned number, which is what the transport-failure test needs.
+// binds and releases an ephemeral port; nothing listens on it
 inline std::uint16_t reserve_closed_port() {
     boost::asio::io_context probe{1};
     boost::asio::ip::tcp::acceptor acceptor{

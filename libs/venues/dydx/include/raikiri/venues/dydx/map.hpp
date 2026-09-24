@@ -32,8 +32,7 @@ enum class Refusal : std::uint8_t {
 [[nodiscard]] std::optional<FixedE9> quantum_tick(const WireMarket& wire) noexcept;
 [[nodiscard]] std::optional<FixedE9> quantum_lot(const WireMarket& wire) noexcept;
 
-// Exact multiples of `step`, read without passing through e9: a meme coin's
-// size (13433012900 on a lot of 100) is past what FixedE9 holds as units.
+// exact multiples of step without e9: some sizes exceed what FixedE9 holds as units
 [[nodiscard]] std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) noexcept;
 
 [[nodiscard]] std::expected<Instrument, Refusal> map_instrument(const WireMarket& wire);

@@ -1,7 +1,5 @@
 #pragma once
 
-// What the venue says this account is long or short.
-
 #include <raikiri/venues/mexc/errors.hpp>
 
 #include <array>
@@ -12,8 +10,7 @@
 
 namespace raikiri::venues::mexc {
 
-// `position_type` is 1 long / 2 short and `hold_vol` is UNSIGNED, so the sign
-// of a net position lives in the type field alone.
+// `hold_vol` is unsigned; the sign comes from `position_type`
 struct WireFuturesPosition {
     std::string_view symbol;
     std::string_view hold_vol;
@@ -23,20 +20,17 @@ struct WireFuturesPosition {
     std::uint64_t update_ms{0};
 };
 
-// Its own, though it happens to match the order buffers': positions used to
-// borrow k_max_private_records, which made a change to one silently resize
-// the other.
 inline constexpr std::size_t k_max_positions = 512;
 
 struct FuturesPositionBuffer {
     std::array<WireFuturesPosition, k_max_positions> positions{};
 };
 
-// `data` as an ARRAY (the REST list endpoint).
+// `data` as an array (rest list)
 [[nodiscard]] std::expected<std::span<const WireFuturesPosition>, WireError>
 parse_futures_positions(std::string_view body, FuturesPositionBuffer& storage);
 
-// `data` as a single OBJECT — the socket push.
+// `data` as a single object (socket push)
 [[nodiscard]] std::expected<WireFuturesPosition, WireError>
 parse_futures_position(std::string_view frame);
 

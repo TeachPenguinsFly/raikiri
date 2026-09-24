@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// internal namespace: an anonymous one in a header is a distinct type per file
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -24,15 +23,12 @@
 
 namespace raikiri::venues::bitget::internal {
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
 struct OwnedSubscription {
     std::string channel;
     std::string inst_id;
 };
 
-// State every bitget connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller.
+// single threaded: the gateway loop is the only caller
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref,
                const Clock& clock_ref,
@@ -44,9 +40,7 @@ struct VenueState {
     const Clock* clock;
     bool testnet;
     std::uint64_t order_answer_timeout_ns{0};
-    // One process serves one market: the table interns by exchange symbol and
-    // BTCUSDT names both a spot pair and a perpetual, so loading both
-    // catalogues into one table would drop half of the second one.
+    // one process serves one market; BTCUSDT names both a spot pair and a perpetual
     MarketType market;
 
     net::IoContext io;
@@ -55,9 +49,7 @@ struct VenueState {
     RequestBuilder builder;
 
     net::Signer signer;
-    // Bitget authenticates with three pieces, not two. The passphrase lives
-    // in the same locked, zeroizing storage as the secret and is only ever
-    // viewed, never copied into a header the adapter owns.
+    // the passphrase stays in locked secret storage and is only viewed
     config::Secret passphrase;
 
     std::vector<OwnedSubscription> desired;
@@ -69,8 +61,7 @@ struct VenueState {
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
-    // Bitget refuses a signature more than 30 s from ITS clock, so a laptop
-    // that drifts looks exactly like a bad key.
+    // bitget refuses a signature more than 30 s from its clock
     [[nodiscard]] UnixNanos venue_now() const {
         const auto local = clock->wall();
         return UnixNanos{
@@ -79,11 +70,11 @@ struct VenueState {
 
     [[nodiscard]] std::string_view product() const noexcept { return product_type(testnet); }
 
-    // True when the pair was new.
+    // true when the pair was new
     bool add_subscription(std::string_view channel, std::string_view inst_id) {
         for (const auto& existing : desired) {
             if (existing.channel == channel && existing.inst_id == inst_id) {
-                return false; // refcounting lives in the gateway core; this is a set
+                return false; // refcounting lives in the gateway core
             }
         }
         desired.emplace_back(std::string{channel}, std::string{inst_id});
@@ -91,10 +82,7 @@ struct VenueState {
     }
 };
 
-// Cold-path request/response. Every caller is a startup or reconciliation
-// path, never the hot loop, so pumping the reactor until the answer arrives is
-// exactly right: a gateway that trades before it knows its tick sizes is worse
-// than one that takes an extra second to boot.
+// cold path only: startup and reconciliation pump the reactor until answered
 inline std::optional<net::RestResponse> await_response(VenueState& state,
                                                        net::RestClient& rest,
                                                        const net::RestRequest& request,
@@ -102,8 +90,7 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// The response body of a checked call. An empty result and a refused call
-// must never be told apart downstream by an empty vector.
+// keeps an empty result distinguishable from a refused call
 inline std::expected<std::string, exec::VenueError> fetch_checked(VenueState& state,
                                                                   net::RestClient& rest,
                                                                   const net::RestRequest& request,
@@ -129,8 +116,7 @@ inline std::expected<std::string, exec::VenueError> fetch_checked(VenueState& st
     return response->body;
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
+// a skewed clock reads to the venue as a bad signature
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::bitget::internal

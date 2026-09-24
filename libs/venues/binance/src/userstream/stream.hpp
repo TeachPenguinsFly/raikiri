@@ -1,13 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It turns each user-stream frame into an event on the sink. It sends no
-// orders: an order goes out over REST and is ANSWERED here, and joining those
-// two halves is the execution client's job, not this one's. It does not mint
-// the listen key either — the key rides the URL and REST is the only place to
-// get one, so the joint hands it in already made.
-
 #include <raikiri/log/log.hpp>
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/binance/endpoints.hpp>
@@ -23,15 +15,9 @@
 
 namespace raikiri::venues::binance::internal {
 
-// Handles one user-stream frame. Kept out of the client so dispatch is
-// testable without a socket.
+// kept out of the client so dispatch is testable without a socket
 void handle_private_frame(VenueState& state, std::string_view frame, UnixNanos received) {
-    // SAID, NOT SWALLOWED. Every `return` below drops an order update, and an
-    // order update is how a fill reaches the book — lose one and the position
-    // book disagrees with the venue until reconciliation halts the kernel,
-    // which is a long way from the frame that caused it. The first of each kind
-    // is logged; after that only the count grows, because a malformed stream
-    // must not become the log.
+    // each drop loses an order update; the first of each kind is logged, then only counted
     const auto drop = [&state](std::string_view why) {
         if (state.private_frames_dropped == 0) {
             RLOG_WARN("binance: dropped a private frame — {}; the book will not see it", why);
@@ -90,9 +76,7 @@ private:
     VenueState* state_;
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client that reports to it. The key is baked into the target, so
-// a fresh key means a fresh stream object rather than a fresh subscribe frame.
+// the key is in the target, so a new key means a new stream object
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, std::string_view key)

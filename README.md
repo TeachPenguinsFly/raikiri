@@ -2,7 +2,7 @@
 
 # raikiri
 
-**A low-latency, multi-process crypto trading framework in C++23**
+A low-latency, multi-process crypto trading framework in C++23
 
 [![License](https://img.shields.io/badge/license-LGPL--3.0-1f6feb?style=flat-square)](LICENSE)
 [![Latency](https://img.shields.io/badge/cross--process%20p50-167%20ns-2da44e?style=flat-square)](docs/README.md#performance)
@@ -12,7 +12,7 @@
 [![Tests](https://img.shields.io/badge/tests-2067-2da44e?style=flat-square)](docs/README.md#build-and-test)
 [![Sanitizers](https://img.shields.io/badge/ASan%20·%20UBSan%20·%20TSan-green?style=flat-square)](docs/README.md#build-and-test)
 
-[**Documentation**](docs/README.md) · [Venues](#venues) ·
+[Documentation](docs/README.md) · [Venues](#venues) ·
 [API contract](schema/admin-api.yaml)
 
 </div>

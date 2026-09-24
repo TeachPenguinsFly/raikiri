@@ -9,11 +9,7 @@ namespace {
 using wire::guarded;
 namespace ondemand = wire::ondemand;
 
-// A field WEEX quotes as a string in one answer and as an 18-digit number in
-// the next, read off the RAW TOKEN so both arrive as the same text. Reading it
-// as a float loses the low digits — the venue's own documentation prints an
-// order id three digits short for exactly that reason — and reading it as a
-// string fails outright on the reads that send a number.
+// ids arrive as a string or an 18-digit number; read the raw token
 [[nodiscard]] std::string_view id_text(ondemand::object& obj, std::string_view key) {
     obj.reset();
     auto raw = wire::opt_raw(obj, key).value_or(std::string_view{});
@@ -43,8 +39,7 @@ std::expected<void, WireError> read_order(ondemand::object& obj, WireOrder& out)
     out.status = order_status_from(field("status"));
     out.order_id = id_text(obj, "orderId");
     obj.reset();
-    // `updateTime` is the one that moves as an order fills; `time` never
-    // changes after the order was created.
+    // updateTime moves as the order fills; time never changes
     out.update_ms = wire::opt_u64(obj, "updateTime").value_or(0);
     return {};
 }
@@ -115,9 +110,7 @@ std::expected<void, WireError> read_ack(ondemand::object& obj, WireOrderAck& out
         obj.reset();
         return wire::opt_str(obj, key).value_or(std::string_view{});
     };
-    // The place answer echoes `clientOrderId` and the cancel answer
-    // `origClientOrderId`; one ack type reads both rather than two types
-    // differing by a field name.
+    // place echoes clientOrderId, cancel origClientOrderId
     out.client_order_id = field("clientOrderId");
     if (out.client_order_id.empty()) {
         out.client_order_id = field("origClientOrderId");
@@ -129,9 +122,7 @@ std::expected<void, WireError> read_ack(ondemand::object& obj, WireOrderAck& out
     if (!accepted.has_value()) {
         return std::unexpected{accepted.error()};
     }
-    // ABSENT READS AS REFUSED. opt_bool answers false for a missing key, and an
-    // ack whose verdict this process could not find must not be taken for an
-    // acceptance.
+    // absent reads as refused
     out.success = *accepted;
     return {};
 }

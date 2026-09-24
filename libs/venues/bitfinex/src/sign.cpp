@@ -54,8 +54,7 @@ std::string_view ws_auth_frame(std::string_view api_key,
     const std::string_view nonce_text{digits.data(),
                                       static_cast<std::size_t>(stop - digits.data())};
 
-    // THE NONCE APPEARS TWICE. Once is answered 10100, which reads as a
-    // revoked key rather than as a malformed payload.
+    // the nonce appears twice; once is answered 10100
     std::array<char, 64> payload{};
     if (4 + nonce_text.size() * 2 > payload.size()) {
         return {};

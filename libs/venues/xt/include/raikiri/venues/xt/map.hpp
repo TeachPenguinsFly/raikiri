@@ -1,9 +1,6 @@
 #pragma once
 
-// Wire types -> domain types.
-//
-// Quantities are counts of CONTRACTS, so contract_value carries what one is
-// worth and cannot be pinned to 1.
+// quantities are contract counts, so contract_value cannot be pinned to 1
 
 #include <raikiri/domain/balance.hpp>
 #include <raikiri/domain/ledger_entry.hpp>
@@ -23,95 +20,56 @@
 
 namespace raikiri::venues::xt {
 
-// Venue milliseconds -> UnixNanos. A zero or absent venue timestamp yields
-// local ingest time: a zero propagating into latency histograms poisons them.
+// a zero or absent timestamp falls back to ingest time
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-// A quantity step derived from a digit count: 10^-digits in 1e9 fixed point.
-// Refuses a precision finer than the domain models, which is the same rule the
-// tick size gets from parse_decimal_e9.
+// 10^-digits in 1e9 fixed point; refuses precision finer than the domain models
 [[nodiscard]] std::optional<FixedE9> step_from_precision(std::int64_t digits) noexcept;
 
-// Public market data ------------------------------------------------------
-
-// Top of the snapshot. Returns nullopt when either side is empty, which is a
-// real state on an illiquid contract and not a book with a zero-priced quote.
+// nullopt when either side is empty, a real state on an illiquid contract
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The same snapshot, kept whole. `depth` is self-contained, so the mapper
-// needs no book state: the newest frame replaces what shm holds.
 [[nodiscard]] std::optional<BookSnapshot>
 map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The rate off the REST poll. The memo carries what the mark channel has
-// already said, because the record is written whole and the two sources never
-// arrive together.
+// the memo carries what the mark channel said, since the record is written whole
 [[nodiscard]] std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
                                                        const exec::InstrumentTable& table,
                                                        FundingMemo& memo,
                                                        UnixNanos ts_init);
 
-// The mark off its own channel. Published as the same record, merged with
-// whatever the poll has already said.
+// merged with what the funding poll already said
 [[nodiscard]] std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
                                                           const exec::InstrumentTable& table,
                                                           FundingMemo& memo,
                                                           UnixNanos ts_init);
 
-// The rolling 24-hour window off the `ticker` channel. Returns nullopt when
-// the frame restated neither column, and on futures fills the QUOTE column
-// only: XT's futures quantity is a contract count, which compares with nothing.
+// futures fills only the quote column; its quantity is a contract count
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// Catalogue ---------------------------------------------------------------
-
-// Returns nullopt for anything not tradable through the API, anything that is
-// not the requested market, and any row whose steps failed to parse.
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 
-// The spot half. Refuses a pair that is not ONLINE, one the API may not trade,
-// and one whose digit count is finer than FixedE9 models.
 [[nodiscard]] std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire);
 
-// Private -----------------------------------------------------------------
-//
-// Every mapper below names the MARKET it is reading for, and refuses a row
-// whose symbol resolves to the other one. XT spells a spot pair and a
-// perpetual identically — both are `btc_usdt` — so one instrument table holds
-// at most one of them, and without the check a spot fill would be booked
-// against a perpetual's contract size.
-//
-// The private responses also echo symbols in UPPERCASE while the catalogue
-// states them lowercase, so the lookup folds case before it asks.
+// mappers refuse a symbol that resolves to the other market (spot and perp share btc_usdt);
+// private rows echo uppercase symbols, so the lookup folds case
 
-// What the caller already knows about an order the venue is now reporting a
-// fill for. XT's fill records are INCOMPLETE on both trees: the futures order
-// push carries no clientOrderId, /order/trade-list carries neither a client id
-// nor a SIDE, and the spot socket fill carries neither either. A fill whose
-// direction is not stated and not remembered is dropped rather than booked to
-// a guessed one — a fill on the wrong side moves the position by twice its size.
+// fills lack the client id or side on several surfaces; a fill with no known side is dropped
 struct OrderContext {
     ExchangeClientOrderId client_order_id{};
-    // NOT a default-constructed QtyLots: that is the UNDEF sentinel, and an
-    // undefined leaves reaching shm is worse than the honest zero a fill for an
-    // order nothing remembers can claim.
+    // explicit zero; the default is the undef sentinel
     QtyLots leaves{QtyLots::from_raw(0)};
     Side side{Side::Buy};
     bool side_known{false};
 };
 
-// A lifecycle transition, or nullopt when the record carries none of its own.
-// A fill is NOT one: the trade record reports it, and re-announcing a fill
-// from the order record double-counts the volume.
-// `fallback_client_id` is what the caller remembers for this venue order id.
-// The futures ORDER PUSH carries no clientOrderId at all — only the REST reads
-// do — so without the memo a socket-driven lifecycle arrives unattributable.
+// lifecycle only; the futures order push has no clientOrderId, so fallback_client_id supplies it
 [[nodiscard]] std::optional<OrderEvent>
 map_futures_order_event(const WireFuturesOrder& wire,
                         const exec::InstrumentTable& table,
@@ -126,14 +84,11 @@ map_futures_order_event(const WireFuturesOrder& wire,
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable& table);
 
-// Returns nullopt for a flat row rather than a zero position: absent means
-// flat, and a row XT keeps at size 0 is not evidence of anything.
+// nullopt for a flat row
 [[nodiscard]] std::optional<exec::PositionReport>
 map_futures_position(const WireFuturesPosition& wire, const exec::InstrumentTable& table);
 
-// One coin of the futures wallet. Nullopt when XT named no coin: a balance
-// without an asset is a number with no unit, and reporting it under an empty
-// code would put every such row in one bucket.
+// nullopt when xt names no coin
 [[nodiscard]] std::optional<BalanceReport> map_futures_balance(const WireFuturesBalance& wire);
 
 [[nodiscard]] std::optional<OrderEvent> map_spot_order_event(const WireSpotOrder& wire,
@@ -148,13 +103,7 @@ map_spot_open_order(const WireSpotOrder& wire, const exec::InstrumentTable& tabl
                                                        const OrderContext& context,
                                                        UnixNanos ts_init);
 
-// One ledger row into the domain. Nullopt for a row this process must not
-// book: a type that is neither funding nor a fee — CLOSE_POSITION is realised
-// PnL the fill already accounted for — an instrument not in the table, an
-// unreadable amount, or a zero, which is not a charge.
-//
-// The amount is taken VERBATIM because XT already signs it; see account.hpp
-// for what that was measured against.
+// books funding and fees only and skips zero amounts; amount is already signed
 [[nodiscard]] std::optional<LedgerEntry>
 map_bill(const WireBill& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 

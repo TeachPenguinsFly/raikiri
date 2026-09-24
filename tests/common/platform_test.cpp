@@ -36,7 +36,7 @@ TEST(Platform, PreallocateSetsFileSize) {
 TEST(Platform, PinThreadBehavesPerPlatform) {
     const auto result = platform::pin_thread(0);
 #if defined(__linux__)
-    // May fail in constrained CI cgroups, but must not report ENOTSUP.
+    // may fail in constrained ci cgroups, but must not report ENOTSUP
     if (!result.has_value()) {
         EXPECT_NE(result.error().value(), ENOTSUP);
     }

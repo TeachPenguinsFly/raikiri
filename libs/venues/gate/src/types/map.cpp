@@ -10,10 +10,7 @@ namespace raikiri::venues::gate {
 
 namespace {
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means Gate changed an instrument's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// a value off the instrument's step is dropped rather than rounded
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -35,8 +32,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates keep their 1e9 scale
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -83,9 +79,7 @@ map_bbo(const WireBookTicker& wire, const exec::InstrumentTable& table, UnixNano
 
 namespace {
 
-// Levels stop at the domain's ceiling rather than failing: a book truncated to
-// what the consumer can hold is still a correct top-of-book, and the count
-// says how much of it is real.
+// levels stop at the domain's ceiling; the count says how many are real
 std::uint32_t fill_levels(std::span<const WireLevel> from,
                           const InstrumentBase& base,
                           std::array<BookLevel, k_book_levels>& into) {
@@ -97,7 +91,7 @@ std::uint32_t fill_levels(std::span<const WireLevel> from,
         const auto price = to_ticks(level.price, base);
         const auto qty = to_lots(level.qty, base);
         if (!price.has_value() || !qty.has_value()) {
-            return 0; // a level that will not convert makes the whole book a guess
+            return 0; // one bad level invalidates the book
         }
         into[count] = BookLevel{.price = *price, .qty = *qty};
         ++count;
@@ -158,7 +152,7 @@ map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNano
     }
     const auto rate = to_e9(wire.funding_rate);
     if (!rate.has_value()) {
-        return std::nullopt; // contract quotes no funding: not the same as zero
+        return std::nullopt; // contract quotes no funding
     }
 
     FundingUpdate out{};
@@ -206,11 +200,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 
 namespace {
 
-// Gate names the pair nowhere but the symbol: a futures contract's `name` and a
-// spot pair's `id` are both `BTC_USDT`. A row whose pair cannot be read is
-// DROPPED rather than carried with the exchange symbol standing in — an
-// instrument nothing can group is one a cross-venue view would show as a market
-// of its own.
+// the pair is read from the symbol; an unreadable one drops the row
 std::optional<SymbolText> canonical_of(std::string_view symbol) {
     const auto pair = split_symbol(symbol, '_');
     if (!pair.has_value()) {
@@ -258,7 +248,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Gate, market, SymbolId{0});
     base.exchange_symbol = *symbol;
     const auto canonical = canonical_of(wire.name);
@@ -274,13 +264,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
         return std::nullopt;
     }
     base.contract_value = *quanto;
-    // Unconditional because gate_venue only ever requests settle=usdt.
-    // /futures/btc/contracts returns inverse contracts against this same
-    // parser, so a new settle currency means deciding this per row.
+    // only settle=usdt is requested; other settle currencies return inverse contracts
     base.kind = ContractKind::Linear;
     PerpInstrument perp{base, wire.funding_interval_s};
-    // UNDEF where it will not parse, never clamped to zero: a floor of zero
-    // would read as a venue that never pays.
+    // undef when unparsable; zero would read as never paying
     if (const auto limit = parse_decimal_e9(wire.funding_rate_limit);
         limit.has_value() && limit->raw > 0) {
         perp.funding_cap = *limit;
@@ -290,8 +277,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
 }
 
 std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
-    // buyable/sellable are one-sided listings; treating them as tradable puts
-    // orders on the side the venue refuses.
+    // buyable and sellable are one-sided listings
     if (wire.trade_status != "tradable") {
         return std::nullopt;
     }
@@ -336,10 +322,7 @@ std::optional<Instrument> map_currency_pair(const WireCurrencyPair& wire) {
 
 namespace {
 
-// Fees are neither a price nor a size, so they truncate at 1e-9 where those
-// refuse: Gate pads a futures fee to more decimals than FixedE9 carries, and
-// an exact read would drop the whole fill over a rounding in the eleventh
-// place.
+// fees truncate at 1e-9: gate pads futures fees past FixedE9 precision
 FixedE9 fee_e9(std::string_view text) noexcept {
     const auto value = parse_rate_e9(text);
     return value.has_value() ? *value : FixedE9::from_raw(0);
@@ -357,10 +340,7 @@ bool copy_order_id(std::string_view text, ExchangeOrderId& out) noexcept {
     return true;
 }
 
-// Our own ULID coming back inside Gate's `text`. Anything without the `t-`
-// prefix is one of Gate's reserved sources (`api`, `web`, `liq-...`), and a
-// value that does not fit the field cannot be one of ours either — the event
-// stays unattributed rather than matched to a lookalike.
+// only a t- prefixed id that fits is ours; anything else stays unattributed
 bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) noexcept {
     const auto body = client_id_from_text(text);
     if (body.empty()) {
@@ -407,9 +387,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
         type = OrderEventType::Expired;
         break;
     case WireOrderState::Filled:
-        // The user trade that took leaves to zero already said this, with the
-        // exec id and the fee attached. Saying it twice attributes one fill to
-        // two events.
+        // the user trade that emptied leaves already reported this fill
         return std::nullopt;
     case WireOrderState::Unknown:
         return std::nullopt;
@@ -419,8 +397,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
     out.type = type;
     out.instrument = base.id;
     out.side = wire.sell ? Side::Sell : Side::Buy;
-    // Futures has no order-type field at all: a price of zero with tif ioc IS
-    // the market order, and that is the only thing that distinguishes it.
+    // futures has no order type: price 0 with ioc is a market order
     out.order_type = (wire.order_type == "market" || (wire.price == "0" && wire.tif == "ioc"))
                          ? OrderType::Market
                          : OrderType::Limit;
@@ -534,9 +511,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
     return out;
 }
 
-// A wallet figure, not a price: Gate sends twelve fractional digits and the
-// exact reader refuses every one of them, which showed as an account holding
-// nothing at all.
+// a wallet figure; gate sends twelve fractional digits, so it truncates
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
@@ -548,9 +523,7 @@ std::optional<BalanceReport> map_futures_account(const WireFuturesAccount& wire)
     }
     BalanceReport out{};
     out.asset = *asset;
-    // Each field left UNDEF when Gate omitted it or sent something this cannot
-    // read exactly. Undef is what a reader checks; a zero here would be a claim
-    // that the account holds nothing.
+    // each field stays undef when omitted or unreadable
     if (const auto total = to_amount(wire.total); total.has_value()) {
         out.total = *total;
     }
@@ -571,8 +544,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
-    // Gate signs the position size the same way it signs an order size, so the
-    // magnitude converts and the sign is re-applied afterwards.
+    // the magnitude converts and the sign is reapplied
     auto text = wire.size;
     const bool short_side = text.starts_with('-');
     if (short_side) {

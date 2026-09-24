@@ -1,12 +1,3 @@
-// What the transport owes a caller that has stopped waiting.
-//
-// Both cases here are one defect seen from its two ends. A cold-path pull gives
-// up on its own deadline and returns, but the pool still holds its completion —
-// and until now nothing bounded how long it held it, so the answer was
-// delivered into a frame that had returned. Six gateways died of it in five
-// minutes on 2026-09-10, every one of them inside a vector assignment running
-// the destructor of an object that belonged to an earlier pull.
-
 #include <raikiri/common/time.hpp>
 #include <raikiri/exec/instrument_source.hpp>
 #include <raikiri/net/io_context.hpp>
@@ -78,9 +69,7 @@ poll_until(IoContext& io, Predicate predicate, std::chrono::milliseconds budget)
     return config;
 }
 
-// Milliseconds this fixture must sit on the answer, taken from the target:
-// "/after/700". Encoding it in the request is what lets one connection be slow
-// while another is slower, which is the whole shape of the first case.
+// delay in ms taken from the target, e.g. /after/700
 [[nodiscard]] std::uint32_t delay_of(std::string_view target) {
     const auto slash = target.rfind('/');
     if (slash == std::string_view::npos) {
@@ -138,8 +127,6 @@ private:
             std::make_shared<http::response<http::string_body>>(http::status::ok, req_.version());
         res->set(http::field::content_type, "application/json");
         res->keep_alive(true);
-        // The target echoed back is what names the answer: a pull handed the
-        // wrong one is otherwise indistinguishable from a pull handed its own.
         res->body() = target;
         res->prepare_payload();
         http::async_write(
@@ -158,14 +145,7 @@ private:
     http::request<http::string_body> req_;
 };
 
-// THE CRASH, reduced to an assertion about content.
-//
-// Two pulls in a row from one frame: the first gives up while the venue still
-// owes it an answer, the second is made at the same stack address. A completion
-// that still points into the abandoned frame writes the first answer into the
-// second pull's storage, and the second pull returns a body it never asked for.
-// On a build that traps stack reuse this aborts instead, which is the same
-// finding delivered louder.
+// the first pull gives up while the venue still owes it an answer; the second reuses its stack address
 TEST(RestAwait, AnAnswerOnePullAbandonedNeverLandsInTheNext) {
     TlsListener listener{[](tcp::socket&& socket, ssl::context& tls) {
         std::make_shared<DelayedSession>(std::move(socket), tls)->run();
@@ -174,7 +154,7 @@ TEST(RestAwait, AnAnswerOnePullAbandonedNeverLandsInTheNext) {
     IoContext io;
     LiveClock clock;
     auto config = loopback_config(listener.port());
-    // Two, so the second pull is dispatched rather than queued behind the first.
+    // two, so the second pull is dispatched instead of queued
     config.pool_size = 2;
     config.timeout_ms = 8'000;
     RestClient rest{io, config};
@@ -199,8 +179,6 @@ TEST(RestAwait, AnAnswerOnePullAbandonedNeverLandsInTheNext) {
     rest.stop();
 }
 
-// An exhausted budget delays a cold-path pull until it has room; it does not
-// fail the pull, which at startup would lose the catalogue.
 TEST(RestAwait, ARefusedSendWaitsForTheBudgetRatherThanFailing) {
     TlsListener listener{[](tcp::socket&& socket, ssl::context& tls) {
         std::make_shared<DelayedSession>(std::move(socket), tls)->run();
@@ -235,10 +213,7 @@ TEST(RestAwait, ARefusedSendWaitsForTheBudgetRatherThanFailing) {
     rest.stop();
 }
 
-// A listener that accepts the connection and then says nothing at all. The TLS
-// handshake never completes, so the slot never becomes ready and everything
-// sent behind it queues — which is exactly what a name lookup that never
-// answers does to this pool, and what no test can make a resolver do.
+// accepts and never speaks, so the tls handshake never completes
 TEST(RestAwait, ARequestBehindAConnectionThatNeverOpensIsFailedOnItsOwnDeadline) {
     std::mutex held_mu;
     std::vector<std::shared_ptr<tcp::socket>> held;
@@ -251,7 +226,7 @@ TEST(RestAwait, ARequestBehindAConnectionThatNeverOpensIsFailedOnItsOwnDeadline)
     auto config = loopback_config(listener.port());
     config.pool_size = 1;
     config.timeout_ms = 400;
-    // Outlasts the test on purpose: only the queue's own deadline can end this.
+    // outlasts the test; only the queue's own deadline can end it
     config.connect_timeout_ms = 30'000;
     RestClient rest{io, config};
     rest.start();
@@ -275,19 +250,13 @@ TEST(RestAwait, ARequestBehindAConnectionThatNeverOpensIsFailedOnItsOwnDeadline)
     EXPECT_EQ(rest.in_flight(), 0U);
 
     rest.stop();
-    // Joined before the sockets it accepted are closed: they belong to its
-    // io_context, and closing one from here while that context runs is a race
-    // this fixture would then be reporting instead of the pool.
+    // join before closing the accepted sockets; they belong to its io_context
     listener.stop();
     const std::lock_guard lock{held_mu};
     held.clear();
 }
 
 
-// The shape the crash's own fix cannot prevent: a helper that pumps, called
-// from inside a handler that the pump is running. Nothing crashes — it quietly
-// re-enters, which is how a venue's reopen came to hold the gateway loop for
-// ten seconds and how half-changed state gets read.
 TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
     IoContext io;
     EXPECT_FALSE(io.pumping()) << "idle before anything runs it";
@@ -295,8 +264,7 @@ TEST(RestAwait, PumpingAReactorThatIsAlreadyPumpingIsRefusedRatherThanNested) {
     bool nested_was_refused = false;
     bool handler_ran = false;
 
-    // Posted so it runs from INSIDE poll(), which is exactly where a completion
-    // handler runs.
+    // posted so it runs inside poll(), where completion handlers run
     auto* ioc = static_cast<boost::asio::io_context*>(io.native());
     boost::asio::post(*ioc, [&] {
         handler_ran = true;

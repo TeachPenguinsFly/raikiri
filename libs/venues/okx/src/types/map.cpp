@@ -15,10 +15,7 @@ namespace raikiri::venues::okx {
 
 namespace {
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means OKX changed an instrument's precision, so the message is
-// dropped rather than rounded — rounding is how an order ends up one tick away
-// from the intended price.
+// a remainder means the instrument's precision changed, so the message is dropped
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -40,13 +37,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
-// A funding rate is a ratio, not money and not a price grid, and OKX pads it
-// to sixteen fractional digits. An exact reader refuses every one of them —
-// which it did, silently, for as long as this called parse_decimal_e9: the
-// channel was subscribed, the frames arrived, and not one rate reached shm.
-// parse_rate_e9 is exact through 1e-9 and truncates the dust below.
+// okx pads rates to 16 fractional digits; parse_rate_e9 truncates the dust below 1e-9
 std::optional<FixedE9> rate_of(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -54,30 +45,13 @@ std::optional<FixedE9> rate_of(std::string_view text) {
     return parse_rate_e9(text);
 }
 
-// A magnitude — a 24-hour turnover or a wallet figure — and neither a price
-// nor a size, so it is read at the VENUE's own resolution: the dust below 1e-9
-// is dropped toward zero where the exact reader would refuse the whole number,
-// which can misstate nothing here by as much as a nanocoin.
-//
-// MEASURED 2026-09-04: 284 of 1388 live SPOT rows pad volCcy24h past nine
-// fractional digits, and an exact reader answers nullopt for every one of
-// them — which the caller then writes as a zero, reading as "this market did
-// not trade" on a market that traded all day. A balance refused the same way
-// reads as an account holding nothing.
+// turnover and wallet figures are truncated below 1e-9, since okx pads some past nine digits
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : parse_amount_e9(text);
 }
 
-// A fee is money, so it is read exactly wherever it can be — but OKX pads
-// inverse-contract fees past 1e-9 of a coin, and an exact reader refuses
-// every one of those. parse_rate_e9 is exact for anything with nine or fewer
-// fractional digits and truncates the dust below that toward zero, which can
-// only ever under-report our own cost by less than a nanocoin. Never reach
-// for it on a price or a size.
-//
-// The sign is flipped on the way in: OKX writes a fee CHARGED as negative and
-// a rebate as positive, while the ledger this feeds — and binance and bybit
-// before it — count a positive number as money leaving.
+// okx pads inverse fees past 1e-9, so they are truncated; never use this for a price or size.
+// sign flipped: okx writes a charge as negative, the ledger counts it positive
 FixedE9 fee_of(std::string_view text) {
     if (text.empty()) {
         return FixedE9::from_raw(0);
@@ -96,10 +70,7 @@ Liquidity liquidity_from(std::string_view exec_type) noexcept {
     return Liquidity::Unknown;
 }
 
-// OKX publishes no remaining quantity: it ships the order's total size and
-// the cumulative fill, and the difference is the remainder. An order whose
-// two halves do not both convert exactly yields nothing rather than a leaves
-// of zero, which downstream reads as "this order is done".
+// leaves is sz minus accFillSz; nullopt unless both convert exactly
 std::optional<QtyLots> leaves_of(const WireOrder& wire, const InstrumentBase& base) {
     const auto total = to_lots(wire.sz, base);
     if (!total.has_value()) {
@@ -127,9 +98,7 @@ bool copy_order_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
-// Our own ULID coming back from the venue. A value that does not fit the
-// field cannot be one of ours, so the event stays unattributed rather than
-// being matched to a truncated lookalike.
+// a value that does not fit cannot be one of our ids
 bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     if (text.empty()) {
         return true;
@@ -142,9 +111,7 @@ bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     return true;
 }
 
-// ctMult is a plain count, not a decimal quantity; anything fractional would
-// make the contract size a non-integer multiple of ctVal, which OKX does not
-// define, so the row is refused instead of approximated.
+// ctMult must be a whole number
 std::optional<std::int64_t> whole_number(std::string_view text) {
     const auto value = parse_decimal_e9(text);
     if (!value.has_value() || value->raw <= 0 || value->raw % k_e9 != 0) {
@@ -153,10 +120,7 @@ std::optional<std::int64_t> whole_number(std::string_view text) {
     return value->raw / k_e9;
 }
 
-// OKX states the pair in baseCcy/quoteCcy on SPOT rows and leaves BOTH EMPTY
-// on SWAP, where instId carries it behind a trailing kind: `BTC-USDT-SWAP`.
-// split_symbol refuses a second separator on purpose, so stripping that kind
-// is the adapter's job.
+// swap rows leave baseCcy and quoteCcy empty, so the kind suffix is stripped from instId
 std::optional<SymbolText> canonical_of(const WireInstrument& wire) {
     if (!wire.base_ccy.empty() && !wire.quote_ccy.empty()) {
         return canonical_symbol(wire.base_ccy, wire.quote_ccy);
@@ -228,9 +192,7 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
     return out;
 }
 
-// One record out of everything both channels have said. Fields nobody has
-// stated yet stay UNDEF: the reader checks for that, and a zero would be a
-// number this process invented.
+// fields nobody has stated stay undef
 [[nodiscard]] FundingUpdate merged(const Instrument& instrument,
                                    const FundingMemo& memo,
                                    UnixNanos ts_event,
@@ -290,9 +252,7 @@ std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
 
 std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init) {
-    // ABSENT IS NOT ZERO. Both columns silent means the venue said nothing
-    // about turnover on this frame, and writing a zero would erase the running
-    // figure the board is holding.
+    // both columns empty means no turnover on this frame
     if (wire.vol_24h.empty() && wire.vol_ccy_24h.empty()) {
         return std::nullopt;
     }
@@ -300,9 +260,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // The one thing that must not be got wrong: on SPOT vol24h is the base
-    // asset and volCcy24h the quote; on every derivative volCcy24h is the base
-    // and vol24h counts CONTRACTS, which is not a turnover in any currency.
+    // spot: vol24h base, volCcy24h quote; derivatives: volCcy24h base, vol24h contracts
     const bool is_spot = wire.inst_type == "SPOT" || wire.inst_type == "MARGIN";
     const auto& base = base_of(*instrument);
 
@@ -317,14 +275,12 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
             out.volume_24h_quote = *quote;
         }
     } else if (base.kind == ContractKind::Inverse) {
-        // An inverse contract is a fixed number of dollars, so the count is the turnover.
+        // an inverse contract is a fixed dollar amount, so the count is the turnover
         if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
             out.volume_24h_quote = turnover_e6(*contracts, base.contract_value);
         }
     } else if (const auto last = to_amount(wire.last); last.has_value()) {
-        // No derivative turnover column: the day's coins at the last print.
-        // PEPE trades 2.3e13 coins a day, past what an e9 column holds, so
-        // there the count is priced a contract at a time instead.
+        // no derivative quote column: coins at the last print, priced per contract when e9 overflows
         if (coins.has_value()) {
             out.volume_24h_quote = turnover_e6(*coins, *last);
         } else if (const auto contracts = to_amount(wire.vol_24h); contracts.has_value()) {
@@ -352,11 +308,7 @@ map_order_fill(const WireOrder& wire, const exec::InstrumentTable& table, UnixNa
     const auto& base = base_of(*instrument);
     const auto price = to_ticks(wire.fill_px, base);
     const auto qty = to_lots(wire.fill_sz, base);
-    // A Filled event whose remainder cannot be computed is worse than no
-    // event: downstream reads leaves_qty against the order's previous
-    // remainder to size the fill, and a fabricated zero closes the order at
-    // the wrong quantity. Dropping it leaves the reconciliation pulls to
-    // correct a live order, which they can.
+    // a fill without computable leaves is dropped; reconciliation corrects the order
     const auto leaves = leaves_of(wire, base);
     if (!price.has_value() || !qty.has_value() || !leaves.has_value()) {
         return std::nullopt;
@@ -395,8 +347,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
 
     OrderEventType type{};
     if (wire.amend_result == "-1") {
-        // The order is unchanged and still working; a Rejected here would
-        // close an order the venue still holds.
+        // the order is still working, so a refused amend is ModifyRejected
         type = OrderEventType::ModifyRejected;
     } else if (wire.code != k_ok) {
         type = OrderEventType::Rejected;
@@ -407,10 +358,7 @@ map_order_event(const WireOrder& wire, const exec::InstrumentTable& table, UnixN
             break;
         case WireOrderState::Canceled:
         case WireOrderState::MmpCanceled:
-            // cancelSource 13 is an FOK that could not fill whole and 14 an
-            // IOC remainder. The venue spells both "canceled"; the domain
-            // distinguishes an expiry from a withdrawal, and a strategy
-            // counting its own cancels should not see the venue's.
+            // cancelSource 13 is a fok that could not fill whole and 14 an ioc remainder
             type = (wire.cancel_source == "13" || wire.cancel_source == "14")
                        ? OrderEventType::Expired
                        : OrderEventType::Canceled;
@@ -529,9 +477,7 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
 
     exec::PositionReport out{};
     out.instrument = base.id;
-    // Net mode signs `pos` itself; long/short mode returns one unsigned row a
-    // side. Reading a short row as written is a position error of twice the
-    // size, in the direction that liquidates.
+    // net mode signs pos; long/short mode returns one unsigned row a side
     out.net_qty = wire.pos_side == "short"
                       ? QtyLots::from_raw(size->raw < 0 ? size->raw : -size->raw)
                       : *size;
@@ -550,26 +496,15 @@ map_balance(const WireCurrencyBalance& wire, AccountMode mode, UnixNanos fallbac
     }
     BalanceReport out{};
     out.asset = *asset;
-    // Each field stays UNDEF where OKX sent an empty string; a zero would be a
-    // claim rather than a silence.
+    // fields stay undef where okx sent an empty string
     if (const auto total = to_amount(wire.cash_bal); total.has_value()) {
         out.total = *total;
     }
     if (const auto unrealized = to_amount(wire.upl); unrealized.has_value()) {
         out.unrealized = *unrealized;
     }
-    // PUBLISHED IN TWO MODES OF FOUR, and undef in the other two.
-    //
-    // In spot and futures mode OKX margins each currency out of itself, so
-    // `availBal` is this currency's own free amount and answers the question.
-    // In multi-currency margin and portfolio margin the order check runs on
-    // the ACCOUNT's adjusted equity in USD, after per-currency haircuts: every
-    // currency's availBal then reads as free while the account may have no
-    // margin left at all, which is the double-count balance.hpp warns about.
-    // An account-wide figure in USD belongs to no AssetCode, so there is no
-    // honest row to put it on either.
-    //
-    // Unknown lands here too: a config read that failed is not a mode.
+    // published only in spot and futures mode, where availBal is the currency's own free amount;
+    // the margin modes check account-wide equity, so availBal would overstate
     if (mode == AccountMode::Spot || mode == AccountMode::Futures) {
         if (const auto available = to_amount(wire.avail_bal); available.has_value()) {
             out.available = *available;
@@ -626,12 +561,10 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional: InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Okx, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // A row whose pair OKX did not state is DROPPED rather than carried under
-    // the exchange symbol: an instrument nothing can group shows in a
-    // cross-venue view as a market of its own.
+    // a row whose pair okx did not state is dropped
     const auto canonical = canonical_of(wire);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -650,9 +583,7 @@ std::optional<Instrument> map_instrument(const WireInstrument& wire, MarketType 
     if (!ct_val.has_value() || ct_val->raw <= 0 || !ct_mult.has_value()) {
         return std::nullopt;
     }
-    // BTC-USDT-SWAP and BTC-USD-SWAP differ ONLY here: ctVal is BTC on the
-    // first and USD on the second, and the numbers look equally plausible.
-    // A row that will not say which is refused rather than assumed linear.
+    // ct_type alone tells linear from inverse; a row without it is refused
     if (wire.ct_type == "linear") {
         base.kind = ContractKind::Linear;
     } else if (wire.ct_type == "inverse") {

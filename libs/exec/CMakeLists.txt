@@ -11,8 +11,7 @@ add_library(raikiri::exec ALIAS raikiri_exec)
 target_include_directories(raikiri_exec PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-# exec depends only on domain: venue contracts speak vocabulary types, never
-# transport types. (shm reuses the same domain PODs as its slot formats.)
+# exec depends only on domain; venue contracts use vocabulary types
 target_link_libraries(raikiri_exec
   PUBLIC raikiri::domain
   PRIVATE raikiri::warnings)

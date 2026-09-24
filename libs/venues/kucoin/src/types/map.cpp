@@ -11,8 +11,7 @@ namespace raikiri::venues::kucoin {
 
 namespace {
 
-// 10^0 .. 10^18; 10^19 does not fit int64, so an exponent past this range is
-// refused rather than saturated.
+// 10^0 .. 10^18; larger exponents are refused
 constexpr std::array<std::int64_t, 19> k_pow10 = {1LL,
                                                   10LL,
                                                   100LL,
@@ -33,10 +32,7 @@ constexpr std::array<std::int64_t, 19> k_pow10 = {1LL,
                                                   100'000'000'000'000'000LL,
                                                   1'000'000'000'000'000'000LL};
 
-// Exact conversion against the instrument's own step. A value that does not
-// divide evenly means KuCoin changed an instrument's precision, so the message
-// is dropped rather than rounded — rounding is how an order ends up one tick
-// away from the intended price.
+// exact conversion against the instrument's step; inexact values are dropped
 std::optional<std::int64_t> exact_steps(std::string_view text, FixedE9 step) {
     if (text.empty() || step.raw <= 0) {
         return std::nullopt;
@@ -58,8 +54,7 @@ std::optional<QtyLots> to_lots(std::string_view text, const InstrumentBase& base
     return steps.has_value() ? std::optional{QtyLots::from_raw(*steps)} : std::nullopt;
 }
 
-// Rates are venue-scale decimals, not instrument-scaled, so they keep their
-// 1e9 representation rather than becoming ticks.
+// rates keep their 1e9 form
 std::optional<FixedE9> to_e9(std::string_view text) {
     if (text.empty()) {
         return std::nullopt;
@@ -67,10 +62,7 @@ std::optional<FixedE9> to_e9(std::string_view text) {
     return parse_number_e9(text);
 }
 
-// A wallet figure, and the reader above is the wrong one for it: KuCoin
-// renders balances as Java doubles and sends ten fractional digits for USDT,
-// which the exact reader refuses outright — showing as an account that holds
-// nothing rather than as a number this cannot represent.
+// balances are java doubles with up to ten decimals, so read them inexactly
 std::optional<FixedE9> to_amount(std::string_view text) {
     return text.empty() ? std::nullopt : raikiri::parse_amount_e9(text);
 }
@@ -87,9 +79,7 @@ bool copy_id(std::string_view text, ExchangeOrderId& out) {
     return true;
 }
 
-// Our own ULID coming back from the venue. A value that does not fit the field
-// cannot be one of ours, so the event stays unattributed rather than being
-// matched to a truncated lookalike.
+// a value too long for the field cannot be our ulid
 bool copy_client_id(std::string_view text, ExchangeClientOrderId& out) {
     if (text.empty()) {
         return true;
@@ -203,10 +193,7 @@ map_bbo(const WireBbo& wire, const exec::InstrumentTable& table, UnixNanos ts_in
 
 namespace {
 
-// Levels stop at the domain's ceiling rather than failing: a truncated book is
-// still a correct top-of-book, and the count says how much of it is real. A
-// level that will not convert voids the side, because a book with a hole in it
-// is a guess.
+// levels stop at the domain ceiling; an unconvertible level voids the side
 std::uint32_t fill_levels(std::span<const WireLevel> from,
                           const InstrumentBase& base,
                           std::array<BookLevel, k_book_levels>& into) {
@@ -287,7 +274,7 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
     if (const auto quote = parse_turnover_e6(wire.turnover_24h); quote.has_value()) {
         out.volume_24h_quote = *quote;
     }
-    // The catalogue states no clock of its own, so the read is its own stamp.
+    // the catalogue has no clock, so the read stamps it
     out.ts_event = ts_init;
     out.ts_init = ts_init;
     return out;
@@ -296,7 +283,7 @@ map_ticker_stats(const WireContract& wire, const exec::InstrumentTable& table, U
 std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
                                             const exec::InstrumentTable& table,
                                             UnixNanos ts_init) {
-    // Java doubles past nine decimals ("3093.1776802805860382"); an exact read refuses them.
+    // java doubles past nine decimals; the exact reader refuses them
     const auto base = wire.vol.empty() ? std::nullopt : parse_amount_e9(wire.vol);
     const auto quote = wire.vol_value.empty() ? std::nullopt : parse_turnover_e6(wire.vol_value);
     if (!base.has_value() && !quote.has_value()) {
@@ -319,9 +306,7 @@ std::optional<TickerStats> map_ticker_stats(const WireSpotTicker& wire,
     return out;
 }
 
-// One record out of everything both subjects have said. Fields nobody has
-// stated yet stay UNDEF: the reader checks for that, and a zero would be a
-// number this process invented.
+// fields not yet stated stay undef
 [[nodiscard]] FundingUpdate merged(const Instrument& instrument,
                                    const FundingMemo& memo,
                                    UnixNanos ts_event,
@@ -360,7 +345,7 @@ std::optional<FundingUpdate> map_funding(const WireFundingRate& wire,
     const std::uint64_t interval_ms =
         perp == nullptr ? 0 : static_cast<std::uint64_t>(perp->funding_interval_s) * 1000ULL;
     memo.interval_s = perp == nullptr ? 0 : perp->funding_interval_s;
-    // Only the REST form states the next settlement.
+    // only rest states the next settlement
     memo.next_funding = wire.next_funding_ms != 0 ? ms_to_unix(wire.next_funding_ms, UnixNanos{0})
                         : (interval_ms != 0 && wire.ts_ms != 0)
                             ? ms_to_unix((wire.ts_ms / interval_ms + 1) * interval_ms, UnixNanos{0})
@@ -376,12 +361,7 @@ std::optional<FundingUpdate> map_mark_price(const WireMarkPrice& wire,
     if (instrument == nullptr) {
         return std::nullopt;
     }
-    // NOT the exact reader every other price goes through. KuCoin quotes the
-    // mark on indexPriceTickSize (0.01 on XBTUSDTM) while the contract trades
-    // on 0.1, so the exact reader refuses every live mark and the column stays
-    // empty forever. A mark is a reference figure and is never sent back as an
-    // order price, so the tail below the contract's tick is dropped rather
-    // than the whole number.
+    // the mark ticks on indexPriceTickSize, finer than the contract tick, so the tail is dropped
     const auto& base = base_of(*instrument);
     const auto mark = parse_number_e9(wire.mark_price);
     if (!mark.has_value() || base.tick_size.raw <= 0) {
@@ -415,7 +395,7 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     case MarketType::Spot:
         return std::nullopt; // the futures host serves no spot; map_spot_symbol does
     case MarketType::Future:
-        // KuCoin lists dated contracts on this endpoint, every one seen inverse.
+        // dated contracts here are all inverse
         return std::nullopt;
     case MarketType::Option:
         return std::nullopt; // KuCoin lists no options on the APIs in scope
@@ -440,13 +420,10 @@ std::optional<Instrument> map_instrument(const WireContract& wire, MarketType ma
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Kucoin, market, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // The catalogue names both halves, which is the only place XBTUSDTM says
-    // what it trades. A row whose pair KuCoin did not state is DROPPED rather
-    // than carried under the exchange symbol: an instrument nothing can group
-    // shows in a cross-venue view as a market of its own.
+    // rows without a stated pair are dropped so they never show as a market of their own
     const auto canonical = canonical_symbol(wire.base_currency, wire.quote_currency);
     if (!canonical.has_value()) {
         return std::nullopt;
@@ -484,8 +461,7 @@ std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
         type = OrderEventType::Updated;
         break;
     case OrderChangeType::Filled:
-        // The trades already arrived as `match`; this is the venue closing the
-        // order, and emitting it as a fill counts the last one twice.
+        // the venue closing the order; its fills already arrived as match
         return std::nullopt;
     case OrderChangeType::Unknown:
         return std::nullopt;
@@ -517,9 +493,7 @@ std::optional<OrderEvent> map_order_change(const WireOrderChange& wire,
             }
             out.exec_id = *exec_id;
         }
-        // The frame names the fee TYPE and never the amount, so the charge for
-        // this fill is only knowable from the REST pull. Zero is what the
-        // ledger can arithmetic on; undef would poison it.
+        // the frame names the fee type only; zero keeps the ledger arithmetic valid
         out.fee = FixedE9::from_raw(0);
     } else {
         if (const auto price = to_ticks(wire.price, base); price.has_value()) {
@@ -563,8 +537,7 @@ std::optional<exec::OrderStatusReport> map_open_order(const WireOrder& wire,
         out.price = *price;
     }
     out.qty = *qty;
-    // Spot states what is left; futures states what was done and leaves the
-    // subtraction here.
+    // spot states what is left; futures states what was done
     if (const auto leaves = to_lots(wire.remain_size, base); leaves.has_value()) {
         out.leaves = *leaves;
     } else if (dealt.has_value()) {
@@ -604,8 +577,7 @@ std::optional<exec::FillReport> map_fill(const WireFill& wire, const exec::Instr
     }
     out.price = *price;
     out.qty = *qty;
-    // Neither host names the clientOid on a fill, so exchange_client_order_id
-    // stays empty and the fill is attributed through its order id alone.
+    // no clientOid on fills; attributed by order id
     if (const auto fee = to_e9(wire.fee); fee.has_value()) {
         out.fee = *fee;
     } else {
@@ -622,7 +594,6 @@ std::optional<exec::PositionReport> map_position(const WirePosition& wire,
         return std::nullopt;
     }
     const auto& base = base_of(*instrument);
-    // Signed already: there is no side field that could disagree with it.
     const auto qty = to_lots(wire.current_qty, base);
     if (!qty.has_value()) {
         return std::nullopt;
@@ -646,8 +617,7 @@ std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wir
     }
     BalanceReport out{};
     out.asset = *asset;
-    // Each field left UNDEF where KuCoin omitted it or sent something this
-    // cannot read. A zero would claim the account holds nothing.
+    // undef where omitted or unreadable; zero would claim an empty account
     if (const auto total = to_amount(wire.margin_balance); total.has_value()) {
         out.total = *total;
     }
@@ -657,7 +627,7 @@ std::optional<BalanceReport> map_account_overview(const WireAccountOverview& wir
     if (const auto unrealized = to_amount(wire.unrealised_pnl); unrealized.has_value()) {
         out.unrealized = *unrealized;
     }
-    // The overview carries no clock of its own.
+    // the overview has no clock
     out.ts_venue = ts_init;
     return out;
 }
@@ -677,13 +647,10 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     }
 
     InstrumentBase base{};
-    // Provisional: InstrumentTable::add assigns the SymbolId that indexes it.
+    // provisional; InstrumentTable::add assigns the SymbolId
     base.id = InstrumentId::make(VenueId::Kucoin, MarketType::Spot, SymbolId{0});
     base.exchange_symbol = *symbol;
-    // The spot symbol carries the pair itself — `BTC-USDT` — where the futures
-    // one does not. A row whose pair KuCoin did not state is DROPPED rather
-    // than carried under the exchange symbol: an instrument nothing can group
-    // shows in a cross-venue view as a market of its own.
+    // the spot symbol carries the pair; rows without one are dropped
     const auto pair = split_symbol(wire.symbol, '-');
     if (!pair.has_value()) {
         return std::nullopt;
@@ -699,7 +666,7 @@ std::optional<Instrument> map_spot_symbol(const WireSpotSymbol& wire) {
     if (const auto min_funds = to_e9(wire.min_funds); min_funds.has_value()) {
         base.min_notional = *min_funds;
     }
-    // A spot lot IS one base unit; there is no contract in between.
+    // a spot lot is one base unit
     base.contract_value = FixedE9::from_raw(k_e9);
     base.kind = ContractKind::Linear;
     return SpotInstrument{base};

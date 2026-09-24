@@ -11,8 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// Shared because the venue ships the identical object on both transports:
-// inside `data.ctx` on activeAssetCtx, and as a bare row in metaAndAssetCtxs.
+// the same object arrives in activeAssetCtx `data.ctx` and as a metaAndAssetCtxs row
 std::expected<void, WireError> read_ctx_fields(wire::ondemand::object& ctx, WireAssetCtx& out) {
     for (const auto& [key, field] : {std::pair{"funding", &out.funding},
                                      std::pair{"markPx", &out.mark_price},
@@ -40,7 +39,6 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // The one channel whose `data` is an array rather than an object.
         auto array = wire::req_array(*root, "data");
         if (!array.has_value()) {
             return std::unexpected(array.error());

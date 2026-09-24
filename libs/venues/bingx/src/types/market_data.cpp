@@ -62,9 +62,7 @@ std::expected<std::span<const WireTrade>, WireError> parse_trades(std::string_vi
             return {};
         };
 
-        // The swap tree sends an array of prints under "data"; the spot tree
-        // sends ONE object under the same key. type() peeks without consuming:
-        // a refused conversion would leave the document where no rewind helps.
+        // swap sends an array and spot one object; type() peeks without consuming
         bool seen = false;
         const auto walked = wire::for_each_field(
             *root,
@@ -156,9 +154,7 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
             return std::unexpected(symbol.error());
         }
         out.symbol = *symbol;
-        // Scalars, not strings: the perpetual tree quotes both numbers and
-        // spot sends them bare. Optional on top of that — an absent column
-        // reads empty and leaves the rest of the frame usable.
+        // scalars: perp quotes them and spot does not; absent columns read empty
         const auto volume = opt_scalar(*data, "v");
         const auto quote_volume = opt_scalar(*data, "q");
         const auto event = opt_ms_any(*data, "E");

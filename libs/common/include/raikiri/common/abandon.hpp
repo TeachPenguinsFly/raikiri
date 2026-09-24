@@ -1,8 +1,6 @@
 #pragma once
 
-// A blocking wait on the cold path gives up as soon as any scope open on
-// its thread says to, so a stop reaches a request already in flight rather
-// than waiting out its timeout.
+// a blocking wait gives up when any scope open on its thread says to
 
 #include <functional>
 

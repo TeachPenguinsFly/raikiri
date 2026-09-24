@@ -39,16 +39,13 @@ TEST(SpscRing, FullReportsErrorNeverDrops) {
     ASSERT_FALSE(overflow.has_value());
     EXPECT_EQ(overflow.error(), RingError::Full);
 
-    // Drain one, push succeeds again.
     std::uint64_t out{};
     ASSERT_TRUE(consumer.try_pop(out));
     EXPECT_EQ(out, 0U);
     EXPECT_TRUE(producer.try_push(9999).has_value());
 }
 
-// TSan target: full-speed producer/consumer across threads. Any ordering bug
-// in the ring is a data race TSan can see because slots are plain (non-
-// atomic) memory synchronized purely by the head/tail acquire/release pair.
+// slots are plain memory ordered only by the head/tail acquire/release pair
 TEST(SpscRingStress, CrossThreadTransferPreservesSequence) {
     auto ring = std::make_unique<SpscRing<std::uint64_t, 256>>();
     constexpr std::uint64_t k_count = 1'000'000;

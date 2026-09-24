@@ -6,7 +6,7 @@ namespace raikiri::venues::bingx {
 
 namespace {
 
-// Crockford base32, the ULID alphabet: no I, L, O or U.
+// crockford base32: no i, l, o or u
 constexpr std::string_view k_ulid_alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 constexpr std::size_t k_ulid_len = 26;

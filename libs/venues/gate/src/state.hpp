@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// anonymous types in a header differ per includer
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -29,20 +28,16 @@
 
 namespace raikiri::venues::gate::internal {
 
-// Live orders tracked for their leaves. Far above any sane working set; the
-// cap exists so a venue incident cannot turn the map into the heap.
+// caps the leaves map against a venue fault
 constexpr std::size_t k_max_live_orders = 8'192;
 
-// A subscription the gateway asked for, owned as strings because the
-// instrument table's views outlive nothing in particular.
+// owned strings since the table's views do not outlive this
 struct OwnedSubscription {
     std::string channel;
     std::string contract;
 };
 
-// State every gate connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single-threaded: only the gateway loop calls in
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref, bool testnet_flag)
         : sink{&sink_ref}, clock{&clock_ref}, testnet{testnet_flag} {}
@@ -50,16 +45,11 @@ struct VenueState {
     exec::GatewaySink* sink;
     const Clock* clock;
     bool testnet;
-    // Shared with the account poller AND with market data: Gate counts one
-    // pool of requests per IP, so two private budgets would together spend
-    // twice the allowance.
+    // gate counts one request pool per ip, shared with the account poller and market data
     exec::RateBudget* budget{nullptr};
     std::uint64_t order_answer_timeout_ns{0};
 
-    // The one market this process serves. Gate names a spot pair and its
-    // perpetual identically and puts them behind different hosts, channels and
-    // frame shapes, so this decides where the socket points, what it asks for,
-    // and how the answers are read.
+    // gate names a spot pair and its perp identically; this picks host, channels and frame shapes
     MarketType market{MarketType::Perp};
 
     net::IoContext io;
@@ -68,16 +58,10 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // The futures private socket demands the account's user id as the first
-    // element of every subscribe payload, and answers a payload without it
-    // with silence rather than an error. Spot wants no such thing.
+    // the futures private socket needs this first in every subscribe payload; spot does not
     std::uint64_t futures_user_id{0};
 
-    // As much of a live order as Gate states in any one frame. The orders
-    // channel carries `left` and our client id; the user-trade channel carries
-    // the fill and neither, so a fill cannot state its own leaves — which is
-    // the number the OMS treats as authoritative. Keyed by the venue order id,
-    // the one field both frames do carry.
+    // leaves and client id from the orders channel, keyed by venue order id, for fills that carry neither
     struct OrderMemo {
         ExchangeClientOrderId client_order_id{};
         QtyLots leaves{QtyLots::from_raw(0)};
@@ -85,11 +69,9 @@ struct VenueState {
 
     std::unordered_map<std::string, OrderMemo> live_orders;
 
-    // The seed rides its own pool so a book resynchronising never queues
-    // behind the catalogue, which is over a megabyte.
+    // the seed has its own pool so it does not queue behind the catalogue
     net::RestClient depth_rest{io, net::RestConfig{.host = std::string{rest_host(testnet)}}};
-    // Contracts whose socket opened and which the stream has not yet quoted:
-    // gate sends only changes, so a quiet one is seeded once over REST.
+    // gate sends only changes, so a quiet contract is seeded once over rest
     std::unordered_set<std::uint64_t> quote_seed_due;
     std::unordered_set<std::uint64_t> funding_seed_due;
     std::unordered_map<std::uint64_t, DepthBook> books;
@@ -101,7 +83,6 @@ struct VenueState {
     // Venue clock offset, measured against /api/v4/spot/time.
     std::int64_t clock_offset_ns{0};
 
-    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
 
@@ -122,8 +103,7 @@ struct VenueState {
 
     [[nodiscard]] std::uint64_t now_s() const noexcept { return venue_now().ns / 1'000'000'000ULL; }
 
-    // Gate refuses a signature whose Timestamp is more than 60 s from ITS
-    // clock, so a laptop drifting a minute looks exactly like a bad key.
+    // gate refuses a timestamp more than 60 s from its clock
     [[nodiscard]] UnixNanos venue_now() const noexcept {
         const auto local = clock->wall();
         return UnixNanos{
@@ -167,31 +147,12 @@ inline std::optional<net::RestResponse> await_response(VenueState& state,
     return net::await_response(state.io, *state.clock, rest, request, timeout_ms);
 }
 
-// Makes one market-data REST client ask the budget before every send.
-//
-// MARKET DATA SPENT NOTHING until now: 376 order_book calls in 60 s from book
-// seeding alone, against a budget only the order path drew on. Gate meters per
-// IP, so those calls were always the order path's allowance being spent by
-// traffic no counter in this process could see.
-//
-// ONE POOL. Gate's `order_entry`, `account` and `ledger` buckets are zero in
-// config/venues.yaml — unmeasured, therefore unlimited — and `shared` is the
-// only one it states, so that is what every call here draws from.
-//
-// COST 1, because Gate meters REQUESTS and not weight: every entry of its
-// `costs` row is 1, so there is no per-endpoint figure to look up and no
-// endpoint that costs more than another.
-//
-// RateClass::Poll, never Order: a book seed may not draw the bucket into the
-// reserve a cancel is about to need. A refusal is not an error — the next
-// delta asks for the seed again. The catalogue pull is the one caller with no
-// next tick, and it is a single request against a bucket still at capacity.
+// market-data rest draws cost 1 per request from the shared bucket as Poll; gate meters requests per ip
 inline void meter_market_data(VenueState& state, net::RestClient& rest) {
     rest.set_admit(exec::market_data_gate(state.budget, *state.clock));
 }
 
-// Gate's code is a string label and VenueError carries an integer, so the
-// label travels in the message where an operator can still read it.
+// gate's code is a label, so it travels in the message
 inline exec::VenueError rest_failure(std::string_view body) {
     const auto err = parse_rest_error(body);
     if (!err.has_value()) {
@@ -200,8 +161,7 @@ inline exec::VenueError rest_failure(std::string_view body) {
     return exec::VenueError::make(classify(err->label), 0, err->label);
 }
 
-// Measured once at startup: a signature stamped from a clock the venue does
-// not share reads to it as a bad signature, not as a late one.
+// measured once at startup; a skewed timestamp reads as a bad signature
 void sync_clock(VenueState& state, net::RestClient& rest);
 
 } // namespace raikiri::venues::gate::internal

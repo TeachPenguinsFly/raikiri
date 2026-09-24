@@ -6,23 +6,19 @@ export interface PlotSeries {
   key: string
   label: string
   color: string
-  /** One value per x. Same length as `x`, aligned by index. */
+  /** aligned with x by index */
   values: number[]
-  /** Fill under the line. At most one series should ask for it. */
+  /** at most one series should set it */
   area?: boolean | undefined
 }
 
 const PAD = { top: 12, right: 52, bottom: 22, left: 8 }
 
-/** Ticks are labelled from the STEP between them, not from their magnitude.
- *
- *  `compact` renders 2,850 and 2,900 both as "2.9k", and an axis whose labels
- *  repeat is an axis that says nothing. */
+/** labels follow the tick step so neighbouring ticks never print the same text */
 function axisLabel(step: number): (value: number) => string {
   if (step >= 1000) return compact
   const decimals = Math.max(0, Math.min(6, Math.ceil(-Math.log10(step))))
-  // A tick can land on -0, and "-0" on an axis reads as a value rather than as
-  // the origin. Adding zero folds it back to +0.
+  // adding zero turns -0 into 0
   return (value) =>
     (value === 0 ? 0 : value).toLocaleString('en-US', {
       minimumFractionDigits: decimals,
@@ -36,7 +32,6 @@ function labelFor(span: number): (millis: number) => string {
     return clockTime
 }
 
-/** Evenly spaced time labels across the span, ends included. */
 function xTicks(
   x: number[],
   count: number,
@@ -50,12 +45,6 @@ function xTicks(
   })
 }
 
-/** A multi-series line chart, drawn as SVG at native resolution.
- *
- *  The same component draws the treasury's cumulative ledger and a strategy's
- *  PnL: they differ by their series, not by their code. It replaces the two
- *  near-identical charts the previous terminal carried, which had drifted apart
- *  in padding, tick count and hover behaviour. */
 export function LinePlot({
   x,
   series,
@@ -65,20 +54,14 @@ export function LinePlot({
   format = compact,
   baseline = 'zero',
 }: {
-  /** Milliseconds, ascending. */
+  /** milliseconds, ascending */
   x: number[]
   series: PlotSeries[]
   width: number
   height: number
-  /** A series key to emphasise; the rest dim. */
   highlight?: string | null | undefined
   format?: ((value: number) => string) | undefined
-  /** Where the vertical axis starts.
-   *
-   *  `zero` for anything that can be negative — a PnL chart whose baseline is
-   *  off-screen reads as a loss that never happened. `data` for a LEVEL, like a
-   *  balance: forcing zero onto a series that lives near 2 900 flattens every
-   *  move into a straight line at the top of a slab. */
+  /** zero for signed series like pnl, data for a level like a balance */
   baseline?: 'zero' | 'data' | undefined
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -97,9 +80,6 @@ export function LinePlot({
       const line = s.values
         .map((v, i) => `${i === 0 ? 'M' : 'L'}${px(x[i] as number).toFixed(1)},${py(v).toFixed(1)}`)
         .join(' ')
-      // The fill reaches the bottom of the PLOT for a level series and the zero
-      // line for a signed one — filling a balance chart down to an off-screen
-      // zero paints the whole panel.
       const base = (baseline === 'data' ? PAD.top + plotHeight : py(Math.max(minY, Math.min(maxY, 0)))).toFixed(1)
       return {
         ...s,
@@ -122,17 +102,13 @@ export function LinePlot({
         return values.map((v) => ({ v, y: py(v), label: label(v) }))
       })(),
       xTicks: xTicks(x, tickCount, px),
-      // The span decides the label. Five identical timestamps is what a
-      // minute-long series gets from a date format, and five dates with a
-      // time-of-day is what a month-long one gets from a clock.
       labelX: labelFor((x[x.length - 1] as number) - (x[0] as number)),
     }
   }, [x, series, width, height, baseline])
 
   if (geometry === null) return null
 
-  // Nearest sample to the pointer. A crosshair that interpolates would read a
-  // value off the line that no event ever produced.
+  // snaps to the nearest sample
   const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const offset = event.clientX - bounds.left

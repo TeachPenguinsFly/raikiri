@@ -1,11 +1,6 @@
 #pragma once
 
-// Request signing for venue REST/WS authentication.
-//
-// Allocation-free: the caller owns the output buffer and the digest is
-// written into it. Signing sits between "decide" and "send", so it must not
-// touch the allocator — and it must not throw, because a partially-sent
-// order is worse than a crash.
+// request signing; allocation-free and non-throwing
 
 #include <raikiri/config/secret.hpp>
 
@@ -24,34 +19,26 @@ inline constexpr std::size_t k_base64_bytes = 44;            // 32 bytes -> 44 c
 inline constexpr std::size_t k_hmac512_bytes = 64;
 inline constexpr std::size_t k_hex512_bytes = k_hmac512_bytes * 2; // 128
 
-// Raw digest of `message` keyed by `key`. Returns false only on an OpenSSL
-// failure, which in practice means the process is already unhealthy.
+// raw digest of `message` keyed by `key`; false only on an openssl failure
 [[nodiscard]] bool hmac_sha256(std::string_view key,
                                std::string_view message,
                                std::span<std::uint8_t, k_hmac_bytes> out) noexcept;
 
-// Lowercase hex encoding (binance, bybit, bingx, xt, mexc, gate).
-// `out` must be at least k_hex_bytes; returns the written view.
+// lowercase hex (binance, bybit, bingx, xt, mexc, gate); `out` holds at least k_hex_bytes
 [[nodiscard]] std::string_view
 hmac_sha256_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
-// Standard base64 with padding (okx, kucoin).
-// `out` must be at least k_base64_bytes; returns the written view.
+// standard base64 with padding (okx, kucoin); `out` holds at least k_base64_bytes
 [[nodiscard]] std::string_view
 hmac_sha256_base64(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
-// SHA512, keyed and unkeyed, hex-encoded lowercase. Gate signs with HMAC-SHA512
-// over a payload that itself embeds a plain SHA512 of the request body, so the
-// unkeyed digest is not a convenience here — it is part of the signature.
-// `out` must be at least k_hex512_bytes.
+// sha512 keyed and unkeyed, lowercase hex; gate's signature embeds a plain sha512 of the body
 [[nodiscard]] std::string_view sha512_hex(std::string_view message, std::span<char> out) noexcept;
 
 [[nodiscard]] std::string_view
 hmac_sha512_hex(std::string_view key, std::string_view message, std::span<char> out) noexcept;
 
-// Holds a venue's credentials for the lifetime of a gateway process. The
-// secret never leaves this object: signing happens here, and callers get
-// only the digest.
+// holds a venue's credentials; the secret never leaves this object
 class Signer {
 public:
     enum class Encoding : std::uint8_t { Hex, Base64, Hex512 };

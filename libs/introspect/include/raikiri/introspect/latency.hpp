@@ -1,7 +1,6 @@
 #pragma once
 
-// DOMAIN: how far a venue's clock sits from ours, and how long its data took
-// to reach us. Values and pure arithmetic; samples are handed in.
+// venue clock offset and data latency; pure values
 
 #include <raikiri/observ/histogram.hpp>
 
@@ -16,8 +15,7 @@
 
 namespace raikiri::introspect {
 
-// Sign: server minus local. A venue stamp converts to our clock as
-// ts_event - offset, so a feed delay is ts_init - ts_event + offset.
+// sign: server minus local; feed delay is ts_init - ts_event + offset
 enum class ClockMethod : std::uint8_t { None, RestProbe, FeedBound };
 
 [[nodiscard]] std::string_view to_string(ClockMethod method) noexcept;
@@ -38,8 +36,7 @@ struct ClockEstimate {
     std::uint64_t samples{0};
 };
 
-// NTP's clock filter: of the last k_window probes, trust the one with the
-// shortest round trip, since queueing only ever adds delay.
+// ntp clock filter: trust the shortest round trip of the last k_window probes
 class OffsetEstimator {
 public:
     static constexpr std::size_t k_window = 8;
@@ -61,9 +58,7 @@ private:
     std::uint64_t samples_{0};
 };
 
-// For a venue with no time endpoint. Each message gives ts_init - ts_event =
-// one-way latency - offset, and latency is never negative, so the smallest
-// difference seen bounds the offset from below.
+// for a venue with no time endpoint; the smallest ts_init - ts_event bounds the offset from below
 class FeedBound {
 public:
     static constexpr std::int64_t k_plausible_ns = 3'600'000'000'000LL;
@@ -86,7 +81,7 @@ private:
     std::int64_t previous_{k_none};
 };
 
-// Upper bounds of the exported cumulative buckets: five a decade, 1 us to 10 s.
+// cumulative bucket upper bounds: five a decade, 1 us to 10 s
 inline constexpr std::array<std::uint64_t, 36> k_bucket_bounds_ns = [] {
     constexpr std::array<std::uint64_t, 5> mantissa{1000, 1585, 2512, 3981, 6310};
     std::array<std::uint64_t, 36> out{};
@@ -125,7 +120,7 @@ struct LatencyStats {
     std::uint64_t total{0};
     std::uint64_t sum_ns{0};
     std::uint64_t below_zero{0};
-    // Since start, how many were at or below each of k_bucket_bounds_ns.
+    // since start, counts at or below each of k_bucket_bounds_ns
     std::vector<std::uint64_t> buckets;
 };
 
@@ -144,9 +139,8 @@ struct ClockStats {
                                      std::string endpoint,
                                      const ClockEstimate& estimate);
 
-// Two slices of a trailing window: quantiles cover the last one to two
-// rotations; count, sum and buckets since start. Fixed memory, so recording never
-// allocates. A negative value is clamped to zero and counted.
+// quantiles cover the last one to two rotations; count, sum and buckets since start
+// fixed memory; negatives are clamped to zero and counted
 class LatencySeries {
 public:
     void record(std::int64_t ns) noexcept {
@@ -175,8 +169,7 @@ private:
     std::uint64_t below_zero_{0};
 };
 
-// Every series one gateway keeps, found by name once and then held by
-// pointer. Single-threaded; a caller sharing one across threads locks it.
+// every series one gateway keeps; single-threaded
 class LatencyBook {
 public:
     static constexpr std::uint64_t k_slice_ns = 30ULL * 1'000'000'000ULL;

@@ -1,8 +1,5 @@
 #pragma once
 
-// Each client is defined privately in its own translation unit; only these
-// three functions cross the boundary.
-
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/exec/execution_client.hpp>
 #include <raikiri/exec/instrument_source.hpp>

@@ -104,9 +104,7 @@ map_funding(const WireTicker& wire, const Instrument& instrument, UnixNanos ts_i
     }
     FundingUpdate out{};
     out.instrument = perp->base.id;
-    // The forecast for next_funding_time is the rate accruing now. Nothing
-    // forecasts the settlement after it, so predicted_rate stays UNDEF; the
-    // venue's `predictedFundingRate` is the constant interest leg (0.00005).
+    // the forecast rate is what accrues now; predictedFundingRate is a constant interest leg
     out.rate = *rate;
     out.mark_price = mark_ticks(wire.mark_price, perp->base.tick_size);
     out.next_funding_time = from_ms(wire.next_funding_ms, UnixNanos{0});

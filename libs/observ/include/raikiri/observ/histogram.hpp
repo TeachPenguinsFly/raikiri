@@ -1,16 +1,7 @@
 #pragma once
 
-// Log-bucketed latency histogram, HdrHistogram-shaped but dependency-free.
-//
-// Layout: 64 major buckets (one per power of two of nanoseconds) × 32 minor
-// linear sub-buckets = 2048 u64 counters, 16 KiB per instance. Relative
-// error is bounded by 1/32 (~3%) of the value — plenty for p50/p99/p999
-// reporting where the interesting differences are multiples, not percents.
-//
-// Concurrency contract: SINGLE WRITER. One instance per hot thread; a cold
-// thread gets data via snapshot() called from the owning thread's cadence
-// work (or after the thread quiesces). No atomics on record() — that is the
-// entire point: recording is a handful of arithmetic ops and one increment.
+// log-bucketed latency histogram: 64 power-of-two majors by 32 linear minors, about 3% error
+// single writer; no atomics on record()
 
 #include <bit>
 #include <cstddef>
@@ -53,7 +44,7 @@ public:
         }
     }
 
-    // Each non-empty bucket's inclusive upper bound and count, smallest first.
+    // each non-empty bucket's inclusive upper bound and count, smallest first
     template <typename Visit> void for_each_bucket(Visit&& visit) const {
         for (std::size_t i = 0; i < k_majors * k_minors; ++i) {
             if (counts_[i] != 0) {
@@ -93,7 +84,7 @@ private:
         return static_cast<std::size_t>(major * k_minors + minor);
     }
 
-    // Upper bound of bucket i (inclusive): first value of bucket i+1, minus 1.
+    // inclusive upper bound of bucket i
     [[nodiscard]] static std::uint64_t upper_bound_of(std::size_t i) noexcept {
         const auto major = static_cast<std::uint64_t>(i) / k_minors;
         const auto minor = static_cast<std::uint64_t>(i) % k_minors;

@@ -5,7 +5,7 @@
 
 namespace raikiri::venues::backpack::ep {
 
-// No testnet host resolves, so the flag is ignored.
+// no testnet host resolves, so the flag is ignored
 inline constexpr std::string_view k_rest_live = "api.backpack.exchange";
 inline constexpr std::string_view k_stream_live = "ws.backpack.exchange";
 
@@ -19,7 +19,7 @@ inline constexpr std::string_view k_stream_live = "ws.backpack.exchange";
     return k_stream_live;
 }
 
-// The bare host. `/stream` is the pre-2024 API and answers 400.
+// the bare host; /stream answers 400
 inline constexpr std::string_view k_ws_path = "/";
 
 inline constexpr std::string_view k_markets = "/api/v1/markets";

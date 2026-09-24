@@ -48,8 +48,7 @@ struct TickerBuffer {
 [[nodiscard]] std::expected<std::span<const WireTicker>, WireError>
 parse_tickers(std::string_view frame, TickerBuffer& storage);
 
-// A row of /api/v1/market/funding-rate, or of the funding-rate channel, which
-// carries the same row without the period, the cap and the floor.
+// a row of /api/v1/market/funding-rate; the channel's row lacks period, cap and floor
 struct WireFundingRow {
     std::string_view inst_id;
     std::string_view funding_rate;
@@ -80,7 +79,7 @@ struct MarkBuffer {
 [[nodiscard]] std::expected<std::span<const WireMark>, WireError>
 parse_mark_table(std::string_view body, MarkBuffer& storage);
 
-// The record is written whole, but its fields arrive from three sources; each updates its own.
+// fields arrive from three sources; each updates its own
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};

@@ -9,9 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// The swap's own order ids are JSON numbers past 2^53, so `order_id_str` is
-// the only spelling that survives; `order_id` is read solely as the fallback
-// for the endpoints that omit the string form.
+// swap order ids exceed 2^53, so read order_id_str first
 std::expected<std::string_view, WireError> order_id_of(wire::ondemand::object& obj) {
     const auto text = wire::opt_str(obj, "order_id_str");
     if (!text.has_value()) {
@@ -23,9 +21,7 @@ std::expected<std::string_view, WireError> order_id_of(wire::ondemand::object& o
     return num_of(obj, "order_id");
 }
 
-// 1 and 2 are "ready to submit" and 11 is "cancelling": all three are states
-// the order passes THROUGH, and reporting one as a lifecycle event would make
-// the OMS act on a verdict the venue has not reached.
+// 1, 2 and 11 are transient states and produce no event
 WireOrderState swap_state(std::int64_t status) noexcept {
     switch (status) {
     case 3:
@@ -62,9 +58,7 @@ WireOrderState spot_state(std::string_view status) noexcept {
     return WireOrderState::Unknown;
 }
 
-// `role` is "maker"/"taker" on the websocket and "Maker"/"Taker" in the REST
-// match rows — same venue, same field, two casings. A case-sensitive compare
-// silently reports every REST maker fill as a taker one.
+// role is lowercase on the socket and capitalised in rest rows
 bool is_maker(std::string_view role) noexcept {
     constexpr std::string_view k_maker = "maker";
     if (role.size() != k_maker.size()) {
@@ -80,14 +74,10 @@ bool is_maker(std::string_view role) noexcept {
     return true;
 }
 
-// Spot spells side, order type and time in force in ONE token: "buy-limit",
-// "sell-limit-maker", "buy-ioc". Only the head is the side.
 bool spot_sells(std::string_view type) noexcept {
     return type.starts_with("sell");
 }
 
-// Reads the trade array a swap order push carries inline. `role` is HTX's word
-// for liquidity and is the only place the swap states it.
 std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& obj,
                                                       std::span<WireFill> into) {
     if (into.empty()) {
@@ -119,8 +109,7 @@ std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& ob
         auto& out = into[count];
         out.exec_id = *id;
         if (out.exec_id.empty()) {
-            // `id` is the globally unique trade id; `trade_id` is unique only
-            // within a contract, so it is a dedupe key of the wrong scope.
+            // id is globally unique; trade_id only per contract
             const auto fallback = num_of(trade, "trade_id");
             if (!fallback.has_value()) {
                 return std::unexpected(fallback.error());
@@ -137,8 +126,6 @@ std::expected<std::size_t, WireError> read_swap_fills(wire::ondemand::object& ob
     return count;
 }
 
-// One swap order object, from a websocket notify or from any of the REST
-// reads: they are the same shape with a different wrapper.
 std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj,
                                                     std::span<WireFill> fills) {
     WireOrder out{};
@@ -177,10 +164,7 @@ std::expected<WireOrder, WireError> read_swap_order(wire::ondemand::object& obj,
     return out;
 }
 
-// One spot order object. Two field vocabularies reach this: the websocket's
-// camelCase and REST's hyphenated one. Both are read, because an order that
-// arrives under the other spelling would otherwise look like an order with no
-// price and no size.
+// reads both the websocket's camelCase and rest's hyphenated fields
 std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj) {
     WireOrder out{};
     const auto symbol = wire::req_str(obj, "symbol");
@@ -199,8 +183,7 @@ std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj)
     const auto rest_size = num_of(obj, "amount");
     const auto left = num_of(obj, "remainAmt");
     const auto ws_exec = num_of(obj, "execAmt");
-    // "field-amount" is HTX's own long-standing typo for the filled size and
-    // is what several spot endpoints still answer with.
+    // "field-amount" is htx's misspelling, still answered by some spot endpoints
     const auto rest_exec = num_of(obj, "filled-amount");
     const auto legacy_exec = num_of(obj, "field-amount");
     const auto type = wire::opt_str(obj, "type");
@@ -228,8 +211,7 @@ std::expected<WireOrder, WireError> read_spot_order(wire::ondemand::object& obj)
     if (!status.empty()) {
         out.state = spot_state(status);
     } else if (*event == "creation") {
-        // A creation push predates any orderStatus field; the event name is
-        // the whole verdict it carries.
+        // a creation push has no orderStatus; the event name is the state
         out.state = WireOrderState::Accepted;
     } else if (*event == "cancellation" || *event == "deletion") {
         out.state = WireOrderState::Canceled;
@@ -261,8 +243,7 @@ std::expected<WireOrderAck, WireError> parse_order_ack(std::string_view body, Ma
             return std::unexpected(root.error());
         }
         if (market == MarketType::Spot) {
-            // Spot's `data` IS the order id, a bare string with no object
-            // around it — the only create response on either API shaped so.
+            // spot's data is the order id as a bare string
             const auto id = wire::opt_str(*root, "data");
             if (!id.has_value()) {
                 return std::unexpected(id.error());
@@ -304,9 +285,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
             return std::unexpected(wire::map_error(ec));
         }
         if (market == MarketType::Spot) {
-            // Cancel-by-order-id answers the order id as a string; cancel-by-
-            // client-order-id answers an integer STATE, and 0 alone means the
-            // id was never found. Every other state says the venue acted.
+            // cancel by client id answers an integer state; 0 means not found
             if (type == simdjson::ondemand::json_type::number) {
                 std::int64_t state = 0;
                 if (const auto ec = data.get_int64().get(state); ec != simdjson::SUCCESS) {
@@ -322,9 +301,7 @@ std::expected<WireCancelOutcome, WireError> parse_cancel_outcome(std::string_vie
         if (const auto ec = data.get_object().get(obj); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));
         }
-        // The swap answers status "ok" whichever way the cancel went; the
-        // per-id verdict is in `errors`, and `successes` is a comma-joined
-        // STRING rather than an array.
+        // status is ok either way; the verdict is in errors, and successes is a comma-joined string
         std::string_view first_error;
         if (wire::ondemand::array errors;
             wire::find(obj, "errors").get_array().get(errors) == simdjson::SUCCESS) {
@@ -357,8 +334,7 @@ std::expected<WireOrder, WireError> parse_swap_order_push(std::string_view frame
         if (!root.has_value()) {
             return std::unexpected(root.error());
         }
-        // The push has no envelope: the order's own fields sit beside `op` and
-        // `topic` at the root.
+        // no envelope: the order's fields sit at the root
         return read_swap_order(*root, storage.fills);
     });
 }
@@ -398,8 +374,7 @@ std::expected<WireUserTrade, WireError> parse_spot_trade_push(std::string_view f
         const auto type = wire::opt_str(*data, "orderType");
         const auto left = num_of(*data, "remainAmt");
         const auto ts = wire::opt_u64(*data, "tradeTime");
-        // `aggressor` is the taker flag, and it is a BOOLEAN here where every
-        // other HTX surface spells liquidity as the word "maker"/"taker".
+        // aggressor is a boolean taker flag here
         const auto aggressor = wire::opt_bool(*data, "aggressor");
         if (!symbol.has_value() || !order_id.has_value() || !client_id.has_value() ||
             !price.has_value() || !qty.has_value() || !trade_id.has_value() || !fee.has_value() ||
@@ -441,9 +416,6 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
                 if (const auto ec = entry.get_object().get(obj); ec != simdjson::SUCCESS) {
                     return std::unexpected(wire::map_error(ec));
                 }
-                // A REST row carries no trade array, so every order shares one
-                // empty fill span rather than each claiming buffer it will not
-                // fill.
                 const auto order = market == MarketType::Spot
                                        ? read_spot_order(obj)
                                        : read_swap_order(obj, std::span<WireFill>{});
@@ -456,12 +428,7 @@ parse_rest_orders(std::string_view body, OrderBuffer& storage, MarketType market
             return std::span<const WireOrder>{storage.orders.data(), count};
         };
 
-        // Four bodies reach this, and `data` is a different shape in each:
-        // the spot sweep and the swap single-order read answer arrays, the
-        // spot single-order read answers one order, and swap_cross_openorders
-        // wraps its rows in a paging object. The type is checked before either
-        // read — probing by trying get_array and falling back leaves the
-        // iterator half-consumed.
+        // data is an array, an object or a paging object by endpoint; check the type before reading
         wire::ondemand::value data;
         if (const auto ec = wire::find(*root, "data").get(data); ec != simdjson::SUCCESS) {
             return std::unexpected(wire::map_error(ec));

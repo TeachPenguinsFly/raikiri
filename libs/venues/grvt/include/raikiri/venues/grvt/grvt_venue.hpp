@@ -4,7 +4,7 @@
 
 namespace raikiri::venues::grvt {
 
-// Called from gatewayd's main: the linker drops unreferenced static registrars.
+// call from gatewayd's main; the linker drops unreferenced static registration objects
 void register_adapter();
 
 } // namespace raikiri::venues::grvt

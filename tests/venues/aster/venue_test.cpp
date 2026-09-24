@@ -1,11 +1,4 @@
-// Aster parser tests, against bytes captured live from the venue on
-// 2026-09-20. See fixtures/README.md for provenance.
-//
-// WHY A WHOLE TEST FILE FOR A WIRE-COMPATIBLE API: this venue serves the same
-// paths and field names as a much larger one, and the parsers here were forked
-// from that adapter. That makes the tests MORE necessary, not less — a fork
-// that silently drifts from its origin is exactly what nobody notices, and the
-// weight table below already differs.
+// aster parser tests against captured bytes; see fixtures/README.md
 
 #include <raikiri/venues/aster/book.hpp>
 #include <raikiri/venues/aster/catalogue.hpp>
@@ -35,7 +28,7 @@ std::string fixture(std::string_view name) {
     return buf.str();
 }
 
-// Every parser takes the payload, not the {"stream":..,"data":..} wrapper.
+// every parser takes the payload, not the {"stream":..,"data":..} wrapper
 std::string data_of(std::string_view name) {
     const auto frame = fixture(name);
     const auto inner = unwrap(frame);
@@ -63,14 +56,12 @@ exec::InstrumentTable table_with_btc() {
     return table;
 }
 
-// --- the catalogue -------------------------------------------------------
-
 TEST(AsterWire, ExchangeInfoParsesTheThreeShapesTheVenueServes) {
     InstrumentBuffer storage;
     const auto body = fixture("rest_exchange_info.json");
     const auto rows = parse_exchange_info(body, storage);
     ASSERT_TRUE(rows.has_value());
-    // The fixture keeps one plain perp, one non-USDT quote and one not trading.
+    // the fixture keeps one plain perp, one non-usdt quote and one not trading
     ASSERT_EQ(rows->size(), 3U);
 
     bool saw_btc = false;
@@ -85,9 +76,7 @@ TEST(AsterWire, ExchangeInfoParsesTheThreeShapesTheVenueServes) {
 }
 
 TEST(AsterMap, ANonUsdtQuoteSurvivesTheMapper) {
-    // 11 of 602 rows are quoted in USD1 and 2 in "U" (read live 2026-09-20).
-    // A mapper that assumed USDT would drop them, and the board would then be
-    // missing the pairs most likely to carry a wide funding rate.
+    // rows quoted in USD1 and "U" must map too
     WireInstrument wire{};
     wire.symbol = "BTCUSD1";
     wire.base_asset = "BTC";
@@ -112,8 +101,6 @@ TEST(AsterMap, ARowThatIsNotTradingIsRefused) {
     wire.step_size = "0.001";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 }
-
-// --- market data ---------------------------------------------------------
 
 TEST(AsterWire, EventDispatchResolvesKindAndSymbol) {
     for (const auto& [file, kind] : {std::pair{"ws_book_ticker.json", EventKind::BookTicker},
@@ -147,15 +134,12 @@ TEST(AsterMap, MarkPriceCarriesTheFundingRate) {
     ASSERT_TRUE(wire.has_value());
     const auto funding = map_funding(*wire, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
-    // A contract quoting no rate must not be published as one funding at zero,
-    // so the mapper is allowed to refuse; this fixture does quote one.
+    // the mapper may refuse a contract quoting no rate; this fixture quotes one
     EXPECT_NE(funding->next_funding_time.ns, 0ULL);
 }
 
 TEST(AsterBook, ConsecutiveDepthFramesChainByPrevUpdateId) {
-    // THE INVARIANT THIS VENUE INHERITS: frame N's `u` is frame N+1's `pu`.
-    // Captured live as two consecutive frames; if the venue ever stops
-    // chaining, the book must resynchronise rather than apply into a hole.
+    // frame N's `u` is frame N+1's `pu`
     const auto first = data_of("ws_depth_update.json");
     const auto second = data_of("ws_depth_update_next.json");
     LevelBuffer buf_a;
@@ -168,11 +152,8 @@ TEST(AsterBook, ConsecutiveDepthFramesChainByPrevUpdateId) {
     EXPECT_LE(a->first_id, a->last_id);
 }
 
-// --- what a call costs ---------------------------------------------------
-
 TEST(AsterEndpoints, TestnetHasNowhereToPointSoBothAccessorsAnswerLive) {
-    // Neither testnet host resolves (checked 2026-09-20). Naming a dead one
-    // would fail at connect time, far from the config that asked for it.
+    // no testnet host resolves
     EXPECT_EQ(ep::rest_host(true), ep::k_rest_live);
     EXPECT_EQ(ep::stream_host(true), ep::k_stream_live);
 }

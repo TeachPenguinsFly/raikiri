@@ -48,13 +48,11 @@ Credentials& Credentials::passphrase(Install install) {
 
 std::vector<CredentialError> Credentials::resolve() const {
     std::vector<CredentialError> failures;
-    // ONE provider for the whole set. Every `exec:` reference spawns a shell,
-    // so a provider per credential is not merely wasteful — against 1Password
-    // it is a separate authorisation prompt for each secret.
+    // one provider for the set; each exec: reference would otherwise prompt 1password again
     DefaultSecretProvider provider;
     for (const auto& step : steps_) {
         if (step.spec.empty()) {
-            continue; // nothing named: a public gateway, not a broken one
+            continue; // nothing named: a public gateway
         }
         const auto ref = SecretRef::parse(step.spec);
         if (!ref.has_value()) {
@@ -67,8 +65,6 @@ std::vector<CredentialError> Credentials::resolve() const {
             }
             continue;
         }
-        // Scoped so the value is zeroed the moment the installer returns,
-        // whatever the installer chose to keep.
         Secret value;
         if (const auto ok = provider.resolve(*ref, value); !ok.has_value()) {
             failures.push_back({.field = step.field, .error = ok.error()});

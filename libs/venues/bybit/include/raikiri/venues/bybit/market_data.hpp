@@ -1,8 +1,5 @@
 #pragma once
 
-// What the public feed says a market did: its prints, and the ticker's running
-// picture of it.
-
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -35,10 +32,7 @@ struct TradeBuffer {
 [[nodiscard]] std::expected<std::span<const WireTrade>, WireError>
 parse_trades(std::string_view frame, TradeBuffer& storage);
 
-// tickers.SYMBOL on linear perps pushes a full snapshot once and then
-// DELTAS containing only changed fields — so every field here is optional
-// and an absent one means "unchanged", not "zero". Getting this wrong
-// silently zeroes a funding rate, which is why the flags exist.
+// a snapshot, then deltas of changed fields only; absent means unchanged
 struct WireTicker {
     std::string_view symbol;
     bool is_snapshot{false};
@@ -46,10 +40,7 @@ struct WireTicker {
     std::string_view index_price;
     std::string_view funding_rate;
     std::string_view next_funding_ms;
-    // EMPTY ON A DELTA, and empty is not zero: bybit sends the 24-hour
-    // figures on the snapshot and omits them from every delta that did not
-    // change them. Publishing a zero here would erase the real turnover on
-    // the next tick.
+    // empty on a delta that did not change it; empty is not zero
     std::string_view volume_24h;   // base units
     std::string_view turnover_24h; // quote units
     std::string_view bid1_price;
@@ -61,18 +52,7 @@ struct WireTicker {
 
 [[nodiscard]] std::expected<WireTicker, WireError> parse_ticker(std::string_view frame);
 
-// What a ticker frame has said SO FAR about one instrument's funding.
-//
-// A TICKER FRAME IS A PARTIAL. Measured on BTCUSDT over fifty seconds: one
-// snapshot carrying both the rate and the mark, forty-three frames carrying
-// only the mark, and none carrying only the rate. `FundingUpdate` is one
-// record and the shm cell is written whole, so publishing straight from a
-// frame does one of two wrong things — drops all forty-three mark updates
-// because the frame states no rate, or publishes an UNDEF mark over the last
-// known one when a frame states a rate and no mark.
-//
-// So the venue keeps what it has been told and publishes the merge. A field
-// never seen stays UNDEF, which is not the same as zero.
+// merges partial ticker frames; a field never seen stays undef
 struct FundingMemo {
     FixedE9 rate{};
     PriceTicks mark{};

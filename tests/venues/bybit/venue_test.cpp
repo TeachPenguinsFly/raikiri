@@ -35,8 +35,7 @@ protected:
 };
 
 TEST_F(BybitVenue, RegistersAndBuildsWithoutCredentials) {
-    // Market data needs no keys, so a gateway started without them still
-    // runs — read-only by construction rather than by configuration.
+    // market data runs without keys
     const auto adapter =
         exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter.has_value());
@@ -48,8 +47,7 @@ TEST_F(BybitVenue, RegistersAndBuildsWithoutCredentials) {
 }
 
 TEST_F(BybitVenue, CapsRowCarriesOurOrderIds) {
-    // The whole three-id recovery scheme rides on a 26-char ULID fitting the
-    // venue's client-order-id field.
+    // a 26-char ulid must fit the venue's client-order-id field
     const auto& caps = exec::caps_of(VenueId::Bybit);
     EXPECT_GE(caps.max_client_order_id_len, exec::k_min_client_order_id_len);
     EXPECT_TRUE(caps.cancel_by_client_order_id);
@@ -71,8 +69,7 @@ TEST_F(BybitVenue, SubscribingAnUnknownInstrumentIsRefused) {
 }
 
 TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
-    // A command that cannot even be built must still produce a terminal
-    // event: silence would leave the order open in the store forever.
+    // an unbuildable command still produces a terminal event
     auto adapter_holder =
         exec::make_venue({.venue = VenueId::Bybit, .market = MarketType::Perp}, sink, clock);
     ASSERT_TRUE(adapter_holder.has_value());
@@ -90,8 +87,7 @@ TEST_F(BybitVenue, OrderWithoutCredentialsFailsLoudlyAsAnEvent) {
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
     EXPECT_EQ(sink.events[0].client_order_id.raw, cmd.client_order_id.raw);
 
-    // A cancel that cannot be built is a CancelRejected, not a Rejected: the
-    // order it targets is still alive.
+    // an unbuildable cancel is CancelRejected: the order is still alive
     cmd.kind = CmdKind::Cancel;
     adapter.execution->cancel(cmd);
     ASSERT_EQ(sink.events.size(), 2U);
@@ -111,17 +107,13 @@ TEST_F(BybitVenue, StopIsIdempotent) {
 }
 
 TEST(BybitCaps, ClaimsThePullsItImplementsOnTheMarketsThatAnswer) {
-    // The reconciler reads this row instead of calling and guessing from an
-    // empty vector. Bybit answers, so it says so — per market, because the
-    // position endpoint takes the product category and has no spot category to
-    // take. A spot gateway reading a venue-wide bit asked anyway and was told
-    // "category only support linear or option" every pass for as long as it ran.
+    // the position pull is per market; there is no spot category
     const auto& caps = exec::caps_of(VenueId::Bybit);
     EXPECT_TRUE(caps.position_pull.has(MarketType::Perp));
     EXPECT_FALSE(caps.position_pull.has(MarketType::Spot));
     EXPECT_TRUE(caps.fill_pull.has(MarketType::Perp));
     EXPECT_TRUE(caps.fill_pull.has(MarketType::Spot));
-    // One unified wallet behind both markets, and the read takes no category.
+    // one unified wallet behind both markets; no category
     EXPECT_TRUE(caps.balance_pull.has(MarketType::Perp));
     EXPECT_TRUE(caps.balance_pull.has(MarketType::Spot));
 }

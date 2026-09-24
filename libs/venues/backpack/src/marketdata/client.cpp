@@ -21,17 +21,17 @@ namespace raikiri::venues::backpack::internal {
 
 namespace {
 
-// Twenty a second: 1200 a minute against the venue's 2000.
+// 20 a second, under the venue's 2000 a minute
 constexpr std::uint64_t k_seed_spacing_ns = 50ULL * 1'000'000ULL;
 
-// The touch needs one level a side; five is the smallest limit the venue takes.
+// five is the smallest limit the venue takes
 constexpr std::uint32_t k_touch_depth = 5;
 
 constexpr std::uint64_t k_ticker_poll_interval_ns = 300ULL * 1'000'000'000ULL;
 
 constexpr std::uint64_t k_book_report_interval_ns = 15ULL * 1'000'000'000ULL;
 
-// The venue sends no limit header, so a 429 is the only correction our count gets.
+// the venue sends no limit header, so a 429 is the only correction
 void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noexcept {
     if (state.budget != nullptr && response.status == 429) {
         state.budget->penalize_all(state.clock->mono(), 1'000'000'000ULL);
@@ -42,7 +42,7 @@ void heed_rate_refusal(VenueState& state, const net::RestResponse& response) noe
     return std::ranges::find(state.funding_instruments, id) != state.funding_instruments.end();
 }
 
-// A failed seed asks again by itself: a quiet pair never sends the delta that would.
+// a quiet pair sends no delta that would ask again
 void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
     if (std::ranges::find(queue, id) == queue.end()) {
         queue.push_back(id);
@@ -64,7 +64,7 @@ void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
                                    : std::unexpected(WireError::NotJson);
         if (!wire.has_value()) {
             heed_rate_refusal(*owner, response);
-            requeue(owner->pending_seeds, id); // still marked in flight: the delta path stays out
+            requeue(owner->pending_seeds, id); // still marked in flight so the delta path stays out
             return;
         }
         if (target.seed(*wire) != BookResult::Applied) {
@@ -89,7 +89,7 @@ void requeue(std::vector<InstrumentId>& queue, InstrumentId id) {
     auto* owner = &state;
     const auto handled = [owner, id](net::RestResponse&& response) {
         if (owner->quoted.contains(id.packed)) {
-            return; // the stream spoke first, and it is newer than this
+            return; // the stream is newer
         }
         if (response.transport_failed() || response.status != 200) {
             heed_rate_refusal(*owner, response);
@@ -127,7 +127,7 @@ void handle_depth(VenueState& state, std::string_view data, UnixNanos received) 
     const auto& base = base_of(*instrument);
     auto& book = state.books.try_emplace(base.id.packed, base.id, base.tick_size, base.lot_size)
                      .first->second;
-    // Asked before the delta is offered, so the triggering frame is buffered behind it.
+    // asked before the delta is offered so the triggering frame buffers behind it
     if (book.wants_seed()) {
         if (std::ranges::find(state.pending_seeds, base.id) == state.pending_seeds.end()) {
             state.pending_seeds.push_back(base.id);
@@ -199,7 +199,6 @@ class PublicHandler final : public net::WsHandler {
 public:
     explicit PublicHandler(VenueState& state) : state_{&state} {}
 
-    // Each socket in the pool re-asks for its own streams when it opens.
     void on_open() override {
         state_->sink->on_connectivity(
             {.state = exec::ConnState::Resubscribed, .stream_id = 0, .ts = state_->clock->wall()});
@@ -289,7 +288,7 @@ public:
         if (kind == exec::SubKind::Bbo) {
             state_->pending_touches.push_back(instrument);
         }
-        // Seeded now: a pair whose book does not move sends no delta to trigger it.
+        // a pair whose book does not move sends no delta to trigger a seed
         if (kind == exec::SubKind::Depth) {
             const auto* listed = state_->instruments.find(instrument);
             const auto& base = base_of(*listed);
@@ -321,8 +320,7 @@ public:
     }
 
 private:
-    // An open breaks the chain of this socket's books, the first open included. Each
-    // asks for its own seed, since a quiet pair sends no delta to trigger one.
+    // an open breaks the chain of this socket's books; each asks for its own seed
     void invalidate_books(std::span<const std::string> keys) noexcept {
         for (const auto& key : keys) {
             const auto symbol = depth_symbol(key);
@@ -344,7 +342,7 @@ private:
         }
     }
 
-    // Quote first: with paced sends, the last stream is what a short run never sees.
+    // quote first: with paced sends a short run never sees the last stream
     [[nodiscard]] std::vector<std::string> build_frames(std::span<const std::string> keys) {
         std::vector<std::string_view> streams(keys.begin(), keys.end());
         std::ranges::stable_partition(
@@ -364,8 +362,7 @@ private:
         return frames;
     }
 
-    // One seed per tick while the budget allows. Book seeds go before touches: a
-    // delta is already waiting on the seed.
+    // book seeds go before touches since a delta already waits on them
     void drain_seeds(UnixNanos now) noexcept {
         if (now.ns < state_->next_seed_ns) {
             return;
@@ -443,7 +440,7 @@ private:
         }
     }
 
-    // Said only after two looks, so a book resynchronising for a round trip does not cry wolf.
+    // reported only after two looks so a brief resync is not flagged
     void report_books(UnixNanos now) noexcept {
         if (now.ns < report_due_ns_ || state_->books.empty() || !has_logger()) {
             return;

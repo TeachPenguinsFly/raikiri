@@ -1,8 +1,6 @@
 #pragma once
 
-// APPLICATION: the questions admind answers and the one a gateway sends, each
-// against a port. Nothing here knows where a snapshot lives or how it is
-// spelled.
+// the questions admind answers and the one a gateway sends, each against a port
 
 #include <raikiri/introspect/stats.hpp>
 
@@ -40,7 +38,7 @@ public:
     [[nodiscard]] virtual bool publish(const GatewayStats& stats) = 0;
 };
 
-// Wall-clock nanoseconds, the clock a snapshot is stamped with.
+// wall-clock nanoseconds, the clock a snapshot is stamped with
 using WallClock = std::function<std::uint64_t()>;
 
 inline constexpr std::uint64_t k_stale_after_ns = 30ULL * 1'000'000'000ULL;

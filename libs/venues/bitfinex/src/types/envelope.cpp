@@ -14,8 +14,7 @@ using JsonType = wire::ondemand::json_type;
 
 constexpr std::string_view k_error_tag = "error";
 
-// Matched against the raw body, quotes included, so the sniff below never has
-// to index into a buffer whose length it has not already checked.
+// matched with quotes so the sniff never indexes past the checked length
 constexpr std::string_view k_quoted_error_tag = R"("error")";
 
 FrameKind kind_from_event(std::string_view event) noexcept {
@@ -47,10 +46,7 @@ bool is_array_frame(std::string_view frame) noexcept {
     return !text.empty() && text.front() == '[';
 }
 
-// raw_json() on a scalar returns the token plus whitespace up to the next one,
-// so quotes come off after trimming. Contents stay escaped: Bitfinex symbols
-// and decimal tokens cannot contain an escape, and letting simdjson unescape
-// would move every field into a buffer that cannot be rebased.
+// quotes come off after trimming; contents stay escaped so views stay in the caller's buffer
 std::expected<std::string_view, WireError> token_of(wire::ondemand::value value) {
     std::string_view raw;
     if (const auto ec = value.raw_json().get(raw); ec != simdjson::SUCCESS) {

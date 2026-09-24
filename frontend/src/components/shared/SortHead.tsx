@@ -6,10 +6,6 @@ export interface Sort<K extends string> {
   desc: boolean
 }
 
-/** A column header that sorts.
- *
- *  The caret shows only on the active column — a caret beside every header is
- *  a row of decoration, and the reader stops seeing the one that matters. */
 export function SortHead<K extends string>({
   k,
   sort,
@@ -22,9 +18,7 @@ export function SortHead<K extends string>({
   sort: Sort<K>
   onSort: (s: Sort<K>) => void
   right?: boolean
-  /** For a header that has to carry more than the cell's own styling — a
-   *  sticky row needs an opaque background on the CELLS, because a sticky
-   *  `<tr>` paints nothing and the rows scroll through it. */
+  /** sticky headers need an opaque background on the cells */
   className?: string | undefined
   children: ReactNode
 }) {

@@ -32,9 +32,7 @@ std::expected<std::uint64_t, WireError> parse_spot_account_id(std::string_view b
             if (!type.has_value() || !state.has_value() || !id.has_value()) {
                 return std::unexpected(WireError::MissingField);
             }
-            // An account carries margin, otc and point rows beside the spot
-            // one; placing an order against the wrong id is answered
-            // "invalid-parameter" rather than routed.
+            // accounts also carry margin, otc and point rows; only the spot one takes orders
             if (*type == "spot" && *state == "working" && *id != 0) {
                 return *id;
             }

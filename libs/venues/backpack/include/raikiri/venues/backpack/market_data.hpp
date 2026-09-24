@@ -21,7 +21,7 @@ struct WirePrint {
 
 [[nodiscard]] std::expected<WirePrint, WireError> parse_trade(std::string_view data);
 
-// An empty rate on a spot pair means no funding, never funding at zero.
+// an empty rate on a spot pair means no funding
 struct WireMarkPrice {
     std::string_view symbol;
     std::string_view mark_price;
@@ -33,7 +33,7 @@ struct WireMarkPrice {
 
 [[nodiscard]] std::expected<WireMarkPrice, WireError> parse_mark_price(std::string_view data);
 
-// Pulled from GET /api/v1/tickers rather than streamed: one call covers every market.
+// polled from GET /api/v1/tickers: one call covers every market
 struct WireTicker {
     std::string_view symbol;
     std::string_view volume;       // base asset

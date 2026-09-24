@@ -11,8 +11,7 @@ namespace raikiri::venues::edgex {
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireContract& wire, MarketType market);
 
-// The mark carries up to eighteen decimals and never sits on the tick grid, so
-// it is truncated onto the grid rather than refused.
+// the mark is off the tick grid, so it is truncated rather than refused
 [[nodiscard]] PriceTicks mark_ticks(std::string_view text, FixedE9 tick_size) noexcept;
 
 [[nodiscard]] std::optional<TradeTick>

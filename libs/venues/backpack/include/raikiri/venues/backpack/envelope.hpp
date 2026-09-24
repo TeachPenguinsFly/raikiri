@@ -19,11 +19,9 @@ enum class EventKind : std::uint8_t {
     Unknown,
 };
 
-// The raw text of `data`; a frame with no wrapper is returned unchanged.
 [[nodiscard]] std::expected<std::string_view, WireError> unwrap(std::string_view frame);
 
-// No subscribe is acknowledged, even one naming an unlisted symbol: only the
-// frames that arrive say what is subscribed.
+// no subscribe is acknowledged; only arriving frames show what is subscribed
 [[nodiscard]] EventKind parse_event_kind(std::string_view payload);
 
 struct RestError {
@@ -31,7 +29,6 @@ struct RestError {
     std::string_view message;
 };
 
-// The body's error, or an empty code when the body is not one.
 [[nodiscard]] std::expected<RestError, WireError> parse_rest_error(std::string_view body);
 
 } // namespace raikiri::venues::backpack

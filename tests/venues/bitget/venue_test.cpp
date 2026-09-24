@@ -36,12 +36,10 @@ std::string fixture(std::string_view name) {
 
 constexpr UnixNanos k_ingest{1'700'000'000'000'000'000ULL};
 
-// The depth the adapter subscribes at, and Bitget's deepest self-contained
-// snapshot: books50 and books100 are both refused with 30016 "Param error".
+// bitget's deepest snapshot depth; books50 and books100 are refused
 constexpr std::uint32_t k_bitget_depth = 15;
 
-// The four rows of rest_contracts.json, mapped. PEPEUSDT is expected to be
-// refused, so this table holds three.
+// rest_contracts.json mapped; PEPEUSDT is refused, leaving three
 exec::InstrumentTable table_from_catalogue() {
     exec::InstrumentTable table;
     auto storage = std::make_unique<ContractBuffer>();
@@ -61,8 +59,6 @@ const InstrumentBase* base_for(const exec::InstrumentTable& table, std::string_v
     return instrument == nullptr ? nullptr : &base_of(*instrument);
 }
 
-// ------------------------------------------------------------ wire ------
-
 TEST(BitgetWire, EventDispatchResolvesKindAndInstrument) {
     for (const auto& [file, kind] : {std::pair{"ws_ticker.json", EventKind::Ticker},
                                      std::pair{"ws_trade.json", EventKind::Trade},
@@ -72,16 +68,12 @@ TEST(BitgetWire, EventDispatchResolvesKindAndInstrument) {
         const auto event = parse_event(frame);
         ASSERT_TRUE(event.has_value()) << file;
         EXPECT_EQ(event->kind, kind) << file;
-        // Only `arg` names the instrument on every channel: the trade and
-        // books elements carry none at all.
+        // only arg names the instrument on every channel
         EXPECT_EQ(event->inst_id, "BTCUSDT") << file;
     }
 }
 
 TEST(BitgetWire, ControlFramesAreNotMistakenForData) {
-    // The two answers differ by one field value. Reading a refusal as an ack
-    // turns "the venue rejected this channel" into "this channel is quiet",
-    // which is indistinguishable from a market with no activity.
     const auto ack = fixture("ws_subscribe_ack.json");
     auto event = parse_event(ack);
     ASSERT_TRUE(event.has_value());
@@ -94,9 +86,7 @@ TEST(BitgetWire, ControlFramesAreNotMistakenForData) {
 }
 
 TEST(BitgetWire, StreamErrorCodeIsANumberWhileTheRestCodeIsAString) {
-    // The two transports disagree about the type of `code`, so they need
-    // separate reads. A string read of the websocket frame yields WrongType
-    // on every refusal, which presents as a channel that simply went quiet.
+    // the ws code is a number and the rest code a string
     const auto bad_instrument = fixture("ws_error_unknown_instrument.json");
     auto err = parse_stream_error(bad_instrument);
     ASSERT_TRUE(err.has_value());
@@ -110,15 +100,11 @@ TEST(BitgetWire, StreamErrorCodeIsANumberWhileTheRestCodeIsAString) {
 }
 
 TEST(BitgetWire, KeepaliveIsExactlyFourBytesAndItsAnswerIsNotJson) {
-    // Bitget answers the "ping" text with a bare "pong", so the answer lands
-    // on the same ignore path as any frame the venue adds later.
+    // the bare pong is ignored like any unknown frame
     EXPECT_FALSE(parse_event("pong").has_value());
     EXPECT_EQ(Protocol::ping_frame(), "ping");
 
-    // Verified live: one trailing newline is enough to be refused, which is
-    // the frame below. It is also the only live payload here carrying a JSON
-    // escape, and the parser hands back the ESCAPED text — unescaping would
-    // move the view into a buffer that cannot be rebased onto the caller's.
+    // a trailing newline is refused; the parser returns the escaped text
     const auto refused = fixture("ws_error_unrecognized_request.json");
     const auto err = parse_stream_error(refused);
     ASSERT_TRUE(err.has_value());
@@ -135,21 +121,17 @@ TEST(BitgetWire, TickerCarriesBookMarkAndFundingOnOneFrame) {
     EXPECT_EQ(ticker->ask_price, "63923.9");
     EXPECT_EQ(ticker->bid_qty, "11.3297");
     EXPECT_EQ(ticker->ask_qty, "15.7309");
-    // okx and binance both put these on other channels; here they ride along.
     EXPECT_EQ(ticker->mark_price, "63923.8");
     EXPECT_EQ(ticker->index_price, "63936.84");
     EXPECT_EQ(ticker->funding_rate, "0.0001");
-    // The turnover pair by name. quote / base = 64 371, which sits inside the
-    // frame's own 63 791 .. 65 333 range — the two are the same window in
-    // different currencies, not one figure counted twice.
+    // base and quote turnover of the same window
     EXPECT_EQ(ticker->volume_24h_base, "30602.4556");
     EXPECT_EQ(ticker->volume_24h_quote, "1969900863.29574");
     EXPECT_EQ(ticker->next_funding_ms, 1'786'435'200'000ULL);
-    // The element's own ts, not the frame's outer one: they differ by a
-    // millisecond on this very frame (…946 against …947).
+    // the element's ts, not the frame's outer one
     EXPECT_EQ(ticker->ts_ms, 1'786'430'817'946ULL);
 
-    // Views point into the caller's buffer, not into parser scratch.
+    // views point into the caller's buffer, not parser scratch
     EXPECT_GE(ticker->bid_price.data(), frame.data());
     EXPECT_LE(ticker->bid_price.data() + ticker->bid_price.size(), frame.data() + frame.size());
 }
@@ -166,9 +148,7 @@ TEST(BitgetWire, TradesCarryTakerSideDirectly) {
     EXPECT_EQ(trade.price, "63923.9");
     EXPECT_EQ(trade.qty, "0.0866");
     EXPECT_EQ(trade.ts_ms, 1'786'430'819'699ULL);
-    // "buy" in the captured frame, and it already means the AGGRESSOR bought
-    // — no inversion, unlike binance's buyer-was-maker flag. Confirmed
-    // against the book: these prints are at the ask.
+    // "buy" already means the aggressor bought
     EXPECT_TRUE(trade.aggressor_bought);
 }
 
@@ -180,13 +160,11 @@ TEST(BitgetWire, BooksChannelsShareOneShapeAndChainOnSeq) {
     EXPECT_TRUE(snapshot->snapshot);
     EXPECT_EQ(snapshot->bids.size(), k_bitget_depth);
     EXPECT_EQ(snapshot->asks.size(), k_bitget_depth);
-    // books15 restates the whole top of book every frame and pins pseq to 0,
-    // so there is nothing to chain onto — 0, where okx uses -1.
+    // books15 pins pseq to 0
     EXPECT_EQ(snapshot->prev_seq_id, 0);
     EXPECT_EQ(snapshot->seq_id, 830'988'172'443);
 
-    // The incremental `books` channel ships the identical element, which is
-    // why one parser reads both and Depth can be repointed in one line.
+    // the books channel ships the same element, so one parser reads both
     auto delta_storage = std::make_unique<LevelBuffer>();
     const auto delta_frame = fixture("ws_books_update.json");
     const auto delta = parse_books(delta_frame, *delta_storage);
@@ -209,7 +187,7 @@ TEST(BitgetWire, DeletedLevelsKeepTheirZeroQuantityAndEmptySidesStayEmpty) {
     }
     EXPECT_TRUE(saw_delete);
 
-    // A one-sided delta is a real live frame, not a malformed one.
+    // a one-sided delta is a valid frame
     auto one_sided_storage = std::make_unique<LevelBuffer>();
     const auto one_sided_frame = fixture("ws_books_update_one_sided.json");
     const auto one_sided = parse_books(one_sided_frame, *one_sided_storage);
@@ -228,8 +206,7 @@ TEST(BitgetWire, RestEnvelopeSucceedsOnTheStringNotTheNumber) {
         const auto envelope = parse_rest_envelope(body);
         ASSERT_TRUE(envelope.has_value()) << file;
         EXPECT_EQ(envelope->code, k_ok) << file;
-        // Five characters, not one. Any integer conversion collapses this
-        // onto the same zero a missing field produces.
+        // five characters; integer conversion would collapse it to zero
         EXPECT_EQ(envelope->code, "00000") << file;
     }
 
@@ -277,9 +254,7 @@ TEST(BitgetWire, ContractsReportWhatTheVenueSaid) {
     EXPECT_EQ(btc->size_multiplier, "0.0001");
     EXPECT_EQ(btc->fund_interval, "8");
 
-    // The wire layer reports; deciding a row is unusable belongs to the
-    // mapper. SHIBUSDT's quantity step is 10000 while its display precision
-    // is 0 decimals, and PEPEUSDT quotes ten price decimals.
+    // the wire layer reports; the mapper refuses unusable rows
     const auto* shib = find("SHIBUSDT");
     ASSERT_NE(shib, nullptr);
     EXPECT_EQ(shib->price_place, "9");
@@ -291,9 +266,7 @@ TEST(BitgetWire, ContractsReportWhatTheVenueSaid) {
 }
 
 TEST(BitgetWire, ServerTimeAndFundRateParse) {
-    // The body is held, not passed as a temporary: every view a parser
-    // returns points into the caller's buffer, so outliving it is the
-    // contract.
+    // every parsed view points into the caller's buffer
     const auto time_body = fixture("rest_server_time.json");
     const auto time = parse_server_time(time_body);
     ASSERT_TRUE(time.has_value());
@@ -304,9 +277,7 @@ TEST(BitgetWire, ServerTimeAndFundRateParse) {
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->symbol, "BTCUSDT");
     EXPECT_EQ(funding->funding_rate, "0.0001");
-    // This endpoint alone spells the interval `fundingRateInterval` and the
-    // settlement `nextUpdate`; the ticker channel calls the same instant
-    // `nextFundingTime`.
+    // this endpoint names the interval fundingRateInterval and the settlement nextUpdate
     EXPECT_EQ(funding->interval_hours, "8");
     EXPECT_EQ(funding->next_update_ms, 1'786'435'200'000ULL);
     EXPECT_EQ(funding->min_rate, "-0.003");
@@ -315,9 +286,7 @@ TEST(BitgetWire, ServerTimeAndFundRateParse) {
 TEST(BitgetWire, RestShapesAreNotWebsocketShapes) {
     auto storage = std::make_unique<LevelBuffer>();
 
-    // /mix/market/orderbook is the one endpoint whose `data` is an OBJECT
-    // rather than a single-element array, so it needs its own reader and the
-    // websocket one must refuse it.
+    // orderbook data is an object, so the ws reader must refuse it
     const auto book_body = fixture("rest_orderbook.json");
     const auto book = parse_rest_orderbook(book_body, *storage);
     ASSERT_TRUE(book.has_value());
@@ -327,10 +296,7 @@ TEST(BitgetWire, RestShapesAreNotWebsocketShapes) {
     auto ws_storage = std::make_unique<LevelBuffer>();
     EXPECT_FALSE(parse_books(book_body, *ws_storage).has_value());
 
-    // The REST ticker looks like the websocket one and is not: it names the
-    // instrument `symbol`, ships no `arg`, and omits nextFundingTime
-    // entirely. Sharing a parser between them would silently zero the next
-    // settlement time.
+    // the rest ticker names the instrument symbol and omits nextFundingTime
     const auto ticker_body = fixture("rest_ticker.json");
     EXPECT_FALSE(parse_ticker(ticker_body).has_value());
 }
@@ -356,19 +322,12 @@ TEST(BitgetWire, GarbageIsRefusedRatherThanPartiallyRead) {
         EXPECT_FALSE(parse_server_time(frame).has_value()) << junk;
         EXPECT_FALSE(parse_current_fund_rate(frame).has_value()) << junk;
     }
-    // An empty data array is how Bitget answers a query it could not satisfy;
-    // inventing a zero-valued reading from it publishes a price of zero.
+    // an empty data array must not become a zero reading
     EXPECT_FALSE(parse_current_fund_rate(R"({"code":"40034","msg":"x","data":[]})").has_value());
 }
 
-// ------------------------------------------------------------- map ------
-
 TEST(BitgetMap, TickComposesPricePlaceWithPriceEndStep) {
-    // The claim under test: the step is priceEndStep * 10^-pricePlace, not
-    // 10^-pricePlace. Every live row carries priceEndStep "1" today, so only
-    // a constructed row can distinguish the two — and a row that changes it
-    // would otherwise get a tick five times finer than it trades on, which
-    // never drops a message to announce itself.
+    // only a constructed row tells priceEndStep * 10^-pricePlace apart from 10^-pricePlace
     WireContract wire{};
     wire.symbol = "FAKEUSDT";
     wire.base_coin = "FAKE";
@@ -383,17 +342,14 @@ TEST(BitgetMap, TickComposesPricePlaceWithPriceEndStep) {
     ASSERT_TRUE(instrument.has_value());
     EXPECT_EQ(base_of(*instrument).tick_size.raw, 50'000'000); // 0.05, not 0.01
 
-    // pricePlace 0 is live on one contract, so it must not be mistaken for a
-    // missing field.
+    // pricePlace 0 is valid, not missing
     wire.price_place = "0";
     wire.price_end_step = "1";
     instrument = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(instrument.has_value());
     EXPECT_EQ(base_of(*instrument).tick_size.raw, k_e9); // 1
 
-    // Nine decimals is the floor the domain's e9 fixed point can hold; a
-    // tenth would floor the unit to a zero step, and a zero step divides
-    // every later price conversion.
+    // nine decimals is the most e9 fixed point holds
     wire.price_place = "9";
     EXPECT_TRUE(map_instrument(wire, MarketType::Perp).has_value());
     wire.price_place = "10";
@@ -408,7 +364,7 @@ TEST(BitgetMap, TickComposesPricePlaceWithPriceEndStep) {
 
 TEST(BitgetMap, CatalogueRowsBecomeInstrumentsOrAreRefused) {
     const auto table = table_from_catalogue();
-    // Three of four rows: PEPEUSDT quotes ten price decimals and is refused.
+    // PEPEUSDT quotes ten price decimals and is refused
     EXPECT_EQ(table.size(), 3U);
     EXPECT_EQ(table.find("PEPEUSDT"), nullptr);
 
@@ -425,24 +381,19 @@ TEST(BitgetMap, CatalogueRowsBecomeInstrumentsOrAreRefused) {
     EXPECT_EQ(eth->tick_size.raw, 10'000'000); // pricePlace 2 -> 0.01
     EXPECT_EQ(eth->lot_size.raw, 10'000'000);
 
-    // The row that separates sizeMultiplier from volumePlace: SHIBUSDT
-    // displays 0 decimals and steps by 10000.
+    // SHIBUSDT separates sizeMultiplier from volumePlace
     const auto* shib = base_for(table, "SHIBUSDT");
     ASSERT_NE(shib, nullptr);
     EXPECT_EQ(shib->tick_size.raw, 1); // pricePlace 9 -> 0.000000001
     EXPECT_EQ(shib->lot_size.raw, 10'000 * k_e9);
 
-    // fundInterval is stated by the catalogue, so nothing has to infer it
-    // from the gap between two settlement stamps.
+    // fundInterval comes from the catalogue
     const auto* perp = std::get_if<PerpInstrument>(table.find("BTCUSDT"));
     ASSERT_NE(perp, nullptr);
     EXPECT_EQ(perp->funding_interval_s, 28'800U);
 }
 
 TEST(BitgetMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
-    // Bitget spells the perpetual and the spot pair identically — BTCUSDT on
-    // both — so only the canonical form tells the two apart from bybit's
-    // BTCUSDT and kucoin's XBTUSDTM, which are the same two markets again.
     const auto table = table_from_catalogue();
     const auto* btc = base_for(table, "BTCUSDT");
     ASSERT_NE(btc, nullptr);
@@ -457,8 +408,7 @@ TEST(BitgetMap, LocalSymbolIsTheCanonicalPairOnBothCatalogues) {
     ASSERT_TRUE(spot.has_value());
     EXPECT_EQ(base_of(*spot).local_symbol.view(), "BTC/USDT");
 
-    // A row naming no pair is refused rather than carried under the exchange
-    // symbol: an instrument nothing can group shows as a market of its own.
+    // a row naming no pair is refused
     auto unnamed = (*rows)[0];
     unnamed.quote_coin = {};
     EXPECT_FALSE(map_instrument(unnamed).has_value());
@@ -482,15 +432,14 @@ TEST(BitgetMap, UntradableAndNonPerpetualRowsAreRefused) {
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
     wire.symbol_type = "perpetual";
 
-    // Every non-normal status still ships complete precision fields, so a row
-    // that parses cleanly is not a row we may trade.
+    // non-normal rows still ship full precision fields
     for (const char* status : {"maintain", "limit_open", "restrictedAPI", "off", "listed"}) {
         wire.symbol_status = status;
         EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value()) << status;
     }
     wire.symbol_status = "normal";
 
-    // Spot lives behind a different endpoint with a different row shape.
+    // spot uses a different endpoint and row shape
     EXPECT_FALSE(map_instrument(wire, MarketType::Spot).has_value());
     EXPECT_FALSE(map_instrument(wire, MarketType::Future).has_value());
 }
@@ -524,8 +473,7 @@ TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
 
     const auto book = map_book(*wire, table, k_ingest);
     ASSERT_TRUE(book.has_value());
-    // Every level the subscription asked for reaches the domain snapshot; a
-    // book that stops at five is the old tier still being served.
+    // every subscribed level reaches the snapshot
     EXPECT_EQ(book->bid_count, k_bitget_depth);
     EXPECT_EQ(book->ask_count, k_bitget_depth);
     static_assert(k_bitget_depth <= k_book_levels);
@@ -533,9 +481,7 @@ TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
     EXPECT_EQ(book->ts_event.ns, 1'786'983'217'049ULL * 1'000'000ULL);
     EXPECT_EQ(book->ts_init.ns, k_ingest.ns);
 
-    // Bids descend, asks ascend, and the two never cross — a book that fails
-    // this is not a book, and publishing it would misprice every strategy
-    // reading it.
+    // bids descend, asks ascend, and the book does not cross
     EXPECT_LT(book->bids[0].price.raw, book->asks[0].price.raw);
     for (std::uint32_t i = 1; i < book->bid_count; ++i) {
         EXPECT_LT(book->bids[i].price.raw, book->bids[i - 1].price.raw) << i;
@@ -552,9 +498,7 @@ TEST(BitgetMap, BookSnapshotCrossesIntoTheDomain) {
 }
 
 TEST(BitgetMap, AnIncrementalFrameNeverBecomesABook) {
-    // The delta carries deletes as a zero quantity and only the levels that
-    // moved; published as a snapshot it would hand shm a book with a hole in
-    // it and a top of book 20 away from the real one.
+    // a delta published as a snapshot would leave holes in the book
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<LevelBuffer>();
     const auto frame = fixture("ws_books_update.json");
@@ -584,8 +528,7 @@ TEST(BitgetMap, ValuesOffTheStepAreDroppedNotRounded) {
     wire.ask_qty = "15.7309";
     EXPECT_FALSE(map_bbo(wire, table, k_ingest).has_value());
 
-    // A quantity off the step is the same schema event as a price off the
-    // tick. SHIBUSDT steps by 10000, so 5000 is not a size it can report.
+    // an off-step quantity is refused like an off-tick price
     WireTrade trade{};
     trade.inst_id = "SHIBUSDT";
     trade.price = "0.000004496";
@@ -603,8 +546,7 @@ TEST(BitgetMap, EmptySideAndUnknownInstrumentAreDropped) {
     wire.inst_id = "BTCUSDT";
     wire.ask_price = "63923.9";
     wire.ask_qty = "15.7309";
-    // A contract with no bid is a real state, and an empty side must not turn
-    // into a zero price at the top of book.
+    // an empty side must not become a zero price
     EXPECT_FALSE(map_bbo(wire, table, k_ingest).has_value());
 
     wire.bid_price = "63923.8";
@@ -614,8 +556,7 @@ TEST(BitgetMap, EmptySideAndUnknownInstrumentAreDropped) {
 }
 
 TEST(BitgetMap, TakerSideIsCarriedThroughUnflipped) {
-    // Bitget states the aggressor's own direction, so this mapper must NOT
-    // invert. Copying binance's flip here would reverse every signed print.
+    // bitget states the aggressor's side; no inversion
     const auto table = table_from_catalogue();
     WireTrade wire{};
     wire.inst_id = "BTCUSDT";
@@ -645,7 +586,7 @@ TEST(BitgetMap, MissingVenueTimeFallsBackToIngest) {
     wire.ts_ms = 0;
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // Not 1970: a zero timestamp reaching a latency histogram poisons it.
+    // a zero timestamp falls back to ingest time
     EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
 }
 
@@ -665,13 +606,11 @@ TEST(BitgetMap, FundingRidesTheTickerFrame) {
     const auto funding = map_funding(wire, table, k_ingest);
     ASSERT_TRUE(funding.has_value());
     EXPECT_EQ(funding->rate.raw, 100'000); // 0.0001 * 1e9
-    // Mark is real here, unlike okx's, because the same frame carries it.
     EXPECT_EQ(funding->mark_price.raw, 639'238);
     EXPECT_EQ(funding->next_funding_time.ns, 1'786'435'200'000ULL * 1'000'000ULL);
-    // Read from the catalogue rather than inferred from two stamps.
+    // from the catalogue
     EXPECT_EQ(funding->interval_s, 28'800U);
-    // No next-interval forecast exists on this channel, so it stays undefined
-    // rather than being published as a predicted rate of zero.
+    // this channel has no forecast, so it stays undef
     EXPECT_TRUE(funding->predicted_rate.is_undef());
 
     // A contract quoting no rate is not a contract funding at zero.
@@ -691,21 +630,17 @@ TEST(BitgetMap, TurnoverRidesTheSameTickerFrame) {
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'969'900'863'295'740LL);
     EXPECT_EQ(stats->ts_event.ns, 1'786'430'817'946ULL * 1'000'000ULL);
 
-    // An instrument the catalogue has never heard of has no cell to write to,
-    // which is not the same fact as a market that did not trade.
+    // an unknown instrument has no cell to write
     auto unknown = *wire;
     unknown.inst_id = "NOTLISTEDUSDT";
     EXPECT_FALSE(map_ticker_stats(unknown, table, k_ingest).has_value());
 
-    // ABSENT IS NOT ZERO: a frame stating neither column must publish nothing,
-    // or the board reads a day's turnover as zero.
+    // a frame with neither column publishes nothing
     auto silent = *wire;
     silent.volume_24h_base = {};
     silent.volume_24h_quote = {};
     EXPECT_FALSE(map_ticker_stats(silent, table, k_ingest).has_value());
 }
-
-// ----------------------------------------------------------- ledger -----
 
 TEST(BitgetWire, BillsSitUnderDataBillsBesideTheEndIdCursor) {
     auto storage = std::make_unique<BillBuffer>();
@@ -718,14 +653,12 @@ TEST(BitgetWire, BillsSitUnderDataBillsBesideTheEndIdCursor) {
     EXPECT_EQ((*rows)[0].business_type, "contract_settle_fee");
     EXPECT_EQ((*rows)[0].amount, "-0.004992");
     EXPECT_EQ((*rows)[0].coin, "USDT");
-    // `cTime` is a QUOTED millisecond stamp here, unlike the unquoted
-    // `requestTime` in the envelope above it.
+    // cTime is a quoted millisecond stamp; requestTime is unquoted
     EXPECT_EQ((*rows)[0].c_time_ms, 1'695'715'200'654ULL);
 }
 
 TEST(BitgetMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
-    // THE BUG THIS EXISTS FOR: `amount` is the signed balance move, and a
-    // mapper that took its magnitude would report every payment as income.
+    // amount is the signed balance move; its magnitude would book payments as income
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<BillBuffer>();
     const auto body = fixture("rest_mix_account_bill.json");
@@ -738,23 +671,20 @@ TEST(BitgetMap, AFundingPaymentAndAFundingReceiptDoNotBothComeOutPositive) {
             booked.push_back(*charge);
         }
     }
-    // `open_long` is a trade: its money is realised PnL and a commission the
-    // fill already booked. SOLUSDT is not in this catalogue.
+    // open_long is a trade already booked by its fill; SOLUSDT is not in this catalogue
     ASSERT_EQ(booked.size(), 2U);
 
     EXPECT_EQ(booked[0].kind, LedgerKind::Funding);
     EXPECT_EQ(booked[0].amount.raw, -4'992'000) << "0.004992 paid away";
     EXPECT_EQ(booked[1].amount.raw, 12'810'000) << "0.01281 received, and NOT flipped";
     EXPECT_EQ(booked[0].settled_at.ns, 1'695'715'200'654ULL * 1'000'000ULL);
-    // The venue's own row id: two settlements on one contract are told apart
-    // by this and not by the stamp.
+    // the venue row id tells settlements apart, not the stamp
     EXPECT_EQ(booked[0].reference.view(), "1204387519231889409");
     EXPECT_EQ(booked[0].ts_init.ns, 7U);
 }
 
 TEST(BitgetMap, ATradeRowIsRefusedEvenThoughTheQueryAsksForSettlementsOnly) {
-    // The businessType filter is a query PARAMETER, and a parser that trusted
-    // it would book realised PnL as funding the day the parameter is dropped.
+    // the parser filters businessType itself rather than trusting the query parameter
     const auto table = table_from_catalogue();
     auto storage = std::make_unique<BillBuffer>();
     const auto body = fixture("rest_mix_account_bill.json");
@@ -776,13 +706,12 @@ TEST(BitgetRest, TheBillReadNarrowsAtTheVenueAndCarriesTheCursorItWasGiven) {
     const auto request = builder.settle_bills(MarketType::Perp, product_type(false), since, now);
     ASSERT_TRUE(request.has_value()) << to_string(request.error());
     EXPECT_EQ(request->method, net::HttpMethod::Get);
-    // Keys ascend, because the signature covers the query as it is sent.
+    // keys ascend; the signature covers the query as sent
     EXPECT_EQ(request->target,
               "/api/v2/mix/account/bill?businessType=contract_settle_fee&limit=100"
               "&productType=USDT-FUTURES&startTime=1695715200654");
 
-    // A zero cursor names no window: Bitget refuses one wider than 30 days,
-    // and its own default page is the newest rows it will answer.
+    // a zero cursor sends no window; bitget refuses one wider than 30 days
     const auto from_zero =
         builder.settle_bills(MarketType::Perp, product_type(false), UnixNanos{0}, now);
     ASSERT_TRUE(from_zero.has_value());
@@ -790,19 +719,15 @@ TEST(BitgetRest, TheBillReadNarrowsAtTheVenueAndCarriesTheCursorItWasGiven) {
               "/api/v2/mix/account/bill?businessType=contract_settle_fee&limit=100"
               "&productType=USDT-FUTURES");
 
-    // Spot bills are another row shape, and a spot pair pays no funding.
+    // spot bills are another row shape
     for (const auto market : {MarketType::Spot, MarketType::Future, MarketType::Option}) {
         EXPECT_EQ(builder.settle_bills(market, product_type(false), since, now).error(),
                   BuildError::UnsupportedMarket);
     }
 }
 
-// ----------------------------------------------------------- errors -----
-
 TEST(BitgetErrors, ClockSkewIsRetryableAndUnknownCodesAreTerminal) {
-    // The same payload signed against a corrected offset succeeds, so a
-    // resync-and-retry is right. AuthFailure would halt a venue whose keys
-    // are fine.
+    // a resync and retry succeeds, so skew is retryable
     EXPECT_EQ(classify(k_timestamp_expired), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_system_error), exec::ErrorClass::Retryable);
     EXPECT_EQ(classify(k_too_many_requests), exec::ErrorClass::RateLimited);
@@ -813,8 +738,7 @@ TEST(BitgetErrors, ClockSkewIsRetryableAndUnknownCodesAreTerminal) {
                              k_signature_error}) {
         EXPECT_EQ(classify(code), exec::ErrorClass::AuthFailure) << code;
     }
-    // An unknown refusal repeated at full speed is how an account earns an IP
-    // ban, so the default is Terminal rather than Retryable.
+    // unknown codes default to terminal
     for (const auto& code : {k_parameter_not_exist,
                              k_url_not_found,
                              k_parameter_check_failed,
@@ -828,13 +752,10 @@ TEST(BitgetErrors, ClockSkewIsRetryableAndUnknownCodesAreTerminal) {
 TEST(BitgetErrors, CodeNumberIsForReportingOnly) {
     EXPECT_EQ(code_number("40034"), 40034);
     EXPECT_EQ(code_number("400172"), 400172);
-    // "00000" and an unreadable code collide at zero, which is exactly why
-    // classification compares text and never this value.
+    // classification compares text, never this value
     EXPECT_EQ(code_number(k_ok), 0);
     EXPECT_EQ(code_number("not-a-code"), 0);
 }
-
-// --------------------------------------------------------- protocol -----
 
 TEST(BitgetWs, SubscribeFrameCarriesInstType) {
     Protocol protocol;
@@ -843,7 +764,7 @@ TEST(BitgetWs, SubscribeFrameCarriesInstType) {
     const auto frame = protocol.subscribe_frame(one);
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->consumed, 1U);
-    // Byte for byte the frame the live socket acknowledged.
+    // matches the frame the live socket acknowledged
     EXPECT_EQ(
         frame->text,
         R"({"op":"subscribe","args":[{"instType":"USDT-FUTURES","channel":"ticker","instId":"BTCUSDT"}]})");
@@ -858,13 +779,11 @@ TEST(BitgetWs, SubscribeFrameCarriesInstType) {
 
 TEST(BitgetWs, IncompleteSubscriptionsAreRefusedRatherThanSent) {
     Protocol protocol;
-    // instType is required and not inferable from the symbol: BTCUSDT names a
-    // contract under USDT-FUTURES and another under the demo SUSDT-FUTURES.
+    // instType is required; BTCUSDT exists under both live and demo products
     const std::array<Subscription, 1> no_type{
         Subscription{.inst_type = {}, .channel = "ticker", .inst_id = "BTCUSDT"}};
     EXPECT_FALSE(protocol.subscribe_frame(no_type).has_value());
-    // An empty channel is channel_for() declining the kind; sending it would
-    // earn a 30016 Param error.
+    // an empty channel would earn a 30016 param error
     const std::array<Subscription, 1> no_channel{
         Subscription{.inst_type = "USDT-FUTURES", .channel = {}, .inst_id = "BTCUSDT"}};
     EXPECT_FALSE(protocol.subscribe_frame(no_channel).has_value());
@@ -881,21 +800,19 @@ TEST(BitgetWs, OneChannelServesThreeSubscriptionKinds) {
 
     EXPECT_EQ(inst_type(MarketType::Perp, false), "USDT-FUTURES");
     EXPECT_EQ(inst_type(MarketType::Perp, true), "SUSDT-FUTURES");
-    // Demo trading is a futures-only product, so spot has one instType.
+    // demo is futures-only, so spot has one instType
     EXPECT_EQ(inst_type(MarketType::Spot, false), "SPOT");
     EXPECT_EQ(inst_type(MarketType::Spot, true), "SPOT");
-    // Delivery contracts list under the USDT-M product with the perps.
+    // delivery lists under the usdt-m product
     EXPECT_EQ(inst_type(MarketType::Future, false), "USDT-FUTURES");
-    // Bitget v2 lists no crypto options; an empty instType is what
-    // subscribe_frame refuses rather than sending.
+    // no crypto options; an empty instType is refused
     EXPECT_TRUE(inst_type(MarketType::Option, false).empty());
     EXPECT_EQ(stream_path(), "/v2/ws/public");
     EXPECT_EQ(private_stream_path(), "/v2/ws/private");
 }
 
 TEST(BitgetRest, EveryMixTargetCarriesProductType) {
-    // Omitting productType does not default: it answers 400172 "Parameter
-    // verification failed", which reads like a malformed symbol.
+    // a missing productType answers 400172 rather than defaulting
     RequestBuilder builder;
     EXPECT_EQ(builder.contracts(product_type(false)).target,
               "/api/v2/mix/market/contracts?productType=USDT-FUTURES");
@@ -905,12 +822,10 @@ TEST(BitgetRest, EveryMixTargetCarriesProductType) {
               "/api/v2/mix/market/current-fund-rate?symbol=BTCUSDT&productType=USDT-FUTURES");
     EXPECT_EQ(builder.orderbook("BTCUSDT", product_type(false), 5).target,
               "/api/v2/mix/market/orderbook?symbol=BTCUSDT&productType=USDT-FUTURES&limit=5");
-    // The clock endpoint is the only one that takes no productType.
+    // the clock endpoint takes no productType
     EXPECT_EQ(builder.server_time().target, "/api/v2/public/time");
     EXPECT_EQ(product_type(true), "SUSDT-FUTURES");
 }
-
-// ------------------------------------------------------------ venue -----
 
 class CaptureSink final : public exec::GatewaySink {
 public:
@@ -939,9 +854,7 @@ TEST(BitgetVenue, RegistersAndBuilds) {
 }
 
 TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
-    // Bitget answers nothing at all for a request it never received, so the
-    // refusal has to be synthesized here: an order with no verdict sits in the
-    // store forever waiting for one no code will produce.
+    // bitget answers nothing for a request it never received, so the refusal is synthesized
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -957,22 +870,19 @@ TEST(BitgetVenue, OrderEntryWithoutCredentialsRefusesLocally) {
     EXPECT_EQ(sink.events[0].type, OrderEventType::Rejected);
     EXPECT_EQ(sink.events[0].leaves_qty.raw, 0);
 
-    // CancelRejected, not Rejected: the order a cancel targets is still alive.
+    // the order a cancel targets is still alive
     adapter->execution->cancel(cmd);
     ASSERT_EQ(sink.events.size(), 2U);
     EXPECT_EQ(sink.events[1].type, OrderEventType::CancelRejected);
 
-    // Bitget has no in-place amend on either API, so the refusal is a verdict
-    // rather than the base class's silent no-op.
+    // no in-place amend, so the refusal is a verdict
     adapter->execution->amend(cmd);
     ASSERT_EQ(sink.events.size(), 3U);
     EXPECT_EQ(sink.events[2].type, OrderEventType::ModifyRejected);
 }
 
 TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
-    // Bitget v2 lists no crypto options at all, and no delivery contract
-    // reaches the instrument table. Both must say so: an empty vector reads
-    // as "nothing is open" and "the account is flat".
+    // options and delivery must refuse; an empty vector would read as flat
     register_adapter();
     CaptureSink sink;
     const LiveClock clock;
@@ -991,15 +901,14 @@ TEST(BitgetVenue, OptionsAndDeliveryFuturesRefuseByNameOnEveryPull) {
         EXPECT_FALSE(execution.query_order(id, market).has_value());
     }
 
-    // Spot holds coin balances, not positions against an instrument.
+    // spot holds coin balances, not positions
     const auto spot = execution.position_reports(MarketType::Spot);
     ASSERT_FALSE(spot.has_value());
     EXPECT_EQ(spot.error().message.view(), "bitget spot position pull");
 }
 
 TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
-    // Spot states precision as decimal places and ships no priceEndStep, so
-    // the tick is 10^-pricePrecision and nothing multiplies it.
+    // spot tick is 10^-pricePrecision
     auto storage = std::make_unique<SpotSymbolBuffer>();
     const auto body = fixture("rest_spot_symbols.json");
     const auto rows = parse_spot_symbols(body, *storage);
@@ -1015,10 +924,7 @@ TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
             ++loaded;
         }
     }
-    // BABYDOGEUSDT quotes 13 decimal places, which floors to a zero tick in
-    // the domain's e9 fixed point, and REAUSDT is halted. Five rows in, three
-    // out. MEASURED against the live catalogue on 2026-08-21: 1280 rows in,
-    // 1271 out, the nine refusals being two halts and seven over-precise ticks.
+    // BABYDOGEUSDT's 13 decimals floor to a zero tick and REAUSDT is halted
     EXPECT_EQ(loaded, 3U);
 
     const auto* btc = base_for(table, "BTCUSDT");
@@ -1028,7 +934,7 @@ TEST(BitgetMap, SpotCatalogueRowsBecomeInstrumentsOrAreRefused) {
     EXPECT_EQ(btc->id.market(), MarketType::Spot);
     EXPECT_EQ(btc->min_notional.raw, k_e9); // minTradeUSDT "1"
 
-    // The finest tick the domain can hold, and a live row sits on it.
+    // the finest tick e9 holds; a live row sits on it
     const auto* shib = base_for(table, "SHIBUSDT");
     ASSERT_NE(shib, nullptr);
     EXPECT_EQ(shib->tick_size.raw, 1);

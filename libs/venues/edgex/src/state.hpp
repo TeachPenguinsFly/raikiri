@@ -32,12 +32,10 @@ struct VenueState {
 
     std::unordered_map<std::uint32_t, Book> books;
 
-    // Bbo and Depth share one depth key; Funding on every contract shares the
-    // one ticker.all.1s key.
+    // Bbo and Depth share one depth key; Funding shares the one ticker.all.1s key
     std::unordered_set<std::string> channels;
     std::unordered_set<std::uint64_t> funding_wanted;
-    // The book is also the quote, so a BBO-only gateway holds one whose ladder
-    // must not be published.
+    // the book is also the quote, so a bbo-only gateway must not publish its ladder
     std::unordered_set<std::uint64_t> depth_wanted;
 
     std::unordered_set<std::uint32_t> priced;

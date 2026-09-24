@@ -1,15 +1,6 @@
 #pragma once
 
-// Deterministic background market-data generator for the sim venue.
-//
-// Owner-0 ("scenery") limit orders keep ~depth levels quoted around a
-// per-instrument integer random-walk mid; occasional owner-0 market orders
-// cross the spread so trades print. All math is integer ticks/lots.
-//
-// Determinism contract: same seed + same call sequence => byte-identical
-// book states and event/trade streams. No wall clock, no std::random_device
-// — time arrives as UnixNanos parameters and all randomness comes from a
-// caller-seeded xoshiro256++ (the UlidGen generator).
+// deterministic: the same seed and call sequence give byte-identical books and streams
 
 #include <raikiri/common/fixed_point.hpp>
 #include <raikiri/common/time.hpp>

@@ -1,11 +1,6 @@
 #pragma once
 
-// simdjson plumbing shared by every venue adapter. Sixteen adapters carried a
-// near-identical copy until the drift between them turned out to be accident
-// rather than need.
-//
-// simdjson is visible here and in venue src/ files, nowhere else: venue wire
-// headers hand out std::string_view and std::span only.
+// simdjson stays here and in venue src/; venue headers hand out string_view and span
 
 #include <raikiri/wire/error.hpp>
 
@@ -23,12 +18,8 @@ namespace ondemand = simdjson::ondemand;
 
 [[nodiscard]] Error map_error(simdjson::error_code ec) noexcept;
 
-// On-Demand reads in SIMDJSON_PADDING-byte blocks and so needs that many
-// readable bytes past the document. A websocket frame is exactly as long as
-// binance made it, so the frame is copied once into a padded scratch buffer
-// that lives for the life of the thread, and every view simdjson produces is
-// translated back to the caller's buffer (rebase) — nothing handed out points
-// into scratch memory the next frame overwrites.
+// on-demand needs SIMDJSON_PADDING readable bytes past the document, so frames are copied
+// into a padded per-thread buffer and every view is rebased onto the caller's buffer
 class Session {
 public:
     [[nodiscard]] std::expected<ondemand::object, Error> open_object(std::string_view frame);
@@ -37,9 +28,7 @@ public:
 
     [[nodiscard]] std::string_view rebase(std::string_view scratch_view) const noexcept;
 
-    // False once simdjson has abandoned the document on a malformed frame.
-    // Touching it after that is undefined: a lookup rewinds and rescans bytes
-    // it never validated, with the parser pointer already cleared.
+    // false once simdjson abandoned the document; touching it after that is undefined
     [[nodiscard]] bool alive() const noexcept { return doc_.is_alive(); }
 
     [[nodiscard]] const char* location() const noexcept {
@@ -57,9 +46,7 @@ private:
     std::size_t origin_size_{0};
 };
 
-// One session per thread: rebuilding the structural index allocation per
-// frame is the largest avoidable cost simdjson has, and a gateway runs one
-// venue connection per thread.
+// one session per thread to reuse the structural index
 [[nodiscard]] Session& session() noexcept;
 
 [[nodiscard]] std::string_view trim(std::string_view s) noexcept;
@@ -77,9 +64,7 @@ private:
 [[nodiscard]] std::expected<std::int64_t, Error> i64_of(ondemand::value value);
 [[nodiscard]] std::expected<bool, Error> bool_of(ondemand::value value);
 
-// Every field of obj once, in wire order, as fn(key, value). A lookup by name
-// for a key that is absent or behind the cursor rescans the object, arrays and
-// all. fn may return void or std::expected<void, Error>; an error stops the walk.
+// every field once, in wire order; fn may return void or std::expected<void, Error>
 template <typename Fn>
 [[nodiscard]] std::expected<void, Error> for_each_field(ondemand::object& obj, Fn&& fn) {
     for (auto field : obj) {
@@ -101,10 +86,7 @@ template <typename Fn>
     return {};
 }
 
-// find_field_unordered with its second pass, from the top of the object back
-// to where the search began, redone with every step checked. simdjson's own
-// trusts those bytes were validated on the way past, and a malformed frame
-// read partway breaks that: an assert in debug, UB in release.
+// find_field_unordered with every step of the wraparound pass checked, safe on a malformed frame
 [[nodiscard]] simdjson::simdjson_result<ondemand::value> find(ondemand::object& obj,
                                                               std::string_view key);
 
@@ -113,16 +95,14 @@ template <typename Fn>
 [[nodiscard]] std::expected<std::string_view, Error> req_str(ondemand::object& obj,
                                                              std::string_view key);
 
-// Binance timestamps and ids are JSON numbers, not digit strings — this is
-// the one place the difference from bybit shows up in the helpers.
+// for ids and timestamps sent as json numbers
 [[nodiscard]] std::expected<std::uint64_t, Error> opt_u64(ondemand::object& obj,
                                                           std::string_view key);
 [[nodiscard]] std::expected<std::int64_t, Error> opt_i64(ondemand::object& obj,
                                                          std::string_view key);
 [[nodiscard]] std::expected<bool, Error> opt_bool(ondemand::object& obj, std::string_view key);
 
-// Raw JSON text of a field, whatever its type — the stream wrapper's "data"
-// is handed to a second parser rather than decoded here.
+// raw json text of a field, for a payload handed to a second parser
 [[nodiscard]] std::expected<std::string_view, Error> opt_raw(ondemand::object& obj,
                                                              std::string_view key);
 
@@ -131,9 +111,7 @@ template <typename Fn>
 [[nodiscard]] std::expected<ondemand::object, Error> req_object(ondemand::object& obj,
                                                                 std::string_view key);
 
-// simdjson's On-Demand API throws through its implicit conversions. This file
-// never uses those, but "never" is a claim about code other people will edit,
-// and an exception escaping into a gateway holding live orders is expensive.
+// on-demand throws through its implicit conversions; this keeps an exception out of a gateway
 template <typename Fn> [[nodiscard]] auto guarded(Fn&& fn) -> decltype(fn()) {
     try {
         return std::forward<Fn>(fn)();

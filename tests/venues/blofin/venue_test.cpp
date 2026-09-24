@@ -1,4 +1,4 @@
-// Against bytes captured live on 2026-09-25; see fixtures/README.md.
+// against captured bytes; see fixtures/README.md
 
 #include <raikiri/domain/asset_class.hpp>
 #include <raikiri/venues/blofin/book.hpp>
@@ -286,7 +286,7 @@ TEST(BlofinBook, DeltasApplyAndMoveTheTouch) {
     EXPECT_EQ(top->bid, PriceTicks::from_raw(9'248));
     EXPECT_EQ(top->ask, PriceTicks::from_raw(9'251));
 
-    // The first delta deletes the best bid with a size of "0".
+    // the first delta deletes the best bid with size "0"
     ASSERT_EQ(book.apply(books("ws_books_update.json")->wire), BookResult::Applied);
     ASSERT_EQ(book.apply(books("ws_books_update_next.json")->wire), BookResult::Applied);
     top = book.top(k_ingest, k_ingest);

@@ -15,8 +15,7 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 using tcp = boost::asio::ip::tcp;
 
-// Bounded so a malformed or hostile request cannot make the process allocate.
-// Nothing this API accepts is large: every request is a GET with a short query.
+// bounded so a request cannot make the process allocate
 constexpr std::uint64_t k_max_body_bytes = 16 * 1024;
 
 std::string_view reason_of(int status) noexcept {
@@ -34,7 +33,6 @@ std::string_view reason_of(int status) noexcept {
     }
 }
 
-// One connection, alive as long as its own handler chain holds it.
 class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(tcp::socket socket, const Handler& handler)
@@ -44,9 +42,7 @@ public:
 
 private:
     void read() {
-        // A fresh parser per request: beast's is not assignable, and reusing
-        // one across requests on a keep-alive connection carries the previous
-        // message's state into the next.
+        // a fresh parser per request: beast's is not assignable and keeps state
         request_ = std::make_unique<http::request_parser<http::string_body>>();
         request_->body_limit(k_max_body_bytes);
         auto self = shared_from_this();
@@ -77,9 +73,6 @@ private:
         try {
             answer = (*handler_)(req);
         } catch (...) {
-            // A handler that dies must not take the server with it, and the
-            // client must not be left waiting on a socket that will never
-            // answer.
             answer = {.status = 500,
                       .content_type = "application/problem+json",
                       .body = R"({"title":"handler failed","status":500})"};
@@ -91,8 +84,7 @@ private:
         response_ = std::make_shared<http::response<http::string_body>>(
             static_cast<http::status>(answer.status), request_->get().version());
         response_->set(http::field::content_type, answer.content_type);
-        // The terminal is served from somewhere else during development, so
-        // the browser will not talk to this at all without it.
+        // the terminal is served from another origin in development
         response_->set(http::field::access_control_allow_origin, "*");
         response_->result(static_cast<http::status>(answer.status));
         response_->reason(reason_of(answer.status));
@@ -179,8 +171,7 @@ bool Server::start() {
     if (ec) {
         return false;
     }
-    // Port 0 asks the kernel to choose, which is how a test binds without
-    // agreeing a number with whatever else is running.
+    // port 0 lets tests bind any free port
     impl_->port = impl_->acceptor.local_endpoint(ec).port();
     impl_->running = true;
     impl_->accept();

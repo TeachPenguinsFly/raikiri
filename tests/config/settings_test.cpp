@@ -28,12 +28,7 @@ std::string write_temp(std::string_view body) {
     return path;
 }
 
-// RAIKIRI_CONFIG_DIR is a TEST-ONLY definition: the library must never carry a
-// build machine's absolute path, so the test names the shipped files itself.
-//
-// The committed files are the contract. A build whose loader cannot read what
-// ships beside it configures nothing, and the failure would surface as a venue
-// running unlimited rather than as an error anybody sees.
+// RAIKIRI_CONFIG_DIR is test-only; the library must not carry a build path
 TEST(Settings, TheCommittedVenueFileLoads) {
     const auto file = load_venues(std::string{RAIKIRI_CONFIG_DIR} + "/venues.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();
@@ -203,8 +198,6 @@ TEST(Settings, ABadLimitIsRefusedNamingTheVenueAndTheLimit) {
     EXPECT_TRUE(load("{ name: m, window_ms: 1000, max: 5 }").has_value());
 }
 
-// The DSN carries a password, and this file is committed: it must name where
-// the secret lives and never hold one.
 TEST(Settings, TheDatabaseFileNamesTheSecretRatherThanHoldingIt) {
     const auto file = load_database(std::string{RAIKIRI_CONFIG_DIR} + "/database.yaml");
     ASSERT_TRUE(file.has_value()) << file.error();

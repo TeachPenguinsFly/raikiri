@@ -8,8 +8,7 @@
 namespace raikiri::venues::bybit {
 namespace {
 
-// A table built the way a gateway builds it: from a catalogue entry, so the
-// tests exercise the same tick/lot values the mapping will see in production.
+// built from a catalogue entry the way a gateway builds it
 exec::InstrumentTable make_table() {
     exec::InstrumentTable table;
     table.reserve(4);
@@ -21,10 +20,7 @@ exec::InstrumentTable make_table() {
     btc.tick_size = "0.10";
     btc.qty_step = "0.001";
     btc.min_notional = "5";
-    // 480 minutes is bybit's own figure for this instrument, and it has to be
-    // said here: the funding memo carries the interval down from the interned
-    // perp, so a table built without one describes an instrument whose
-    // schedule the venue never stated.
+    // the funding memo takes the interval from the perp, so the table needs one
     btc.funding_interval_min = 480;
     const auto instrument = map_instrument(btc, MarketType::Perp);
     EXPECT_TRUE(instrument.has_value());
@@ -33,14 +29,7 @@ exec::InstrumentTable make_table() {
 }
 
 TEST(BybitMapInstrument, TheSettlementScheduleIsTheVenuesAndNotAConstant) {
-    // Bybit settles 412 of its linear perps every eight hours, 411 every four
-    // and seven every hour. This mapping answered eight hours for all of them.
-    //
-    // The cost is not a mislabelled row. An interval is the denominator that
-    // makes two venues' rates comparable — rate / (interval / 3600) — so
-    // calling a four-hour instrument an eight-hour one reports HALF the funding
-    // it actually pays, and ranks it against a genuine eight-hour venue as
-    // though the two were the same thing.
+    // a four-hour instrument must not map to eight hours
     WireInstrument wire{};
     wire.base_coin = "ARK";
     wire.quote_coin = "USDT";
@@ -60,10 +49,7 @@ TEST(BybitMapInstrument, TheSettlementScheduleIsTheVenuesAndNotAConstant) {
     ASSERT_TRUE(four_hourly.has_value());
     EXPECT_EQ(std::get<PerpInstrument>(*four_hourly).funding_interval_s, 14'400U);
 
-    // ZERO STAYS ZERO. Forty rows carry it, and downstream reads it as "this
-    // venue did not say" — which is the one honest answer. Defaulting it to
-    // eight hours here would put a schedule nobody published onto a board that
-    // settles money against it.
+    // zero means the venue did not state it
     wire.funding_interval_min = 0;
     const auto unstated = map_instrument(wire, MarketType::Perp);
     ASSERT_TRUE(unstated.has_value());
@@ -71,10 +57,7 @@ TEST(BybitMapInstrument, TheSettlementScheduleIsTheVenuesAndNotAConstant) {
 }
 
 TEST(BybitMapInstrument, TheCeilingIsCarriedAndAnAbsentOneStaysUnstated) {
-    // A rate resting on its cap is demand the venue stopped pricing, so the
-    // next settlement is no evidence about the one after. The caps are not
-    // uniform either — bybit holds BTC and ETH to 0.333% while most of the
-    // catalogue sits at 2% — so this cannot be a constant.
+    // caps differ by symbol
     WireInstrument wire{};
     wire.base_coin = "BTC";
     wire.quote_coin = "USDT";
@@ -92,7 +75,7 @@ TEST(BybitMapInstrument, TheCeilingIsCarriedAndAnAbsentOneStaysUnstated) {
     EXPECT_EQ(std::get<PerpInstrument>(*capped).funding_cap.raw, 3'330'000);
     EXPECT_EQ(std::get<PerpInstrument>(*capped).funding_floor.raw, -3'330'000);
 
-    // UNDEF, NOT ZERO. A floor of zero is a claim that the venue never pays.
+    // undef, not zero
     wire.funding_cap = {};
     wire.funding_floor = {};
     const auto silent = map_instrument(wire, MarketType::Perp);
@@ -102,10 +85,7 @@ TEST(BybitMapInstrument, TheCeilingIsCarriedAndAnAbsentOneStaysUnstated) {
 }
 
 TEST(BybitMapInstrument, ADatedContractIsNotAPerpetual) {
-    // Bybit's linear catalogue carries the whole futures curve beside the
-    // perpetual. Interning a dated row as a perp gave it the canonical name of
-    // the perp, so one venue's curve read as nine venues quoting one market at
-    // nine prices — a fake arbitrage, from a catalogue nobody had looked at.
+    // dated futures in the linear catalogue must not intern as perps
     WireInstrument dated{};
     dated.base_coin = "BTC";
     dated.quote_coin = "USDT";
@@ -155,8 +135,7 @@ TEST(BybitMapInstrument, UntradableAndUnusableEntriesAreRefused) {
     wire.status = "PreLaunch";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
 
-    // An instrument with no usable tick size divides by zero at order time;
-    // it must never enter the table.
+    // an instrument without a usable tick must not enter the table
     wire.status = "Trading";
     wire.tick_size = "";
     EXPECT_FALSE(map_instrument(wire, MarketType::Perp).has_value());
@@ -175,8 +154,7 @@ TEST(BybitInstrumentTable, InterningAssignsIndexableIds) {
     EXPECT_EQ(id.market(), MarketType::Perp);
     EXPECT_EQ(id.symbol().raw, 0U) << "first instrument takes slot 0";
 
-    // Round trip: the id indexes straight back, and the venue's own text is
-    // recoverable for outbound orders.
+    // round trip: the id indexes back and the venue text is recoverable
     EXPECT_EQ(table.find(id), found);
     EXPECT_EQ(table.exchange_symbol(id), "BTCUSDT");
     EXPECT_EQ(table.find(std::string_view{"ETHUSDT"}), nullptr);
@@ -222,8 +200,7 @@ TEST(BybitMapTrade, UnknownSymbolAndOffGridPriceAreDropped) {
     wire.size = "0.001";
     EXPECT_FALSE(map_trade(wire, table, k_ingest).has_value());
 
-    // Off the tick grid means bybit changed a filter. Rounding here is how a
-    // price ends up one tick from where it was meant to be.
+    // off the tick grid means bybit changed a filter
     wire.symbol = "BTCUSDT";
     wire.price = "16578.55";
     EXPECT_FALSE(map_trade(wire, table, k_ingest).has_value());
@@ -239,7 +216,7 @@ TEST(BybitMapTrade, MissingVenueTimeFallsBackToIngest) {
 
     const auto trade = map_trade(wire, table, k_ingest);
     ASSERT_TRUE(trade.has_value());
-    // A zero timestamp propagating into latency histograms would poison them.
+    // a zero timestamp falls back to ingest
     EXPECT_EQ(trade->ts_event.ns, k_ingest.ns);
 }
 
@@ -261,9 +238,7 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
     EXPECT_EQ(funding->next_funding_time.ns, 1'673'280'000'000'000'000ULL);
     EXPECT_EQ(funding->interval_s, 28'800U);
 
-    // A delta that changed only the touch carries no funding news. Publishing
-    // one would overwrite a live rate with a default — the exact failure the
-    // wire layer keeps absent fields empty to prevent.
+    // a touch-only delta carries no funding
     WireTicker delta{};
     delta.symbol = "BTCUSDT";
     delta.bid1_price = "17215.00";
@@ -271,9 +246,7 @@ TEST(BybitMapFunding, SnapshotPublishesAndEmptyDeltaDoesNot) {
 }
 
 TEST(BybitMapFunding, AMarkOnlyFrameStillPublishes) {
-    // Measured on BTCUSDT over fifty seconds: one frame carried both the rate
-    // and the mark, FORTY-THREE carried only the mark, none carried only the
-    // rate. Refusing a mark-only frame threw away every one of the forty-three.
+    // mark-only frames must still publish
     const auto table = make_table();
     FundingMemo memo{};
 
@@ -294,9 +267,7 @@ TEST(BybitMapFunding, AMarkOnlyFrameStillPublishes) {
 }
 
 TEST(BybitMapFunding, ARateOnlyFrameDoesNotEraseTheMark) {
-    // The other half of the same fault: publishing straight from a frame that
-    // states a rate and no mark writes UNDEF over the last known mark, and the
-    // shm cell is written whole.
+    // a rate-only frame must not write undef over the last mark
     const auto table = make_table();
     FundingMemo memo{};
 
@@ -344,9 +315,7 @@ TEST(BybitMapTickerStats, TurnoverPublishesAndAnAbsentColumnDoesNot) {
     EXPECT_EQ(stats->volume_24h_base.raw, 91'705'276'000'000LL);
     EXPECT_EQ(stats->volume_24h_quote.raw, 1'570'383'121'943'499LL);
 
-    // The same trap funding has: a delta that restated neither column must
-    // publish nothing, or the board reads a day's turnover as zero until the
-    // next snapshot arrives.
+    // a delta restating neither column publishes nothing
     WireTicker delta{};
     delta.symbol = "BTCUSDT";
     delta.bid1_price = "17215.00";
@@ -387,9 +356,7 @@ TEST(BybitMapOrderEvent, LifecycleTransitions) {
 }
 
 TEST(BybitMapOrderEvent, FillStatusesEmitNothingBecauseExecutionsOwnFills) {
-    // The load-bearing rule: bybit reports every fill twice, once on the
-    // execution stream and once as a new cumulative quantity on the order
-    // stream. Emitting from both doubles every position in the system.
+    // bybit reports each fill on both streams; only the execution stream emits
     const auto table = make_table();
     WireOrderUpdate wire{};
     wire.symbol = "BTCUSDT";
@@ -404,9 +371,7 @@ TEST(BybitMapOrderEvent, FillStatusesEmitNothingBecauseExecutionsOwnFills) {
 }
 
 TEST(BybitMapOrderEvent, PartiallyFilledCanceledIsTerminalCancel) {
-    // Reads like a partial fill, is terminal: the remainder was cancelled and
-    // its fills already arrived on the execution stream. Mapping it to a fill
-    // status would leave the order open in the store forever.
+    // PartiallyFilledCanceled is terminal; its fills came on the execution stream
     const auto table = make_table();
     WireOrderUpdate wire{};
     wire.symbol = "BTCUSDT";
@@ -451,8 +416,7 @@ TEST(BybitMapExecution, FillCarriesEverythingTheFsmNeeds) {
 }
 
 TEST(BybitMapExecution, InexactFillIsDroppedRatherThanApproximated) {
-    // A fill we cannot express exactly would enter the position at a wrong
-    // size. Dropping it leaves reconciliation to find it, which is recoverable.
+    // an inexact fill is dropped; reconciliation finds it
     const auto table = make_table();
     WireExecution wire{};
     wire.symbol = "BTCUSDT";
@@ -492,8 +456,7 @@ TEST(BybitMapReports, OpenOrdersAndPositions) {
     position.avg_price = "16618.20";
     const auto pos = map_position(position, table);
     ASSERT_TRUE(pos.has_value());
-    // Signed here so nothing downstream has to remember bybit's convention
-    // of reporting magnitude plus a separate side.
+    // signed here; bybit reports magnitude plus a separate side
     EXPECT_EQ(pos->net_qty.raw, -10);
     EXPECT_EQ(pos->avg_entry.raw, 166'182);
 

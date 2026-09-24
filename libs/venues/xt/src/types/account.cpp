@@ -55,9 +55,7 @@ parse_futures_balances(std::string_view body, FuturesBalanceBuffer& storage) {
         if (!array.has_value()) {
             return std::unexpected(array.error());
         }
-        // A coinless row is kept here and dropped by the mapper: this reader
-        // reports what XT sent, and the decision that a number with no unit is
-        // not a balance belongs where the domain type is built.
+        // coinless rows are kept here and dropped by the mapper
         const auto count = read_rows<WireFuturesBalance>(
             *array, storage.balances, [](auto& obj, WireFuturesBalance& row) {
                 return read_futures_balance(obj, row);

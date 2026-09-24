@@ -16,13 +16,12 @@ inline constexpr std::string_view k_scaled_book = "orderbook";
 inline constexpr std::string_view k_real_trade = "trade_p";
 inline constexpr std::string_view k_scaled_trade = "trade";
 
-// One subscription each, carrying every symbol of its kind: asked once per
-// socket pool, never once per instrument.
+// one subscription carries every symbol of its kind
 inline constexpr std::string_view k_perp_pack = "perp_market24h_pack_p";
 inline constexpr std::string_view k_inverse_ticker = "market24h";
 inline constexpr std::string_view k_spot_ticker = "spot_market24h";
 
-// Unpinged, the venue drops a socket at ~31 s with no close frame.
+// unpinged, the venue drops a socket at ~31 s with no close frame
 inline constexpr std::uint64_t k_ping_interval_ns = 10ULL * 1'000'000'000ULL;
 
 // "orderbook_p:BTCUSDT", or the bare channel for the all-symbol feeds. Empty

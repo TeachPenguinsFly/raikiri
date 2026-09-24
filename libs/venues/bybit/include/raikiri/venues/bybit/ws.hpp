@@ -1,12 +1,6 @@
 #pragma once
 
-// Bybit v5 websocket protocol: topic naming, subscription frames, and the
-// private-stream handshake.
-//
-// The private handshake is its own signature scheme, unrelated to REST: the
-// message is the literal "GET/realtime" followed by an expiry timestamp that
-// must be in the FUTURE. Signing the current time produces a frame bybit
-// rejects the instant it arrives, which reads as a credentials problem.
+// private auth signs "GET/realtime" plus an expiry that must be in the future
 
 #include <raikiri/common/time.hpp>
 #include <raikiri/domain/identifiers.hpp>
@@ -33,41 +27,24 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// Public stream URLs by market. Perps and spot are separate sockets, which
-// is also why one gateway process holds several connections.
+// perps and spot use separate sockets
 [[nodiscard]] std::string_view public_stream_path(MarketType market) noexcept;
 [[nodiscard]] std::string_view private_stream_path() noexcept;
 
 [[nodiscard]] std::string_view host(bool testnet) noexcept;
 
-// Book depth to request, and it is a CADENCE as much as a depth. Bybit
-// publishes fixed tiers only — on linear, 1 at 10 ms, 50 at 20 ms, 200 at
-// 100 ms and 1000 at 200 ms — and anything else is answered with
-// `error:handler not found`, which kills the whole subscribe frame. So a
-// requested tier is checked against this list before it goes out.
-//
-// The deeper tier is also the quieter one: measured across the whole linear
-// catalogue on 2026-09-18, 811 symbols over two minutes, orderbook.50 sent
-// 4394 messages a second and orderbook.200 sent 2244 — half the messages,
-// 65% of the bytes, and still 90% of the level updates, because five 20 ms
-// deltas on one symbol overlap and collapse into one at 100 ms.
-//
-// 50 STAYS THE DEFAULT because bybit serves bbo and depth from ONE topic, so
-// the deeper tier slows the quote as well. That trade belongs to a deployment
-// — config/venues.yaml — and not to everyone who links this.
+// bybit publishes fixed tiers and an unlisted depth fails the whole subscribe frame;
+// bbo shares the topic, so a deeper tier slows the quote
 inline constexpr std::uint32_t k_book_depth = 50;
 
-// Tiers bybit actually publishes on linear. A depth request that is not one of
-// these is refused rather than rounded: rounding would silently subscribe a
-// cadence nobody asked for.
+// tiers bybit publishes on linear; other depths are refused
 inline constexpr std::array<std::uint32_t, 4> k_book_tiers{1, 50, 200, 1000};
 
 [[nodiscard]] constexpr bool is_book_tier(std::uint32_t depth) noexcept {
     return std::ranges::find(k_book_tiers, depth) != k_book_tiers.end();
 }
 
-// Builds "orderbook.50.BTCUSDT" and friends. Returns empty for a kind bybit
-// does not stream. `depth` must be one of k_book_tiers.
+// `depth` must be one of k_book_tiers; empty for a kind bybit does not stream
 [[nodiscard]] std::string_view topic_name(exec::SubKind kind,
                                           std::string_view exchange_symbol,
                                           std::span<char> out,
@@ -91,7 +68,7 @@ public:
 
     [[nodiscard]] std::string_view ping_frame() const noexcept { return R"({"op":"ping"})"; }
 
-    // Exposed for tests: the exact bytes signed by the last auth_frame.
+    // exposed for tests: the exact bytes signed by the last auth_frame
     [[nodiscard]] std::string_view last_auth_message() const noexcept;
 
 private:

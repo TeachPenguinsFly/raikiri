@@ -100,10 +100,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     case EventKind::Info:
     case EventKind::Unknown:
         break;
-    // Private frames ride the same socket but are routed by the private
-    // handler, which owns the signed challenge. Naming them here rather than
-    // letting a default swallow them is what makes a new private feed a
-    // compiler error instead of a silently dropped frame.
+    // private frames are routed by the private handler; listed so a new feed is a compile error
     case EventKind::Challenge:
     case EventKind::OpenOrdersSnapshot:
     case EventKind::OpenOrders:
@@ -112,8 +109,7 @@ void handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
     }
 }
 
-// Returns how many entries went out; the rest wait for the next flush or the
-// reconnect, which resends the whole set.
+// returns how many entries went out; the rest wait for the next flush or reconnect
 std::size_t send_subscriptions(VenueState& state,
                                net::WsClient& client,
                                std::span<const OwnedSubscription> entries) {
@@ -141,8 +137,7 @@ public:
     void on_open() override {
         state_->unsent.clear();
         (void)send_subscriptions(*state_, *client_, state_->desired);
-        // Whatever the seq chain said before the socket dropped says nothing
-        // about the book_snapshot Kraken is about to send.
+        // the seq chain resets on reconnect; the next book_snapshot reseeds
         for (auto& [id, book] : state_->books) {
             book.invalidate();
         }

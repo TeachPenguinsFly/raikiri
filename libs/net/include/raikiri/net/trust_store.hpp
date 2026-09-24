@@ -1,6 +1,6 @@
 #pragma once
 
-// Locating the CA trust store.
+// locating the ca trust store
 
 #include <string>
 #include <string_view>
@@ -15,12 +15,7 @@ struct TrustStore {
     std::string_view source;
 };
 
-// Resolution order:
-//   1. $SSL_CERT_FILE / $SSL_CERT_DIR — the operator's explicit choice
-//   2. OpenSSL's compiled-in default, if the path exists
-//   3. Well-known bundles: /etc/ssl/cert.pem (macOS),
-//      /etc/ssl/certs/ca-certificates.crt (Debian/Ubuntu),
-//      /etc/pki/tls/certs/ca-bundle.crt (RHEL), Homebrew's copy
+// $SSL_CERT_FILE / $SSL_CERT_DIR, then openssl's default, then well-known bundles
 [[nodiscard]] TrustStore resolve_trust_store();
 
 } // namespace raikiri::net

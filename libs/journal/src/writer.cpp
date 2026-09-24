@@ -19,10 +19,7 @@ namespace raikiri::journal {
 JournalWriter::JournalWriter(JournalWriter&& other) noexcept
     : dir_{std::move(other.dir_)}, prefix_{std::move(other.prefix_)},
       segment_bytes_{other.segment_bytes_},
-      // MOVED TOO. Left out, these silently reverted to their defaults the
-      // moment open() returned by value — a writer asked to retain two
-      // segments kept eight, which is the shape this omission always takes:
-      // correct at the call site, wrong by the first use.
+      // move these too or they revert to their defaults
       retain_segments_{other.retain_segments_}, pruned_{other.pruned_},
       header_{std::exchange(other.header_, nullptr)}, base_{std::exchange(other.base_, nullptr)},
       fd_{std::exchange(other.fd_, -1)}, lock_fd_{std::exchange(other.lock_fd_, -1)},
@@ -37,14 +34,7 @@ JournalWriter::~JournalWriter() {
     }
 }
 
-// TWO WRITERS IS THE ONE UNRECOVERABLE CONFIGURATION. Creating a segment uses
-// O_EXCL, which refuses a second creator — but that only guards the first run.
-// On every run after it the files exist, so both processes take the recovery
-// path, both mmap MAP_SHARED, and both append from their own cached offset:
-// each overwrites the other's frames with no diagnostic anywhere. An advisory
-// lock on a file beside the segments closes that, and it is on the journal
-// rather than the current segment because the writer rolls segments and a lock
-// that moves would leave a window mid-roll.
+// an advisory lock on the journal keeps a second writer from overwriting frames
 std::expected<void, JournalError> JournalWriter::claim(const std::string& dir,
                                                        const std::string& prefix) noexcept {
     const std::string path = dir + "/" + prefix + ".lock";
@@ -60,9 +50,7 @@ std::expected<void, JournalError> JournalWriter::claim(const std::string& dir,
     return {};
 }
 
-// Deletes sealed segments beyond `retain_segments_`. A failure to unlink is
-// left alone: the disk filling is a worse outcome than a stale file, and there
-// is nowhere here to report it to — see the header for who may lose what.
+// an unlink failure is ignored
 void JournalWriter::prune_sealed() noexcept {
     if (retain_segments_ == 0 || segment_seq_ <= retain_segments_) {
         return;
@@ -113,20 +101,15 @@ std::expected<JournalWriter, JournalError> JournalWriter::open(std::string dir,
         }
         return w;
     }
-    // A BLANK NEWEST SEGMENT IS AN INTERRUPTED ROTATION, not corruption. It
-    // holds no frames by definition — a frame is only findable through a
-    // header that was never written — so the sequence continues from the
-    // segment before it, and the blank file is initialised in place.
+    // a blank newest segment is an interrupted rotation; continue from the segment before it
     if (internal::segment_is_blank(internal::segment_path(w.dir_, w.prefix_, segments.back()))) {
         if (segments.size() >= 2) {
             if (auto r = w.open_segment(segments[segments.size() - 2], SegmentOpen::Recover);
                 !r.has_value()) {
                 return std::unexpected{r.error()};
             }
-            // RE-SEALED, because Recover clears the flag on the assumption that
-            // it is about to be appended to — and here it is not. A reader
-            // stops at the end of an unsealed segment and waits for more, so
-            // leaving it open would hide every frame written after the crash.
+            // re-sealed, since recover cleared the flag and a reader waits at an unsealed
+            // segment's end
             w.header_->sealed.store(1, std::memory_order_release);
         }
         if (auto r = w.open_segment(segments.back(), SegmentOpen::Adopt); !r.has_value()) {
@@ -152,8 +135,7 @@ std::expected<void, JournalError> JournalWriter::open_segment(std::uint64_t segm
     if (fd_ < 0) {
         return std::unexpected{JournalError::OpenFailed};
     }
-    // Adopting re-runs the preallocation: the crash may equally have landed in
-    // the middle of that, leaving a file shorter than a segment.
+    // re-run preallocation; the crash may have hit mid-preallocate
     if (!recover && !platform::preallocate(fd_, segment_bytes_).has_value()) {
         return std::unexpected{JournalError::OpenFailed};
     }
@@ -211,8 +193,7 @@ std::expected<std::uint64_t, JournalError> JournalWriter::append(std::uint16_t s
         if (auto r = open_segment(segment_seq_ + 1, SegmentOpen::Create); !r.has_value()) {
             return std::unexpected{JournalError::RotateFailed};
         }
-        // AFTER the new segment exists, never before: a rotate that failed to
-        // open one must not also have shortened the history for nothing.
+        // prune only after the new segment exists
         prune_sealed();
     }
 

@@ -4,16 +4,10 @@ export interface DonutSegment {
   key: string
   label: string
   color: string
-  /** Non-negative. A donut of signed values is a lie about proportion. */
+  /** non-negative */
   value: number
 }
 
-/** A ring of proportions.
- *
- *  Segments are drawn as dashes on one circle rather than as arc paths, which
- *  keeps the geometry to two numbers per segment and lets the growth animate as
- *  a single CSS transition. Each arc gives back a little length at both ends so
- *  the round caps of neighbours do not touch. */
 export function Donut({
   segments,
   size,
@@ -80,13 +74,7 @@ export function Donut({
               strokeDashoffset={-arc.offset}
               opacity={active === null || active === undefined || isActive ? 1 : 0.32}
               style={{
-                // Grown by a CSS keyframe whose only frame is `from`, so the
-                // ring's final geometry is the element's own attributes and no
-                // fill mode is needed. Anything that holds the `from` frame —
-                // a stagger delay, `both` — leaves the arc at zero length for
-                // as long as it holds, and a chart that is blank until an
-                // animation runs is a chart that is blank wherever one does
-                // not.
+                // the keyframe has only a from frame; a delay or fill mode would hold the arc at zero
                 ['--circumference' as string]: `${circumference}`,
                 animation: 'donut-grow 850ms cubic-bezier(0.16,1,0.3,1)',
                 transition: 'stroke-width 180ms ease-out, opacity 180ms ease-out',

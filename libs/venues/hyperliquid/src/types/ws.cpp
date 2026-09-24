@@ -36,7 +36,6 @@ std::string_view stream_path() noexcept {
 std::string_view channel_for(exec::SubKind kind) noexcept {
     switch (kind) {
     case exec::SubKind::Bbo:
-        // Tick-by-tick, so no local book is needed to produce a BBO.
         return "bbo";
     case exec::SubKind::Trades:
         return "trades";
@@ -46,7 +45,7 @@ std::string_view channel_for(exec::SubKind kind) noexcept {
     case exec::SubKind::MarkPrice:
         return "activeAssetCtx";
     case exec::SubKind::Kline:
-        return {}; // `candle` needs an interval in the subscription; no consumer
+        return {}; // `candle` needs an interval; no consumer
     }
     return {};
 }

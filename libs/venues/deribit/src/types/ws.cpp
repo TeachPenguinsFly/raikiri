@@ -10,12 +10,9 @@ namespace raikiri::venues::deribit {
 
 namespace {
 
-// The only cadence open to an unauthenticated socket: "raw" is refused with
-// 13778 (verified live).
+// raw is refused on an unauthenticated socket
 constexpr std::string_view k_interval = "100ms";
 
-// Drops anything that would overflow rather than truncating mid-token: a
-// half-written channel names a different instrument.
 class TextWriter {
 public:
     explicit TextWriter(std::span<char> into) noexcept : into_{into} {}
@@ -184,9 +181,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::auth_frame(const net::Sig
     }
     const auto timestamp = now.ns / 1'000'000ULL;
     const auto nonce = sign::nonce(++nonce_counter_, nonce_);
-    // `data` is empty here, so the string still ends in the newline after the
-    // nonce; dropping it produces a digest Deribit answers 13004 to, which
-    // reads like a wrong secret rather than a wrong format.
+    // the message still ends in the newline after the nonce; without it deribit answers 13004
     const auto message = sign::message(timestamp, nonce, {}, sign_msg_);
     if (nonce.empty() || message.empty()) {
         return std::unexpected{WsBuildError::BufferTooSmall};

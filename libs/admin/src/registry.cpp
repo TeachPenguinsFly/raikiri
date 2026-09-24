@@ -30,15 +30,10 @@ Instrument describe(const raikiri::Instrument& instrument, std::string_view acco
     out.contract_value = decimal(base.contract_value);
     out.contract_kind = std::string{contract_kind_name(base.kind)};
 
-    // Absent rather than zero on the instruments that have none: an expiry of
-    // zero is a date in 1970 and a strike of zero is a free option, and both
-    // would be read as data.
     if (const auto* future = std::get_if<FutureInstrument>(&instrument); future != nullptr) {
         out.expiry = digits(future->expiry);
     } else if (const auto* option = std::get_if<OptionInstrument>(&instrument); option != nullptr) {
         out.expiry = digits(option->expiry);
-        // Through the instrument, because a strike is a price and a tick count
-        // without its instrument is not one.
         out.strike = price(option->strike, base);
         out.put_call = option->put_call == PutCall::Put ? "put" : "call";
     }
@@ -64,23 +59,15 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
         auto* held = find_mutable(account_name);
         auto client = shm::SegmentClient::attach(entry.path().string());
         if (!client.has_value()) {
-            continue; // wrong ABI, wrong layout, dead owner: skip, never fatal
+            continue; // wrong abi, wrong layout or dead owner: skip
         }
-        // THE GENERATION IS THE RUN, not the account. An attachment that still
-        // carries the generation on disk is this same gateway, and re-attaching
-        // it would take a second of the segment's four reader slots every two
-        // seconds for one reader. A generation that MOVED is a gateway that
-        // died and came back: the old mapping belongs to a dead process, and
-        // holding it is why a restarted gatewayd used to read alive=false for
-        // ever — books that looked dead for a venue that was perfectly healthy.
+        // same generation is the same run; a moved generation is a restarted gateway
         if (held != nullptr && held->client.generation() == client->generation()) {
             continue;
         }
         auto channels = shm::open_gateway_channels(*client);
         if (!channels.has_value()) {
-            // The segment FILE exists from the instant the gateway creates it,
-            // while the channels appear only once it has published. A rescan
-            // catches it a moment later; refusing here is not a verdict.
+            // the file exists before the channels are published; a later rescan catches it
             continue;
         }
         (void)client->register_reader(reader_pid);
@@ -89,10 +76,7 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
                       .client = std::move(*client),
                       .channels = *channels};
         if (held != nullptr) {
-            // IN PLACE, so the Gateway keeps its address (registry.hpp), and
-            // the old client's mapping is unmapped by the assignment. Every
-            // pointer INTO that mapping is now dangling, which is what the
-            // epoch announces.
+            // in place so the gateway keeps its address; pointers into the old mapping now dangle, hence the epoch
             *held = std::move(fresh);
             ++epoch_;
             continue; // the set of gateways did not change, so neither did its order
@@ -105,25 +89,11 @@ std::size_t Registry::discover(const std::string& shm_dir, std::int32_t reader_p
 
 namespace {
 
-// The heartbeat, MOVED ONTO THE WALL CLOCK, because those are two different
-// numbers and only one of them means anything outside this process.
-//
-// A gateway stamps its heartbeat with the monotonic clock — time since the
-// machine booted — which is the right choice for liveness: the wall clock can
-// step, and a step would make every owner look dead or immortal. But the field
-// leaves here as `Nanos`, which the contract defines as nanoseconds since the
-// Unix epoch, and a client has nothing to subtract a monotonic reading from.
-// Read as epoch nanos, twelve days of uptime dates the last heartbeat to 1969
-// and the terminal rendered it as "496579h ago".
-//
-// So convert by the AGE, which is the part both clocks agree on, and never by
-// the reading. Zero stays zero: a gateway that has never stamped one has no
-// heartbeat to date, and inventing "now" for it would be the loudest possible
-// lie about a process that may be gone.
+// convert the monotonic heartbeat by its age; zero stays zero
 [[nodiscard]] std::uint64_t heartbeat_wall(const Gateway& gw, MonoNanos now, UnixNanos wall) {
     const auto beat = gw.client.last_heartbeat();
     if (beat == 0 || beat > now.ns) {
-        return 0; // never stamped, or stamped ahead of us — do not date it
+        return 0; // never stamped, or stamped ahead of us
     }
     const auto age = now.ns - beat;
     return age > wall.ns ? 0 : wall.ns - age;
@@ -131,18 +101,7 @@ namespace {
 
 } // namespace
 
-// HOW MUCH OF THE CATALOGUE IS ACTUALLY ARRIVING.
-//
-// Counts quote cells that have EVER been written since the gateway created the
-// segment — `ts_init` is stamped on every publish and a cell nobody has
-// published to is still zero. That is deliberately cumulative rather than a
-// freshness window: what this exists to catch is a chunk of the catalogue the
-// venue silently never sends, and those cells are never written at all, while a
-// genuinely quiet altcoin would fail any window short enough to be useful.
-//
-// The reading is therefore "has priced since this gateway started", and it is
-// only meaningful once the gateway has been up long enough for a slow venue to
-// tick — which is what `last_heartbeat` and `generation` beside it are for.
+// cells written at least once since the segment was created; cumulative so quiet symbols still count
 [[nodiscard]] std::int64_t priced_count(const shm::GatewayChannels& ch) noexcept {
     const auto listed = std::min<std::size_t>(ch.catalogue->size(), shm::k_bbo_cells);
     std::int64_t priced = 0;
@@ -160,8 +119,6 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
     out.reserve(gateways_.size());
     for (const auto& owned : gateways_) {
         const auto& gw = *owned;
-        // Monotonic, because that is the clock the gateway stamps its
-        // heartbeat with; asking in wall time makes every owner look stale.
         const bool alive = gw.client.owner_alive(now.ns);
         const auto listed = static_cast<std::int64_t>(gw.channels.catalogue->size());
         const auto priced = priced_count(gw.channels);
@@ -181,7 +138,7 @@ std::vector<Account> Registry::accounts(MonoNanos now, UnixNanos wall) const {
 }
 
 Health Registry::health(MonoNanos now, UnixNanos wall) const {
-    // The database half is filled by the caller, which owns the connection.
+    // the database half is filled by the caller
     return {.gateways = accounts(now, wall), .database = {}};
 }
 
@@ -205,9 +162,7 @@ std::vector<Instrument> Registry::instruments(std::string_view account,
 
 namespace {
 
-// Case-insensitive substring. Both sides are short — a canonical symbol is at
-// most a couple of dozen characters — so this beats building a lowered copy of
-// every symbol on every keystroke.
+// case-insensitive substring without allocating
 [[nodiscard]] bool contains_fold(std::string_view haystack, std::string_view needle) noexcept {
     if (needle.empty()) {
         return true;
@@ -261,8 +216,6 @@ std::vector<Market> Registry::markets(std::string_view query, std::size_t limit)
         std::ranges::sort(market.listings, {}, &Listing::venue);
         out.push_back(std::move(market));
     }
-    // Most-listed first: a search for "BTC" answers with the market eight
-    // venues quote before the one a single venue lists.
     std::ranges::sort(out, [](const Market& a, const Market& b) {
         if (a.listings.size() != b.listings.size()) {
             return a.listings.size() > b.listings.size();
@@ -291,8 +244,7 @@ std::optional<Registry::CatalogueRow> Registry::catalogue_row(InstrumentId id) c
 std::optional<Instrument> Registry::instrument(InstrumentId id) const {
     for (const auto& owned : gateways_) {
         const auto& gw = *owned;
-        // The (venue, market) prefix says which gateway can possibly hold it,
-        // so this asks one catalogue rather than every one.
+        // the (venue, market) prefix picks the one catalogue that can hold it
         if (gw.account.venue != id.venue() || gw.account.market != id.market()) {
             continue;
         }
@@ -304,8 +256,7 @@ std::optional<Instrument> Registry::instrument(InstrumentId id) const {
 }
 
 std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNanos now) const {
-    // Three missed pulls at the gateway's 30 s cadence, the same window the
-    // live positions feed uses. One late round is not a venue going quiet.
+    // three missed 30 s pulls, same window as the live positions feed
     constexpr std::uint64_t k_stale_ns = 90ULL * 1'000'000'000ULL;
 
     std::vector<AccountBalances> out;
@@ -323,16 +274,12 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
             out.push_back(std::move(entry));
             continue;
         }
-        // ONE read of the whole set. A row-at-a-time reader could take two
-        // assets from one snapshot and two from the next, and sum them into an
-        // equity the account never had at any instant.
+        // one read of the whole set so assets come from one snapshot
         shm::BalanceSnapshot snapshot{};
-        // Version 0 is a cell nothing has written, which is absence rather than
-        // a value — the same rule the change gate on the live stream uses.
+        // version 0 is a never-written cell
         const auto version = gw.channels.balances->read(0, snapshot);
         if (version == 0 || snapshot.ts_pulled.ns == 0) {
-            // Never written: the venue has not answered yet, or cannot. Empty
-            // with no timestamp, which is not the same as holding nothing.
+            // not answered yet: empty with no timestamp
             out.push_back(std::move(entry));
             continue;
         }
@@ -350,8 +297,7 @@ std::vector<AccountBalances> Registry::balances(std::string_view account, UnixNa
                             .total = std::nullopt,
                             .available = std::nullopt,
                             .unrealized = std::nullopt};
-            // Undef stays ABSENT rather than becoming "0": the contract's
-            // Decimal has no spelling for "the venue did not say".
+            // undef stays absent
             if (!row.total.is_undef()) {
                 balance.total = decimal(row.total);
             }

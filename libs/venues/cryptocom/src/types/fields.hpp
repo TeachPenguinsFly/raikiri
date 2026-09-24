@@ -1,7 +1,6 @@
 #pragma once
 
-// Fields are walked in document order, never looked up by name: on malformed
-// JSON find_field_unordered asserts (an abort in debug, UB in release).
+// fields are walked in order; find_field_unordered asserts on malformed json
 
 #include <raikiri/venues/cryptocom/errors.hpp>
 #include <raikiri/wire/json.hpp>

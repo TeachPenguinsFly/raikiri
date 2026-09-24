@@ -9,9 +9,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// Both market-data dialects wrap the payload the same way once the outer
-// envelope is off: `tick` on the market socket, `data[0]` on the
-// notification socket.
+// payload is under tick on the market socket and data[0] on the notification socket
 std::expected<wire::ondemand::object, WireError> first_data(wire::ondemand::object& root) {
     auto array = wire::req_array(root, "data");
     if (!array.has_value()) {
@@ -128,9 +126,7 @@ std::expected<WireDetail, WireError> parse_detail(std::string_view frame) {
         WireDetail out{};
         out.contract_code = code_of(*ch);
         out.ts_ms = *ts;
-        // Both columns OPTIONAL: opt_raw answers an empty token for a field
-        // the tick omits, and this frame's job is the turnover — there is
-        // nothing else on it worth refusing the whole push over.
+        // both optional; empty is not zero
         const auto amount = wire::opt_raw(*tick, "amount");
         const auto turnover = wire::opt_raw(*tick, "trade_turnover");
         if (!amount.has_value() || !turnover.has_value()) {

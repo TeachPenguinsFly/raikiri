@@ -13,7 +13,7 @@ namespace raikiri::venues::blofin {
 
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-// 0 for a unit or a count this cannot read: an unstated period, never eight hours.
+// 0 for an unreadable unit or count, meaning unstated
 [[nodiscard]] std::uint32_t interval_of(std::string_view count, std::string_view unit) noexcept;
 
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
@@ -27,8 +27,7 @@ map_trade(const WirePrint& wire, const InstrumentBase& base, UnixNanos ts_init);
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init);
 
-// False when the row states no readable rate, which is not a rate of zero. A row
-// that states no period (the socket's) leaves the period the table last gave.
+// false when the row states no readable rate; a row without a period keeps the last one
 [[nodiscard]] bool note_funding(FundingMemo& memo, const WireFundingRow& row) noexcept;
 
 [[nodiscard]] bool

@@ -11,10 +11,7 @@ namespace {
 using wire::guarded;
 using wire::session;
 
-// A level and a top-of-book quote are both [price, size], with both members
-// written as JSON numbers.
-// Every price and size goes through raw_of: HTX writes them as numbers, and
-// "1.00000000E-10" is a spelling only the token preserves.
+// [price, size] as json numbers, read as raw tokens to keep spellings like 1.00000000E-10
 std::expected<void, WireError> read_pair(wire::ondemand::value entry,
                                          std::string_view& price,
                                          std::string_view& qty,

@@ -36,7 +36,7 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     auto& book = state.book_for(base);
     const auto result = book.apply(*wire);
     if (result != BookResult::Applied && result != BookResult::Resynced) {
-        return; // unsynced, redelivered or dropped: silence, never a guess
+        return; // unsynced, redelivered or dropped
     }
     if (const auto depth = book.snapshot(ms_to_unix(wire->ts_ms, received), received);
         depth.has_value()) {
@@ -44,9 +44,7 @@ void handle_book(VenueState& state, std::string_view frame, UnixNanos received) 
     }
 }
 
-// What an order has left after a frame's trades. The order row beside the
-// trade is the authority; failing that, the trade states the ORDER's state
-// after itself, and "filled" is the one value that names a quantity.
+// the order row beside the trade is the authority; otherwise only filled names a quantity
 std::optional<QtyLots> leaves_for(const WireUserTrade& trade,
                                   std::span<const WireOrder> orders,
                                   const exec::InstrumentTable& table) {
@@ -58,10 +56,7 @@ std::optional<QtyLots> leaves_for(const WireUserTrade& trade,
     return trade.state == "filled" ? std::optional{QtyLots::from_raw(0)} : std::nullopt;
 }
 
-// One user.changes frame: the orders that moved and the trades that moved
-// them. The fills go out FIRST so an order that finished in the same frame
-// reaches the OMS already accounted for, and each fill's leaves comes from the
-// order row beside it rather than from a running total this process kept.
+// fills go first so an order that finished in the same frame is already accounted for
 void handle_changes(VenueState& state, std::string_view frame, UnixNanos received) {
     static thread_local OrderBuffer orders;
     static thread_local UserTradeBuffer trades;
@@ -72,11 +67,6 @@ void handle_changes(VenueState& state, std::string_view frame, UnixNanos receive
     for (const auto& trade : wire->trades) {
         const auto leaves = leaves_for(trade, wire->orders, state.instruments);
         if (!leaves.has_value()) {
-            // Deliberately silent. The channel's whole design is that an order
-            // and the trades that moved it travel together, so this is a shape
-            // Deribit does not emit — and a Filled carrying a guessed leaves
-            // would either close an order still working or leave a finished
-            // one open forever.
             continue;
         }
         if (const auto event = map_fill(trade, state.instruments, *leaves, received);
@@ -129,8 +119,6 @@ bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         if (!wire.has_value()) {
             return false;
         }
-        // Dated futures share this channel and quote no funding at all, and
-        // options carry greeks instead. One ticker, three kinds of row.
         if (const auto funding = map_funding(*wire, state.instruments, received);
             funding.has_value()) {
             state.sink->on_funding(*funding);
@@ -152,8 +140,7 @@ bool handle_frame(VenueState& state, std::string_view frame, UnixNanos received)
         handle_changes(state, frame, received);
         break;
     case EventKind::Heartbeat:
-        // An unanswered test_request costs the connection, and only the caller
-        // knows which socket to answer on.
+        // an unanswered test_request costs the connection
         return event->needs_test_reply;
     case EventKind::Response: {
         const auto response = parse_response(frame);

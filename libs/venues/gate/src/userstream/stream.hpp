@@ -1,11 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It subscribes and turns each frame into an event on the sink. It sends no
-// orders: an order goes out over REST and is ANSWERED here, and joining those
-// two halves is the execution client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/gate/envelope.hpp>
 #include <raikiri/venues/gate/errors.hpp>
@@ -25,8 +19,7 @@ namespace raikiri::venues::gate::internal {
 
 constexpr std::uint32_t k_private_stream_id = 1;
 
-// Routes one private frame. The market decides which of Gate's two order
-// shapes the payload is; nothing in the frame itself says.
+// the market decides which order shape the payload is
 void handle_private_frame(VenueState& state,
                           MarketType market,
                           std::string_view frame,
@@ -44,9 +37,7 @@ void handle_private_frame(VenueState& state,
             return;
         }
         for (const auto& entry : *wire) {
-            // Remembered BEFORE the event is emitted: a user trade for the
-            // same fill may already be queued behind this frame, and it can
-            // only state its leaves out of this memo.
+            // remembered before emitting: a queued user trade reads its leaves from this memo
             state.remember(entry);
             if (const auto mapped = map_order_event(entry, state.instruments, received);
                 mapped.has_value()) {
@@ -75,8 +66,7 @@ void handle_private_frame(VenueState& state,
     case EventKind::Error: {
         if (const auto err = parse_stream_error(frame); err.has_value()) {
             state.last_error_code = err->code;
-            // Code 4 wraps a REST-style label in its message; the number is
-            // enough to tell a bad key from an unknown contract.
+            // code 4 wraps a rest label; the number tells a bad key from an unknown contract
             state.sink->on_connectivity(
                 {.state = classify_stream(err->code) == exec::ErrorClass::AuthFailure
                               ? exec::ConnState::AuthFailed
@@ -98,8 +88,7 @@ void handle_private_frame(VenueState& state,
     }
 }
 
-// One private socket. Futures and spot are different hosts carrying different
-// order shapes, so an account trading both holds two of these.
+// one private socket; an account trading futures and spot holds two
 class PrivateHandler final : public net::WsHandler {
 public:
     PrivateHandler(VenueState& state, MarketType market) : state_{&state}, market_{market} {}
@@ -133,8 +122,7 @@ private:
         if (channel.empty() || client_ == nullptr) {
             return false;
         }
-        // The user id is positional and futures-only: sending the contract
-        // where Gate expects the id subscribes to nothing and reports success.
+        // the user id is positional and futures-only
         std::array<char, 24> id_text{};
         std::array<std::string_view, 2> payload{};
         std::size_t count = 0;
@@ -158,8 +146,7 @@ private:
     net::WsClient* client_{nullptr};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
+// owns the handler and its client together
 class PrivateStream {
 public:
     PrivateStream(VenueState& state, MarketType market)

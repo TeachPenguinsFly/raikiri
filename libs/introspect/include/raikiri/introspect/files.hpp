@@ -1,9 +1,6 @@
 #pragma once
 
-// INFRASTRUCTURE: snapshots as one JSON file per account under a directory,
-// `$RAIKIRI_RUNTIME_DIR/stats/<account>.json` in a deployment. Written whole
-// to a temporary name and renamed over the old one, so a reader never sees a
-// half-written file.
+// one json file per account, written to a temp name and renamed
 
 #include <raikiri/introspect/queries.hpp>
 

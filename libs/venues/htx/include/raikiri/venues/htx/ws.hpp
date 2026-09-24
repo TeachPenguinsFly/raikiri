@@ -1,21 +1,6 @@
 #pragma once
 
-// HTX USDT-M swap websocket protocol: frame decompression, topic naming and
-// subscription messages.
-//
-// THE quirk, and why this venue needs net::Inflater: HTX sends every frame
-// gzip-compressed under a BINARY opcode, on both endpoints and in both
-// directions of the keepalive. libs/net hands the bytes of a binary message
-// to on_message unchanged — it never inspects the opcode — and decompresses
-// nothing, so inflation belongs to the adapter. What the client sends is
-// PLAIN text, verified: an uncompressed subscribe is acknowledged.
-//
-// Market data and funding live on two paths of one host speaking two dialects:
-// /linear-swap-ws takes {"sub":"market.{code}.{topic}"}, and
-// /linear-swap-notification takes {"op":"sub","topic":"public.{code}.
-// funding_rate"}. VERIFIED: market.{code}.funding_rate is refused on both the
-// market socket and /ws_index, so the notification path is the only funding
-// push HTX has.
+// htx gzips every frame under a binary opcode and libs/net does not inflate, so the adapter does
 
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/net/inflater.hpp>
@@ -36,39 +21,27 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view to_string(WsBuildError err) noexcept;
 
-// HTX serves both sockets from one host; the config's testnet flag has
-// nothing to select, so it is not consulted.
 [[nodiscard]] std::string_view stream_host() noexcept;
 [[nodiscard]] std::string_view stream_port() noexcept;
 [[nodiscard]] std::string_view market_path() noexcept;
 [[nodiscard]] std::string_view notify_path() noexcept;
 
-// Spot's private socket is a different HOST and a different dialect, and the
-// host is a term of the handshake signature: a frame built for one endpoint
-// and sent to the other authenticates as a bad key.
+// spot's private socket is another host, and the host is part of the signature
 [[nodiscard]] std::string_view spot_stream_host() noexcept;
 [[nodiscard]] std::string_view spot_private_path() noexcept;
 
-// The private topics this adapter subscribes to. The swap's `_cross` suffix
-// matches rest.hpp's k_margin_mode; an isolated-margin account would need the
-// bare spellings and the isolated REST endpoints in the same change.
+// the _cross suffix matches k_margin_mode in rest.hpp
 inline constexpr std::string_view k_swap_orders_topic = "orders_cross.*";
 inline constexpr std::string_view k_swap_positions_topic = "positions_cross.*";
 inline constexpr std::string_view k_spot_orders_channel = "orders#*";
 
-// The trailing 0 asks for trade events only. Mode 1 adds cancellations, which
-// the orders channel already reports — subscribing to both would deliver every
-// cancel twice.
+// mode 0 is trades only; mode 1 would repeat cancels the orders channel already sends
 inline constexpr std::string_view k_spot_trades_channel = "trade.clearing#*#0";
 
-// The 24-hour window. It is on the MARKET socket while funding is on the
-// notification one, so the two arrive under one SubKind from two connections;
-// no kind of its own exists to ask for it with.
+// on the market socket, while funding is on the notification socket
 inline constexpr std::string_view k_detail_topic = "detail";
 
-// The part after the contract code. Empty for a kind HTX does not stream
-// under these names — including Funding, which lives on the other socket and
-// so goes through funding_subscribe_frame instead.
+// empty for kinds htx does not stream here, including Funding
 [[nodiscard]] std::string_view topic_suffix(exec::SubKind kind) noexcept;
 
 class Protocol {
@@ -90,20 +63,14 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError> market_pong_frame(std::string_view ts);
     [[nodiscard]] std::expected<Frame, WsBuildError> notify_pong_frame(std::string_view ts);
 
-    // {"action":"pong","data":{"ts":<ms>}} — the spot v2 dialect, which buries
-    // the timestamp one level down where the other two put it at the root.
+    // {"action":"pong","data":{"ts":<ms>}}, spot v2 dialect
     [[nodiscard]] std::expected<Frame, WsBuildError> spot_pong_frame(std::string_view ts);
 
-    // {"op":"auth","type":"api",...} over the swap notification socket. Signs
-    // GET \n api.hbdm.com \n /linear-swap-notification \n <sorted query>, the
-    // same canonical string REST uses with the socket's path in it.
+    // signs the rest canonical string with the notification socket's path
     [[nodiscard]] std::expected<Frame, WsBuildError> swap_auth_frame(const net::Signer& signer,
                                                                      UnixNanos now);
 
-    // The spot v2 handshake. Two things differ and neither is announced by the
-    // failure: the parameters are named in lowerCamelCase (accessKey,
-    // signatureMethod, signatureVersion, timestamp) rather than the REST
-    // spelling, and signatureVersion is "2.1" where everything else says "2".
+    // spot v2 names the parameters in lowerCamelCase and uses signatureVersion "2.1"
     [[nodiscard]] std::expected<Frame, WsBuildError> spot_auth_frame(const net::Signer& signer,
                                                                      UnixNanos now);
 
@@ -115,7 +82,7 @@ public:
     [[nodiscard]] std::expected<Frame, WsBuildError>
     spot_private_subscribe_frame(std::string_view channel);
 
-    // Exposed for tests: the exact bytes signed by the last auth frame.
+    // for tests: the bytes signed by the last auth frame
     [[nodiscard]] std::string_view last_auth_message() const noexcept;
 
 private:
@@ -125,10 +92,9 @@ private:
     [[nodiscard]] std::expected<Frame, WsBuildError> pong(std::string_view head,
                                                           std::string_view ts);
 
-    // One topic per message, so this is generous; BufferTooSmall costs a subscription silently.
+    // one topic per message; BufferTooSmall drops a subscription silently
     std::array<char, 256> frame_{};
-    // An auth frame carries a 64-character key beside a base64 digest that is
-    // percent-encoded again, so it does not fit the subscribe buffer.
+    // an auth frame carries the key and a percent-encoded digest
     std::array<char, 768> auth_frame_{};
     std::array<char, 512> auth_msg_{};
     std::array<char, 256> auth_query_{};

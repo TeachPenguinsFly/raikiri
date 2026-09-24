@@ -9,30 +9,14 @@ import { compact, nanosToMillis, toNumber } from '@/lib/format'
 import { useQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 
-/** A table this screen was not written for.
- *
- *  THE COLUMNS ARRIVE WITH THE DATA. What is worth scanning for, and how the
- *  edge in it is computed, is not this repository's to hold — so the upstream
- *  names its own tables and its own columns, and this file knows only how to
- *  draw a cell of each KIND. Hardcoding "funding spread" here would put the
- *  model in a public repository as surely as shipping the arithmetic would.
- *
- *  What it does own is the reading: sorting, a venue filter, and the difference
- *  between two kinds of empty. */
+/** draws whatever tables and columns the upstream declares */
 
-/** The upstream a terminal offers boards from. One neutral name, configurable
- *  at the proxy — `admind --upstream boards=<port>` — so the screen names no
- *  service and no service names itself here. */
+/** upstream name, set with admind --upstream boards=<port> */
 const k_upstream = 'boards'
 
 type Row = Record<string, string>
 
-/** A cell, drawn by the column's declared KIND and never by its meaning.
- *
- *  `signed` is painted by sign because a number that can be a cost has to read
- *  as one; `venue` gets the mark that makes an identity scannable in a column
- *  of numbers; `duration` is an instant on the wire and time-remaining to a
- *  reader, which is the only form anybody acts on. */
+/** cells are drawn by the column's declared kind */
 function Cell({ column, value }: { column: UpstreamColumn; value: string | undefined }) {
   if (value === undefined || value === '') return <span className="text-fg-dim/40">—</span>
   switch (column.kind) {
@@ -65,8 +49,7 @@ function Cell({ column, value }: { column: UpstreamColumn; value: string | undef
 const numeric = (column: UpstreamColumn): boolean =>
   column.kind === 'number' || column.kind === 'signed' || column.kind === 'duration'
 
-/** OPAQUE, because a sticky `<tr>` paints nothing: the background has to sit on
- *  the cells or the rows scroll through the labels. */
+/** opaque because a sticky tr paints nothing */
 const head = 'sticky top-0 z-10 border-b border-line bg-bg'
 
 export function ScannerPage() {
@@ -106,8 +89,7 @@ export function ScannerPage() {
     if (table.state !== 'ready') return []
     const kept = (table.data.rows as Row[]).filter((row) => {
       if (venues.size === 0) return true
-      // EVERY venue leg must be wanted, not just one: a row is a route, and a
-      // route through a venue the reader excluded is not a route they can take.
+      // every venue leg must pass the filter
       return venueKeys.every((key) => {
         const v = row[key]
         return v === undefined || v === '' || venues.has(v)
@@ -138,11 +120,6 @@ export function ScannerPage() {
                 <button
                   key={t.path}
                   type="button"
-                  // ROLE AND STATE, not just styling. These select between the
-                  // upstream's tables, which is what a tab is; a screen reader
-                  // was told they were plain buttons, and a test asking for the
-                  // second tab got the header's gateway counter instead — and
-                  // passed, because clicking it changes nothing.
                   role="tab"
                   aria-selected={t.path === active}
                   onClick={() => {
@@ -179,15 +156,10 @@ export function ScannerPage() {
           <EmptyState title="Waiting on the upstream…" />
         )}
 
-        {/* THE REFUSAL IS THE ANSWER. A service that is not running produces no
-            table, and an empty one here would say the search ran and found
-            nothing — a claim about the market rather than about us. */}
         {table.state === 'failed' && (
           <EmptyState title={table.title} hint={table.detail ?? undefined} />
         )}
 
-        {/* The upstream says which empty this is; only it knows whether it
-            looked at nothing or looked at everything and kept none of it. */}
         {table.state === 'ready' && rows.length === 0 && (
           <EmptyState
             title={venues.size > 0 ? 'No row uses only the venues you kept' : 'No rows'}

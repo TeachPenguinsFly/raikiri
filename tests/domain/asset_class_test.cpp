@@ -92,9 +92,6 @@ std::string base_of_symbol(std::string_view symbol) {
     return base;
 }
 
-// A symbol spelled like an underlying some venue states as an equity, metal,
-// index or currency must carry its own row on a venue that states nothing,
-// even when the row says Crypto — SPX the coin is a decision, not a default.
 TEST(AssetClass, NoFixtureSymbolNamedLikeAStatedUnderlyingDefaultsToCrypto) {
     std::set<std::string, std::less<>> known;
     for (const auto& row : curated_rows()) {

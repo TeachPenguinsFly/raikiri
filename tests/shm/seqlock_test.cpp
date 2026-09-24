@@ -16,7 +16,7 @@ struct Snapshot {
     std::uint64_t b{0};
     std::uint64_t c{0};
 
-    // Writers keep a == b == c; a torn read shows mixed values.
+    // writers keep a == b == c
     [[nodiscard]] bool coherent() const noexcept { return a == b && b == c; }
 };
 
@@ -62,8 +62,6 @@ TEST(Seqlock, VersionAdvancesPerWriteForChangeGating) {
     EXPECT_EQ(cell.version_now(), v2);
 }
 
-// TSan + torn-read target: one writer hammering, several readers asserting
-// every snapshot is internally coherent.
 TEST(SeqlockStress, ReadersNeverObserveTornSnapshots) {
     auto cell = std::make_unique<SeqlockCell<Snapshot>>();
     std::atomic<bool> stop{false};

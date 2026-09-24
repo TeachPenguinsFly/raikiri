@@ -16,17 +16,14 @@ constexpr std::string_view k_hdr_sign = "CB-ACCESS-SIGN";
 constexpr std::string_view k_hdr_timestamp = "CB-ACCESS-TIMESTAMP";
 constexpr std::string_view k_hdr_passphrase = "CB-ACCESS-PASSPHRASE";
 
-// Crockford base32, the ULID alphabet: no I, L, O or U.
+// crockford base32, the ulid alphabet: no I, L, O or U
 constexpr std::string_view k_crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 constexpr std::string_view k_hex = "0123456789abcdef";
 
 constexpr std::size_t k_ulid_len = 26;
 constexpr std::size_t k_uuid_bytes = 16;
 
-// Fills the builder's target buffer. A part that would overflow is dropped
-// rather than truncated mid-token, so an over-long product id yields a
-// request Coinbase answers with 404 NotFound instead of one that names a
-// different product.
+// drops a part that would overflow instead of truncating mid-token
 class TargetWriter {
 public:
     explicit TargetWriter(std::span<char> into) noexcept : into_{into} {}
@@ -72,8 +69,7 @@ net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = "/time", .body = {}};
 }
 
-// Every builder below writes into the same buffer, so a request must be sent
-// before the next one is built. One catalogue load at a time is the only use.
+// shared buffer: send each request before building the next
 net::RestRequest RequestBuilder::product(std::string_view product_id) noexcept {
     TargetWriter writer{target_};
     writer.put("/products/");
@@ -92,8 +88,7 @@ net::RestRequest RequestBuilder::book(std::string_view product_id, std::uint32_t
 
 namespace {
 
-// Reports overflow instead of truncating: a signed body cut mid-number
-// authenticates an order nobody placed.
+// reports overflow instead of truncating a signed body
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -150,8 +145,7 @@ client_oid_of(const ExchangeClientOrderId& id) noexcept {
     if (text.size() != k_ulid_len) {
         return std::nullopt;
     }
-    // 26 Crockford characters carry 130 bits; a valid ULID leaves the top two
-    // clear, so the low 128 are the whole value.
+    // 26 crockford characters carry 130 bits; a valid ulid leaves the top two clear
     std::array<std::uint8_t, k_uuid_bytes> bytes{};
     std::uint32_t accumulator = 0;
     int bits = 0;
@@ -180,9 +174,7 @@ client_oid_of(const ExchangeClientOrderId& id) noexcept {
     if (written != bytes.size() || bits != 0) {
         return std::nullopt;
     }
-    // Version 4 and variant 1, which is what Coinbase means by "variant 1
-    // UUIDv4". Both nibbles land in the ULID's RANDOM half — the timestamp is
-    // the first six bytes — so what is overwritten is entropy, not identity.
+    // version 4, variant 1; both land in the ulid's random half
     bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0FU) | 0x40U);
     bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3FU) | 0x80U);
 
@@ -231,9 +223,7 @@ std::optional<BuildError> market_refusal(MarketType market) noexcept {
     case MarketType::Spot:
         return std::nullopt;
     case MarketType::Perp:
-        // Coinbase does list perpetuals — on Coinbase International, a
-        // different entity, a different host and a different API. Routing one
-        // here would silently place a SPOT order for the same base currency.
+        // perps live on coinbase international, a different api; routing one here would place a spot order
         return BuildError::PerpNotListed;
     case MarketType::Future:
         return BuildError::DatedFuturesNotListed;
@@ -251,22 +241,17 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
         return std::unexpected{BuildError::BufferTooSmall};
     }
     if (!signer_->has_credentials() || passphrase_.empty()) {
-        // The passphrase is a third credential, unlike every venue here but
-        // okx and kucoin, and a request missing it is refused 401 in a way
-        // that reads exactly like a wrong secret.
+        // the passphrase is a third credential; without it the venue answers 401
         return std::unexpected{BuildError::NotSigned};
     }
     const auto timestamp = timestamp_s(now, timestamp_);
-    // The requestPath signed is the target INCLUDING its query string, which
-    // is why signing happens after the target is complete rather than beside
-    // the path that opened it.
+    // the signed requestPath includes the query string
     const auto message = prehash(timestamp, method, target, body, prehash_);
     if (timestamp.empty() || message.empty()) {
         return std::unexpected{BuildError::BufferTooSmall};
     }
     prehash_len_ = message.size();
-    // Base64 of the digest, keyed by the already-decoded secret; see sign.hpp
-    // for why the decode does not happen here.
+    // base64 of the digest, keyed by the already-decoded secret
     const auto signature = signer_->sign(message, net::Signer::Encoding::Base64, signature_);
     if (signature.empty()) {
         return std::unexpected{BuildError::NotSigned};
@@ -316,8 +301,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
         .str("product_id", base.exchange_symbol.view())
         .str("side", cmd.side == Side::Sell ? "sell" : "buy")
         .str("type", is_market ? "market" : "limit")
-        // `size` is BASE currency on both sides, so unlike gate and htx a
-        // market BUY needs no quote-denominated guess and is not refused.
+        // `size` is base currency on both sides, so a market buy needs no quote guess
         .decimal("size", size);
     if (!is_market) {
         const auto price = base.ticks_to_price(cmd.price);
@@ -325,14 +309,12 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             return std::unexpected{BuildError::BadPrice};
         }
         json.decimal("price", price).str("time_in_force", tif_text(cmd.tif));
-        // post_only is INVALID beside IOC or FOK — the request is refused, not
-        // ignored — so a maker-only order that is not GTC simply is not one.
+        // post_only is refused beside IOC or FOK, so only GTC sends it
         if (has_flag(cmd.flags, OrderFlags::PostOnly) && cmd.tif == TimeInForce::Gtc) {
             json.boolean("post_only", true);
         }
     }
-    // ReduceOnly is deliberately not forwarded: a spot balance cannot be
-    // short, and Coinbase Exchange has no field for it.
+    // reduce-only is not forwarded: spot has no field for it
     json.obj_end();
     if (!json.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -356,12 +338,10 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
                                        ? BuildError::NoOrderTarget
                                        : BuildError::ClientOrderIdNotAUlid};
         }
-        // The `client:` namespace is what tells Coinbase the id is ours; the
-        // bare form is read as a venue id and answers 404.
+        // the client: prefix marks the id as ours; the bare form is read as a venue id
         target << "client:" << std::string_view{client_oid->data(), client_oid->size()};
     }
-    // Naming the product is optional and cheaper for the venue, so it is sent
-    // whenever the table can supply it.
+    // the product is optional and sent when known
     if (const auto symbol = table.exchange_symbol(cmd.instrument); !symbol.empty()) {
         target << "?product_id=" << symbol;
     }
@@ -387,9 +367,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::open_orders(Ma
         return std::unexpected{*refusal};
     }
     Appender target{target_};
-    // Both statuses on purpose: `pending` is an order the matching engine has
-    // taken but not yet placed, and leaving it out reports a live order as
-    // absent for as long as that lasts.
+    // pending is an order the engine took but has not placed yet
     target << "/orders?status=open&status=pending&limit=" << k_max_page;
     if (!target.ok()) {
         return std::unexpected{BuildError::BufferTooSmall};

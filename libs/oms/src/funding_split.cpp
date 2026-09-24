@@ -29,9 +29,7 @@ std::vector<FundingShare> split_funding(std::span<const FundingHolder> holders,
         if (held.lots == 0) {
             continue;
         }
-        // The remainder goes to the last holder so the parts sum to the charge
-        // exactly; rounding each share on its own loses units into nobody's
-        // book, and the ledger then disagrees with the venue's balance forever.
+        // the remainder goes to the last holder so the parts sum exactly
         const auto share =
             &held == last ? amount.raw - paid : amount.raw * std::abs(held.lots) / total_lots;
         paid += share;

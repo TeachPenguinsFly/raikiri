@@ -60,7 +60,7 @@ public:
         case MarketType::Perp:
             return fetch_futures();
         case MarketType::Future:
-            // The futures host lists dated contracts, every one seen inverse.
+            // dated contracts on the futures host are all inverse
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Terminal, 0, "kucoin dated futures are not modelled")};
         case MarketType::Option:
@@ -72,8 +72,7 @@ public:
 private:
     std::expected<std::vector<Instrument>, exec::VenueError> fetch_futures() {
         rest_.start();
-        // Signed requests are refused outside five seconds of KuCoin's clock,
-        // so the offset is measured before order entry can need it.
+        // kucoin refuses signatures more than 5 s off its clock
         sync_clock(*state_, rest_);
 
         const auto body =

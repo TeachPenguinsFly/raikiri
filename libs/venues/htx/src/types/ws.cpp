@@ -10,9 +10,6 @@ namespace raikiri::venues::htx {
 
 namespace {
 
-// Fills the protocol's frame buffer. A part that would overflow marks the
-// whole frame bad rather than truncating it: a half-written subscribe names a
-// topic HTX refuses.
 class FrameWriter {
 public:
     explicit FrameWriter(std::span<char> into) noexcept : into_{into} {}
@@ -135,7 +132,7 @@ Protocol::funding_subscribe_frame(std::string_view code) {
     return writer.frame();
 }
 
-// The timestamp goes back as the token it arrived as, quotes and all.
+// the timestamp goes back as it arrived, quotes and all
 std::expected<Protocol::Frame, WsBuildError> Protocol::pong(std::string_view head,
                                                             std::string_view ts) {
     if (ts.empty()) {
@@ -208,9 +205,7 @@ std::expected<Protocol::Frame, WsBuildError> Protocol::swap_auth_frame(const net
         return std::unexpected{WsBuildError::UnsupportedKind};
     }
 
-    // The handshake carries the digest as a JSON STRING, not as a query
-    // parameter, so it is the one place on this venue the base64 is NOT
-    // percent-encoded. Encoding it here is answered "invalid signature".
+    // the digest travels as a json string, so it is not percent-encoded here
     FrameWriter writer{auth_frame_};
     writer.put(R"({"op":"auth","type":"api","AccessKeyId":")");
     writer.put(signer.api_key());

@@ -1,8 +1,5 @@
 #pragma once
 
-// What the venue lists, and the numbers that decide whether an order it
-// accepts is an order it will fill.
-
 #include <raikiri/venues/kraken/errors.hpp>
 #include <raikiri/wire/error.hpp>
 
@@ -14,11 +11,7 @@
 
 namespace raikiri::venues::kraken {
 
-// `type` does NOT separate perpetual from dated: flexible_futures covers
-// both PF_ and FF_, futures_inverse covers both PI_ and FI_. VERIFIED across
-// all 298 live rows, `last_trading_time` is present on exactly the dated
-// contracts, which is what the mapper keys on. The precision field is signed
-// on purpose — see map.cpp.
+// type does not separate perpetual from dated; last_trading_time marks dated contracts
 struct WireInstrument {
     std::string_view symbol;
     std::string_view type;              // flexible_futures | futures_inverse

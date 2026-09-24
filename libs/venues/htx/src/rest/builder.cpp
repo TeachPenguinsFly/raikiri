@@ -10,8 +10,7 @@ namespace raikiri::venues::htx {
 
 namespace {
 
-// The four constants every signed HTX request carries. SignatureVersion is "2"
-// everywhere except the spot websocket handshake, which spells it "2.1".
+// SignatureVersion is "2" everywhere except the spot websocket handshake ("2.1")
 constexpr std::string_view k_param_key = "AccessKeyId";
 constexpr std::string_view k_param_method = "SignatureMethod";
 constexpr std::string_view k_param_version = "SignatureVersion";
@@ -19,16 +18,12 @@ constexpr std::string_view k_param_timestamp = "Timestamp";
 constexpr std::string_view k_signature_method = "HmacSHA256";
 constexpr std::string_view k_signature_version = "2";
 
-// Reconciliation wants the whole picture in one round trip; both spot list
-// endpoints cap at 500 and default to 100.
+// both spot list endpoints cap at 500
 constexpr std::string_view k_spot_page_limit = "500";
 
-// The widest window the financial-record read answers. HTX refuses a start
-// further back than this, so it is a clamp and not a preference.
+// htx refuses a start further back than 48 hours
 constexpr std::uint64_t k_financial_record_window_ms = 48ULL * 60 * 60 * 1000;
 
-// Appends into a fixed buffer, reporting overflow rather than truncating: a
-// truncated body says something we did not mean to say.
 class Appender {
 public:
     explicit Appender(std::span<char> buf) noexcept : buf_{buf} {}
@@ -88,29 +83,22 @@ private:
                : std::string_view{};
 }
 
-// HTX names the swap order type and the time in force in ONE field, and only
-// "limit", "post_only", "ioc" and "fok" may carry a price — "market",
-// "opponent" and the optimal_N family are refused outright if one is sent.
+// only limit, post_only, ioc and fok may carry a price
 [[nodiscard]] std::string_view swap_order_price_type(const OrderCmd& cmd) noexcept {
     if (cmd.order_type == OrderType::Market) {
         switch (cmd.tif) {
         case TimeInForce::Fok:
-            // There is no fill-or-kill market type; "fok" wants a price, so the
-            // BBO-priced variant is the only one that expresses the intent.
+            // fok needs a price, so the bbo-priced variant expresses a market fok
             return "opponent_fok";
         case TimeInForce::Ioc:
         case TimeInForce::Gtc:
             break;
         }
-        // A market order never rests, so GTC and IOC mean the same thing here.
+        // a market order never rests, so gtc and ioc are the same
         return "market";
     }
     if (has_flag(cmd.flags, OrderFlags::PostOnly)) {
-        // Post-only is an order price TYPE here, not a flag beside one — and
-        // the swap CANCELS a post_only order that would cross rather than
-        // rejecting it, so the verdict arrives as a status-7 push and never as
-        // a REST error. Spot's buy-limit-maker rejects at submit instead: one
-        // intent, two failure shapes.
+        // the swap cancels a crossing post_only order (status 7 push); spot rejects it at submit
         return "post_only";
     }
     switch (cmd.tif) {
@@ -124,9 +112,7 @@ private:
     return "limit";
 }
 
-// Spot has no separate side, type and tif: one `type` string spells all three.
-// A post-only order is "-limit-maker", which is why the flag is read before
-// the time in force.
+// spot spells side, type and tif in one string; post-only is "-limit-maker"
 [[nodiscard]] std::string_view spot_order_type(const OrderCmd& cmd) noexcept {
     const bool buy = cmd.side == Side::Buy;
     if (cmd.order_type == OrderType::Market) {
@@ -146,10 +132,7 @@ private:
     return buy ? "buy-limit" : "sell-limit";
 }
 
-// Whole contracts from lots. `volume` on a swap is a JSON integer count of
-// contracts — VERIFIED live: 1.5 is refused with err_code 1067 — so a quantity
-// that is not a whole number of them cannot be sent, and must not be rounded
-// into one that can.
+// swap volume is an integer count of contracts; fractional counts are refused, not rounded
 [[nodiscard]] std::optional<std::int64_t> whole_contracts(QtyLots lots,
                                                           const InstrumentBase& base) noexcept {
     const auto qty = base.lots_to_qty(lots);
@@ -219,10 +202,7 @@ std::string_view to_string(BuildError err) noexcept {
     return "unknown";
 }
 
-// HTX serves spot and USDT-margined swaps here. Dated futures and options are
-// separate products on their own hosts, each with its own model; both get their
-// own name so a refusal says which surface is missing rather than blaming the
-// catalogue.
+// dated futures and options get their own refusal so the catalogue is not blamed
 std::optional<BuildError> market_refusal(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -255,8 +235,6 @@ net::RestRequest RequestBuilder::spot_symbols() noexcept {
 net::RestRequest RequestBuilder::server_time() noexcept {
     return {.method = net::HttpMethod::Get, .target = ep::k_server_time, .body = {}};
 }
-
-// -------------------------------------------------------------- signed ----
 
 std::string_view SignedRequestBuilder::last_sign_message() const noexcept {
     return {sign_msg_.data(), sign_msg_len_};
@@ -296,8 +274,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::sign(net::Http
     if (signature.empty()) {
         return std::unexpected{BuildError::NotSigned};
     }
-    // The signature rides in the query it is not part of, so it is encoded on
-    // its own: base64 spells '+', '/' and '=' , none of them URL-safe.
+    // base64 has '+', '/' and '=', so the signature is encoded on its own
     const auto encoded = sign::encode(signature, encoded_signature_);
     if (encoded.empty()) {
         return std::unexpected{BuildError::BufferTooSmall};
@@ -396,8 +373,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
             }
             json.decimal("price", price);
         }
-        // ReduceOnly is deliberately not forwarded: a spot balance cannot be
-        // short, so HTX has no field for it.
+        // spot has no reduce-only field
         json.obj_end();
         path << ep::k_spot_order_place;
         break;
@@ -405,8 +381,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::create_order(
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
     case MarketType::Option:
-        // HTX lists options on a separate host and API keyed by underlying and
-        // expiry; nothing here builds an OptionInstrument out of one.
         return std::unexpected{BuildError::OptionsUnsupported};
     }
     if (!json.ok() || !path.ok()) {
@@ -432,9 +406,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_order(
         }
         json.obj_begin().str("contract_code", symbol);
         if (!cmd.target_exchange_order_id.empty()) {
-            // The venue id outlives the client id: HTX resolves a
-            // client_order_id for 8 hours after the order finishes and answers
-            // err_code 1061 past that, for an order that very much existed.
+            // htx resolves a client_order_id only for 8 hours after the order finishes (err 1061)
             json.str("order_id", cmd.target_exchange_order_id.view());
         } else {
             const auto client_id = swap_client_id(cmd.client_order_id);
@@ -481,9 +453,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::amend_order(
     if (const auto refusal = market_refusal(cmd.instrument.market()); refusal.has_value()) {
         return std::unexpected{*refusal};
     }
-    // Both surfaces are cancel-and-replace: neither /v1/order/orders nor
-    // /linear-swap-api exposes a modify. The named refusal keeps the caps row
-    // (amend_order = false) and this builder saying the same thing.
     return std::unexpected{BuildError::AmendUnsupported};
 }
 
@@ -524,8 +493,7 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::cancel_batch(
         if (!ids.ok()) {
             return std::unexpected{BuildError::BufferTooSmall};
         }
-        // One comma-separated string, not a JSON array: the field is typed
-        // string and an array is refused as an illegal parameter.
+        // a comma-separated string; an array is refused
         body << R"({"contract_code":")" << symbol << R"(","client_order_id":")" << ids.view()
              << R"("})";
         path << ep::k_swap_cancel;
@@ -567,8 +535,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::uint32_t page, UnixNan
     auto method = net::HttpMethod::Post;
     switch (market) {
     case MarketType::Perp:
-        // No parameter is required, and omitting contract_code is what makes
-        // this an account-wide sweep rather than a per-contract loop.
+        // omitting contract_code makes this account-wide
         json.obj_begin()
             .num("page_index", static_cast<std::int64_t>(page == 0 ? 1 : page))
             .num("page_size", static_cast<std::int64_t>(k_swap_page_size))
@@ -577,8 +544,7 @@ SignedRequestBuilder::open_orders(MarketType market, std::uint32_t page, UnixNan
         break;
     case MarketType::Spot:
         method = net::HttpMethod::Get;
-        // account-id and symbol are both optional here; leaving them out is
-        // the only account-wide open-order read HTX spot has.
+        // omitting account-id and symbol gives the account-wide read
         query.add("size", k_spot_page_limit);
         path << ep::k_spot_open_orders;
         break;
@@ -625,8 +591,7 @@ SignedRequestBuilder::query_order(const ExchangeClientOrderId& id,
             return std::unexpected{BuildError::NoOrderTarget};
         }
         method = net::HttpMethod::Get;
-        // The query parameter is camelCase where the body field everywhere
-        // else on this API is hyphenated. HTX's own spelling, not a typo.
+        // camelCase here and hyphenated in bodies; htx's own spelling
         query.add("clientOrderId", id.view());
         path << ep::k_spot_order_by_client_id;
         break;
@@ -658,8 +623,6 @@ std::expected<net::RestRequest, BuildError> SignedRequestBuilder::positions(Mark
         path << ep::k_swap_position_info;
         break;
     case MarketType::Spot:
-        // A spot balance is not a position, and one BTC balance backs btcusdt,
-        // btcusdc and btceth alike. The caller refuses before reaching here.
         return std::unexpected{BuildError::SpotHasNoPositions};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -679,9 +642,6 @@ SignedRequestBuilder::financial_record(MarketType market, UnixNanos since, UnixN
     case MarketType::Perp:
         break;
     case MarketType::Spot:
-        // A spot pair pays no funding, and this ledger is the SWAP account's.
-        // Answering with it would book a perpetual's charges against a spot
-        // gateway.
         return std::unexpected{BuildError::SpotHasNoFunding};
     case MarketType::Future:
         return std::unexpected{BuildError::DatedFuturesUnsupported};
@@ -689,17 +649,13 @@ SignedRequestBuilder::financial_record(MarketType market, UnixNanos since, UnixN
         return std::unexpected{BuildError::OptionsUnsupported};
     }
 
-    // 48 hours is the widest window HTX answers, so the cursor is a floor
-    // rather than a promise — see rest.hpp.
     const auto now_ms = now.ns / 1'000'000ULL;
     const auto floor_ms =
         now_ms > k_financial_record_window_ms ? now_ms - k_financial_record_window_ms : 0;
     const auto since_ms = since.ns / 1'000'000ULL;
 
     net::JsonWriter json{body_};
-    // contract_code omitted: the whole margin account in one call, which is
-    // what makes this pull answerable where the per-contract trade history is
-    // not.
+    // contract_code omitted: the whole margin account in one call
     json.obj_begin()
         .str("mar_acct", k_cross_margin_account)
         .str("type", k_funding_record_types)

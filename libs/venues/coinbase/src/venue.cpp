@@ -56,15 +56,10 @@ make(const exec::VenueConfig& config, exec::GatewaySink& sink, const Clock& cloc
     auto state = std::make_shared<VenueState>(sink, clock);
     state->order_answer_timeout_ns = config.order_answer_timeout_ns;
 
-    // Dropped on the floor, as before: a venue factory has nowhere to report a
-    // misconfigured reference to, so a typo still reads downstream as a revoked
-    // key. Worth fixing, and not in the same change that moves the code.
+    // credential errors are dropped here; a typo reads downstream as a revoked key
     (void)config::Credentials{config.api_key_env, config.api_secret_env, config.passphrase_env}
         .key([&](std::string_view value) { state->signer.set_api_key(value); })
-        // Decoded ONCE, here. Coinbase keys the HMAC with the raw bytes behind
-        // the printable secret, and a signer holding the printable form
-        // produces a well-formed digest the venue answers 401 to —
-        // indistinguishable from a revoked key.
+        // decoded once: coinbase keys the hmac with the raw secret bytes
         .secret([&](std::string_view encoded) {
             std::array<char, k_max_secret_bytes> raw{};
             if (const auto len = decode_secret(encoded, raw); len.has_value()) {

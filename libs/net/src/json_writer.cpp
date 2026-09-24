@@ -22,9 +22,7 @@ void JsonWriter::put(std::string_view s) noexcept {
     len_ += s.size();
 }
 
-// Venue symbols and ULIDs are alphanumeric, so escaping never fires in
-// practice — but a symbol carrying a quote would otherwise produce a
-// payload the venue parses as something else entirely.
+// escaping rarely fires; venue symbols and ulids are alphanumeric
 void JsonWriter::put_escaped(std::string_view s) noexcept {
     for (const char c : s) {
         switch (c) {
@@ -126,7 +124,7 @@ JsonWriter& JsonWriter::decimal(std::string_view key, FixedE9 value) noexcept {
     char tmp[32];
     const auto text = format_e9(value, tmp, sizeof tmp);
     if (text.empty()) {
-        overflow_ = true; // undefined value reaching the wire is a bug
+        overflow_ = true; // an undefined value reaching the wire is a bug
         return *this;
     }
     put('"');

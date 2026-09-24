@@ -1,17 +1,7 @@
 #pragma once
 
-// Wire types -> domain types.
-//
-// The instrument's steps are DERIVED. MEXC states priceScale and volScale —
-// counts of decimal digits — and never a tick or a lot size, so the step is
-// built here as an integer power of ten. That derivation has a hard edge:
-// FixedE9 carries nine fractional digits and MEXC lists contracts at scale 10
-// and 11, which are refused rather than rounded.
-//
-// Funding rides on the ticker channel. MEXC's dedicated funding channel
-// acknowledges a subscribe and then pushes nothing between settlements
-// (verified: 90 s of silence), so the rate arrives with the ticker — which
-// carries no settlement boundary, hence the separate REST overload.
+// steps derive from priceScale and volScale, and scales above 9 are
+// refused; funding comes from the ticker
 
 #include <raikiri/domain/ledger_entry.hpp>
 #include <raikiri/domain/market_data.hpp>
@@ -30,36 +20,24 @@
 
 namespace raikiri::venues::mexc {
 
-// Venue milliseconds -> UnixNanos. A zero or absent venue timestamp yields
-// local ingest time: a zero propagating into latency histograms poisons them.
+// zero or absent yields the fallback ingest time
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
 
-// 10^-scale as a FixedE9 step, built by integer division so no float ever
-// holds a tick size. Returns nullopt past nine digits, which FixedE9 cannot
-// represent.
+// 10^-scale by integer division; nullopt past nine digits
 [[nodiscard]] std::optional<FixedE9> step_from_scale(std::int64_t scale) noexcept;
 
-// Public market data ------------------------------------------------------
-
-// Refuses anything but a snapshot: an incremental push.depth frame lists only
-// the levels that changed, in no particular order, so its first entry is not
-// the touch.
+// snapshots only; a push.depth delta's first entry is not the touch
 [[nodiscard]] std::optional<Bbo>
 map_bbo(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// Snapshots only, for the same reason: depth.full is self-contained, so the
-// newest frame replaces what shm holds and the mapper carries no book state.
-// Reconstructing a book from push.depth would mean holding one here.
+// snapshots only; the mapper keeps no book state
 [[nodiscard]] std::optional<BookSnapshot>
 map_book(const WireDepth& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
 [[nodiscard]] std::optional<TradeTick>
 map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The spot stream's own shapes. Separate from the futures mappers above
-// because the two trees share no field, no encoding and no unit: futures
-// quantities are CONTRACTS and spot's are base units, so a mapper reused
-// across them would convert one of the markets with the other's lot size.
+// futures sizes are contracts and spot sizes base units, so the mappers stay separate
 [[nodiscard]] std::optional<Bbo> map_spot_bbo(const StreamQuote& wire,
                                               std::string_view symbol,
                                               std::uint64_t ts_ms,
@@ -77,19 +55,15 @@ map_trade(const WireTrade& wire, const exec::InstrumentTable& table, UnixNanos t
                                                         const exec::InstrumentTable& table,
                                                         UnixNanos ts_init);
 
-// Returns nullopt when the frame quotes no rate at all — a contract without
-// funding must not be reported as one funding at zero. The frame states no
-// schedule: interval_s is the catalogue's, which stays 0 where MEXC stated none.
+// nullopt when the frame quotes no rate; interval_s comes from the catalogue
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The REST form, which does carry the schedule. Same output type so a caller
-// that has both sources emits one kind of event.
+// the rest form, which carries the schedule
 [[nodiscard]] std::optional<FundingUpdate>
 map_funding(const WireFundingRate& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
-// The 24-hour window off the same frame; `volume24` contracts times the
-// contract size is the base column.
+// base volume is `volume24` contracts times the contract size
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, UnixNanos ts_init);
 
@@ -97,35 +71,22 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
                                                                const exec::InstrumentTable& table,
                                                                UnixNanos ts_init);
 
-// Catalogue ---------------------------------------------------------------
-
-// Returns nullopt for anything not enabled, for any market this endpoint does
-// not serve, and for any row whose scales cannot become steps.
+// nullopt when not enabled, not served here, or the scales cannot become steps
 [[nodiscard]] std::optional<Instrument> map_instrument(const WireInstrument& wire,
                                                        MarketType market);
 
-// Spot catalogue. Refuses a row that is not trading, and one whose quantity
-// step is finer than FixedE9 models.
+// refuses a row not trading or with a step finer than FixedE9
 [[nodiscard]] std::optional<Instrument> map_spot_instrument(const WireSpotSymbol& wire);
 
-// Private -----------------------------------------------------------------
-
-// MEXC's futures `side` is an OPEN/CLOSE enum, so the direction has to be
-// recovered from it: 1 open long and 2 close short are both BUYS, 3 and 4 both
-// SELLS. Reading it as a direction inverts every closing order.
+// futures `side` is open/close: 1 and 2 buy, 3 and 4 sell
 [[nodiscard]] Side side_from_futures(std::int64_t side) noexcept;
 
-// A lifecycle transition, or nullopt when the push carries none of its own.
-// A working order with volume already dealt returns nullopt: the fill is the
-// deal frame's to report, and re-announcing Accepted on every partial is a
-// transition the FSM refuses.
+// nullopt for a working order with dealt volume; the deal frame reports the fill
 [[nodiscard]] std::optional<OrderEvent> map_futures_order_event(const WireFuturesOrder& wire,
                                                                 const exec::InstrumentTable& table,
                                                                 UnixNanos ts_init);
 
-// A fill. `leaves` is the caller's, because MEXC's deal frame does not state
-// it — the order push is the only frame that does, and the OMS treats leaves
-// as authoritative.
+// `leaves` comes from the caller since the deal frame omits it
 [[nodiscard]] std::optional<OrderEvent> map_futures_deal(const WireFuturesDeal& wire,
                                                          const exec::InstrumentTable& table,
                                                          QtyLots leaves,
@@ -135,8 +96,7 @@ map_ticker_stats(const WireTicker& wire, const exec::InstrumentTable& table, Uni
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_futures_open_order(const WireFuturesOrder& wire, const exec::InstrumentTable& table);
 
-// Returns nullopt for a closed position rather than a zero one: absent means
-// flat, and a row MEXC keeps at size 0 is not evidence of anything.
+// nullopt for a closed position; a size-0 row means flat
 [[nodiscard]] std::optional<exec::PositionReport>
 map_futures_position(const WireFuturesPosition& wire, const exec::InstrumentTable& table);
 
@@ -147,26 +107,14 @@ map_futures_position(const WireFuturesPosition& wire, const exec::InstrumentTabl
 [[nodiscard]] std::optional<exec::OrderStatusReport>
 map_spot_open_order(const WireSpotOrder& wire, const exec::InstrumentTable& table);
 
-// `is_buyer` is the ACCOUNT's side here, unlike the public trade channel's
-// aggressor flag, and `leaves` again comes from the caller.
+// `is_buyer` is the account's side, and `leaves` comes from the caller
 [[nodiscard]] std::optional<OrderEvent> map_spot_trade(const WireSpotTrade& wire,
                                                        const exec::InstrumentTable& table,
                                                        QtyLots leaves,
                                                        UnixNanos ts_init);
 
-// One settlement the venue charged.
-//
-// THE DIRECTION COMES OFF `positionType` AND `rate`, NOT OFF THE AMOUNT.
-// MEXC documents `funding` only as "Fee" and never states whether it is signed
-// — see account.hpp — while it does document that 1 is long, 2 is short, and
-// that a positive rate has longs paying shorts. So the magnitude is the
-// venue's and the sign is the venue's too, just read off the fields it commits
-// to. A reading that trusted the amount's own sign would invert every payment
-// on the day MEXC ships a magnitude.
-//
-// nullopt for a symbol outside the table, for a figure that will not read, and
-// for a row whose rate is zero — nothing was charged either way, and there is
-// no direction to take from it.
+// direction comes from `positionType` and `rate` rather than the
+// amount's sign; nullopt for a zero rate
 [[nodiscard]] std::optional<LedgerEntry> map_funding_record(const WireFundingRecord& wire,
                                                             const exec::InstrumentTable& table,
                                                             UnixNanos ts_init);

@@ -9,8 +9,7 @@ namespace raikiri::venues::bybit {
 
 namespace {
 
-// The literal bybit requires in the private handshake. It is not a path and
-// not a method — it is a fixed string that happens to look like both.
+// the literal bybit signs in the private handshake
 constexpr std::string_view k_auth_prefix = "GET/realtime";
 
 std::string_view render_u64(std::uint64_t value, std::span<char> out) noexcept {
@@ -149,7 +148,7 @@ Protocol::auth_frame(const net::Signer& signer, UnixNanos now, std::uint32_t val
     if (!signer.has_credentials()) {
         return std::unexpected{WsBuildError::NotSigned};
     }
-    // The expiry must be ahead of bybit's clock when the frame lands.
+    // the expiry must be ahead of bybit's clock on arrival
     const auto expires_ms = now.ns / 1'000'000ULL + validity_ms;
 
     std::array<char, 24> expires_text{};

@@ -11,10 +11,7 @@ constexpr std::string_view k_host = "api-pub.bitfinex.com";
 
 constexpr std::string_view k_deriv_prefix = "deriv:";
 
-// P0 is the finest of the five aggregation levels and F0 the real-time update
-// rate. `len` takes 1, 25, 100 or 250 and nothing between; 100 is the deepest
-// tier that fits what shared memory carries, and 100 a side is what a live
-// subscription returns (VERIFIED: 200 levels in the opening snapshot).
+// p0 is the finest aggregation, f0 real time; len takes 1, 25, 100 or 250
 constexpr std::string_view k_book_precision = "P0";
 constexpr std::string_view k_book_frequency = "F0";
 constexpr std::string_view k_book_length = "100";

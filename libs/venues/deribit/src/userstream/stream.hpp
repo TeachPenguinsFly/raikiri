@@ -1,13 +1,5 @@
 #pragma once
 
-// The private socket, and only that.
-//
-// It authenticates, subscribes and hands each frame to the shared JSON-RPC
-// reader in frames.cpp — the dialect is the same on both sockets, which is why
-// that reader belongs to neither. It sends no orders: an order goes out over
-// REST and is ANSWERED here, and joining those two halves is the execution
-// client's job, not this one's.
-
 #include <raikiri/net/ws_client.hpp>
 #include <raikiri/venues/deribit/envelope.hpp>
 #include <raikiri/venues/deribit/rest.hpp>
@@ -21,14 +13,9 @@
 
 namespace raikiri::venues::deribit::internal {
 
-// Distinguishes the private socket's connectivity from the market-data one in
-// everything the gateway logs.
 constexpr std::uint64_t k_private_stream_id = 1;
 
-// The private socket. Deribit authenticates the CONNECTION rather than each
-// message: public/auth once, and every private call afterwards travels without
-// a token. The subscription that matters is only legal once that succeeded,
-// which is why it is sent from the auth reply and nowhere else.
+// deribit authenticates the connection; the subscribe is sent from the auth reply
 class PrivateHandler final : public net::WsHandler {
 public:
     explicit PrivateHandler(VenueState& state) : state_{&state} {}
@@ -58,8 +45,7 @@ public:
             }
         }
         if (handle_frame(*state_, payload, received)) {
-            // An unanswered test_request costs the connection, and this socket
-            // answers on its own id sequence.
+            // answers on this socket's own id sequence
             (void)client_->send(state_->private_protocol.test_frame().text);
         }
     }
@@ -89,8 +75,7 @@ private:
             return;
         }
         authenticated_ = true;
-        // One channel per (kind, currency): the whole account in four, and a
-        // fill on an instrument nothing subscribed to still arrives.
+        // one channel per kind and currency covers the whole account
         std::array<std::array<char, k_max_channel_len>, 4> storage{};
         std::array<Subscription, 4> channels{};
         std::size_t count = 0;
@@ -123,8 +108,6 @@ private:
     bool authenticated_{false};
 };
 
-// The socket itself, owned as one thing so a caller cannot hold the handler
-// without the client it is attached to.
 class PrivateStream {
 public:
     explicit PrivateStream(VenueState& state)
@@ -140,8 +123,7 @@ public:
 
     void stop() { ws_.stop(); }
 
-    // A socket that is up but not yet through public/auth carries no private
-    // channel at all, so being open is not the same as being usable.
+    // open is not usable until public/auth succeeded
     [[nodiscard]] bool connected() const noexcept {
         return ws_.connected() && handler_.authenticated();
     }

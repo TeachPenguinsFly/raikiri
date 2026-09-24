@@ -14,9 +14,7 @@ constexpr int k_http_server_error = 500;
 
 exec::ErrorClass classify(std::int64_t code) noexcept {
     switch (code) {
-    // The key, the signature or the account's standing. Halting is the point:
-    // a permission refusal retried at full speed is how a restricted key
-    // becomes a banned IP.
+    // halt: retrying a permission refusal risks an ip ban
     case k_bad_signature:
     case k_no_permission:
     case k_missing_signature:
@@ -33,8 +31,7 @@ exec::ErrorClass classify(std::int64_t code) noexcept {
     case k_too_many_invalid:
         return exec::ErrorClass::RateLimited;
 
-    // Each of these has a remedy that is simply waiting: the clock resync, the
-    // settlement window closing, the venue's own queue draining.
+    // each clears by waiting
     case k_bad_timestamp:
     case k_system_busy:
     case k_funding_settling:
@@ -66,7 +63,7 @@ exec::ErrorClass classify_http(int status) noexcept {
         return exec::ErrorClass::Retryable;
     }
     if (status >= k_http_ok_min && status <= k_http_ok_max) {
-        return exec::ErrorClass::Terminal; // the envelope decides, not the status
+        return exec::ErrorClass::Terminal; // the envelope decides
     }
     return exec::ErrorClass::Terminal;
 }

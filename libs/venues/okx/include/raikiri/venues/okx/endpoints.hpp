@@ -1,22 +1,10 @@
 #pragma once
 
-// Every address this adapter speaks to, in one place.
-//
-// A path spelled inline is a path nobody can audit: when OKX moves one, or
-// when a reader asks "what does this process actually call", the answer has to
-// be greppable rather than scattered through a thousand lines of request
-// building. It also keeps the demo split honest — a host chosen per call site
-// is a host that will one day be chosen wrongly.
-
 #include <string_view>
 
 namespace raikiri::venues::okx::ep {
 
-// --- hosts ---------------------------------------------------------------
-// One REST host for live and demo alike: OKX switches an account to demo
-// trading with an x-simulated-trading header, not with another hostname. The
-// websocket is the opposite — demo is a different host serving a simulated
-// book.
+// one rest host for live and demo, where demo is a header; the demo websocket is its own host
 inline constexpr std::string_view k_rest = "www.okx.com";
 inline constexpr std::string_view k_stream_live = "ws.okx.com";
 inline constexpr std::string_view k_stream_demo = "wspap.okx.com";
@@ -31,33 +19,24 @@ inline constexpr std::string_view k_stream_port = "8443";
     return testnet ? k_stream_demo : k_stream_live;
 }
 
-// --- sockets -------------------------------------------------------------
 inline constexpr std::string_view k_ws_public = "/ws/v5/public";
 inline constexpr std::string_view k_ws_private = "/ws/v5/private";
 
-// --- order entry ---------------------------------------------------------
 inline constexpr std::string_view k_order_create = "/api/v5/trade/order";
 inline constexpr std::string_view k_order_cancel = "/api/v5/trade/cancel-order";
 inline constexpr std::string_view k_order_amend = "/api/v5/trade/amend-order";
 inline constexpr std::string_view k_order_cancel_batch = "/api/v5/trade/cancel-batch-orders";
 
-// --- account and reconciliation -----------------------------------------
 inline constexpr std::string_view k_orders_pending = "/api/v5/trade/orders-pending";
 inline constexpr std::string_view k_fills = "/api/v5/trade/fills";
 inline constexpr std::string_view k_positions = "/api/v5/account/positions";
-// The account's own book, seven days deep. Funding and trading fees are
-// rows on it, distinguished by `type`; `bills-archive` reaches further back
-// and is not used, because a gap longer than a week is a restore, not a
-// reconciliation.
+// seven days deep; funding and fee rows are told apart by type
 inline constexpr std::string_view k_bills = "/api/v5/account/bills";
-// What the account holds, per currency. ONE call for both markets: OKX funds a
-// spot fill and a swap's margin out of the same trading account.
+// one call covers both markets: spot and swap draw on the same trading account
 inline constexpr std::string_view k_balance = "/api/v5/account/balance";
-// The account MODE, which the balance above does not state and which decides
-// whether a per-currency available figure answers anything — see map_balance.
+// the account mode decides whether a per-currency available figure means anything
 inline constexpr std::string_view k_account_config = "/api/v5/account/config";
 
-// --- reference data ------------------------------------------------------
 inline constexpr std::string_view k_instruments = "/api/v5/public/instruments";
 inline constexpr std::string_view k_mark_price = "/api/v5/public/mark-price";
 inline constexpr std::string_view k_funding_rate = "/api/v5/public/funding-rate";

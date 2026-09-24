@@ -1,10 +1,7 @@
 #pragma once
 
-// DemoMaker: the strategy `make demo` runs. Passive two-sided quoting one
-// tick inside the touch on every demo instrument, requoted on a timer via
-// cancel+replace. Not alpha — order flow: it exists to exercise the whole
-// path (risk gate -> OMS -> shm -> matching engine -> fills -> OMS) and to
-// feed the latency histograms something honest.
+// the strategy `make demo` runs: two-sided quotes one tick inside the touch, requoted by cancel
+// and replace
 
 #include <raikiri/strategy/strategy.hpp>
 

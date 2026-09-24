@@ -13,7 +13,7 @@ namespace raikiri::venues::pacifica {
 
 using WireError = wire::Error;
 
-// One row of GET /api/v1/info.
+// one row of GET /api/v1/info
 struct WireMarket {
     std::string_view symbol; // bare base: "BTC", "kBONK"; spot rows are "SOL-USDC"
     std::string_view type;   // "perpetual" or "spot"
@@ -48,8 +48,7 @@ struct LevelBuffer {
     std::array<WireLevel, k_max_levels> asks{};
 };
 
-// Every book frame is the whole ladder; `li` is the engine's event id, shared
-// by every symbol.
+// every book frame is the whole ladder; `li` is the engine's event id across symbols
 struct WireBook {
     std::string_view symbol;
     std::uint64_t li{0};
@@ -91,7 +90,7 @@ struct PrintBuffer {
 [[nodiscard]] std::expected<std::span<const WirePrint>, WireError>
 parse_trades(std::string_view frame, PrintBuffer& storage);
 
-// A row of the `prices` stream, and of GET /api/v1/info/prices.
+// a row of the `prices` stream and of GET /api/v1/info/prices
 struct WirePrice {
     std::string_view symbol;
     std::string_view funding;      // fixed for the next settlement

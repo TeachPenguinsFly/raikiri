@@ -1,7 +1,6 @@
 #pragma once
 
-// `internal`, not an anonymous namespace: a type declared in a header inside an
-// anonymous namespace is a DIFFERENT type in every file that includes it.
+// a named namespace: an anonymous one in a header is a distinct type per translation unit
 
 #include <raikiri/config/secret.hpp>
 #include <raikiri/exec/events.hpp>
@@ -29,46 +28,24 @@
 
 namespace raikiri::venues::bitfinex::internal {
 
-// Bitfinex heartbeats every subscribed channel about every 15 s, so a socket
-// carrying subscriptions is never silent. This covers the window before the
-// first one binds.
+// heartbeats arrive about every 15 s once subscribed; this covers the gap before
 constexpr std::uint64_t k_app_ping_interval_ns = 20'000'000'000ULL;
 
-// Live orders tracked for their leaves and our own id. Far above any sane
-// working set; the cap exists so a venue incident cannot turn the map into the
-// heap.
 constexpr std::size_t k_max_live_orders = 8'192;
 
-// A subscription the gateway asked for. The symbol is OWNED, not viewed: the
-// instrument table's views outlive nothing in particular, and an ack's buffer
-// is gone by the time the first data frame arrives. SymbolText is the domain's
-// own inline carrier for exactly this, so nothing here reaches the heap.
+// owned symbol: the ack's buffer is gone by the first data frame
 struct OwnedSubscription {
     ChannelKind kind{ChannelKind::Unknown};
     SymbolText symbol{};
 };
 
-// What a channel id turns out to carry.
 struct ChannelBinding {
     std::int64_t chan_id{0};
     ChannelKind kind{ChannelKind::Unknown};
     SymbolText symbol{};
 };
 
-// THE CHANNEL IDS OF ONE CONNECTION, AND OF NO OTHER.
-//
-// Bitfinex answers a subscription with a number and keys every later data
-// frame by that number alone — no symbol, no channel name — so this map is
-// what turns a frame into an instrument. The number belongs to the SERVER the
-// socket landed on rather than to the socket: MEASURED 2026-09-08 over
-// eighteen simultaneous connections, two of them shared a server and were
-// handed 215923..215925 and 215926..215940 out of one sequence, while sockets
-// on other servers drew blocks as close as 329 apart from a range spanning
-// 109k to 288k. Nothing keeps two of those counters from meeting.
-//
-// So one registry for a pool of sockets is a registry that will one day answer
-// a book frame with another instrument's name. One per connection, and the
-// handler that owns it is its only reader.
+// one registry per connection: channel ids come from the server and can collide across sockets
 struct ChannelRegistry {
     std::vector<ChannelBinding> entries;
 
@@ -94,14 +71,11 @@ struct ChannelRegistry {
         return nullptr;
     }
 
-    // Ids are reissued on every open of this socket and after the coded `info`
-    // notices, and the ids that stood before describe nothing now.
+    // ids are reissued on every open and after the coded info notices
     void clear() noexcept { entries.clear(); }
 };
 
-// State every bitfinex connection shares within one gateway process. Single
-// threaded by contract: the gateway loop is the only caller, which is why
-// nothing here synchronises.
+// single threaded: the gateway loop is the only caller
 struct VenueState {
     VenueState(exec::GatewaySink& sink_ref, const Clock& clock_ref)
         : sink{&sink_ref}, clock{&clock_ref} {}
@@ -116,17 +90,13 @@ struct VenueState {
     Protocol protocol;
     RequestBuilder builder;
 
-    // Every key asked for ACROSS the pool's sockets, which is the set that
-    // answers "have we asked for this already" and nothing else. It was an
-    // array of thirty — one socket's worth — and that one number refused 173
-    // of bitfinex's 183 spot pairs a subscription.
+    // every key asked for across the pool's sockets
     std::vector<OwnedSubscription> desired;
 
     std::unordered_map<std::uint64_t, Book> books;
 
     std::uint64_t next_app_ping_ns{0};
 
-    // Subscriptions the venue refused.
     std::uint64_t subscribe_refusals{0};
     std::int64_t last_error_code{0};
     std::uint64_t unbound_frames{0};
@@ -134,20 +104,13 @@ struct VenueState {
     config::Secret api_secret;
     std::string api_key;
 
-    // The execution client's per-tick work, registered here because
-    // ExecutionClient has no poll hook of its own.
+    // registered here because ExecutionClient has no poll hook
     std::function<void(UnixNanos)> private_poll;
 
-    // As much of a live order as Bitfinex states in any one frame. The
-    // execution rows carry no client order id at all, so a fill can only be
-    // attributed out of this. Keyed by the venue order id, the one field every
-    // private frame does carry.
+    // keyed by venue order id; executions carry no client id, so fills are attributed from this
     std::unordered_map<std::string, OrderContext> live_orders;
 
-    // Our own id against the `cid` we derived from it. The derivation is one
-    // way — 128 bits do not fit in a day-scoped integer — so this map is the
-    // only route back, and it is what lets an order Bitfinex echoes before the
-    // REST answer lands still name the ULID that placed it.
+    // our id by derived cid; the only route back from cid to ulid
     std::unordered_map<std::int64_t, ExchangeClientOrderId> by_cid;
 
     void remember(std::string_view order_id, const OrderContext& context) {
@@ -182,8 +145,7 @@ struct VenueState {
         return it == by_cid.end() ? ExchangeClientOrderId{} : it->second;
     }
 
-    // False when the key is already asked for: refcounting lives in the gateway
-    // core, and this is a set.
+    // false when already asked for; refcounting lives in the gateway core
     [[nodiscard]] bool add_subscription(ChannelKind kind, SymbolText symbol) {
         for (const auto& existing : desired) {
             if (existing.kind == kind && existing.symbol == symbol) {

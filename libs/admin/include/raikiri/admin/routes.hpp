@@ -1,12 +1,5 @@
 #pragma once
 
-// The paths of schema/admin-api.yaml, resolved against a Registry.
-//
-// Separate from Server so the routing is testable without a socket: every
-// answer below is a pure function of the registry and the request, which is
-// the property that lets a contract test assert the JSON without binding a
-// port.
-
 #include <raikiri/admin/desk.hpp>
 #include <raikiri/admin/history.hpp>
 #include <raikiri/admin/registry.hpp>
@@ -17,32 +10,8 @@
 
 namespace raikiri::admin {
 
-// Builds the handler the server calls. `now` is injected rather than read so
-// liveness is testable; it is the MONOTONIC clock, because that is what a
-// gateway stamps its heartbeat with.
-//
-// `history` may be null, and then every path that reads Postgres answers 503
-// rather than an empty page: "nobody asked the database" and "the database
-// holds nothing" are different facts, and a terminal that cannot tell them
-// apart shows a flat account to someone who is not flat.
-// `wall` is separate from `now` and both are injected: liveness is a monotonic
-// question and staleness of a venue's own report is a wall-clock one, because
-// that is the clock the report was stamped with. Reading one with the other is
-// how a fresh snapshot came out looking fifty years old.
-// `desk` may be null, and then the write paths answer 503 — "nothing is
-// attached to place orders through", which is a different fact from a refusal
-// and the one case worth retrying.
-//
-// `upstreams` maps a name to a loopback port. A request to `/v1/x/<name>/...`
-// is forwarded there with the rest of the path intact, and answered 503 when
-// the forward fails.
-//
-// ADMIND DOES NOT KNOW WHAT AN UPSTREAM SERVES, and that is deliberate rather
-// than lazy. This repository is the framework; what anybody computes on top of
-// it — which markets, which arithmetic, which thresholds — is theirs, and a
-// proxy that named the shapes it carries would publish that here. So the body
-// is forwarded verbatim, the contract describes the MECHANISM and not the
-// payload, and an upstream nobody configured is a 404 like any other path.
+// `now` is monotonic and `wall` is wall clock; a null `history` or `desk` answers 503 on its paths
+// `upstreams` maps a name to a loopback port; /v1/x/<name>/... is forwarded verbatim
 [[nodiscard]] http::Handler make_router(const Registry& registry,
                                         const History* history,
                                         ManualDesk* desk,
@@ -50,7 +19,7 @@ namespace raikiri::admin {
                                         std::function<UnixNanos()> wall,
                                         std::map<std::string, std::uint16_t> upstreams = {});
 
-// RFC 9457, rendered. The one error shape this API produces.
+// rfc 9457 problem response
 [[nodiscard]] http::Response
 problem(int status, std::string_view title, std::string_view detail = {});
 

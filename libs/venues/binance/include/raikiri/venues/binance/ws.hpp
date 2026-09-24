@@ -1,8 +1,5 @@
 #pragma once
 
-// Binance USD-M futures websocket protocol: stream naming and subscription
-// frames.
-
 #include <raikiri/exec/data_client.hpp>
 #include <raikiri/exec/instrument_table.hpp>
 
@@ -24,39 +21,16 @@ enum class WsBuildError : std::uint8_t {
 
 [[nodiscard]] std::string_view stream_host(bool testnet) noexcept;
 
-// The multiplexed endpoint that delivers `kind`. Frames arrive wrapped on
-// both; wire::unwrap peels them.
+// the multiplexed endpoint that delivers kind; frames arrive wrapped
 [[nodiscard]] std::string_view stream_path(exec::SubKind kind) noexcept;
 
-// Binance publishes depth at fixed cadences: 100, 250 and 500 ms for futures
-// diff streams.
-//
-// NOT THE FASTEST, BECAUSE THE FASTEST DOES NOT ARRIVE. A full perpetual
-// catalogue at 100 ms is 571 diff streams times ten frames a second, and every
-// socket this pool opens is read by ONE io thread — so splitting the streams
-// across more sockets moves the backlog without reducing it. The venue kills
-// whichever connection falls behind, abruptly enough that it reads as a
-// transport failure rather than a close, and every book on that socket loses
-// its delta chain at once. Measured on the deployed box: four such drops in
-// seven minutes at 100 ms, against zero on bybit, gate and okx, which publish
-// snapshots instead.
-//
-// 500 ms is a fifth of the frames for a ladder nothing here reads faster than
-// that: the recorder samples depth on a five-second grid and the board prices
-// once a second. A desk that needs 100 ms needs a machine that can drain it.
-// THE WHOLE SUFFIX, not the cadence alone. Two constants held just the "@100ms"
-// and "@1s" fragments and nothing concatenated them — suffix_for() spelled the
-// full stream names out again, so editing the cadence here changed nothing at
-// all and the tree looked configurable while it was not.
+// 500 ms: at 100 ms the venue drops sockets whose reader falls behind
 inline constexpr std::string_view k_depth_stream = "@depth@500ms";
 inline constexpr std::string_view k_mark_price_stream = "@markPrice@1s";
 inline constexpr std::string_view k_bbo_stream = "@bookTicker";
 inline constexpr std::string_view k_trade_stream = "@trade";
 
-// Builds "btcusdt@bookTicker" and friends into `out`. Returns empty for a
-// kind binance does not stream. The symbol is lowercased here: binance
-// rejects "BTCUSDT@bookTicker" with an error rather than silence, but only
-// after the round trip.
+// lowercases the symbol, which binance requires; empty for a kind binance does not stream
 [[nodiscard]] std::string_view
 stream_name(exec::SubKind kind, std::string_view exchange_symbol, std::span<char> out) noexcept;
 

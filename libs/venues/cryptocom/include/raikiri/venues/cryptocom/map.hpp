@@ -10,10 +10,10 @@
 
 namespace raikiri::venues::cryptocom {
 
-// Stated nowhere by the venue; every perpetual settles on the hour.
+// the venue states no period; perpetuals settle on the hour
 inline constexpr std::uint32_t k_funding_interval_s = 3600;
 
-// No frame carries the settlement time: the next top of the hour.
+// no frame carries the settlement time: the next top of the hour
 [[nodiscard]] std::uint64_t next_settlement_ms(std::uint64_t ms) noexcept;
 
 [[nodiscard]] UnixNanos ms_to_unix(std::uint64_t ms, UnixNanos fallback) noexcept;
@@ -24,7 +24,7 @@ map_trade(const WireTrade& wire, const InstrumentBase& base, UnixNanos ts_init);
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WireTicker& wire, const InstrumentBase& base, UnixNanos ts_init);
 
-// Each publishes the merged memo, and none publishes before a rate is known.
+// each publishes the merged memo, and none publishes before a rate is known
 [[nodiscard]] std::optional<FundingUpdate> map_funding_rate(const WireValue& wire,
                                                             const InstrumentBase& base,
                                                             FundingMemo& memo,

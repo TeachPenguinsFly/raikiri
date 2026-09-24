@@ -108,7 +108,7 @@ private:
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(status.error()))};
         }
         if (*status != k_platform_operative) {
-            // Retryable, not Terminal: maintenance ends.
+            // retryable: maintenance ends
             return std::unexpected{exec::VenueError::make(
                 exec::ErrorClass::Retryable, *status, "platform in maintenance")};
         }

@@ -10,7 +10,7 @@
 
 namespace raikiri::venues::pacifica {
 
-// Settled at the top of every UTC hour.
+// settled at the top of every utc hour
 inline constexpr std::uint32_t k_funding_interval_s = 3600;
 
 inline constexpr std::string_view k_perp_quote = "USDC";
@@ -38,10 +38,8 @@ map_funding(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init
 [[nodiscard]] std::optional<TickerStats>
 map_ticker_stats(const WirePrice& wire, const InstrumentBase& base, UnixNanos ts_init);
 
-// For 20-45 s after the hour, measured, `funding` still names the rate just
-// paid while `next_funding` already holds the one accruing; the roll is the
-// frame whose `funding` moves, or whose `next_funding` leaves a `funding` equal
-// to it. Until then the rate is `next_funding`, for at most k_roll_hold_ns.
+// after the hour `funding` lags while `next_funding` holds the accruing rate;
+// use next_funding until the roll, for at most this long
 inline constexpr std::uint64_t k_roll_hold_ns = 90'000'000'000ULL;
 
 struct FundingRoll {
@@ -54,8 +52,7 @@ struct FundingRoll {
     void apply(FundingUpdate& update) noexcept;
 };
 
-// `li` rises across every symbol, so a gap is normal; a repeat or a step back
-// is a frame older than one already published.
+// `li` rises across all symbols, so gaps are normal; a repeat or step back is stale
 struct LastId {
     std::uint64_t last{0};
 

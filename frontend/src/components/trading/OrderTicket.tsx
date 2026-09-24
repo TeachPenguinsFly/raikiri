@@ -12,16 +12,6 @@ const price = (v: number) => (v >= 1000 ? v.toFixed(1) : v >= 1 ? v.toFixed(3) :
 const grouped = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** Where an order is written.
- *
- *  Docked beside the board rather than behind a button: a ticket you have to
- *  open is a ticket you fill in after the price you wanted has gone.
- *
- *  The side is chosen once, at the top, and after that the panel does not
- *  change colour. Green belongs to the selected Buy and to the Buy action, and
- *  to nothing else — a panel that turns green makes the direction ambient
- *  instead of deliberate, which is the wrong property for the one control on
- *  the screen that spends money. */
 export function OrderTicket({
   listings,
   venue,
@@ -37,16 +27,11 @@ export function OrderTicket({
   const [sent, setSent] = useState<string | null>(null)
   const [inFlight, setInFlight] = useState(false)
 
-  // The venue's own free figure, for the sizing buttons. Refreshed on the
-  // gateway's own cadence rather than per keystroke.
   const balances = useQuery(() => api.balances(), [], 10_000)
 
   const listing = listings.find((l) => l.venue === venue) ?? null
 
-  // The limit price starts at the bid and is moved by pressing a touch, not by
-  // a side toggle. Prefilling from the mid instead would put every order on the
-  // wrong side of the spread by half of it, and there is no side to prefill
-  // from until a person presses Buy or Sell.
+  // the limit price starts at the bid and moves when a touch is pressed
   useEffect(() => {
     if (listing?.bid != null) setLimit(price(listing.bid))
   }, [listing?.venue, listing?.exchange_symbol, listing?.bid])
@@ -63,16 +48,13 @@ export function OrderTicket({
   }
 
   const base = listing.exchange_symbol.replace(/USDT.*|_.*|-.*/, '')
-  // A market order has no price of its own; the ask is what it will cross.
-  // Null until the venue has quoted, which is also when the ticket is armed.
+  // a market order works at the ask; null until the venue quotes
   const working = kind === 'market' ? listing.ask : Number(limit)
   const notional = working === null ? null : working * Number(qty)
   const armed =
     !inFlight && Number(qty) > 0 && (kind === 'market' ? listing.ask !== null : Number(limit) > 0)
 
-  // Sizing buttons spend the venue's own free figure. NULL IS NOT FLAT: where
-  // a venue publishes no per-asset available balance the row is refused rather
-  // than sized off a total that is already committed as margin.
+  // a null free balance refuses sizing rather than using the committed total
   const free =
     balances.state === 'ready'
       ? (() => {
@@ -83,14 +65,7 @@ export function OrderTicket({
         })()
       : null
 
-  /** Hands the order to the desk.
-   *
-   *  A 202 IS NOT A FILL and not even a venue acceptance: the risk gate sits
-   *  past this call and refuses on the order's own events. So the line below
-   *  says "queued" and names the id, and nothing here claims more than that.
-   *
-   *  The idempotency key is minted once per attempt. A retry of a timed-out
-   *  send must carry the SAME key or it becomes a second order. */
+  /** 202 means queued; one idempotency key per attempt, reused on retry */
   const submit = async (side: 'buy' | 'sell') => {
     if (!armed) return
     setInFlight(true)
@@ -103,8 +78,6 @@ export function OrderTicket({
           side,
           order_type: kind,
           tif: kind === 'market' ? 'ioc' : 'gtc',
-          // A market order carrying a price is an instruction with two
-          // meanings; the contract refuses one.
           ...(kind === 'limit' ? { price: limit } : {}),
           qty,
           post_only: false,
@@ -130,9 +103,6 @@ export function OrderTicket({
       <div className="flex flex-col gap-2 px-3 pb-3">
         <VenuePicker listings={listings} chosen={listing} onChoose={onVenue} />
 
-        {/* The two touches, as buttons. Pressing one puts it in the price
-            field — which is the only thing a trader wants from a quoted price
-            while a ticket is open. */}
         <div className="flex items-stretch gap-1">
           <button
             type="button"
@@ -211,9 +181,6 @@ export function OrderTicket({
           </button>
         </div>
 
-        {/* Two blocks, not a toggle and a button. The side is the press, so
-            there is no state to set and then confirm — and each block states
-            what it would do, which is the sentence a ticket exists to make. */}
         <div className="grid grid-cols-2 gap-1.5 pt-0.5">
           {(['buy', 'sell'] as const).map((s) => (
             <button
@@ -247,12 +214,6 @@ export function OrderTicket({
   )
 }
 
-/** The exchange the order goes to.
- *
- *  A native select cannot draw the venue's own mark, and the mark is how every
- *  other row in the terminal is identified — so this is a button and a panel.
- *  Each row carries both touches, because "which venue" and "at what price"
- *  are the same question. */
 function VenuePicker({
   listings,
   chosen,
@@ -335,11 +296,6 @@ function VenuePicker({
   )
 }
 
-/** Label above, value and unit inside.
- *
- *  The label sits outside the box rather than inside it: a label competing for
- *  the same 36px as the number you are typing is a label you read every time
- *  and a number you read around. */
 function Field({
   label,
   unit,

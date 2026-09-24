@@ -44,7 +44,7 @@ TrustStore resolve_trust_store() {
         return store;
     }
 
-    // 3. Where systems really keep bundles.
+    // 3. well-known bundle locations
     static constexpr std::array k_candidates{
         "/etc/ssl/cert.pem",                          // macOS
         "/etc/ssl/certs/ca-certificates.crt",         // Debian, Ubuntu, Alpine

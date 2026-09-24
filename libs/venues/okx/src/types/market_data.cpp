@@ -107,15 +107,12 @@ std::expected<WireTicker, WireError> parse_ticker(std::string_view frame) {
                 const auto inst_id = wire::req_str(obj, "instId");
                 const auto inst_type = wire::req_str(obj, "instType");
                 if (!inst_id.has_value() || !inst_type.has_value()) {
-                    // Without instType the two volume columns cannot be told
-                    // apart, and guessing puts a contract count on the board.
+                    // without instType the two volume columns cannot be told apart
                     return std::unexpected(WireError::MissingField);
                 }
                 out.inst_id = *inst_id;
                 out.inst_type = *inst_type;
-                // OPTIONAL: an instrument that has not traded in the window
-                // states no volume, and refusing the frame over it would cost
-                // every other fact on it.
+                // optional: an untraded instrument states no volume
                 const auto vol = wire::opt_str(obj, "vol24h");
                 const auto vol_ccy = wire::opt_str(obj, "volCcy24h");
                 const auto last = wire::opt_str(obj, "last");

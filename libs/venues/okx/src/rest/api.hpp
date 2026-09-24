@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what the account is long, what it was charged. None of them belongs to the
-// order path — they run on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/okx/account.hpp>
 #include <raikiri/venues/okx/catalogue.hpp>
@@ -42,8 +36,7 @@ public:
 
     void stop() { rest_.stop(); }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // keeps pooled rest connections alive between orders
     void keepalive(UnixNanos now) noexcept { rest_.keepalive(now); }
 
     [[nodiscard]] RequestBuilder& builder() noexcept { return builder_; }
@@ -52,9 +45,7 @@ public:
         return rest_.send(request, std::move(on_done));
     }
 
-    // Which markets this adapter will place orders in at all. Exhaustive so
-    // that a new MarketType has to be answered here rather than inheriting
-    // the swap path by accident.
+    // exhaustive so a new MarketType cannot inherit the swap path
     [[nodiscard]] static std::optional<exec::VenueError>
     order_entry_market(MarketType market) noexcept {
         switch (market) {
@@ -126,9 +117,7 @@ public:
 
     std::expected<exec::OrderStatusReport, exec::VenueError>
     query_order(const ExchangeClientOrderId& id, MarketType market) {
-        // GET /trade/order needs an instId, and a client order id alone does
-        // not name one. Scanning the pending list is the only lookup that
-        // works from what the caller has.
+        // GET /trade/order needs an instId, so the pending list is scanned
         const auto reports = open_order_reports(market);
         if (!reports.has_value()) {
             return std::unexpected{reports.error()};
@@ -181,17 +170,14 @@ public:
         auto& storage = *storage_owner;
         const auto bills = parse_bills(*body, storage);
         if (!bills.has_value()) {
-            // A book we cannot read is NOT an empty one. Saying "no charges"
-            // here books zero funding against a position that paid some.
+            // an unreadable bill book is not an empty one
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
         }
         std::vector<LedgerEntry> charges;
         charges.reserve(bills->size());
         for (const auto& wire : *bills) {
-            // `8` is funding, `2` a trade. Everything else on this book —
-            // transfers, interest, conversions — is not trading money, and a
-            // row that names no instrument cannot be attributed at all.
+            // 8 is funding, 2 a trade; other rows are not trading money
             LedgerKind kind{};
             if (wire.type == "8") {
                 kind = LedgerKind::Funding;
@@ -204,8 +190,7 @@ public:
             if (instrument == nullptr) {
                 continue;
             }
-            // THE COLUMN DEPENDS ON THE ROW: funding states its money in
-            // balChg and leaves fee at zero, a trade the reverse.
+            // funding states its money in balChg, a trade in fee
             const auto text = kind == LedgerKind::Funding ? wire.bal_chg : wire.fee;
             const auto amount = parse_decimal_e9(text);
             if (!amount.has_value() || amount->raw == 0) {
@@ -213,13 +198,11 @@ public:
             }
             LedgerEntry charge{};
             charge.instrument = base_of(*instrument).id;
-            // Both columns are already signed the way the account moved, so
-            // neither is flipped — unlike bybit, which states a fee as a cost.
+            // both columns are already signed the way the account moved
             charge.amount = *amount;
             charge.kind = kind;
             charge.settled_at = UnixNanos{wire.ts_ms * 1'000'000ULL};
-            // A fee names the trade it was charged on, which is what the
-            // comparison keys on; the book's own row id is the fallback.
+            // a fee keys on its trade id, else on the bill id
             const auto reference =
                 kind == LedgerKind::Fee && !wire.trade_id.empty() ? wire.trade_id : wire.bill_id;
             if (auto id = ExecId::from(reference); id.has_value()) {
@@ -238,10 +221,7 @@ public:
         case MarketType::Future:
             break;
         case MarketType::Spot:
-            // GET /account/positions does not accept instType SPOT: OKX holds
-            // spot inventory as a per-currency balance, and one BTC balance
-            // backs BTC-USDT, BTC-USDC and BTC-USD alike. Answering "flat"
-            // would tell the reconciler we hold nothing.
+            // positions refuses instType SPOT; spot inventory is a per-currency balance
             return std::unexpected{
                 exec::not_implemented("okx spot positions: the venue reports balances, not "
                                       "positions")};
@@ -270,13 +250,9 @@ public:
     }
 
     std::expected<std::vector<BalanceReport>, exec::VenueError> balance_reports(MarketType market) {
-        // ONE TRADING ACCOUNT behind both markets: OKX funds a spot fill and a
-        // swap's margin out of the same currencies, so the answer does not
-        // vary by market and narrowing it to one would be an invention.
+        // one trading account backs both markets
         (void)market;
-        // ASKED FIRST, and not fatal when it fails: the mode is what makes a
-        // per-currency available figure readable, and a balance set without it
-        // is still worth publishing with that one field undef.
+        // asked first; a failed mode read leaves available undef
         auto mode = AccountMode::Unknown;
         if (const auto config = pull(builder_.account_config(state_->venue_now()));
             config.has_value()) {
@@ -292,8 +268,7 @@ public:
         auto& storage = *storage_owner;
         const auto rows = parse_balances(*body, storage);
         if (!rows.has_value()) {
-            // An unreadable wallet is refused rather than reported as an empty
-            // vector, which reads as an account holding nothing.
+            // an unreadable wallet is refused rather than reported empty
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(rows.error()))};
         }

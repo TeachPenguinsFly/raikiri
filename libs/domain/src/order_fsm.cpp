@@ -82,9 +82,6 @@ std::string_view to_string(OrderEventType type) noexcept {
     return "unknown";
 }
 
-// The single arbiter of order status. Every arm that exists encodes something
-// a venue actually does; every pair that is absent is a protocol violation we
-// refuse to absorb silently.
 std::expected<OrderStatus, TransitionError>
 transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus resume) noexcept {
     using S = OrderStatus;
@@ -120,7 +117,7 @@ transition(OrderStatus status, OrderEventType event, bool full_fill, OrderStatus
         case E::Rejected:
             return S::Rejected; // includes locally-synthesized REST-error rejects
         case E::Filled:
-            // User-stream fills regularly beat the REST ack on bybit/binance.
+            // user-stream fills can beat the rest ack
             return full_fill ? S::Filled : S::PartiallyFilled;
         case E::Canceled:
             return S::Canceled; // cancel raced the ack and won

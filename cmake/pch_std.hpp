@@ -1,8 +1,5 @@
 #pragma once
 
-// The standard-library part of every precompiled header. See cmake/Pch.cmake
-// for why these and not others.
-
 #include <algorithm>
 #include <array>
 #include <atomic>

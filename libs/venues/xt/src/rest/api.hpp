@@ -1,11 +1,5 @@
 #pragma once
 
-// Every signed call this venue answers, over both of its deployments.
-//
-// The reads here are what a reconciliation asks: what is open, what filled,
-// what is held, what the account is long. None of them belongs to the order
-// path — they run on a poller's schedule.
-
 #include <raikiri/net/rest_client.hpp>
 #include <raikiri/venues/xt/account.hpp>
 #include <raikiri/venues/xt/endpoints.hpp>
@@ -25,12 +19,7 @@
 
 namespace raikiri::venues::xt::internal {
 
-// Every market this adapter can act on, named exhaustively so Option is a case
-// the compiler forces a decision about rather than something a default arm
-// swallows. Answered BEFORE the instrument table is read: the table compares
-// the WHOLE id, so an id for a market that was never loaded resolves to nothing
-// and would otherwise be reported as an unknown instrument — blaming a stale
-// catalogue for a market this adapter simply does not serve.
+// exhaustive so Option needs a decision; checked before the table so an unserved market is not an unknown instrument
 std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     switch (market) {
     case MarketType::Spot:
@@ -44,10 +33,7 @@ std::optional<exec::VenueError> refuse_market(MarketType market) noexcept {
     return exec::not_implemented("xt: unknown market");
 }
 
-// A refusal to build is terminal by construction: the same command built again
-// produces the same refusal. Missing credentials are the one exception worth
-// separating — that sends an operator to the config rather than to XT's status
-// page.
+// build refusals are terminal, except missing credentials
 exec::VenueError build_failure(BuildError err) noexcept {
     return exec::VenueError::make(err == BuildError::NotSigned ? exec::ErrorClass::AuthFailure
                                                                : exec::ErrorClass::Terminal,
@@ -55,10 +41,7 @@ exec::VenueError build_failure(BuildError err) noexcept {
                                   to_string(err));
 }
 
-// The two trees report a refusal in disjoint vocabularies and disjoint
-// envelopes, and spot does it at HTTP 200 — so the status is never the verdict
-// there, and reading one tree's body with the other's parser loses the code
-// that decides retry from halt.
+// the trees use disjoint envelopes and codes, and spot refuses at http 200
 exec::VenueError rest_failure(std::string_view body, MarketType market) {
     if (market == MarketType::Spot) {
         const auto envelope = parse_spot_envelope(body);
@@ -76,9 +59,7 @@ exec::VenueError rest_failure(std::string_view body, MarketType market) {
         classify(envelope->code), numeric_code(envelope->code), envelope->msg);
 }
 
-// True when the body says the call succeeded. Spot answers HTTP 200 to a
-// refusal, so `rc` is the only thing that distinguishes them; futures answers
-// a non-2xx status AND returnCode 1, and either alone is enough to fail.
+// spot refuses at http 200, so rc decides; futures fails on non-2xx or returnCode 1
 bool envelope_ok(std::string_view body, MarketType market) {
     if (market == MarketType::Spot) {
         const auto envelope = parse_spot_envelope(body);
@@ -98,8 +79,7 @@ public:
           builder_{state.signer}, spot_{market == MarketType::Spot},
           perp_{market == MarketType::Perp} {}
 
-    // XT runs two deployments with two clocks; each offset is measured against
-    // the host that will check the signature stamped from it.
+    // each tree's clock offset is measured against its own host
     void start() {
         rest_.start();
         if (perp_) {
@@ -116,15 +96,12 @@ public:
         spot_rest_.stop();
     }
 
-    // A venue reaps a socket it has not heard from without saying so, and
-    // finding out on an order costs a connect plus TLS at the worst moment.
+    // keeps pooled connections alive so an order does not pay a reconnect
     void keepalive(UnixNanos now) noexcept {
         rest_.keepalive(now);
         spot_rest_.keepalive(now);
     }
 
-    // The order path builds its own requests and is answered asynchronously;
-    // everything else here is a synchronous read.
     [[nodiscard]] SignedRequestBuilder& builder() noexcept { return builder_; }
 
     [[nodiscard]] bool
@@ -142,8 +119,6 @@ public:
         if (response->status < 200 || response->status >= 300) {
             return std::unexpected{rest_failure(response->body, market)};
         }
-        // Spot answers a refusal at HTTP 200, so the status alone is never the
-        // verdict on that tree.
         if (!envelope_ok(response->body, market)) {
             return std::unexpected{rest_failure(response->body, market)};
         }
@@ -206,9 +181,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market != MarketType::Spot) {
-            // /future/trade/v1/order/detail is keyed by the VENUE order id and
-            // XT publishes no by-client-id read, so the open-order sweep is
-            // what can answer this question at all.
+            // order/detail is keyed by venue order id only, so a client id is answered from the open-order sweep
             return from_open_orders(id, market);
         }
         const auto request = builder_.query_order(id, market, state_->venue_now(market));
@@ -299,10 +272,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // The spot wallet answers from the other host, under the other
-            // envelope, with none of the field names below. Refused rather than
-            // answered with the futures wallet, which would report the wrong
-            // money under a spot label.
+            // the spot wallet is on the other host and envelope
             return std::unexpected{exec::not_implemented("xt spot balance pull")};
         }
         const auto request = builder_.futures_balances(state_->venue_now(market));
@@ -323,8 +293,6 @@ public:
         std::vector<BalanceReport> reports;
         reports.reserve(balances->size());
         for (const auto& wire : *balances) {
-            // A row XT named no coin for is dropped rather than emitted under an
-            // empty asset code.
             if (auto report = map_futures_balance(wire); report.has_value()) {
                 reports.push_back(*report);
             }
@@ -338,9 +306,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot pair pays no funding and this ledger is the FUTURES
-            // wallet's. Answering with it would book a perpetual's charges
-            // against a spot gateway.
+            // spot pays no funding and this ledger is the futures wallet's
             return std::unexpected{exec::not_implemented("xt spot funding charges")};
         }
         const auto request = builder_.bills(since, state_->venue_now(market));
@@ -355,8 +321,7 @@ public:
         auto& storage = *storage_owner;
         const auto bills = parse_bills(*body, storage);
         if (!bills.has_value()) {
-            // A ledger we cannot read is NOT an empty one. Saying "no charges"
-            // here books zero funding against a position that paid some.
+            // an unreadable ledger is not an empty one
             return std::unexpected{
                 exec::VenueError::make(exec::ErrorClass::Terminal, 0, to_string(bills.error()))};
         }
@@ -378,8 +343,7 @@ public:
             return std::unexpected{*refusal};
         }
         if (market == MarketType::Spot) {
-            // A spot balance is not a position. Answering "flat" would be a
-            // claim about a concept this API does not have.
+            // a spot balance is not a position
             return std::unexpected{exec::not_implemented("xt spot position pull")};
         }
         const auto request = builder_.positions(market, state_->venue_now(market));
